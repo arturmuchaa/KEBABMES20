@@ -5,17 +5,15 @@ systemem), resztę na WZ. Cały silnik siedzi w serwisach — tu jest wyłączni
 warstwa HTTP: podgląd i zapis podziału na pozycjach zamówienia oraz JEDEN
 przycisk, którym biuro wystawia komplet papierów przed odjazdem auta.
 
-KOLEJNOŚĆ W `wystaw_komplet` NIE JEST KOSMETYCZNA: wynika z dwóch realnych
-zależności — WM przed WZ dla klienta i HDI przed CMR — opisanych przy tej
-funkcji.
+Warstwa HTTP i tylko ona: kolejność wystawiania dokumentów, walidacja
+wstępna i idempotencja mieszkają w `split_documents_service.wystaw_komplet`.
 """
-from typing import Any, Dict, List, Optional
+from typing import Dict, Optional
 
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.models.cmr import CmrForm
-from app.services import cmr_service, hdi_service
 from app.services import order_split_service as svc
 from app.services import split_documents_service as dokumenty
 
@@ -69,38 +67,10 @@ def wystaw_komplet(order_id: str, body: KompletDokumentow = KompletDokumentow())
     """Komplet papierów przed odjazdem auta: WM, WZ dla klienta, HDI (na
     całość zawsze, do faktury na życzenie) i dwa CMR-y.
 
-    Każdy krok jest osobno idempotentny, więc powtórne kliknięcie oddaje TE
-    SAME dokumenty zamiast wystawiać drugi komplet.
-
-    KOLEJNOŚĆ WYNIKA Z DWÓCH ZALEŻNOŚCI, nie z upodobania:
-
-    * WM przed WZ dla klienta — WM jako jedyny zdejmuje stan magazynu, a
-      `wystaw_wz_klienta` tego pilnuje i bez niego odmawia. Zamówienie z samym
-      WZ klienta przeszłoby obie bramki załadunku i stan zszedłby drugi raz.
-    * HDI przed CMR — `build_cmr` wpisuje w pole „załączniki" numer HDI
-      SWOJEGO wariantu. Odwrotna kolejność dawała listy przewozowe z PUSTYM
-      załącznikiem, a gdy `generate_hdi(scope='fv')` odmawiał (np. „podział
-      nie przewiduje ani jednej sztuki na fakturę"), zostawały nadane numery
-      CMR na dokumentach, które nigdy nie były prawdziwe. Tak ustawione:
-      ta sama awaria nie zdąży spalić numeru CMR — biuro poprawia podział
-      i klika ponownie, dostając komplet poprawny za pierwszym razem.
-      `build_hdi` nie czyta `cmr_documents` w żadnym miejscu, więc odwrotnej
-      zależności nie ma.
-    """
-    forma_cmr = body.cmr.model_dump()
-    wm = dokumenty.wystaw_wz_wewnetrzny(order_id)
-    wz = dokumenty.wystaw_wz_klienta(order_id)
-    hdi_calosc = hdi_service.generate_hdi(order_id)
-    hdi_fv = hdi_service.generate_hdi(
-        order_id, scope=hdi_service.ZAKRES_FV) if body.hdi_fv else None
-    # Oba listy z JEDNEGO formularza: ten sam kierowca i to samo auto,
-    # różni je wyłącznie zakres.
-    cmr: List[Dict[str, Any]] = [
-        cmr_service.generate_cmr(order_id, forma_cmr, scope=cmr_service.ZAKRES_CALOSC),
-        cmr_service.generate_cmr(order_id, forma_cmr, scope=cmr_service.ZAKRES_FV),
-    ]
-    return {"order_id": order_id, "wm": wm, "wz": wz, "cmr": cmr,
-            "hdi_calosc": hdi_calosc, "hdi_fv": hdi_fv}
+    Walidacja wstępna, kolejność i idempotencja siedzą w serwisie — ta
+    kolejność jest nośna dla poprawności stanu magazynu i dla treści papierów,
+    więc nie ma prawa mieszkać w warstwie HTTP."""
+    return dokumenty.wystaw_komplet(order_id, body.cmr.model_dump(), body.hdi_fv)
 
 
 @router.delete("/{order_id}/split/documents")

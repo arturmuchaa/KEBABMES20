@@ -16,6 +16,7 @@ from app.routes import cmr as cmr_route
 from app.routes import hdi as hdi_route
 from app.routes import order_split as route
 from app.services import cmr_service, hdi_service, loading_service
+from app.services import split_documents_service as dokumenty
 from app.utils.zakres import sprawdz_zakres
 from tests.conftest_split import _przygotuj_bez_podzialu, _przygotuj_z_podzialem
 
@@ -127,25 +128,25 @@ def test_komplet_wpisuje_numery_HDI_w_zalaczniki_obu_CMR(db):
     assert all(zalaczniki)
 
 
-def test_odmowa_HDI_do_faktury_nie_pali_numerow_CMR(db):
+def test_awaria_HDI_nie_pali_numerow_CMR(db, monkeypatch):
     """Powód, dla którego HDI idzie PRZED listami przewozowymi.
 
-    Gdy podział nie przewiduje ani jednej sztuki na fakturę, `generate_hdi`
-    wariantu `fv` odmawia. Przy CMR-ach wystawianych wcześniej biuro zostawało
+    Gdy HDI odmawia, przy CMR-ach wystawianych wcześniej biuro zostawało
     z dwoma listami, które MAJĄ nadany numer i są nieprawdziwe — dokument
-    istnieje, choć nie powinien. Tak ustawione: żaden numer CMR nie schodzi,
-    biuro poprawia podział i wystawia komplet jeszcze raz.
+    istnieje, choć nie powinien. Tak ustawione: żaden numer CMR nie schodzi.
+
+    Awarię HDI wymuszamy łatką, bo wejścia, które ją realnie wywoływały
+    (podział bez sztuk na fakturę), odcina teraz walidacja wstępna — i tak
+    ma być, ale kolejność musi zostać przetestowana niezależnie od niej.
     """
-    _przygotuj_z_podzialem(cel_kg=0.0)            # całość na WZ, nic na fakturę
-    with pytest.raises(HTTPException) as exc:
+    _przygotuj_z_podzialem(cel_kg=300.0)
+
+    def _odmowa(order_id, scope=hdi_service.ZAKRES_CALOSC):
+        raise HTTPException(400, "HDI nie do wystawienia")
+
+    monkeypatch.setattr(dokumenty.hdi_service, "generate_hdi", _odmowa)
+    with pytest.raises(HTTPException):
         route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
-    assert exc.value.status_code == 400
-    assert "fakturę" in exc.value.detail
-    # Doszliśmy DOKŁADNIE do wariantu `fv` HDI — inaczej test byłby zielony
-    # z byle powodu (np. gdyby poległo już wystawienie WZ) i o kolejności
-    # nie mówiłby nic.
-    assert len(query_all("SELECT id FROM wz_documents")) == 2
-    assert len(query_all("SELECT id FROM hdi_documents")) == 1
     assert query_all("SELECT id FROM cmr_documents") == []
 
 
@@ -174,12 +175,70 @@ def test_dwuklik_nie_pali_drugiego_numeru(db):
     assert len(query_all("SELECT id FROM hdi_documents")) == 2
 
 
-def test_komplet_bez_podzialu_jest_odrzucony(db):
-    """Zamówienie bez podziału zachowuje się jak dziś — komplet nie powstaje."""
+# ── Odmowa kompletu MUSI być bezkosztowna ─────────────────────────
+#
+# `wystaw_wz_wewnetrzny` nie zna pojęcia podziału (nie czyta `qty_invoice`),
+# więc bez walidacji WSTĘPNEJ komplet zdejmował stan magazynu, a dopiero
+# potem odmawiał — biuro widziało błąd i zakładało, że nic się nie stało.
+# Pogorszenie: zostawiony WM ma `split_scope='calosc'`, więc od tej chwili
+# `wz_service` blokował zwykłe „Wystaw WZ" na zamówieniu, które podziału
+# nigdy nie miało. Sam status 400 jest w tych testach ASERCJĄ NAJSŁABSZĄ —
+# nośne jest to, że po odmowie nie ma ani dokumentu, ani ruchu magazynowego.
+
+
+def _nic_nie_powstalo() -> None:
+    assert query_all("SELECT id FROM wz_documents") == [], "powstał dokument WZ/WM"
+    assert query_all("SELECT id FROM hdi_documents") == [], "powstało HDI"
+    assert query_all("SELECT id FROM cmr_documents") == [], "powstał CMR"
+    assert query_all("SELECT id FROM stock_movements") == [], "ruszył się magazyn"
+    stan = query_all("SELECT qty_available, qty_shipped FROM finished_goods ORDER BY id")
+    assert [(int(r["qty_available"]), int(r["qty_shipped"])) for r in stan] == [(30, 0), (2, 0)]
+
+
+def test_komplet_bez_podzialu_nie_rusza_magazynu(db):
+    """(a) Zamówienie bez podziału — `qty_invoice` puste."""
     _przygotuj_bez_podzialu()
     with pytest.raises(HTTPException) as exc:
         route.wystaw_komplet("o1", route.KompletDokumentow())
     assert exc.value.status_code == 400
+    assert "podziału" in exc.value.detail
+    _nic_nie_powstalo()
+
+
+def test_komplet_bez_sztuk_na_fakture_nie_rusza_magazynu(db):
+    """(b) Podział na 0 kg — bez tej bramki WM, WZ i HDI na całość powstawały,
+    a komplet wywracał się dopiero na „Brak towaru do umieszczenia na CMR",
+    czyli PO spaleniu numeru HDI."""
+    _przygotuj_z_podzialem(cel_kg=0.0)
+    with pytest.raises(HTTPException) as exc:
+        route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=False))
+    assert exc.value.status_code == 400
+    assert "fakturę" in exc.value.detail
+    _nic_nie_powstalo()
+
+
+def test_komplet_z_caloscia_na_fakture_nie_rusza_magazynu(db):
+    """(c) Cały towar na fakturę — `zapisz_podzial` na to pozwala, a WZ dla
+    klienta nie ma wtedy ani jednej pozycji."""
+    _przygotuj_z_podzialem(cel_kg=800.0)
+    with pytest.raises(HTTPException) as exc:
+        route.wystaw_komplet("o1", route.KompletDokumentow())
+    assert exc.value.status_code == 400
+    assert "WZ" in exc.value.detail
+    _nic_nie_powstalo()
+
+
+def test_trasa_kompletu_tylko_przekazuje_do_serwisu(monkeypatch):
+    """Orkiestracja kompletu (kolejność nośna dla stanu magazynu i dla treści
+    papierów) mieszka w serwisie — trasa ma zostać cienka."""
+    seen = {}
+    monkeypatch.setattr(
+        route.dokumenty, "wystaw_komplet",
+        lambda oid, forma_cmr, hdi_fv: seen.update(
+            oid=oid, plate=forma_cmr["plate"], hdi_fv=hdi_fv) or {})
+    route.wystaw_komplet(
+        "o1", route.KompletDokumentow(hdi_fv=True, cmr=CmrForm(plate="KR 12345")))
+    assert seen == {"oid": "o1", "plate": "KR 12345", "hdi_fv": True}
 
 
 # ── Anulowanie kompletu ───────────────────────────────────────────
@@ -194,6 +253,50 @@ def test_anulowanie_kompletu_zwraca_towar(db):
     assert len(out["documents"]) == 2
     assert int(query_one("SELECT qty_available FROM finished_goods "
                          "WHERE id='f1'")["qty_available"]) == 30
+
+
+def test_zapis_podzialu_odmawia_po_wystawieniu_dokumentow(db):
+    """Zmiana podziału pod wystawionymi papierami rozjeżdża je MIĘDZY SOBĄ:
+    `wystaw_wz_klienta` jest idempotentny i oddaje STARY dokument, a kolejny
+    komplet odświeża CMR fv i HDI fv do NOWEGO podziału. Wydrukowany WZ dla
+    klienta mówiłby wtedy co innego niż papiery pod fakturę — dla jednej
+    wysyłki, bez ostrzeżenia."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    route.wystaw_komplet("o1", route.KompletDokumentow())
+    with pytest.raises(HTTPException) as exc:
+        route.zapisz_podzial("o1", route.ZapisPodzialu(cel_kg=500))
+    assert exc.value.status_code == 400
+    assert "anuluj" in exc.value.detail.lower()
+    # Podział ma zostać DOKŁADNIE taki, jaki opisują wystawione dokumenty.
+    assert query_one("SELECT qty_invoice FROM client_order_lines "
+                     "WHERE id='o1-l1'")["qty_invoice"] == 11
+
+
+def test_czyszczenie_podzialu_odmawia_po_wystawieniu_dokumentow(db):
+    """`DELETE /split` kasowałby `qty_invoice` i `invoice_kg_target` POD
+    wystawionymi dokumentami — warianty `fv` zaczynają wtedy odmawiać, a
+    papiery zostają bez pokrycia w danych zamówienia."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    route.wystaw_komplet("o1", route.KompletDokumentow())
+    with pytest.raises(HTTPException) as exc:
+        route.wyczysc_podzial("o1")
+    assert exc.value.status_code == 400
+    assert "anuluj" in exc.value.detail.lower()
+    assert query_one("SELECT qty_invoice FROM client_order_lines "
+                     "WHERE id='o1-l1'")["qty_invoice"] == 11
+
+
+def test_po_anulowaniu_dokumentow_podzial_znowu_wolno_zmienic(db):
+    """Odmowa musi być ODWRACALNA — inaczej pomyłka biura zamienia się
+    w kolejny ślepy zaułek."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    route.wystaw_komplet("o1", route.KompletDokumentow())
+    route.anuluj_komplet("o1")
+    out = route.zapisz_podzial("o1", route.ZapisPodzialu(cel_kg=500))
+    assert out["kg_fv"] == 500.0
+    route.wyczysc_podzial("o1")
+    assert query_one("SELECT qty_invoice FROM client_order_lines "
+                     "WHERE id='o1-l1'")["qty_invoice"] is None
 
 
 def test_anulowanie_bez_dokumentow_mowi_wprost(db):
@@ -279,6 +382,20 @@ def test_zaladunek_stempluje_auto_na_OBU_hdi(db):
     _przygotuj_z_podzialem(cel_kg=300.0)
     route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
     loading_service._ensure_hdi("o1", "KR 12345")
+    numery = [r["header"].get("reg_number") for r in query_all(
+        "SELECT header FROM hdi_documents WHERE order_id='o1' ORDER BY seq")]
+    assert numery == ["KR 12345", "KR 12345"]
+
+
+def test_ponowny_komplet_nie_kasuje_numeru_auta_z_HDI(db):
+    """`generate_hdi` przy odświeżaniu nadpisuje CAŁY `header`, a `build_hdi`
+    wstawia tam puste `reg_number` — ponowne kliknięcie „Wystaw komplet" po
+    załadunku kasowało stempel z OBU dokumentów naraz. Numer auta wpisuje
+    załadunek i tylko on go zna; przeliczenie treści nie ma prawa go zgubić."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
+    loading_service._ensure_hdi("o1", "KR 12345")
+    route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
     numery = [r["header"].get("reg_number") for r in query_all(
         "SELECT header FROM hdi_documents WHERE order_id='o1' ORDER BY seq")]
     assert numery == ["KR 12345", "KR 12345"]

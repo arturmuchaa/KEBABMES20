@@ -9,11 +9,43 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.db import cx_execute, query_all, transaction
+from app.db import cx_execute, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.services.order_split import podziel_pozycje
+from app.services.wz_service import KOMUNIKAT_ANULUJ_PODZIAL
 
 logger = get_logger(__name__)
+
+#: Podział wolno zmieniać TYLKO dopóki nie ma na nim papierów.
+_KOMUNIKAT_PO_WYSTAWIENIU = (
+    "Zamówienie ma już wystawione dokumenty z podziału ({numer}) — zmiana podziału "
+    "rozjechałaby je między sobą: WZ dla klienta jest już wystawiony i zostaje taki, "
+    "jaki jest, a papiery pod fakturę przeliczyłyby się na nowo. Żeby zmienić podział, "
+    + KOMUNIKAT_ANULUJ_PODZIAL + ".")
+
+
+def _odmow_gdy_dokumenty_wystawione(order_id: str) -> None:
+    """Guard na `zapisz_podzial` i `wyczysc_podzial`.
+
+    Po wystawieniu kompletu zmiana podziału rozjeżdża dokumenty MIĘDZY SOBĄ:
+    `wystaw_wz_klienta` jest idempotentny i oddaje STARY dokument bez
+    odświeżenia, a kolejne kliknięcie kompletu ODŚWIEŻA CMR i HDI wariantu
+    `fv` do nowego podziału. Wydrukowany WZ dla klienta mówiłby wtedy co
+    innego niż papiery pod fakturę — dla jednej wysyłki i bez ostrzeżenia.
+
+    `wyczysc_podzial` jest jeszcze gorszy: kasuje `qty_invoice` oraz
+    `invoice_kg_target` POD wystawionymi dokumentami, po czym warianty `fv`
+    zaczynają odmawiać, a papiery zostają bez pokrycia w danych zamówienia.
+
+    Odmowa jest w pełni odwracalna — `anuluj_dokumenty_podzialu` zwraca towar
+    na stan i odblokowuje podział (review Task 7, runda 1, finding 3).
+    """
+    dokument = query_one(
+        "SELECT number FROM wz_documents WHERE source_type='order' AND source_id=%s "
+        "AND split_scope IS NOT NULL AND COALESCE(status,'')<>'anulowany' "
+        "ORDER BY created_at LIMIT 1", (order_id,))
+    if dokument:
+        raise HTTPException(400, _KOMUNIKAT_PO_WYSTAWIENIU.format(numer=dokument["number"]))
 
 
 def _linie(order_id: str) -> List[Dict[str, Any]]:
@@ -55,6 +87,7 @@ def podglad_podzialu(order_id: str, cel_kg: float) -> Dict[str, Any]:
 def zapisz_podzial(order_id: str, cel_kg: float,
                    per_line: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
     """Utrwala podział na pozycjach. `per_line` nadpisuje wyliczenie."""
+    _odmow_gdy_dokumenty_wystawione(order_id)
     podglad = podglad_podzialu(order_id, cel_kg)
     korekty = per_line or {}
     for l in podglad["lines"]:
@@ -83,6 +116,7 @@ def zapisz_podzial(order_id: str, cel_kg: float,
 
 def wyczysc_podzial(order_id: str) -> None:
     """Kasuje podział — zamówienie wraca do zachowania sprzed tej zmiany."""
+    _odmow_gdy_dokumenty_wystawione(order_id)
     with transaction() as conn:
         cx_execute(conn, "UPDATE client_order_lines SET qty_invoice=NULL WHERE order_id=%s",
                    (order_id,))

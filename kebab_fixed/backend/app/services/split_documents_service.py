@@ -25,6 +25,7 @@ from fastapi import HTTPException
 
 from app.db import cx_execute, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
+from app.services import cmr_service, hdi_service
 from app.services.document_naming import tuleja_suffix
 from app.services.hdi_service import hdi_product_base
 from app.services.loading_service import _order_buyer
@@ -375,3 +376,84 @@ def anuluj_dokumenty_podzialu(order_id: str) -> Dict[str, Any]:
                 extra={"order_id": order_id, "ile_dokumentow": len(anulowane),
                        "zwrocone_szt": zwrocone_szt})
     return {"order_id": order_id, "documents": anulowane, "returned_qty": zwrocone_szt}
+
+
+def _sprawdz_gotowosc_do_kompletu(order_id: str) -> None:
+    """Walidacja WSTĘPNA — przed jakimkolwiek zapisem.
+
+    `wystaw_wz_wewnetrzny` nie zna pojęcia podziału: wystawia WM na CAŁOŚĆ
+    i `qty_invoice` w ogóle nie czyta. Bez tej bramki komplet najpierw
+    ZDEJMOWAŁ STAN MAGAZYNU, a dopiero potem odmawiał — biuro widziało błąd
+    i słusznie zakładało, że nic się nie stało, podczas gdy towar już zszedł.
+    Pogorszenie: zostawiony WM ma `split_scope='calosc'`, więc
+    `wz_service._odmow_gdy_zamowienie_ma_podzial` blokował od tej chwili
+    zwykłe „Wystaw WZ" na zamówieniu, które podziału nigdy nie miało.
+
+    Trzy wejścia, każde realne (review Task 7, runda 1):
+
+    * zamówienie BEZ podziału — `wystaw_wz_klienta` odmawiał dopiero po WM;
+    * podział na 0 kg — komplet leciał aż na „Brak towaru do umieszczenia
+      na CMR", czyli PO spaleniu numeru HDI;
+    * cały towar na fakturę (`zapisz_podzial` na to pozwala) — „Cały towar
+      poszedł na fakturę", znowu po WM.
+
+    Odmowa musi być BEZKOSZTOWNA: żadnego dokumentu, żadnego ruchu.
+    """
+    linie = query_all(
+        "SELECT qty, qty_invoice FROM client_order_lines WHERE order_id=%s", (order_id,))
+    if not linie:
+        raise HTTPException(404, "Zamówienie nie ma pozycji")
+    if any(l.get("qty_invoice") is None for l in linie):
+        raise HTTPException(
+            400, "Zamówienie nie ma podziału na fakturę i WZ — najpierw zapisz podział.")
+    na_fakture = sum(int(l.get("qty_invoice") or 0) for l in linie)
+    na_wz = sum(int(l.get("qty") or 0) - int(l.get("qty_invoice") or 0) for l in linie)
+    if na_fakture <= 0:
+        raise HTTPException(
+            400, "Podział nie przewiduje ani jednej sztuki na fakturę — popraw podział "
+                 "albo wystaw zwykłe WZ na całość.")
+    if na_wz <= 0:
+        raise HTTPException(
+            400, "Cały towar poszedł na fakturę — nie ma nic do WZ dla klienta. Popraw "
+                 "podział albo wystaw zwykłe WZ na całość.")
+
+
+def wystaw_komplet(order_id: str, forma_cmr: Dict[str, Any],
+                   hdi_fv: bool = False) -> Dict[str, Any]:
+    """Komplet papierów przed odjazdem auta: WM, WZ dla klienta, HDI (na
+    całość zawsze, do faktury na życzenie) i dwa CMR-y.
+
+    Każdy krok jest osobno idempotentny, więc powtórne kliknięcie oddaje TE
+    SAME dokumenty zamiast wystawiać drugi komplet.
+
+    KOLEJNOŚĆ WYNIKA Z DWÓCH ZALEŻNOŚCI, nie z upodobania:
+
+    * WM przed WZ dla klienta — WM jako jedyny zdejmuje stan magazynu, a
+      `wystaw_wz_klienta` tego pilnuje i bez niego odmawia. Zamówienie z samym
+      WZ klienta przeszłoby obie bramki załadunku i stan zszedłby drugi raz.
+    * HDI przed CMR — `build_cmr` wpisuje w pole „załączniki" numer HDI
+      SWOJEGO wariantu. Odwrotna kolejność dawała listy przewozowe z PUSTYM
+      załącznikiem, a gdy HDI odmawiał, zostawały nadane numery CMR na
+      dokumentach, które nigdy nie były prawdziwe. `build_hdi` nie czyta
+      `cmr_documents` w żadnym miejscu, więc odwrotnej zależności nie ma.
+
+    Całość siedzi w serwisie, nie w trasie: w warstwie HTTP nie ma miejsca na
+    walidację wstępną, a ta kolejność jest nośna dla poprawności stanu
+    magazynu i treści papierów (review Task 7, runda 1, finding 2).
+    """
+    _sprawdz_gotowosc_do_kompletu(order_id)
+    wm = wystaw_wz_wewnetrzny(order_id)
+    wz = wystaw_wz_klienta(order_id)
+    hdi_calosc = hdi_service.generate_hdi(order_id)
+    hdi_do_faktury = hdi_service.generate_hdi(
+        order_id, scope=hdi_service.ZAKRES_FV) if hdi_fv else None
+    # Oba listy z JEDNEGO formularza: ten sam kierowca i to samo auto,
+    # różni je wyłącznie zakres.
+    cmr: List[Dict[str, Any]] = [
+        cmr_service.generate_cmr(order_id, forma_cmr, scope=cmr_service.ZAKRES_CALOSC),
+        cmr_service.generate_cmr(order_id, forma_cmr, scope=cmr_service.ZAKRES_FV),
+    ]
+    logger.info("podzial.komplet.wystawiony",
+                extra={"order_id": order_id, "z_hdi_fv": bool(hdi_fv)})
+    return {"order_id": order_id, "wm": wm, "wz": wz, "cmr": cmr,
+            "hdi_calosc": hdi_calosc, "hdi_fv": hdi_do_faktury}

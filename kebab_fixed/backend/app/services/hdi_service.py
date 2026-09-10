@@ -549,6 +549,25 @@ def _next_hdi_seq(conn, ym: str) -> int:
     return seq
 
 
+def _zachowaj_numer_auta(nowy: Dict[str, Any], stary: Any) -> Dict[str, Any]:
+    """Nagłówek po przeliczeniu, ale z numerem rejestracyjnym STAREGO dokumentu.
+
+    `build_hdi` zawsze oddaje `reg_number: ""` — numer auta zna wyłącznie
+    załadunek i wpisuje go po fakcie (`loading_service._ensure_hdi`).
+    Odświeżenie nadpisuje CAŁY `header`, więc bez tego ponowne „Wystaw
+    komplet" po załadunku kasowało stempel z OBU dokumentów naraz
+    (review Task 7, runda 1). Nowa wartość ma pierwszeństwo, gdy jest —
+    tu tylko nie gubimy tej, której przeliczenie i tak nie zna.
+    """
+    naglowek = dict(nowy or {})
+    if isinstance(stary, str):
+        stary = json.loads(stary or "{}")
+    stary = stary or {}
+    if not str(naglowek.get("reg_number") or "").strip():
+        naglowek["reg_number"] = stary.get("reg_number") or ""
+    return naglowek
+
+
 def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
     scope = _sprawdz_zakres(scope)
     # Numer HDI jest STAŁY per zamówienie/wydanie. Jeśli dokument dla tego
@@ -561,7 +580,7 @@ def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
     # dokument na całość jako „już wystawiony" (a numer HDI jest SPALANY po
     # wydaniu, [[kebab-hdi-numeracja]], więc pomyłki nie da się cicho cofnąć).
     existing = query_one(
-        "SELECT id, number, status, incomplete, totals FROM hdi_documents "
+        "SELECT id, number, status, incomplete, totals, header FROM hdi_documents "
         "WHERE order_id=%s AND COALESCE(scope,%s)=%s ORDER BY created_at LIMIT 1",
         (order_id, ZAKRES_CALOSC, scope))
 
@@ -584,6 +603,7 @@ def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
     data = build_hdi(order_id, scope)
     if existing:
         if existing["status"] == "wstepny":
+            naglowek = _zachowaj_numer_auta(data["header"], existing.get("header"))
             with transaction() as conn:
                 cx_execute(conn,
                     """UPDATE hdi_documents
@@ -592,7 +612,7 @@ def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
                            scope=%s
                        WHERE id=%s""",
                     (data["client_name"], data["language"], data["incomplete"],
-                     json.dumps(data["header"]), json.dumps(data["items"]),
+                     json.dumps(naglowek), json.dumps(data["items"]),
                      json.dumps(data["totals"]), scope, existing["id"]))
         logger.info("hdi.reused", extra={"hdi_id": existing["id"], "number": existing["number"]})
         return {"id": existing["id"], "number": existing["number"], "status": existing["status"],

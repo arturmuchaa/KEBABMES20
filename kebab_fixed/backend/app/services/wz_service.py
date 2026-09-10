@@ -498,13 +498,19 @@ def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
     return wid
 
 
+#: Wyjście z sytuacji — JEDNO zdanie dla wszystkich ścieżek, które blokuje
+#: wystawiony podział: zwykły WZ (tutaj) oraz zmiana i czyszczenie podziału
+#: (`order_split_service`). Biuro ma czytać wszędzie dokładnie to samo.
+KOMUNIKAT_ANULUJ_PODZIAL = (
+    "najpierw anuluj dokumenty podziału (przycisk „Anuluj podział” na zamówieniu)")
+
 #: Jeden tekst dla wszystkich ścieżek odmowy — biuro ma czytać to samo
 #: zdanie niezależnie od tego, którym przyciskiem trafiło na blokadę.
 _KOMUNIKAT_PODZIAL = (
     "Zamówienie ma już dokumenty z podziału na fakturę ({numer}) — nie wystawiaj "
     "do niego zwykłego WZ, bo towar zszedłby ze stanu drugi raz. Komplet dokumentów "
-    "wystawia się na ekranie podziału; żeby wrócić do zwykłego WZ, najpierw anuluj "
-    "dokumenty podziału (przycisk „Anuluj podział” na zamówieniu).")
+    "wystawia się na ekranie podziału; żeby wrócić do zwykłego WZ, "
+    + KOMUNIKAT_ANULUJ_PODZIAL + ".")
 
 
 def _dokument_podzialu_cx(conn, order_id: str) -> Optional[Dict[str, Any]]:
