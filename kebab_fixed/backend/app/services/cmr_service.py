@@ -122,29 +122,71 @@ def _client_snapshot(order: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def build_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
+#: Warianty CMR-a. `calosc` — list NA DROGĘ, na całą wysyłkę; `fv` — list pod
+#: fakturę, tylko na część fakturowaną. Klient bierze część dostawy na fakturę
+#: (wystawianą w Subiekcie), resztę na WZ — oba listy powstają dla tego samego
+#: zamówienia i muszą móc istnieć obok siebie.
+ZAKRES_CALOSC = "calosc"
+ZAKRES_FV = "fv"
+_ZAKRESY = (ZAKRES_CALOSC, ZAKRES_FV)
+
+
+def _sprawdz_zakres(scope: str) -> str:
+    if scope not in _ZAKRESY:
+        raise HTTPException(400, f"Nieznany wariant CMR: {scope}")
+    return scope
+
+
+def _pozycje_fakturowane(order_id: str) -> List[Dict[str, Any]]:
+    """Sztuki idące na fakturę — WPROST z podziału zapisanego na pozycjach
+    zamówienia (`qty_invoice`), nie z produkcji ani z magazynu.
+
+    Świadomie inne źródło niż wariant `calosc`: CMR pod fakturę ma zgadzać się
+    z FAKTURĄ, a faktura powstaje z tego samego podziału co WZ dla klienta
+    (`split_documents_service._pozycje_niefakturowane` liczy dopełnienie:
+    `qty - qty_invoice`). Liczenie strony fakturowanej z pokrycia
+    magazynowego rozjeżdżałoby oba dokumenty przy każdej niedowiezionej
+    sztuce.
+    """
+    linie = query_all(
+        "SELECT qty, qty_invoice, kg_per_unit FROM client_order_lines "
+        "WHERE order_id=%s ORDER BY position", (order_id,))
+    if not linie:
+        raise HTTPException(404, "Zamówienie nie ma pozycji")
+    if any(l.get("qty_invoice") is None for l in linie):
+        raise HTTPException(400, "Zamówienie nie ma podziału na fakturę i WZ")
+    return [{"qty_done": int(l.get("qty_invoice") or 0), "kg_per_unit": l.get("kg_per_unit")}
+            for l in linie]
+
+
+def build_cmr(order_id: str, form: Dict[str, Any],
+              scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
+    _sprawdz_zakres(scope)
     order = query_one("SELECT * FROM client_orders WHERE id=%s", (order_id,))
     if not order:
         raise HTTPException(404, "Zamówienie nie znalezione")
 
-    plan_lines = query_all(
-        """SELECT qty_done, recipe_id, kg_per_unit FROM production_plan_lines
-           WHERE client_order_id=%s AND COALESCE(qty_done,0) > 0""",
-        (order_id,),
-    )
-    # Braki względem zamówienia pokryj zapasem magazynowym (produkcja "na
-    # magazyn" sprzed zamówienia nie ma linku w liniach planu) — porcje
-    # wchodzą do zbiorczej pozycji kebaba jak linie planu.
-    order_lines = query_all(
-        "SELECT recipe_id, kg_per_unit, product_type_id, packaging_id, qty "
-        "FROM client_order_lines WHERE order_id=%s",
-        (order_id,))
-    portions = stock_portions_for_order(
-        order_id, order.get("order_no") or "", order_lines,
-        produced_by_key_from_plan_lines(plan_lines))
-    plan_lines = plan_lines + [
-        {"qty_done": p["take"], "kg_per_unit": (p.get("fg") or {}).get("kg_per_unit")}
-        for p in portions]
+    if scope == ZAKRES_FV:
+        plan_lines = _pozycje_fakturowane(order_id)
+    else:
+        plan_lines = query_all(
+            """SELECT qty_done, recipe_id, kg_per_unit FROM production_plan_lines
+               WHERE client_order_id=%s AND COALESCE(qty_done,0) > 0""",
+            (order_id,),
+        )
+        # Braki względem zamówienia pokryj zapasem magazynowym (produkcja "na
+        # magazyn" sprzed zamówienia nie ma linku w liniach planu) — porcje
+        # wchodzą do zbiorczej pozycji kebaba jak linie planu.
+        order_lines = query_all(
+            "SELECT recipe_id, kg_per_unit, product_type_id, packaging_id, qty "
+            "FROM client_order_lines WHERE order_id=%s",
+            (order_id,))
+        portions = stock_portions_for_order(
+            order_id, order.get("order_no") or "", order_lines,
+            produced_by_key_from_plan_lines(plan_lines))
+        plan_lines = plan_lines + [
+            {"qty_done": p["take"], "kg_per_unit": (p.get("fg") or {}).get("kg_per_unit")}
+            for p in portions]
     goods = build_goods(plan_lines, form.get("goods_manual") or [])
     if not goods:
         raise HTTPException(400, "Brak towaru do umieszczenia na CMR")
@@ -180,7 +222,8 @@ def build_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
         "established_date": today,
     }
     return {"order_id": order_id, "client_name": order.get("client_name", ""),
-            "carrier_id": form.get("carrier_id") or None, "payload": payload, "totals": totals}
+            "carrier_id": form.get("carrier_id") or None, "payload": payload,
+            "totals": totals, "scope": scope}
 
 
 def format_cmr_number(seq: int, year_month: str) -> str:
@@ -190,21 +233,38 @@ def format_cmr_number(seq: int, year_month: str) -> str:
     return f"{seq}/{mm}/{yy}"
 
 
-def generate_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
-    data = build_cmr(order_id, form)
+def generate_cmr(order_id: str, form: Dict[str, Any],
+                 scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
+    """CMR dla zamówienia w podanym wariancie. Idempotentny per
+    (`order_id`, `scope`): powtórne wywołanie odświeża TEN SAM dokument, ale
+    drugi wariant dostaje własny numer i istnieje obok pierwszego.
+
+    Zawężenie wyszukiwania o `scope` jest tu obowiązkowe — zapytanie po samym
+    `order_id` znalazłoby dowolny z dwóch listów i biuro dostałoby dokument
+    na złą ilość (ta klasa błędu kosztowała już trzy rundy poprawek przy WZ).
+    """
+    _sprawdz_zakres(scope)
+    data = build_cmr(order_id, form, scope)
+    # COALESCE, nie gołe porównanie: dokument sprzed migracji mógłby mieć
+    # `scope IS NULL`, a `scope = NULL` nigdy nie pasuje — stary CMR na całość
+    # byłby niewidzialny i powstałby jego duplikat.
     existing = query_one(
-        "SELECT id, number FROM cmr_documents WHERE order_id=%s ORDER BY created_at LIMIT 1",
-        (order_id,))
+        "SELECT id, number FROM cmr_documents WHERE order_id=%s "
+        "AND COALESCE(scope, %s)=%s ORDER BY created_at LIMIT 1",
+        (order_id, ZAKRES_CALOSC, scope))
     today = datetime.now()
     if existing:
         with transaction() as conn:
             cx_execute(conn,
-                """UPDATE cmr_documents SET client_name=%s, carrier_id=%s, payload=%s::jsonb
+                """UPDATE cmr_documents SET client_name=%s, carrier_id=%s, payload=%s::jsonb,
+                          scope=%s
                    WHERE id=%s""",
                 (data["client_name"], data["carrier_id"], json.dumps(data["payload"]),
-                 existing["id"]))
-        logger.info("cmr.reused", extra={"cmr_id": existing["id"], "number": existing["number"]})
-        return {"id": existing["id"], "number": existing["number"], "status": "wystawiony"}
+                 scope, existing["id"]))
+        logger.info("cmr.reused", extra={"cmr_id": existing["id"], "number": existing["number"],
+                                         "scope": scope})
+        return {"id": existing["id"], "number": existing["number"], "status": "wystawiony",
+                "scope": scope, "payload": data["payload"]}
 
     cid = cuid()
     ym = today.strftime("%y%m")  # RRMM
@@ -216,12 +276,13 @@ def generate_cmr(order_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
         cx_execute(conn,
             """INSERT INTO cmr_documents
                (id, number, seq, year_month, order_id, client_name, carrier_id, status, payload,
-                issue_date, created_at)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,'wystawiony',%s::jsonb,%s,%s)""",
+                issue_date, created_at, scope)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,'wystawiony',%s::jsonb,%s,%s,%s)""",
             (cid, number, seq, ym, order_id, data["client_name"], data["carrier_id"],
-             json.dumps(data["payload"]), today.strftime("%d.%m.%Y"), now_iso()))
-    logger.info("cmr.generated", extra={"cmr_id": cid, "number": number})
-    return {"id": cid, "number": number, "status": "wystawiony"}
+             json.dumps(data["payload"]), today.strftime("%d.%m.%Y"), now_iso(), scope))
+    logger.info("cmr.generated", extra={"cmr_id": cid, "number": number, "scope": scope})
+    return {"id": cid, "number": number, "status": "wystawiony", "scope": scope,
+            "payload": data["payload"]}
 
 
 def update_cmr(cmr_id: str, form: Dict[str, Any]) -> Dict[str, Any]:

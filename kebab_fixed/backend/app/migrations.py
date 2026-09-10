@@ -1574,6 +1574,24 @@ _DDL: list[str] = [
     # Nazewnictwo spójne z `scope`, które specyfikacja przewiduje dla CMR i
     # HDI w kolejnych zadaniach tej serii.
     "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS split_scope TEXT",
+
+    # Wariant CMR-a: 'calosc' — list przewozowy NA DROGĘ (cała wysyłka, jedzie
+    # z kierowcą), 'fv' — list pod fakturę (tylko część fakturowana, liczona
+    # z `client_order_lines.qty_invoice`). Oba warianty istnieją OBOK SIEBIE
+    # dla tego samego zamówienia, więc idempotencja CMR-a jest per
+    # (order_id, scope), a nie per order_id.
+    # DEFAULT 'calosc' jest tu WŁAŚCIWY (inaczej niż przy wz_documents.
+    # split_scope, gdzie celowo go nie ma): 18 historycznych dokumentów na
+    # produkcji (2026-07-16..2026-09-10, każdy jedyny dla swojego zamówienia)
+    # powstało PRZED podziałem wysyłki, czyli na całość — a poprawnie
+    # wypełniona kolumna sprawia, że stary CMR nadal odnajduje się jako
+    # 'calosc' i nic w zachowaniu biura się nie zmienia.
+    "ALTER TABLE cmr_documents ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'calosc'",
+    # Bezpiecznik na bazę, gdzie kolumna powstała bez DEFAULT (albo wiersz
+    # wszedł z jawnym NULL-em): `scope = NULL` NIGDY nie pasuje do WHERE,
+    # więc taki dokument byłby dla wyszukiwania niewidzialny i biuro dostałoby
+    # DRUGI dokument tego samego wariantu.
+    "UPDATE cmr_documents SET scope='calosc' WHERE scope IS NULL",
 ]
 
 

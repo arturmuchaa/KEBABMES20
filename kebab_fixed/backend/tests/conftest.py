@@ -41,6 +41,12 @@ _TRUNCATE = [
     # (MAX(seq) w miesiącu), więc dokumenty z poprzedniego przebiegu podbijały
     # numer, a test wstawiający dokument po stałym id padał na duplicate key.
     "hdi_documents",
+    # `cmr_documents` dopisane 2026-09-10 (CMR w dwóch wariantach): dokumenty
+    # z poprzedniego przebiegu zostawały pod tym samym `order_id` co zasiew
+    # następnego testu, a numeracja CMR liczy się z tabeli (MAX(seq)
+    # w miesiącu) — test sprawdzający, JAKIE warianty istnieją dla zamówienia,
+    # widziałby cudzy dokument.
+    "cmr_documents",
     # `ingredient_receptions` dopisane 2026-08-30: numeracja DDFiP liczy się
     # z sekwencji, ale UNIKALNOŚĆ pilnuje indeks (period, seq) na tej tabeli —
     # dokument z poprzedniego przebiegu wywracał kolejny test na duplicate key.
