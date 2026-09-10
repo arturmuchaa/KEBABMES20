@@ -414,10 +414,13 @@ def _przygotuj_podzial(qty=10, kg=30, na_fakture=6):
     poprawki `LIMIT 1` trafiało właśnie w niego."""
     _przygotuj(qty=qty, kg=kg)
     execute("UPDATE finished_goods SET qty_available=0, qty_shipped=%s WHERE id='f1'", (qty,))
-    _dokument_z_podzialu("wm1", series="WM", scope="calosc", nr=1,
-                         linie=[_linia_wz(qty=qty, kg=kg)], minut_temu=20)
+    # WZ klienta jest STARSZY — celowo. Gdyby WM był najstarszy, dawne
+    # niefiltrowane `ORDER BY created_at LIMIT 1` trafiałoby w niego tak samo
+    # i test nie odróżniałby starego kodu od nowego (uwaga z re-review rundy 3).
     _dokument_z_podzialu("wzk1", series="WZ", scope="wz_klienta", nr=2,
-                         linie=[_linia_wz(qty=qty - na_fakture, kg=kg)], minut_temu=10)
+                         linie=[_linia_wz(qty=qty - na_fakture, kg=kg)], minut_temu=20)
+    _dokument_z_podzialu("wm1", series="WM", scope="calosc", nr=1,
+                         linie=[_linia_wz(qty=qty, kg=kg)], minut_temu=10)
 
 
 def test_zaladunek_podzialu_weryfikuje_sie_z_dokumentem_NA_CALOSC(db):

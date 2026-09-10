@@ -15,8 +15,10 @@ Testy DB — bez TEST_DATABASE_URL skip.
 """
 import pytest
 
-from app.db import execute, query_one
-from app.services.wz_service import create_wz_from_order, generate_wz
+from app.db import execute, query_all, query_one
+from app.services.split_documents_service import wystaw_wz_wewnetrzny
+from app.services.wz_service import (create_manual_wz, create_wz_from_order,
+                                     generate_wz, picks_from_order)
 from tests.conftest_split import _przygotuj_bez_podzialu, _przygotuj_z_podzialem
 
 
@@ -135,3 +137,86 @@ def test_generate_wz_z_INNEGO_zrodla_guard_nie_dotyczy(db):
         items=[{"name": "Test", "qty": 1, "unit": "szt"}], valued=False)
 
     assert nowy["number"].startswith("WZ/")
+
+
+# ── ŻYWA ścieżka biura ────────────────────────────────────────────────────
+#
+# Żółty przycisk „WZ" na liście zamówień prowadzi do ZWYKŁEGO formularza WZ
+# (`/office/wz/nowy?order=<id>`), a ten zapisuje przez `createManual`.
+# Od 30.08.2026 to jedyna używana droga: w logach produkcji 82 zdarzenia
+# `wz.manual.created` wobec 6 `wz.order.created` (wszystkie sprzed 30.08).
+# Guard postawiony tylko przy `create_wz_from_order` omijał więc dokładnie
+# to miejsce, w którym powstaje szkoda (re-review Task 4, fix round 4).
+def _wolny_zapas(gid="f9", qty=30, kg=25.0):
+    """Wyrób tej samej tożsamości co zamówienie, ale BEZ stempla zamówienia —
+    „na magazyn". Po wystawieniu WM partie ostemplowane mają
+    `qty_available=0`, więc `picks_for_order` (warunek `qty_available > 0`)
+    ich nie widzi i sięga WŁAŚNIE po taki wiersz."""
+    execute(
+        "INSERT INTO finished_goods (id, batch_no, recipe_id, recipe_name, product_type_id, "
+        " product_type_name, qty, kg_per_unit, total_kg, qty_available, qty_shipped, "
+        " produced_date) VALUES (%s,'080926 900','r1','KIRMIZI','pt1','KEBAB UDO 100%%',"
+        " %s,%s,%s,%s,0,'2026-09-08')",
+        (gid, qty, kg, qty * kg, qty))
+    return gid
+
+
+def test_reczny_WZ_z_zamowienia_odmawia_po_podziale(db):
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wm = wystaw_wz_wewnetrzny("o1")
+    _wolny_zapas()
+
+    with pytest.raises(Exception) as e:
+        create_manual_wz(
+            buyer={"name": "YBM Gastro GmbH", "address": "", "nip": ""},
+            selections=[{"stock_type": "fg", "stock_id": "f9", "qty": 30}],
+            valued=False, order_id="o1")
+
+    assert wm["number"] in str(e.value)
+
+
+def test_reczny_WZ_NIE_SIEGA_po_wolny_zapas(db):
+    """To jest ta szkoda: partie ostemplowane zamówieniem są puste po WM,
+    więc rozchód poszedłby z cudzego, wolnego towaru — po cichu, bo stan
+    jest, więc walidacja „za mało" przepuszcza."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wystaw_wz_wewnetrzny("o1")
+    _wolny_zapas(qty=30)
+
+    with pytest.raises(Exception):
+        create_manual_wz(
+            buyer={"name": "YBM Gastro GmbH", "address": "", "nip": ""},
+            selections=[{"stock_type": "fg", "stock_id": "f9", "qty": 30}],
+            valued=False, order_id="o1")
+
+    wolny = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f9'")
+    assert (int(wolny["qty_available"]), int(wolny["qty_shipped"])) == (30, 0), (
+        "ręczny WZ zdjął towar z wolnego zapasu mimo istniejącego podziału")
+
+
+def test_reczny_WZ_BEZ_zamowienia_dziala_jak_dotad(db):
+    """Sprzedaż z magazynu (bez `order_id`) guardu nie dotyczy — to 82 z 88
+    dokumentów ostatnich dwóch miesięcy."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wystaw_wz_wewnetrzny("o1")
+    _wolny_zapas(qty=30)
+
+    doc = create_manual_wz(
+        buyer={"name": "Ktoś inny", "address": "", "nip": ""},
+        selections=[{"stock_type": "fg", "stock_id": "f9", "qty": 5}],
+        valued=False)
+
+    assert doc["number"].startswith("WZ/")
+    wolny = query_one("SELECT qty_available FROM finished_goods WHERE id='f9'")
+    assert int(wolny["qty_available"]) == 25
+
+
+def test_formularz_WZ_mowi_o_podziale_PRZY_OTWIERANIU(db):
+    """Lepiej odmówić przy wchodzeniu na ekran niż po wypełnieniu dokumentu."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wm = wystaw_wz_wewnetrzny("o1")
+
+    with pytest.raises(Exception) as e:
+        picks_from_order("o1")
+
+    assert wm["number"] in str(e.value)

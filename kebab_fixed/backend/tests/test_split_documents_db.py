@@ -1,6 +1,9 @@
 """Komplet dokumentów przy podziale — i reguła, że stan rusza TYLKO WM."""
-from app.db import query_all
-from app.services.split_documents_service import (wystaw_wz_klienta,
+import pytest
+
+from app.db import execute, query_all, query_one
+from app.services.split_documents_service import (anuluj_dokumenty_podzialu,
+                                                    wystaw_wz_klienta,
                                                     wystaw_wz_wewnetrzny)
 from app.services.wz_service import create_wz_from_order
 from tests.conftest_split import (_przygotuj_bez_podzialu, _przygotuj_z_podzialem,
@@ -16,6 +19,7 @@ def test_wz_wewnetrzny_jest_na_calosc(db):
 
 def test_wz_klienta_jest_na_czesc_niefakturowana(db):
     _przygotuj_z_podzialem(cel_kg=300.0)
+    wystaw_wz_wewnetrzny("o1")
     wz = wystaw_wz_klienta("o1")
     assert wz["number"].startswith("WZ/")
     assert wz["kg"] == 500.0
@@ -60,6 +64,9 @@ def test_bez_podzialu_wz_klienta_jest_odrzucony(db):
 
 def test_powtorne_wz_klienta_nie_dubluje(db):
     _przygotuj_z_podzialem(cel_kg=300.0)
+    # WM musi być pierwszy — od fix round 4 WZ klienta bez niego jest odrzucany
+    # (zamówienie z samym WZ klienta wpadało w załadunku w gałąź „wystaw nowy").
+    wystaw_wz_wewnetrzny("o1")
     wystaw_wz_klienta("o1")
     wystaw_wz_klienta("o1")
     assert len(query_all(
@@ -142,3 +149,98 @@ def test_anulowany_stary_wz_nie_blokuje(db):
     wz = wystaw_wz_klienta("o1")
     assert wz["number"].startswith("WZ/")
     assert wz["kg"] == 500.0
+
+
+# ── Kolejność: WM musi być pierwszy ───────────────────────────────────────
+def test_wz_klienta_BEZ_wz_wewnetrznego_jest_odrzucony(db):
+    """Zamówienie z samym WZ klienta przechodzi obie bramki `finalize_loading`
+    i wpada w gałąź „wystaw nowy" — załadunek zrobiłby TRZECI dokument
+    i zdjął stan drugi raz, a wystawienia WM już by nie puścił guard kolizji."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+
+    with pytest.raises(Exception) as e:
+        wystaw_wz_klienta("o1")
+
+    assert "wewnętrzny" in str(e.value).lower()
+    assert query_all("SELECT id FROM wz_documents") == []
+
+
+# ── Droga powrotna: anulowanie kompletu ───────────────────────────────────
+#
+# Guard w `wz_service` odmawia zwykłego WZ na zamówieniu z podziałem. Bez
+# możliwości anulowania jedno omyłkowe kliknięcie zamykałoby zamówienie na
+# głucho — `cancel_wz` odrzuca wszystko z `source_type != 'manual'` (409),
+# czyli OBA dokumenty podziału (re-review Task 4, fix round 4).
+def test_anulowanie_zdejmuje_oba_dokumenty(db):
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wystaw_wz_wewnetrzny("o1")
+    wystaw_wz_klienta("o1")
+
+    wynik = anuluj_dokumenty_podzialu("o1")
+
+    assert len(wynik["documents"]) == 2
+    zywe = query_all(
+        "SELECT id FROM wz_documents WHERE source_id='o1' AND split_scope IS NOT NULL "
+        "AND COALESCE(status,'')<>'anulowany'")
+    assert zywe == []
+
+
+def test_anulowanie_ZWRACA_TOWAR_na_stan(db):
+    """Sedno: dokument bez zwrotu towaru byłby gorszy niż brak anulowania —
+    `finalize_loading` pomija anulowane, więc wystawiłby nowy i zdjął stan
+    drugi raz."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wystaw_wz_wewnetrzny("o1")
+    wystaw_wz_klienta("o1")
+
+    anuluj_dokumenty_podzialu("o1")
+
+    f1 = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
+    f2 = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f2'")
+    assert (int(f1["qty_available"]), int(f1["qty_shipped"])) == (30, 0)
+    assert (int(f2["qty_available"]), int(f2["qty_shipped"])) == (2, 0)
+
+
+def test_anulowanie_zwraca_towar_TYLKO_RAZ(db):
+    """WZ klienta nigdy stanu nie ruszał — jego anulowanie nie może niczego
+    dodać, inaczej magazyn urósłby o część niefakturowaną z powietrza."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wystaw_wz_wewnetrzny("o1")
+    wystaw_wz_klienta("o1")
+
+    anuluj_dokumenty_podzialu("o1")
+
+    zwroty = query_all(
+        "SELECT qty FROM stock_movements WHERE movement_type='CANCEL' "
+        "AND product_type='finished_goods'")
+    assert round(sum(float(r["qty"]) for r in zwroty), 3) == 800.0
+
+
+def test_po_anulowaniu_zwykly_WZ_znowu_dziala(db):
+    """Cała racja bytu tej funkcji — odmowa ma być odwracalna."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wystaw_wz_wewnetrzny("o1")
+    wystaw_wz_klienta("o1")
+    anuluj_dokumenty_podzialu("o1")
+
+    nowy = create_wz_from_order("o1")
+
+    assert nowy["number"].startswith("WZ/")
+
+
+def test_po_anulowaniu_mozna_wystawic_podzial_ponownie(db):
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    pierwszy = wystaw_wz_wewnetrzny("o1")
+    anuluj_dokumenty_podzialu("o1")
+
+    drugi = wystaw_wz_wewnetrzny("o1")
+
+    assert drugi["id"] != pierwszy["id"]
+    assert drugi["kg"] == 800.0
+
+
+def test_anulowanie_bez_dokumentow_mowi_wprost(db):
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    with pytest.raises(Exception) as e:
+        anuluj_dokumenty_podzialu("o1")
+    assert "nie ma dokument" in str(e.value).lower()

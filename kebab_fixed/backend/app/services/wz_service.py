@@ -498,6 +498,15 @@ def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
     return wid
 
 
+#: Jeden tekst dla wszystkich ścieżek odmowy — biuro ma czytać to samo
+#: zdanie niezależnie od tego, którym przyciskiem trafiło na blokadę.
+_KOMUNIKAT_PODZIAL = (
+    "Zamówienie ma już dokumenty z podziału na fakturę ({numer}) — nie wystawiaj "
+    "do niego zwykłego WZ, bo towar zszedłby ze stanu drugi raz. Komplet dokumentów "
+    "wystawia się na ekranie podziału; żeby wrócić do zwykłego WZ, najpierw anuluj "
+    "dokumenty podziału (przycisk „Anuluj podział” na zamówieniu).")
+
+
 def _dokument_podzialu_cx(conn, order_id: str) -> Optional[Dict[str, Any]]:
     """Dokument z PODZIAŁU wysyłki (WM na całość albo WZ klienta) dla tego
     zamówienia — cokolwiek z ustawionym `split_scope` i nieanulowane."""
@@ -508,6 +517,22 @@ def _dokument_podzialu_cx(conn, order_id: str) -> Optional[Dict[str, Any]]:
         "ORDER BY created_at LIMIT 1",
         (order_id,),
     )
+
+
+def _odmow_gdy_zamowienie_ma_podzial_bez_conn(order_id: Optional[str]) -> None:
+    """Ten sam guard dla ścieżek, które jeszcze nie otworzyły transakcji —
+    formularz WZ pyta o podpowiedzi (`picks_from_order`) ZANIM cokolwiek
+    zapisze. Lepiej powiedzieć biuru „to zamówienie ma podział" przy
+    otwieraniu ekranu niż po wypełnieniu całego dokumentu."""
+    if not (order_id or "").strip():
+        return
+    podzial = query_one(
+        "SELECT id, number FROM wz_documents WHERE source_type='order' AND source_id=%s "
+        "AND split_scope IS NOT NULL AND COALESCE(status,'')<>'anulowany' "
+        "ORDER BY created_at LIMIT 1",
+        (order_id,))
+    if podzial:
+        raise HTTPException(400, _KOMUNIKAT_PODZIAL.format(numer=podzial["number"]))
 
 
 def _odmow_gdy_zamowienie_ma_podzial(conn, order_id: Optional[str]) -> None:
@@ -529,12 +554,7 @@ def _odmow_gdy_zamowienie_ma_podzial(conn, order_id: Optional[str]) -> None:
         return
     podzial = _dokument_podzialu_cx(conn, order_id)
     if podzial:
-        raise HTTPException(
-            400,
-            f"Zamówienie ma już dokumenty z podziału na fakturę ({podzial['number']}) — "
-            "nie wystawiaj do niego zwykłego WZ, bo towar zszedłby ze stanu drugi raz. "
-            "Komplet dokumentów wystawia się na ekranie podziału; żeby wrócić do zwykłego "
-            "WZ, najpierw anuluj dokumenty podziału.")
+        raise HTTPException(400, _KOMUNIKAT_PODZIAL.format(numer=podzial["number"]))
 
 
 def generate_wz(
@@ -688,6 +708,15 @@ def create_manual_wz(
     seller = _seller_block()
 
     with transaction() as conn:
+        # TA ścieżka jest jedyną, której biuro faktycznie używa od 30.08.2026:
+        # żółty przycisk „WZ" na liście zamówień prowadzi do zwykłego formularza
+        # WZ, a ten zapisuje przez `createManual`. Guard postawiony wyłącznie
+        # przy `create_wz_from_order`/`generate_wz` (fix round 3) omijał więc
+        # dokładnie to miejsce, w którym szkoda powstaje: `picks_for_order`
+        # podpowiada PEŁNĄ ilość zamówienia, bo wiersze wyzerowane przez WM
+        # wypadają z zapytania (`qty_available > 0`), a rozchód niżej zdejmuje
+        # ją z INNYCH, wolnych partii (re-review Task 4, fix round 4).
+        _odmow_gdy_zamowienie_ma_podzial(conn, order_id)
         # Dokument wystawiony z zamówienia ZOSTAJE z nim związany, choć idzie
         # ręczną ścieżką: bez tego stempla zamówienie pokazywałoby „brak WZ",
         # a przy ponownym wejściu nikt by nie ostrzegł, że dokument już jest.
@@ -1421,6 +1450,7 @@ def preview_order_wz(order_id: str) -> Dict[str, Any]:
 
 def picks_from_order(order_id: str) -> Dict[str, Any]:
     """Nabywca + wiersze magazynu pokrywające zamówienie (do formularza WZ)."""
+    _odmow_gdy_zamowienie_ma_podzial_bez_conn(order_id)
     p = _order_wz_payload(order_id)
     picks = picks_for_order(order_id)
     return {

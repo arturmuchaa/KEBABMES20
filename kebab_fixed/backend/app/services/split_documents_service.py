@@ -30,9 +30,10 @@ from app.services.hdi_service import hdi_product_base
 from app.services.loading_service import _order_buyer
 from app.services.order_stock_service import picks_for_order
 from app.services.settings_service import get_company
-from app.services.wz_service import (_fmt_kg, _insert_wz, _seller_block,
-                                     build_goods_wz_lines, build_wz_lines,
-                                     naming_context)
+from app.services.wz_service import (_fmt_kg, _insert_wz, _rebook_wz_containers,
+                                     _seller_block, build_goods_wz_lines,
+                                     build_wz_lines, naming_context,
+                                     wyprowadz_wz_poza_serie_cx)
 from app.utils.stock import create_stock_movement
 
 logger = get_logger(__name__)
@@ -252,6 +253,18 @@ def wystaw_wz_klienta(order_id: str) -> Dict[str, Any]:
         raise HTTPException(404, "Zamówienie nie ma pozycji")
     if any(l.get("qty_invoice") is None for l in linie):
         raise HTTPException(400, "Zamówienie nie ma podziału na fakturę i WZ")
+    # KOLEJNOŚĆ JEST OBOWIĄZKOWA: najpierw WM (całość, rozchód), potem ten
+    # dokument. Zamówienie mające SAM WZ klienta przechodzi obie bramki
+    # `finalize_loading` (nie ma dokumentu `calosc`, nie ma zwykłego WZ) i wpada
+    # w gałąź „wystaw nowy" — załadunek zrobiłby TRZECI dokument i zdjął stan
+    # drugi raz, a `_odmow_jesli_koliduje` zablokowałaby już wystawienie WM
+    # (re-review Task 4, fix round 4, 2026-09-10).
+    if not _istniejacy("WM", order_id, _SCOPE_CALOSC):
+        raise HTTPException(
+            400,
+            "Najpierw wystaw WZ wewnętrzny na całość (seria WM) — to on zdejmuje "
+            "towar ze stanu. WZ dla klienta jest tylko dokumentem na część "
+            "niefakturowaną i sam magazynu nie rusza.")
 
     items = _pozycje_niefakturowane(order, linie)
     if not items:
@@ -281,3 +294,84 @@ def wystaw_wz_klienta(order_id: str) -> Dict[str, Any]:
     logger.info("wz.klienta.wystawiony",
                extra={"wz_id": wid, "order_id": order_id, "wz_kg": kg})
     return {"id": wid, "number": number, "kg": kg}
+
+
+def anuluj_dokumenty_podzialu(order_id: str) -> Dict[str, Any]:
+    """Wycofaj komplet dokumentów podziału z jednego zamówienia.
+
+    Bez tej funkcji guard `_odmow_gdy_zamowienie_ma_podzial` (wz_service)
+    zamienia jedno omyłkowe kliknięcie „Wystaw komplet dokumentów" w TRWAŁĄ
+    blokadę: zwykłego WZ już nie wystawisz, a `cancel_wz` odrzuca wszystko
+    z `source_type != 'manual'` (409) — czyli oba dokumenty podziału.
+    Biuro musiałoby ruszać bazę ręcznie, co w tym systemie zdarzyło się raz
+    (ANUL WZ/68/08/26) i nie ma się powtarzać.
+
+    DLACZEGO NIE POLUZOWANIE `cancel_wz`: linie `build_order_wz_lines` mają
+    `stock_type='fg'`, ale NIE MAJĄ `stock_id`, więc pętla zwrotu w
+    `cancel_wz` je pomija — dokument dostałby status „anulowany" BEZ ZWROTU
+    TOWARU, a `finalize_loading` (który od fix round 3 pomija anulowane)
+    wystawiłby wtedy nowy dokument i zdjął stan drugi raz. Anulujemy więc
+    SELEKTYWNIE, po `split_scope`, i tylko dla dokumentów, o których wiemy,
+    jak wyglądają ich linie:
+
+    * WM (`calosc`) — linie z `build_goods_wz_lines` MAJĄ `stock_id`, więc
+      towar realnie wraca na stan (ruch `CANCEL`, symetrycznie do rozchodu).
+    * WZ klienta (`wz_klienta`) — linie z `build_wz_lines` nie mają śladu
+      magazynowego, bo ten dokument nigdy stanu nie ruszał. Nie ma czego
+      zwracać i słusznie nic nie zwracamy.
+
+    Numer wraca do puli swojej serii (`wyprowadz_wz_poza_serie_cx` czyta
+    `doc_series` z tego samego wiersza), więc anulowanie nie zostawia dziury
+    ani w serii WZ, ani w WM.
+    """
+    dokumenty = query_all(
+        "SELECT id, number, doc_series, split_scope FROM wz_documents "
+        "WHERE source_type='order' AND source_id=%s AND split_scope IS NOT NULL "
+        "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at",
+        (order_id,))
+    if not dokumenty:
+        raise HTTPException(404, "To zamówienie nie ma dokumentów z podziału do anulowania")
+
+    anulowane: List[Dict[str, Any]] = []
+    zwrocone_szt = 0
+    with transaction() as conn:
+        for d in dokumenty:
+            row = cx_query_one(
+                conn,
+                "SELECT id, status, lines FROM wz_documents WHERE id=%s FOR UPDATE",
+                (d["id"],))
+            if not row or row.get("status") == "anulowany":
+                continue
+            for line in _linie_z_dokumentu(row):
+                if line.get("stock_type") != "fg":
+                    continue
+                sid = line.get("stock_id")
+                qty = int(round(float(line.get("qty") or 0)))
+                if not sid or qty <= 0:
+                    continue
+                fg = cx_query_one(
+                    conn, "SELECT kg_per_unit FROM finished_goods WHERE id=%s FOR UPDATE",
+                    (sid,))
+                if not fg:
+                    continue
+                cx_execute(
+                    conn,
+                    "UPDATE finished_goods SET qty_available=qty_available+%s, "
+                    "qty_shipped=GREATEST(0, qty_shipped-%s) WHERE id=%s",
+                    (qty, qty, sid))
+                create_stock_movement(
+                    conn, product_type="finished_goods", batch_id=sid,
+                    qty=qty * float(fg.get("kg_per_unit") or 0),
+                    movement_type="CANCEL", source_type="wz", source_id=d["id"])
+                zwrocone_szt += qty
+            cx_execute(
+                conn, "UPDATE wz_documents SET status='anulowany' WHERE id=%s", (d["id"],))
+            wyprowadz_wz_poza_serie_cx(conn, d["id"])
+            _rebook_wz_containers(conn, d["id"], zero=True)
+            anulowane.append({"id": d["id"], "number": d["number"],
+                              "scope": d.get("split_scope")})
+
+    logger.info("podzial.anulowany",
+                extra={"order_id": order_id, "ile_dokumentow": len(anulowane),
+                       "zwrocone_szt": zwrocone_szt})
+    return {"order_id": order_id, "documents": anulowane, "returned_qty": zwrocone_szt}
