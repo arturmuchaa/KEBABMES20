@@ -451,7 +451,8 @@ def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
                pallets_h1: int = 0, pallets_other: int = 0,
                containers_total: Optional[int] = None,
                pallets_other_kind: Optional[str] = None,
-               series: str = "WZ") -> str:
+               series: str = "WZ",
+               split_scope: Optional[str] = None) -> str:
     """Wstaw dokument WZ w trwającej transakcji, nadaj numer WZ/NN/MM/RR
     (albo WM/NN/MM/RR, gdy series="WM"). Zwraca id.
 
@@ -460,6 +461,14 @@ def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
 
     series="WM" to WZ wewnętrzny na CAŁOŚĆ dostawy (zostaje w biurze, gdy
     klient bierze część na fakturę) — ma własny, niezależny licznik.
+
+    split_scope znakuje dokument POCHODZĄCY Z PODZIAŁU wysyłki —
+    "calosc" (WM) albo "wz_klienta" (WZ na część niefakturowaną).
+    Domyślnie None: `doc_series` + `source_id` same NIE wystarczają do
+    odróżnienia dokumentu podziału od zwykłego WZ — `create_wz_from_order`
+    zapisuje DOKŁADNIE tę samą parę (doc_series='WZ', source_type='order',
+    source_id=order_id). `split_documents_service._istniejacy()` filtruje
+    właśnie po tej kolumnie, żeby nie pomylić jednego z drugim.
     """
     today = date.today()
     ym = today.strftime("%y%m")  # RRMM
@@ -473,8 +482,8 @@ def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
             buyer_name, buyer_address, buyer_nip, valued, lines, total_value,
             place, issued_date, release_date, status, notes, currency, eur_rate,
             pallets_h1, pallets_other, containers_total, pallets_other_kind,
-            doc_series, created_at)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'wstepny',%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            doc_series, split_scope, created_at)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'wstepny',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
            RETURNING id""",
         (wid, number, seq, ym, source_type, source_id, json.dumps(seller),
          buyer.get("name"), buyer.get("address"), buyer.get("nip"), valued,
@@ -482,9 +491,10 @@ def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
          (currency or "PLN").upper(), eur_rate,
          int(pallets_h1 or 0), int(pallets_other or 0),
          None if containers_total is None else int(containers_total),
-         pallets_other_kind or None, series, now_iso()),
+         pallets_other_kind or None, series, split_scope, now_iso()),
     )
-    logger.info("wz.generated", extra={"wz_id": wid, "wz_number": number, "doc_series": series})
+    logger.info("wz.generated", extra={"wz_id": wid, "wz_number": number, "doc_series": series,
+                                       "split_scope": split_scope})
     return wid
 
 

@@ -39,6 +39,16 @@ logger = get_logger(__name__)
 #: Notatka na dokumencie wewnętrznym — nie ma jechać z towarem do klienta.
 _NOTATKA_WM = "DOKUMENT WEWNĘTRZNY — NIE WYDAWAĆ KLIENTOWI"
 
+#: Znacznik dokumentu POCHODZĄCEGO Z PODZIAŁU wysyłki (`wz_documents.split_scope`).
+#: `doc_series` + `source_id` same NIE wystarczają do odróżnienia od zwykłego
+#: WZ — `create_wz_from_order` (stara ścieżka) zapisuje DOKŁADNIE tę samą
+#: parę (doc_series='WZ', source_type='order', source_id=order_id). Bez tego
+#: `wystaw_wz_klienta` uznawał stary, niezwiązany z podziałem dokument za
+#: "już wystawiony" i oddawał całe zamówienie zamiast części niefakturowanej
+#: (review Task 4, fix round 1, 2026-09-10).
+_SCOPE_CALOSC = "calosc"
+_SCOPE_WZ_KLIENTA = "wz_klienta"
+
 
 def _zamowienie(order_id: str) -> Dict[str, Any]:
     order = query_one(
@@ -63,16 +73,21 @@ def _buyer(order: Dict[str, Any]) -> Dict[str, Any]:
             "nip": client.get("nip") or ""}
 
 
-def _istniejacy(series: str, order_id: str) -> Any:
-    """Dokument danej serii dla zamówienia — idempotencja per (seria, źródło).
+def _istniejacy(series: str, order_id: str, split_scope: str) -> Any:
+    """Dokument danej serii DLA PODZIAŁU — idempotencja per (seria, źródło,
+    zakres podziału). `split_scope` w WHERE jest tu obowiązkowe: zwykły WZ
+    (stara ścieżka, `split_scope IS NULL`) ma tę samą parę (doc_series,
+    source_id) co dokument klienta z podziału — bez tego warunku ten
+    zapytanie znajdowałoby stary dokument i błędnie uznawałoby go za
+    "już wystawiony" (patrz komentarz przy `_SCOPE_CALOSC` wyżej).
 
     ANULOWANY dokument kandydatem nie jest, tak jak przy zwykłym WZ
     (`should_reuse` w `wz_service`) — wydał numer z powrotem do puli i nic
     już nie wydaje."""
     return query_one(
         "SELECT id, number, lines FROM wz_documents WHERE doc_series=%s AND source_id=%s "
-        "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1",
-        (series, order_id))
+        "AND split_scope=%s AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1",
+        (series, order_id, split_scope))
 
 
 def _linie_z_dokumentu(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -99,7 +114,7 @@ def wystaw_wz_wewnetrzny(order_id: str) -> Dict[str, Any]:
     """WZ wewnętrzny (seria WM) na CAŁOŚĆ zamówienia — jedyny dokument tej
     wysyłki, który rusza magazyn. Idempotentny: powtórne wywołanie zwraca
     już istniejący dokument bez drugiego rozchodu."""
-    already = _istniejacy("WM", order_id)
+    already = _istniejacy("WM", order_id, _SCOPE_CALOSC)
     if already:
         return {"id": already["id"], "number": already["number"],
                 "kg": _kg_z_linii(_linie_z_dokumentu(already))}
@@ -117,8 +132,8 @@ def wystaw_wz_wewnetrzny(order_id: str) -> Dict[str, Any]:
         # nie mają wyścigu o to, kto tworzy dokument.
         raced = cx_query_one(
             conn, "SELECT id, number, lines FROM wz_documents WHERE doc_series='WM' "
-                  "AND source_id=%s AND COALESCE(status,'')<>'anulowany' "
-                  "ORDER BY created_at LIMIT 1", (order_id,))
+                  "AND source_id=%s AND split_scope=%s AND COALESCE(status,'')<>'anulowany' "
+                  "ORDER BY created_at LIMIT 1", (order_id, _SCOPE_CALOSC))
         if raced:
             return {"id": raced["id"], "number": raced["number"],
                     "kg": _kg_z_linii(_linie_z_dokumentu(raced))}
@@ -148,7 +163,7 @@ def wystaw_wz_wewnetrzny(order_id: str) -> Dict[str, Any]:
             conn, source_type="order", source_id=order_id, seller=_seller_block(),
             buyer=_buyer(order), valued=False, lines=lines, total=0.0,
             place=get_company().get("city") or "", issued=issued, released=issued,
-            notes=_NOTATKA_WM, series="WM")
+            notes=_NOTATKA_WM, series="WM", split_scope=_SCOPE_CALOSC)
 
         for g in goods_with_counts:
             fg, take = g["goods"], g["count"]
@@ -203,7 +218,7 @@ def wystaw_wz_klienta(order_id: str) -> Dict[str, Any]:
     zapisanego podziału (`order_split_service.zapisz_podzial`) — bez niego
     nie wiadomo, ile z każdej pozycji poszło na fakturę. ŻADNEGO ruchu
     magazynowego: towar zdjął ze stanu WZ wewnętrzny."""
-    already = _istniejacy("WZ", order_id)
+    already = _istniejacy("WZ", order_id, _SCOPE_WZ_KLIENTA)
     if already:
         return {"id": already["id"], "number": already["number"],
                 "kg": _kg_z_linii(_linie_z_dokumentu(already))}
@@ -227,8 +242,8 @@ def wystaw_wz_klienta(order_id: str) -> Dict[str, Any]:
     with transaction() as conn:
         raced = cx_query_one(
             conn, "SELECT id, number, lines FROM wz_documents WHERE doc_series='WZ' "
-                  "AND source_id=%s AND COALESCE(status,'')<>'anulowany' "
-                  "ORDER BY created_at LIMIT 1", (order_id,))
+                  "AND source_id=%s AND split_scope=%s AND COALESCE(status,'')<>'anulowany' "
+                  "ORDER BY created_at LIMIT 1", (order_id, _SCOPE_WZ_KLIENTA))
         if raced:
             return {"id": raced["id"], "number": raced["number"],
                     "kg": _kg_z_linii(_linie_z_dokumentu(raced))}
@@ -237,7 +252,8 @@ def wystaw_wz_klienta(order_id: str) -> Dict[str, Any]:
             conn, source_type="order", source_id=order_id, seller=_seller_block(),
             buyer=_buyer(order), valued=False, lines=lines, total=total,
             place=get_company().get("city") or "", issued=issued, released=issued,
-            notes="Część niefakturowana — dokument dla odbiorcy.", series="WZ")
+            notes="Część niefakturowana — dokument dla odbiorcy.", series="WZ",
+            split_scope=_SCOPE_WZ_KLIENTA)
         number = cx_query_one(
             conn, "SELECT number FROM wz_documents WHERE id=%s", (wid,))["number"]
 

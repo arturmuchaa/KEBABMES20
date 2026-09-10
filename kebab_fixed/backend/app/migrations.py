@@ -1561,6 +1561,19 @@ _DDL: list[str] = [
     # transakcja) i uruchamiać się tylko gdy naprawdę trzeba, nie na każdym
     # DDL-owym statemencie tej listy.
     "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS doc_series TEXT DEFAULT 'WZ'",
+
+    # Rozróżnienie dokumentu z PODZIAŁU wysyłki od zwykłego WZ (review Task 4,
+    # fix round 1, 2026-09-10). `doc_series` + `source_id` NIE wystarczają:
+    # `create_wz_from_order` (stara ścieżka) zapisuje DOKŁADNIE tę samą parę
+    # (doc_series='WZ', source_type='order', source_id=order_id), co
+    # `wystaw_wz_klienta` — `_istniejacy()` w `split_documents_service.py`
+    # znajdowałby stary, niezwiązany z podziałem dokument i uznawał go za
+    # "już wystawiony". BRAK DEFAULT — NULL dla wszystkich 177 historycznych
+    # dokumentów i każdego przyszłego zwykłego WZ; `'calosc'` dla WZ
+    # wewnętrznego (WM), `'wz_klienta'` dla WZ na część niefakturowaną.
+    # Nazewnictwo spójne z `scope`, które specyfikacja przewiduje dla CMR i
+    # HDI w kolejnych zadaniach tej serii.
+    "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS split_scope TEXT",
 ]
 
 
