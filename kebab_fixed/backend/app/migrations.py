@@ -1592,6 +1592,12 @@ _DDL: list[str] = [
     # więc taki dokument byłby dla wyszukiwania niewidzialny i biuro dostałoby
     # DRUGI dokument tego samego wariantu.
     "UPDATE cmr_documents SET scope='calosc' WHERE scope IS NULL",
+    # HDI w dwóch wariantach: na całość (zawsze) i do faktury (opcjonalnie).
+    # Do części wydawanej na WZ HDI nie powstaje w ogóle — patrz
+    # `hdi_service._sprawdz_zakres`. Wszystkie dotychczasowe dokumenty
+    # powstały przed podziałem wysyłki, czyli na całość.
+    "ALTER TABLE hdi_documents ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'calosc'",
+    "UPDATE hdi_documents SET scope='calosc' WHERE scope IS NULL",
 ]
 
 

@@ -197,9 +197,17 @@ def build_cmr(order_id: str, form: Dict[str, Any],
     co = get_company()
     company_addr = f"{co.get('address','')}".strip()
     load_city = co.get("city", "")
+    # Numer HDI w załącznikach musi być z TEGO SAMEGO wariantu: CMR „na drogę"
+    # jedzie z kierowcą i powołuje się na HDI na całość, CMR pod fakturę — na
+    # HDI do faktury. Zapytanie po samym `order_id` (ORDER BY created_at DESC)
+    # brało dokument wystawiony PÓŹNIEJ, czyli zwykle ten do faktury: papier
+    # jadący z pełnym towarem powoływałby się na dokument na inną ilość.
+    # Gdy HDI danego wariantu jeszcze nie ma, załącznik zostaje PUSTY —
+    # podstawienie numeru drugiego wariantu byłoby cichym błędem na papierze.
     hdi = query_one(
-        "SELECT number FROM hdi_documents WHERE order_id=%s ORDER BY created_at DESC LIMIT 1",
-        (order_id,))
+        "SELECT number FROM hdi_documents WHERE order_id=%s "
+        "AND COALESCE(scope,%s)=%s ORDER BY created_at DESC LIMIT 1",
+        (order_id, ZAKRES_CALOSC, scope))
     today = datetime.now().strftime("%Y-%m-%d")
 
     payload = {

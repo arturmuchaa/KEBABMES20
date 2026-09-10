@@ -11,6 +11,7 @@ from app.utils.ids import cuid, now_iso
 from app.utils.batch_numbers import kebab_batch_no, kebab_batch_wsad
 from app.utils.unit_codes import best_before
 from app.utils.hdi_lang import lang_from_nip
+from app.utils.product_key import Klucz, kandydaci, klucz_wyrobu
 from app.services.order_stock_service import (
     produced_by_key_from_plan_lines,
     stock_portions_for_order,
@@ -154,12 +155,17 @@ def units_from_plan_lines(lines: List[Dict[str, Any]], shelf_by_recipe: Dict[str
             for _ in range(int(pieces)):
                 units.append({
                     "product_type_name": name,
-                "tuleja": tul,
                     "tuleja": tul,
                     "weight_kg": weight,
                     "batch_no": bno,
                     "produced_date": pd,
                     "shelf_life_days": shelf,
+                    # Tożsamość wyrobu (receptura+waga+rodzaj+tuleja) — po niej
+                    # wariant „do faktury" przycina sztuki do `qty_invoice`.
+                    # `group_hdi_items` pól z podkreśleniem nie czyta.
+                    "_klucz": klucz_wyrobu(line.get("recipe_id"), weight,
+                                           line.get("product_type_id"),
+                                           line.get("packaging_id")),
                 })
     return units
 
@@ -199,8 +205,77 @@ def units_from_stock_portions(
                 "batch_no": bno,
                 "produced_date": pd,
                 "shelf_life_days": shelf,
+                "_klucz": klucz_wyrobu(fg.get("recipe_id"), fg.get("kg_per_unit"),
+                                       fg.get("product_type_id"),
+                                       fg.get("packaging_id")),
             })
     return units
+
+
+ZAKRES_CALOSC = "calosc"
+ZAKRES_FV = "fv"
+_ZAKRESY = (ZAKRES_CALOSC, ZAKRES_FV)
+
+
+def _sprawdz_zakres(scope: str) -> str:
+    """Do części wydawanej na WZ HDI NIE POWSTAJE.
+
+    Właściciel (2026-09-09): „tylko HDI i na całość i HDI drugie do faktury,
+    do WZ nie". To nie jest niedoróbka do uzupełnienia później — HDI jest
+    dokumentem identyfikacyjnym dla odbiorcy, a część niefakturowana jedzie
+    na tym samym aucie i jest już objęta dokumentem na całość.
+    """
+    scope = (scope or ZAKRES_CALOSC).strip()
+    if scope == "wz":
+        raise HTTPException(
+            400, "Do części wydawanej na WZ nie wystawiamy HDI — wystarczy "
+                 "HDI na całość (i opcjonalnie drugie do faktury)")
+    if scope not in _ZAKRESY:
+        raise HTTPException(400, f"Nieznany wariant HDI: {scope}")
+    return scope
+
+
+def _limity_fakturowane(order_id: str) -> Dict[Klucz, int]:
+    """Ile sztuk każdego wyrobu idzie na fakturę — z `qty_invoice` pozycji.
+
+    Ten sam podział, z którego liczy się WZ dla klienta (dopełnienie
+    `qty - qty_invoice`) i CMR pod fakturę. Jedno źródło, bo papiery muszą
+    się zgadzać co do sztuki."""
+    linie = query_all(
+        "SELECT recipe_id, kg_per_unit, product_type_id, packaging_id, qty, qty_invoice "
+        "FROM client_order_lines WHERE order_id=%s", (order_id,))
+    if not linie:
+        raise HTTPException(404, "Zamówienie nie ma pozycji")
+    if any(l.get("qty_invoice") is None for l in linie):
+        raise HTTPException(400, "Zamówienie nie ma podziału na fakturę i WZ")
+    limity: Dict[Klucz, int] = {}
+    for l in linie:
+        k = klucz_wyrobu(l.get("recipe_id"), l.get("kg_per_unit"),
+                         l.get("product_type_id"), l.get("packaging_id"))
+        limity[k] = limity.get(k, 0) + int(l.get("qty_invoice") or 0)
+    return limity
+
+
+def _przytnij_do_fakturowanych(units: List[Dict[str, Any]],
+                               limity: Dict[Klucz, int]) -> List[Dict[str, Any]]:
+    """Zostaw tylko tyle sztuk każdego wyrobu, ile idzie na fakturę.
+
+    Sztuki zostają w kolejności, w jakiej powstały (produkcja z planu, potem
+    zapas magazynowy od najstarszego), więc wariant do faktury jest ZAWSZE
+    podzbiorem dokumentu na całość — te same partie, mniej sztuk. Dopasowanie
+    idzie przez `kandydaci`, tak samo jak pokrycie zamówienia: wyrób bez
+    rodzaju albo bez tulei (starsze dane) pasuje do półki opisanej dokładnie.
+    """
+    zostalo = dict(limity)
+    wynik: List[Dict[str, Any]] = []
+    for u in units:
+        k = u.get("_klucz") or klucz_wyrobu(None, u.get("weight_kg"))
+        for cel in kandydaci(zostalo, k):
+            if zostalo.get(cel, 0) > 0:
+                zostalo[cel] -= 1
+                wynik.append(u)
+                break
+    return wynik
 
 
 def group_hdi_items(units: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -298,7 +373,8 @@ def _hdi_header(client: Dict[str, Any], fallback_name: str) -> tuple:
     return header, lang
 
 
-def build_hdi(order_id: str) -> Dict[str, Any]:
+def build_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
+    scope = _sprawdz_zakres(scope)
     order = query_one("SELECT * FROM client_orders WHERE id=%s", (order_id,))
     if not order:
         raise HTTPException(404, "Zamówienie nie znalezione")
@@ -354,16 +430,29 @@ def build_hdi(order_id: str) -> Dict[str, Any]:
     units += units_from_stock_portions(portions, shelf_by_recipe, doc_names, mode, recipe_names)
     if not units:
         raise HTTPException(400, "Brak wyprodukowanej produkcji dla tego zamówienia")
+    if scope == ZAKRES_FV:
+        units = _przytnij_do_fakturowanych(units, _limity_fakturowane(order_id))
+        if not units:
+            raise HTTPException(
+                400, "Podział nie przewiduje ani jednej sztuki na fakturę")
     items = group_hdi_items(units)
     total_qty = sum(i["qty"] for i in items)
     total_kg = round(sum(i["kg"] for i in items), 3)
 
-    ordered_qty = sum(int(ln.get("qty") or 0) for ln in order_lines)
+    # „Niekompletne" znaczy: wyprodukowano mniej, niż zamówiono. Wariant do
+    # faktury jest mniejszy Z ZAŁOŻENIA, więc porównujemy go z tym, co podział
+    # przewidział na fakturę, a nie z całym zamówieniem — inaczej KAŻDY taki
+    # dokument szedłby z ostrzeżeniem o brakach.
+    if scope == ZAKRES_FV:
+        ordered_qty = sum(int(ln.get("qty_invoice") or 0) for ln in query_all(
+            "SELECT qty_invoice FROM client_order_lines WHERE order_id=%s", (order_id,)))
+    else:
+        ordered_qty = sum(int(ln.get("qty") or 0) for ln in order_lines)
     incomplete = ordered_qty > 0 and total_qty < ordered_qty
 
     header, lang = _hdi_header(client, order.get("client_name", ""))
     return {"order_id": order_id, "client_name": order.get("client_name", ""), "language": lang,
-            "incomplete": incomplete, "header": header, "items": items,
+            "incomplete": incomplete, "header": header, "items": items, "scope": scope,
             "totals": {"qty": total_qty, "kg": total_kg}}
 
 
@@ -467,15 +556,21 @@ def _next_hdi_seq(conn, ym: str) -> int:
     return seq
 
 
-def generate_hdi(order_id: str) -> Dict[str, Any]:
+def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
+    scope = _sprawdz_zakres(scope)
     # Numer HDI jest STAŁY per zamówienie/wydanie. Jeśli dokument dla tego
     # zamówienia już istnieje, NIE nabijamy kolejnego numeru — zwracamy ten sam.
     # Dopóki status to 'wstepny', odświeżamy jego treść (stan produkcji mógł się
     # zmienić), zachowując numer; po potwierdzeniu zwracamy bez zmian.
+    #
+    # `COALESCE(scope,'calosc')` — zamówienie z podziałem ma DWA dokumenty
+    # o tym samym `order_id`. Bez tego warunku wariant do faktury dostawałby
+    # dokument na całość jako „już wystawiony" (a numer HDI jest SPALANY po
+    # wydaniu, [[kebab-hdi-numeracja]], więc pomyłki nie da się cicho cofnąć).
     existing = query_one(
         "SELECT id, number, status, incomplete, totals FROM hdi_documents "
-        "WHERE order_id=%s ORDER BY created_at LIMIT 1",
-        (order_id,))
+        "WHERE order_id=%s AND COALESCE(scope,%s)=%s ORDER BY created_at LIMIT 1",
+        (order_id, ZAKRES_CALOSC, scope))
 
     # Zamówienie ZREALIZOWANE (albo anulowane) — dokument jest zamknięty.
     # Towar wyjechał, papier z nim pojechał; ponowne „Generuj" tylko go
@@ -489,25 +584,26 @@ def generate_hdi(order_id: str) -> Dict[str, Any]:
             raise HTTPException(
                 400, "Zamówienie jest już zamknięte — nowego HDI nie wystawiamy")
         return {"id": existing["id"], "number": existing["number"],
-                "status": existing["status"], "frozen": True,
+                "status": existing["status"], "frozen": True, "scope": scope,
                 "incomplete": bool(existing.get("incomplete")),
                 "totals": existing.get("totals") or {}}
 
-    data = build_hdi(order_id)
+    data = build_hdi(order_id, scope)
     if existing:
         if existing["status"] == "wstepny":
             with transaction() as conn:
                 cx_execute(conn,
                     """UPDATE hdi_documents
                        SET client_name=%s, language=%s, incomplete=%s,
-                           header=%s::jsonb, items=%s::jsonb, totals=%s::jsonb
+                           header=%s::jsonb, items=%s::jsonb, totals=%s::jsonb,
+                           scope=%s
                        WHERE id=%s""",
                     (data["client_name"], data["language"], data["incomplete"],
                      json.dumps(data["header"]), json.dumps(data["items"]),
-                     json.dumps(data["totals"]), existing["id"]))
+                     json.dumps(data["totals"]), scope, existing["id"]))
         logger.info("hdi.reused", extra={"hdi_id": existing["id"], "number": existing["number"]})
         return {"id": existing["id"], "number": existing["number"], "status": existing["status"],
-                "incomplete": data["incomplete"], "totals": data["totals"]}
+                "scope": scope, "incomplete": data["incomplete"], "totals": data["totals"]}
 
     today = datetime.now()
     ym = today.strftime("%y%m")  # RRMM
@@ -518,13 +614,13 @@ def generate_hdi(order_id: str) -> Dict[str, Any]:
         cx_execute(conn,
             """INSERT INTO hdi_documents
                (id, number, seq, year_month, order_id, client_name, language, status,
-                incomplete, header, items, totals, issue_date, created_at)
-               VALUES (%s,%s,%s,%s,%s,%s,%s,'wstepny',%s,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s)""",
+                incomplete, header, items, totals, issue_date, scope, created_at)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,'wstepny',%s,%s::jsonb,%s::jsonb,%s::jsonb,%s,%s,%s)""",
             (hid, number, seq, ym, order_id, data["client_name"], data["language"],
              data["incomplete"], json.dumps(data["header"]), json.dumps(data["items"]),
-             json.dumps(data["totals"]), today.strftime("%d.%m.%Y"), now_iso()))
-    logger.info("hdi.generated", extra={"hdi_id": hid, "number": number})
-    return {"id": hid, "number": number, "status": "wstepny",
+             json.dumps(data["totals"]), today.strftime("%d.%m.%Y"), scope, now_iso()))
+    logger.info("hdi.generated", extra={"hdi_id": hid, "number": number, "zakres": scope})
+    return {"id": hid, "number": number, "status": "wstepny", "scope": scope,
             "incomplete": data["incomplete"], "totals": data["totals"]}
 
 
