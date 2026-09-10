@@ -117,14 +117,36 @@ def test_komplet_buduje_oba_cmr_z_tego_samego_formularza(db):
 
 def test_komplet_wpisuje_numery_HDI_w_zalaczniki_obu_CMR(db):
     """Ta sama klasa defektu co pusty numer rejestracyjny na drugim HDI:
-    CMR cytuje w polu „załączniki" numer HDI SWOJEGO wariantu, a w kolejności
-    z planu powstaje PRZED nim. Bez przeliczenia po HDI oba listy pojechałyby
-    z kierowcą z pustym załącznikiem."""
+    CMR cytuje w polu „załączniki" numer HDI SWOJEGO wariantu. Komplet
+    wystawia więc HDI PRZED listami i jednym przejściem — załączniki mają być
+    wypełnione już w tym, co trasa zwraca."""
     _przygotuj_z_podzialem(cel_kg=300.0)
     dane = route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
     zalaczniki = [c["payload"]["attachments"]["hdi_number"] for c in dane["cmr"]]
     assert zalaczniki == [dane["hdi_calosc"]["number"], dane["hdi_fv"]["number"]]
     assert all(zalaczniki)
+
+
+def test_odmowa_HDI_do_faktury_nie_pali_numerow_CMR(db):
+    """Powód, dla którego HDI idzie PRZED listami przewozowymi.
+
+    Gdy podział nie przewiduje ani jednej sztuki na fakturę, `generate_hdi`
+    wariantu `fv` odmawia. Przy CMR-ach wystawianych wcześniej biuro zostawało
+    z dwoma listami, które MAJĄ nadany numer i są nieprawdziwe — dokument
+    istnieje, choć nie powinien. Tak ustawione: żaden numer CMR nie schodzi,
+    biuro poprawia podział i wystawia komplet jeszcze raz.
+    """
+    _przygotuj_z_podzialem(cel_kg=0.0)            # całość na WZ, nic na fakturę
+    with pytest.raises(HTTPException) as exc:
+        route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
+    assert exc.value.status_code == 400
+    assert "fakturę" in exc.value.detail
+    # Doszliśmy DOKŁADNIE do wariantu `fv` HDI — inaczej test byłby zielony
+    # z byle powodu (np. gdyby poległo już wystawienie WZ) i o kolejności
+    # nie mówiłby nic.
+    assert len(query_all("SELECT id FROM wz_documents")) == 2
+    assert len(query_all("SELECT id FROM hdi_documents")) == 1
+    assert query_all("SELECT id FROM cmr_documents") == []
 
 
 def test_komplet_rusza_magazyn_dokladnie_raz(db):
