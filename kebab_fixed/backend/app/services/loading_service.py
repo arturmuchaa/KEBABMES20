@@ -227,11 +227,45 @@ def finalize_loading(
             loaded_agg = (aggregate_loaded_units(units_all) if units_all
                           else aggregate_picks(z_rozpisu))
 
+            # Który dokument potwierdza ten załadunek?
+            #
+            # Zamówienie Z PODZIAŁEM na fakturę ma DWA dokumenty: WM na całość
+            # (jedyny, który zdjął stan) i WZ klienta na część niefakturowaną.
+            # Auto wiezie CAŁOŚĆ, więc porównywać zawartość można wyłącznie z WM
+            # — porównanie z częściowym WZ klienta pokazywałoby niezgodność przy
+            # każdym poprawnym załadunku. WZ klienta dostaje sam numer auta
+            # i godzinę (jedzie z kierowcą, ma je mieć na wydruku), bez diffu.
+            #
+            # Bez tego rozróżnienia `ORDER BY created_at LIMIT 1` brał dokument,
+            # który powstał pierwszy — czyli WM — i podpinał pod niego status,
+            # a WZ klienta nie dostawał potwierdzenia nigdy
+            # (re-review Task 4, fix round 3, 2026-09-10).
             existing = cx_query_one(
                 conn,
                 "SELECT id, number, lines FROM wz_documents "
-                "WHERE source_type='order' AND source_id=%s ORDER BY created_at LIMIT 1",
+                "WHERE source_type='order' AND source_id=%s AND split_scope='calosc' "
+                "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1",
                 (order_id,))
+            wz_klienta = None
+            if existing:
+                wz_klienta = cx_query_one(
+                    conn,
+                    "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s "
+                    "AND split_scope='wz_klienta' AND COALESCE(status,'')<>'anulowany' "
+                    "ORDER BY created_at LIMIT 1",
+                    (order_id,))
+            else:
+                # Zamówienie bez podziału — zwykły WZ, jak dotąd. ANULOWANY nie
+                # jest kandydatem: anulowanie zwróciło towar na stan, więc ten
+                # załadunek musi wystawić dokument na nowo (inaczej podpiąłby
+                # załadunek pod papier, który już nic nie wydaje).
+                existing = cx_query_one(
+                    conn,
+                    "SELECT id, number, lines FROM wz_documents "
+                    "WHERE source_type='order' AND source_id=%s "
+                    "AND COALESCE(doc_series,'WZ')='WZ' AND split_scope IS NULL "
+                    "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1",
+                    (order_id,))
 
             if existing:
                 # Tryb „przygotuj wcześniej": rozchód zrobił WZ przy wystawieniu —
@@ -247,6 +281,13 @@ def finalize_loading(
                            loaded_at=now(), vehicle_plate=%s
                        WHERE id=%s""",
                     (status, json.dumps(diff), effective_plate, existing["id"]))
+                if wz_klienta:
+                    # Papier, który jedzie z kierowcą — sam numer auta i godzina.
+                    cx_execute(
+                        conn,
+                        "UPDATE wz_documents SET loaded_at=now(), vehicle_plate=%s "
+                        "WHERE id=%s",
+                        (effective_plate, wz_klienta["id"]))
                 wz_number, wz_id = existing["number"], existing["id"]
             else:
                 # Dokumenty przy załadunku: WZ z faktycznej zawartości + rozchód.

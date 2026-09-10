@@ -385,3 +385,86 @@ def test_sztuki_qr_maja_pierwszenstwo_nad_rozpisem(db):
 
     fg = query_one("SELECT qty_shipped FROM finished_goods WHERE id='f1'")
     assert int(fg["qty_shipped"]) == 10, "policzono dwa razy: sztuki i rozpis"
+
+
+# ── Ścieżka 3: zamówienie z PODZIAŁEM na fakturę ──────────────────────────
+#
+# Podział daje DWA dokumenty na jedną wysyłkę: WM na całość (jedyny, który
+# zdjął stan) i WZ klienta na część niefakturowaną. Auto wiezie całość, więc
+# porównywać zawartość wolno tylko z WM — z częściowym WZ klienta każdy
+# poprawny załadunek wychodziłby jako rozjazd. `ORDER BY created_at LIMIT 1`
+# brało po prostu dokument, który powstał pierwszy
+# (re-review Task 4, fix round 3, 2026-09-10).
+def _dokument_z_podzialu(wid, oid="o1", series="WM", scope="calosc", nr=1,
+                         linie=None, minut_temu=10):
+    execute(
+        "INSERT INTO wz_documents (id, number, seq, year_month, source_type, source_id, "
+        " buyer_name, valued, lines, status, currency, pallets_h1, pallets_other, "
+        " issued_date, doc_series, split_scope, created_at) "
+        "VALUES (%s,%s,%s,'09/26','order',%s,'YBM Gastro GmbH',false,%s::jsonb,'wstepny',"
+        " 'PLN',0,0,'2026-09-10',%s,%s, now() - (%s || ' minutes')::interval)",
+        (wid, f"{series}/{nr}/09/26", nr, oid, json.dumps(linie or []), series, scope,
+         str(minut_temu)))
+    return wid
+
+
+def _przygotuj_podzial(qty=10, kg=30, na_fakture=6):
+    """Zamówienie z kompletem dokumentów podziału. WM powstaje PIERWSZY —
+    tak jak w rzeczywistości (biuro wystawia go przed WZ klienta), więc bez
+    poprawki `LIMIT 1` trafiało właśnie w niego."""
+    _przygotuj(qty=qty, kg=kg)
+    execute("UPDATE finished_goods SET qty_available=0, qty_shipped=%s WHERE id='f1'", (qty,))
+    _dokument_z_podzialu("wm1", series="WM", scope="calosc", nr=1,
+                         linie=[_linia_wz(qty=qty, kg=kg)], minut_temu=20)
+    _dokument_z_podzialu("wzk1", series="WZ", scope="wz_klienta", nr=2,
+                         linie=[_linia_wz(qty=qty - na_fakture, kg=kg)], minut_temu=10)
+
+
+def test_zaladunek_podzialu_weryfikuje_sie_z_dokumentem_NA_CALOSC(db):
+    _przygotuj_podzial(qty=10, kg=30, na_fakture=6)
+
+    zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
+
+    assert zam["wz_number"].startswith("WM/"), "załadunek podpiął się pod zły dokument"
+    assert zam["wz_status"] == "potwierdzony", (
+        "całość auta uznana za rozjazd — porównano z częściowym WZ klienta")
+
+
+def test_zaladunek_podzialu_NIE_zdejmuje_stanu_drugi_raz(db):
+    """Stan zszedł już przy wystawieniu WM — załadunek tylko potwierdza."""
+    _przygotuj_podzial(qty=10, kg=30)
+    ruchow_przed = query_one("SELECT COUNT(*) AS n FROM stock_movements")["n"]
+
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10)
+    assert query_one("SELECT COUNT(*) AS n FROM stock_movements")["n"] == ruchow_przed
+
+
+def test_WZ_klienta_dostaje_numer_auta_i_godzine(db):
+    """Ten papier jedzie z kierowcą — musi mieć na wydruku auto i godzinę,
+    choć diffu (porównania z zawartością) nie dostaje, bo jest częściowy."""
+    _przygotuj_podzial(qty=10, kg=30, na_fakture=6)
+
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    wzk = query_one("SELECT loaded_at, vehicle_plate, loading_status "
+                    "FROM wz_documents WHERE id='wzk1'")
+    assert wzk["loaded_at"] is not None
+    assert wzk["vehicle_plate"] == "KR 99999"
+    assert not wzk["loading_status"], "częściowy WZ klienta nie może dostać statusu zgodności"
+
+
+def test_ANULOWANY_wz_nie_jest_kandydatem_przy_zaladunku(db):
+    """Anulowanie zwróciło towar na stan — załadunek musi wystawić dokument
+    na nowo, a nie podpiąć się pod papier, który już nic nie wydaje."""
+    _przygotuj(qty=10, kg=30)
+    _wz_zamowienia(linie=[_linia_wz(qty=10, kg=30)])
+    execute("UPDATE wz_documents SET status='anulowany' WHERE id='w1'")
+
+    zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
+
+    assert zam["wz_id"] != "w1", "podpięto załadunek pod anulowany dokument"
+    fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10)

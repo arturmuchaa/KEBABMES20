@@ -498,6 +498,45 @@ def _insert_wz(conn, *, source_type, source_id, seller, buyer, valued, lines,
     return wid
 
 
+def _dokument_podzialu_cx(conn, order_id: str) -> Optional[Dict[str, Any]]:
+    """Dokument z PODZIAŁU wysyłki (WM na całość albo WZ klienta) dla tego
+    zamówienia — cokolwiek z ustawionym `split_scope` i nieanulowane."""
+    return cx_query_one(
+        conn,
+        "SELECT id, number FROM wz_documents WHERE source_type='order' AND source_id=%s "
+        "AND split_scope IS NOT NULL AND COALESCE(status,'')<>'anulowany' "
+        "ORDER BY created_at LIMIT 1",
+        (order_id,),
+    )
+
+
+def _odmow_gdy_zamowienie_ma_podzial(conn, order_id: Optional[str]) -> None:
+    """Druga połowa guardu z `split_documents_service._odmow_jesli_koliduje`.
+
+    Tamten broni jednej strony: zamówienie ze zwykłym WZ nie dostanie podziału.
+    Bez tej — zamówienie po podziale nadal przyjmowało stare „Wystaw WZ".
+    Zanim zapytania o „istniejący WZ" zawężono o `doc_series`/`split_scope`
+    (fix round 3), stara ścieżka trafiała PRZYPADKIEM na dokument WM i kończyła
+    się wcześnie, więc szkody nie robiła. Po zawężeniu nie znajduje już nic,
+    wchodzi w pełne budowanie linii z `production_plan_lines.qty_done` (liczone
+    bez wiedzy o tym, co WM już wysłał) i realnie zdejmuje stan DRUGI RAZ —
+    z zapasu „na magazyn", jeśli partie ostemplowane zamówieniem są puste
+    (re-review Task 4, fix round 3, 2026-09-10).
+
+    Odmowa, nie ostrzeżenie z przepuszczeniem: drugi rozchód wymaga ręcznej
+    korekty stanów, a odmowa jest w pełni odwracalna."""
+    if not (order_id or "").strip():
+        return
+    podzial = _dokument_podzialu_cx(conn, order_id)
+    if podzial:
+        raise HTTPException(
+            400,
+            f"Zamówienie ma już dokumenty z podziału na fakturę ({podzial['number']}) — "
+            "nie wystawiaj do niego zwykłego WZ, bo towar zszedłby ze stanu drugi raz. "
+            "Komplet dokumentów wystawia się na ekranie podziału; żeby wrócić do zwykłego "
+            "WZ, najpierw anuluj dokumenty podziału.")
+
+
 def generate_wz(
     source_type: Optional[str],
     source_id: Optional[str],
@@ -521,6 +560,8 @@ def generate_wz(
     seller = _seller_block()
 
     with transaction() as conn:
+        if (source_type or "") == "order":
+            _odmow_gdy_zamowienie_ma_podzial(conn, source_id)
         existing = None
         if (source_id or "").strip():
             # Samo zawężenie co w `create_wz_from_order`: dokument z podziału
@@ -1429,6 +1470,7 @@ def create_wz_from_order(
     notes = "UWAGA: zamówienie zrealizowane częściowo — może brakować sztuk." if incomplete else ""
 
     with transaction() as conn:
+        _odmow_gdy_zamowienie_ma_podzial(conn, order_id)
         # `COALESCE(doc_series,'WZ')='WZ' AND split_scope IS NULL` — zwykły
         # WZ (177 historycznych dokumentów, split_scope IS NULL od zawsze),
         # NIE dokument z podziału wysyłki (WM/WZ klienta, split_documents_

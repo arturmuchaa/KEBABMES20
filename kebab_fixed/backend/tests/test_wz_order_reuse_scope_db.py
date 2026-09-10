@@ -13,7 +13,9 @@ jako WZ dla klienta, cicho, bez ostrzeżenia (review Task 4, fix round 3,
 
 Testy DB — bez TEST_DATABASE_URL skip.
 """
-from app.db import execute
+import pytest
+
+from app.db import execute, query_one
 from app.services.wz_service import create_wz_from_order, generate_wz
 from tests.conftest_split import _przygotuj_bez_podzialu, _przygotuj_z_podzialem
 
@@ -42,19 +44,57 @@ def test_stary_wz_nie_podbiera_dokumentu_wewnetrznego_wm(db):
     _przygotuj_z_podzialem(cel_kg=300.0)
     wm = _dokument_podzialu("o1", series="WM", split_scope="calosc")
 
-    nowy = create_wz_from_order("o1")
+    with pytest.raises(Exception) as e:
+        create_wz_from_order("o1")
 
-    assert nowy["id"] != wm["id"], "create_wz_from_order zwrócił dokument wewnętrzny WM"
-    assert nowy["number"].startswith("WZ/")
+    assert wm["number"] in str(e.value)
+    assert "drugi raz" in str(e.value)
 
 
 def test_stary_wz_nie_podbiera_wz_klienta(db):
     _przygotuj_z_podzialem(cel_kg=300.0)
     wzk = _dokument_podzialu("o1", series="WZ", split_scope="wz_klienta")
 
+    with pytest.raises(Exception) as e:
+        create_wz_from_order("o1")
+
+    assert wzk["number"] in str(e.value)
+
+
+def test_stary_wz_NIE_zdejmuje_stanu_drugi_raz_po_podziale(db):
+    """Sedno sprawy — dokument to papier, rozchód to pieniądze.
+
+    Samo „nie zwróć dokumentu z podziału" nie wystarczyło: po zawężeniu
+    zapytań (fix round 3) stara ścieżka nie znajdowała już NICZEGO, więc
+    budowała WZ od zera i zdejmowała stan po raz drugi. Ten test pilnuje
+    magazynu, nie treści komunikatu."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    _dokument_podzialu("o1", series="WM", split_scope="calosc")
+    przed = query_one(
+        "SELECT COALESCE(SUM(qty_available),0) AS s FROM finished_goods")["s"]
+    ruchow_przed = query_one("SELECT COUNT(*) AS n FROM stock_movements")["n"]
+
+    with pytest.raises(Exception):
+        create_wz_from_order("o1")
+
+    po = query_one("SELECT COALESCE(SUM(qty_available),0) AS s FROM finished_goods")["s"]
+    ruchow_po = query_one("SELECT COUNT(*) AS n FROM stock_movements")["n"]
+    assert po == przed, "stara ścieżka ruszyła magazyn mimo istniejącego podziału"
+    assert ruchow_po == ruchow_przed
+
+
+def test_ANULOWANY_podzial_nie_blokuje_starego_wz(db):
+    """Odmowa musi być odwracalna: biuro anuluje dokumenty podziału (towar
+    wraca na stan) i wraca do zwykłego WZ. Inaczej zamówienie raz podzielone
+    zostawałoby zablokowane na zawsze."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wm = _dokument_podzialu("o1", series="WM", split_scope="calosc")
+    execute("UPDATE wz_documents SET status='anulowany' WHERE id=%s", (wm["id"],))
+
     nowy = create_wz_from_order("o1")
 
-    assert nowy["id"] != wzk["id"], "create_wz_from_order zwrócił WZ klienta z podziału"
+    assert nowy["id"] != wm["id"]
+    assert nowy["number"].startswith("WZ/")
 
 
 def test_stary_wz_nadal_zwraca_zwykly_historyczny_wz(db):
@@ -74,9 +114,24 @@ def test_generate_wz_nie_podbiera_dokumentu_z_podzialu(db):
     _przygotuj_z_podzialem(cel_kg=300.0)
     wm = _dokument_podzialu("o1", series="WM", split_scope="calosc")
 
+    with pytest.raises(Exception) as e:
+        generate_wz(
+            source_type="order", source_id="o1",
+            buyer={"name": "YBM Gastro GmbH", "address": "", "nip": ""},
+            items=[{"name": "Test", "qty": 1, "unit": "szt"}], valued=False)
+
+    assert wm["number"] in str(e.value)
+
+
+def test_generate_wz_z_INNEGO_zrodla_guard_nie_dotyczy(db):
+    """Guard patrzy tylko na `source_type='order'` — WZ ręczny albo z innego
+    źródła nie ma z podziałem zamówienia nic wspólnego i musi przechodzić."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    _dokument_podzialu("o1", series="WM", split_scope="calosc")
+
     nowy = generate_wz(
-        source_type="order", source_id="o1",
+        source_type="pallets", source_id="o1",
         buyer={"name": "YBM Gastro GmbH", "address": "", "nip": ""},
         items=[{"name": "Test", "qty": 1, "unit": "szt"}], valued=False)
 
-    assert nowy["id"] != wm["id"], "generate_wz zwrócił dokument wewnętrzny WM"
+    assert nowy["number"].startswith("WZ/")
