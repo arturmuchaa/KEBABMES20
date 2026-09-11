@@ -296,7 +296,12 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
   }
 
   async function handleSave() {
-    if (!preview) return
+    // Nie nadpisujemy podziału, którego okno NIE ZDOŁAŁO ZOBACZYĆ. Przy
+    // nieudanym odczycie `per_line` poszłoby ze świeżej propozycji algorytmu
+    // i skasowało ręczną korektę z poprzedniej sesji — ten sam skutek co
+    // cichy fallback do pustki, tylko z ostrzeżeniem obok. Wyjściem jest
+    // „Spróbuj ponownie" w banerze błędu, nie zapis w ciemno.
+    if (!preview || bladOdczytu) return
     const celKg = parseFloat(celKgInput.replace(',', '.'))
     if (Number.isNaN(celKg)) return
     // W `per_line` idzie DOKŁADNIE to, co widać w tabeli — także liczby
@@ -567,7 +572,9 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
             </>
           )}
 
-          {!preview && !loadingPreview && (
+          {!preview && !loadingPreview && !bladOdczytu && (
+            // Przy nieudanym odczycie tej podpowiedzi NIE ma: mówiłaby „wpisz
+            // kilogramy" obok banera, który mówi „nie wpisuj niczego na ślepo".
             <div className="rounded border border-dashed border-surface-4 px-3 py-6 text-center text-[12.5px] text-ink-4">
               Wpisz kilogramy na fakturę (albo kliknij „50/50"), żeby zobaczyć podział pozycji.
             </div>
@@ -632,7 +639,7 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
               className="rounded border border-surface-4 px-3 py-2 text-[12.5px] font-medium text-ink hover:bg-surface-2">
               Zamknij
             </button>
-            <button type="button" onClick={handleSave} disabled={!preview || saving}
+            <button type="button" onClick={handleSave} disabled={!preview || saving || !!bladOdczytu}
               className="rounded border border-surface-4 px-3 py-2 text-[12.5px] font-medium text-ink hover:bg-surface-2 disabled:opacity-50">
               {saving ? 'Zapisywanie…' : 'Zapisz podział'}
             </button>
@@ -646,9 +653,12 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
           {!issuing && !matchesSaved && (
             // Widoczny powód blokady zamiast wyszarzonego przycisku bez
             // wyjaśnienia — biuro ma wiedzieć, co zrobić, nie zgadywać.
-            // Wyjście jest w TYM oknie: przycisk „Zapisz podział" obok.
+            // Wyjście jest w TYM oknie: „Spróbuj ponownie" w banerze błędu
+            // albo przycisk „Zapisz podział" obok.
             <div className="basis-full text-right text-[11px] text-ink-4">
-              {!preview
+              {bladOdczytu
+                ? 'Najpierw odczytaj podział z bazy („Spróbuj ponownie" wyżej) — dopóki nie wiadomo, co w niej leży, nie wolno ani zapisać, ani wystawić.'
+                : !preview
                 ? 'Wpisz kilogramy na fakturę (albo kliknij „50/50"), żeby zobaczyć podział przed wystawieniem.'
                 : 'Zapisz podział, żeby wystawić komplet dokumentów — powstają one z tego, co zapisane w bazie, nie z tego, co widać na ekranie.'}
             </div>

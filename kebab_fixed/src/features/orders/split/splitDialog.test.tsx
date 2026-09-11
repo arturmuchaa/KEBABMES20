@@ -511,4 +511,63 @@ describe('SplitDialog', () => {
     expect(screen.getByDisplayValue('6')).toBeTruthy()
     expect((screen.getByLabelText(/na fakturę/i) as HTMLInputElement).value).toBe('300')
   })
+
+  // ── Runda 5: czego okno nie zdołało zobaczyć, tego nie wolno nadpisać ──
+
+  it('po nieudanym odczycie nie wolno zapisac podzialu na slepo', async () => {
+    // Ostatnia furtka w klasie „korekta znika": czerwony baner można było
+    // zignorować, wpisać cel i zapisać — a `per_line` poszłoby ze świeżej
+    // propozycji algorytmu, kasując ręczną korektę, której okno nie zobaczyło.
+    wczytaj.fn.mockRejectedValue(new Error('HTTP 500: Internal Server Error'))
+    podglad.fn.mockResolvedValue(ODPOWIEDZ)
+    zapisz.fn.mockResolvedValue(ODPOWIEDZ)   // żeby czerwień była asercją, nie wywrotką
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText(/nie udało się sprawdzić/i)).toBeTruthy())
+    fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
+    await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
+    const zapiszBtn = screen.getByRole('button', { name: /zapisz podział/i }) as HTMLButtonElement
+    fireEvent.click(zapiszBtn)
+    await act(async () => {})
+    expect(zapisz.fn).not.toHaveBeenCalled()
+    expect(zapiszBtn.disabled).toBe(true)
+    // Wyjście jest obok: udany odczyt odblokowuje zapis.
+    wczytaj.fn.mockResolvedValue(BRAK_PODZIALU)
+    fireEvent.click(screen.getByRole('button', { name: /spróbuj ponownie/i }))
+    await waitFor(() => expect(
+      (screen.getByRole('button', { name: /zapisz podział/i }) as HTMLButtonElement).disabled,
+    ).toBe(false))
+  })
+
+  it('odmowa 404 przy odczycie to nie awaria — okno milczy i pozwala zapisac', async () => {
+    // `zapisany_podzial` odpowiada 404 na zamówienie bez pozycji. To jedyna
+    // odmowa, która NIE jest awarią, więc nie ma stawiać czerwonego banera
+    // ani blokować zapisu — inaczej blokada z poprzedniego testu objęłaby
+    // przypadek, w którym nie ma czego chronić.
+    const odmowa: any = new Error('Zamówienie nie ma pozycji')
+    odmowa.status = 404
+    wczytaj.fn.mockRejectedValue(odmowa)
+    podglad.fn.mockResolvedValue(ODPOWIEDZ)
+    zapisz.fn.mockResolvedValue(ODPOWIEDZ)
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    await act(async () => {})
+    expect(screen.queryByText(/nie udało się sprawdzić/i)).toBeNull()
+    fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
+    await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, { l1: 9, l2: 25 }))
+  })
+
+  it('zapis z ulamkiem w polu pozycji jest odmawiany i nazywa pozycje', async () => {
+    // Bliźniak testu o martwym przycisku „Wystaw": tam ułamek blokuje
+    // wystawienie, tu ma NIE pojechać do zapisu jako obcięta liczba.
+    podglad.fn.mockResolvedValue(ODPOWIEDZ)
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
+    await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
+    fireEvent.change(screen.getByDisplayValue('9'), { target: { value: '9.5' } })
+    fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
+    await act(async () => {})
+    expect(zapisz.fn).not.toHaveBeenCalled()
+    expect(screen.getByText(/Pozycja KIRMIZI/)).toBeTruthy()
+  })
 })
