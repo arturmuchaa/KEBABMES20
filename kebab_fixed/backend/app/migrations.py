@@ -565,6 +565,19 @@ _DDL: list[str] = [
     "UPDATE cmr_documents SET year_month = to_char(created_at, 'YYMM') WHERE year_month IS NULL",
     "UPDATE cmr_documents SET number = seq::text || '/' || to_char(created_at, 'MM/YY') "
     "WHERE position('/' in number) = 0",
+    # Numer CMR-a ma być UNIKALNY, nie „zwykle unikalny". `generate_cmr` bierze
+    # go z `MAX(seq)+1` BEZ blokady: powtórny odczyt w transakcji zamyka okno
+    # dwukliku (ten sam order_id + scope), ale dwie NAPRAWDĘ równoległe
+    # transakcje w READ COMMITTED — dwa zamówienia, dwie osoby w biurze —
+    # policzą to samo `MAX+1` i obie wstawią swój wiersz. HDI tego problemu
+    # nie ma (`_next_hdi_seq` bierze `FOR UPDATE` na wierszu licznika).
+    # Indeks nie naprawia numeracji; zamienia CICHY duplikat numeru na głośny
+    # `UniqueViolation`. Dwa listy przewozowe o tym samym numerze to dokumenty
+    # handlowe nie do rozróżnienia — cicho jest tu najgorzej. Na produkcji
+    # duplikatów (year_month, seq) nie ma, więc indeks powstaje czysto
+    # (review końcowy, I5, 2026-09-11). Przebudowa numeracji na licznik
+    # z `FOR UPDATE` świadomie NIE wchodzi w tę falę.
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_cmr_ym_seq ON cmr_documents(year_month, seq)",
 
     # ── Konfiguracja układu druku CMR (pozycje pól nakładanych na druk) ──
     """CREATE TABLE IF NOT EXISTS cmr_layout (
