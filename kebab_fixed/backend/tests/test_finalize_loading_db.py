@@ -508,7 +508,10 @@ def test_anulowanie_kompletu_PO_ZALADUNKU_jest_odrzucone(db):
     with pytest.raises(Exception) as e:
         anuluj_dokumenty_podzialu("o1")
 
-    assert "załadowan" in str(e.value).lower() or "wyjechał" in str(e.value).lower(), e.value
+    # Odmowa ma nazwać POWÓD (załadunek) i pokazać WYJŚCIE (korekta stanu),
+    # inaczej biuro zostaje z „nie da się" i wraca do ręcznego SQL-a.
+    assert "załadunkiem" in str(e.value), e.value
+    assert "korekt" in str(e.value).lower(), e.value
     po = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
     assert (int(po["qty_available"]), int(po["qty_shipped"])) == (
         int(przed["qty_available"]), int(przed["qty_shipped"])), "odmowa mimo to ruszyła stan"

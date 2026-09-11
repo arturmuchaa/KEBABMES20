@@ -52,6 +52,14 @@ _NOTATKA_WM = "DOKUMENT WEWNĘTRZNY — NIE WYDAWAĆ KLIENTOWI"
 _SCOPE_CALOSC = "calosc"
 _SCOPE_WZ_KLIENTA = "wz_klienta"
 
+#: Odmowa anulowania kompletu, który jest już zamknięty załadunkiem.
+_KOMUNIKAT_PO_ZALADUNKU = (
+    "Dokument {numer} jest już zamknięty załadunkiem — towar pojechał. Anulowanie "
+    "oddałoby na stan magazynu kilogramy, których w chłodni nie ma, i to bez żadnego "
+    "śladu, że chodzi o towar z naczepy. Jeżeli wysyłka naprawdę nie doszła do skutku, "
+    "zrób korektę stanu wyrobu gotowego (przyjęcie zwrotu) — papier zostaje, a magazyn "
+    "opisuje to, co faktycznie leży.")
+
 
 def _zamowienie(order_id: str) -> Dict[str, Any]:
     order = query_one(
@@ -163,8 +171,15 @@ def wystaw_wz_wewnetrzny(order_id: str) -> Dict[str, Any]:
         for gid in sorted(groups):
             fg = cx_query_one(
                 conn,
-                """SELECT id, batch_no, recipe_id, recipe_name, product_type_name,
-                          qty_available, kg_per_unit
+                # `product_type_id` i `packaging_name` są tu OBOWIĄZKOWE, choć
+                # rozchód ich nie potrzebuje: `build_goods_wz_lines` bierze
+                # z nich nazwę rodzaju Z KARTOTEKI ODBIORCY (`doc_names`)
+                # i dopisek tulei. Bez nich WM nazywał ten sam wyrób inaczej
+                # niż WZ dla klienta (`_pozycje_niefakturowane` czyta oba
+                # pola) — jedna wysyłka, dwa papiery, dwie nazwy, a biuro je
+                # zestawia (review końcowy, minor 1, 2026-09-11).
+                """SELECT id, batch_no, recipe_id, recipe_name, product_type_id,
+                          product_type_name, packaging_name, qty_available, kg_per_unit
                    FROM finished_goods WHERE id=%s FOR UPDATE""",
                 (gid,))
             if not fg:
@@ -324,6 +339,15 @@ def anuluj_dokumenty_podzialu(order_id: str) -> Dict[str, Any]:
     Numer wraca do puli swojej serii (`wyprowadz_wz_poza_serie_cx` czyta
     `doc_series` z tego samego wiersza), więc anulowanie nie zostawia dziury
     ani w serii WZ, ani w WM.
+
+    PO ZAŁADUNKU ANULOWAĆ NIE WOLNO. Ta funkcja pisze ruchy `CANCEL`
+    i podnosi `qty_available`, a po `finalize_loading` towar leży już na
+    naczepie — zwrot opisywałby magazyn, którego nie ma. Do tej gałęzi taka
+    droga w ogóle nie istniała (`cancel_wz` odrzuca wszystko z
+    `source_type != 'manual'`), więc to ekspozycja przez nią WNIESIONA
+    (review końcowy, I2, 2026-09-11). Sprawdzenie siedzi WEWNĄTRZ
+    transakcji, na zablokowanym wierszu WM: załadunek zamykany równolegle
+    zdąży inaczej wejść między odczyt a zwroty.
     """
     dokumenty = query_all(
         "SELECT id, number, doc_series, split_scope FROM wz_documents "
@@ -336,6 +360,17 @@ def anuluj_dokumenty_podzialu(order_id: str) -> Dict[str, Any]:
     anulowane: List[Dict[str, Any]] = []
     zwrocone_szt = 0
     with transaction() as conn:
+        # `loaded_at`/`loading_status` stawia `finalize_loading` na dokumencie
+        # `calosc` — oba osobno, bo starszy dokument mógł dostać sam status.
+        wm = cx_query_one(
+            conn,
+            "SELECT number, loaded_at, loading_status FROM wz_documents "
+            "WHERE source_type='order' AND source_id=%s AND split_scope=%s "
+            "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1 FOR UPDATE",
+            (order_id, _SCOPE_CALOSC))
+        if wm and (wm.get("loaded_at") or wm.get("loading_status")):
+            raise HTTPException(400, _KOMUNIKAT_PO_ZALADUNKU.format(numer=wm["number"]))
+
         for d in dokumenty:
             row = cx_query_one(
                 conn,
@@ -418,6 +453,48 @@ def _sprawdz_gotowosc_do_kompletu(order_id: str) -> None:
                  "podział albo wystaw zwykłe WZ na całość.")
 
 
+def _kg_zamowienia(order_id: str) -> float:
+    """Kilogramy CAŁEGO zamówienia — suma `qty * kg_per_unit` z pozycji.
+
+    Ta sama definicja, co `kg_calosc` w `order_split_service` i co liczy okno
+    podziału. Zdenormalizowane `client_orders.total_kg` byłoby drugim
+    źródłem tej samej liczby, a dwa źródła jednej liczby prędzej czy później
+    mówią co innego."""
+    row = query_one(
+        "SELECT COALESCE(SUM(qty * kg_per_unit), 0) AS kg FROM client_order_lines "
+        "WHERE order_id=%s", (order_id,))
+    return round(float((row or {}).get("kg") or 0), 3)
+
+
+def _pokrycie_wysylki(order_id: str, kg_wm: float) -> Dict[str, Any]:
+    """Czy papier opisuje dokładnie tyle, ile wyjechało z zakładu.
+
+    WM powstaje z FAKTYCZNEGO pokrycia w magazynie (`picks_for_order` →
+    `portion_stock_rows`, gdzie `take = min(need, pool)` przy niedoborze po
+    cichu oddaje mniej), a WZ dla klienta i CMR do faktury liczą się
+    z ZAMÓWIENIA (`qty - qty_invoice`, `qty_invoice`). Na krótkiej dostawie
+    daje to kg(WZ) + kg(CMR fv) > kg(WM) — papieru na więcej, niż wyjechało,
+    i dotąd nic tego nie pokazywało (review końcowy, I3).
+
+    OSTRZEŻENIE, NIE ODMOWA (decyzja właściciela procesu): zakład wysyła to,
+    co wyprodukował, a zablokowanie krótkiej dostawy byłoby gorsze niż
+    poinformowanie o niej. To ostatni moment, w którym ktokolwiek może to
+    powiedzieć, zanim auto odjedzie — dalej zostaje już tylko korekta
+    faktury.
+
+    Tolerancja 0,001 kg: kilogramy chodzą w gramach (round(..., 3)), więc
+    równość bez tolerancji potrafiłaby zapalić alarm na zaokrągleniu
+    ostatniej cyfry — a alarm odzywający się przy poprawnej wysyłce to
+    alarm, którego biuro przestaje czytać.
+    """
+    kg_zam = _kg_zamowienia(order_id)
+    brak = round(kg_zam - float(kg_wm or 0), 3)
+    return {"pelne": brak <= 0.001,
+            "kg_wydane": round(float(kg_wm or 0), 3),
+            "kg_zamowienia": kg_zam,
+            "kg_braku": brak if brak > 0.001 else 0.0}
+
+
 def wystaw_komplet(order_id: str, forma_cmr: Dict[str, Any],
                    hdi_fv: bool = False) -> Dict[str, Any]:
     """Komplet papierów przed odjazdem auta: WM, WZ dla klienta, HDI (na
@@ -440,6 +517,12 @@ def wystaw_komplet(order_id: str, forma_cmr: Dict[str, Any],
     Całość siedzi w serwisie, nie w trasie: w warstwie HTTP nie ma miejsca na
     walidację wstępną, a ta kolejność jest nośna dla poprawności stanu
     magazynu i treści papierów (review Task 7, runda 1, finding 2).
+
+    W odpowiedzi wraca też `pokrycie` — jawny sygnał, gdy papier opisuje
+    więcej, niż wyjechało z zakładu (patrz `_pokrycie_wysylki`). To jedyne
+    miejsce, które zna OBIE liczby naraz: kilogramy WM (faktyczne pokrycie
+    w magazynie) i kilogramy zamówienia, z których liczą się WZ dla klienta
+    i CMR do faktury.
     """
     _sprawdz_gotowosc_do_kompletu(order_id)
     wm = wystaw_wz_wewnetrzny(order_id)
@@ -453,7 +536,14 @@ def wystaw_komplet(order_id: str, forma_cmr: Dict[str, Any],
         cmr_service.generate_cmr(order_id, forma_cmr, scope=cmr_service.ZAKRES_CALOSC),
         cmr_service.generate_cmr(order_id, forma_cmr, scope=cmr_service.ZAKRES_FV),
     ]
+    pokrycie = _pokrycie_wysylki(order_id, float(wm.get("kg") or 0))
+    if not pokrycie["pelne"]:
+        logger.warning("podzial.komplet.niepelne_pokrycie",
+                       extra={"order_id": order_id, "kg_wydane": pokrycie["kg_wydane"],
+                              "kg_zamowienia": pokrycie["kg_zamowienia"],
+                              "kg_braku": pokrycie["kg_braku"]})
     logger.info("podzial.komplet.wystawiony",
                 extra={"order_id": order_id, "z_hdi_fv": bool(hdi_fv)})
     return {"order_id": order_id, "wm": wm, "wz": wz, "cmr": cmr,
-            "hdi_calosc": hdi_calosc, "hdi_fv": hdi_do_faktury}
+            "hdi_calosc": hdi_calosc, "hdi_fv": hdi_do_faktury,
+            "pokrycie": pokrycie}

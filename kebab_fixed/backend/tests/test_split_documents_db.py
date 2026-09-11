@@ -1,7 +1,9 @@
 """Komplet dokumentów przy podziale — i reguła, że stan rusza TYLKO WM."""
+import json
+
 import pytest
 
-from app.db import query_all, query_one
+from app.db import execute, query_all, query_one
 from app.models.orders import ClientOrderCreate
 from app.services.orders_service import update_order
 from app.services.split_documents_service import (anuluj_dokumenty_podzialu,
@@ -321,3 +323,27 @@ def test_ANULOWANY_komplet_odblokowuje_edycje_zamowienia(db):
 
     linia = query_one("SELECT qty, qty_invoice FROM client_order_lines WHERE id='o1-l1'")
     assert (int(linia["qty"]), int(linia["qty_invoice"])) == (3, 3)
+
+
+# ── Nazwa wyrobu: jedna wysyłka, jedna nazwa na obu papierach ─────────────
+def test_nazwa_na_WM_ma_dopisek_tulei_tak_jak_WZ_klienta(db):
+    """`wystaw_wz_wewnetrzny` czytało wiersz wyrobu BEZ `product_type_id`
+    i `packaging_name`, a `build_goods_wz_lines` bierze z nich rodzaj
+    z kartoteki odbiorcy i dopisek tulei. Ten sam wyrób nazywał się więc
+    inaczej na WM i na WZ dla klienta (`_pozycje_niefakturowane` czyta oba
+    pola) — a biuro te dwa papiery zestawia (review końcowy, minor 1)."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    execute("UPDATE finished_goods SET packaging_name='METAL 80CM' WHERE id='f1'")
+    execute("UPDATE client_order_lines SET packaging_name='METAL 80CM' WHERE id='o1-l1'")
+
+    wm = wystaw_wz_wewnetrzny("o1")
+    wz = wystaw_wz_klienta("o1")
+
+    def _nazwy(wid):
+        linie = query_one("SELECT lines FROM wz_documents WHERE id=%s", (wid,))["lines"]
+        if isinstance(linie, str):
+            linie = json.loads(linie or "[]")
+        return [l["name"] for l in linie]
+
+    assert any(n.endswith("(80cm)") for n in _nazwy(wm["id"])), _nazwy(wm["id"])
+    assert any(n.endswith("(80cm)") for n in _nazwy(wz["id"])), _nazwy(wz["id"])

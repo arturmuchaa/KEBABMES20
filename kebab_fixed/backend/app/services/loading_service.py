@@ -312,8 +312,13 @@ def finalize_loading(
                 for gid in sorted(groups):
                     fg = cx_query_one(
                         conn,
-                        """SELECT id, batch_no, recipe_id, recipe_name, product_type_name,
-                                  qty_available, kg_per_unit
+                        # `product_type_id`/`packaging_name` — patrz ten sam
+                        # SELECT w `split_documents_service`: karmią nazwę
+                        # pozycji (rodzaj z kartoteki odbiorcy + dopisek
+                        # tulei) w `build_goods_wz_lines`.
+                        """SELECT id, batch_no, recipe_id, recipe_name, product_type_id,
+                                  product_type_name, packaging_name, qty_available,
+                                  kg_per_unit
                            FROM finished_goods WHERE id=%s FOR UPDATE""",
                         (gid,))
                     if not fg:
