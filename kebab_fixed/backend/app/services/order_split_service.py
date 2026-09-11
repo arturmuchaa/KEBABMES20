@@ -24,6 +24,48 @@ _KOMUNIKAT_PO_WYSTAWIENIU = (
     + KOMUNIKAT_ANULUJ_PODZIAL + ".")
 
 
+#: Odmowa EDYCJI ZAMÓWIENIA, na którym leżą już papiery z podziału.
+#: Osobny tekst od `_KOMUNIKAT_PO_WYSTAWIENIU`, bo opisuje inną szkodę:
+#: tam rozjeżdżają się dokumenty MIĘDZY SOBĄ, tu zamówienie rozjeżdża się
+#: z WYDRUKOWANYM papierem. Wyjście jest to samo, więc zdanie o wyjściu też
+#: (`KOMUNIKAT_ANULUJ_PODZIAL`).
+_KOMUNIKAT_EDYCJA_PO_WYSTAWIENIU = (
+    "Zamówienie ma już wystawione dokumenty z podziału ({numer}) — edycja pozycji "
+    "przestawiłaby liczby, które są już na WYDRUKOWANYM papierze. Część na WZ liczy się "
+    "jako qty - qty_invoice, więc zmiana ilości po cichu przepisuje zawartość wystawionego "
+    "WZ dla klienta. Żeby poprawić zamówienie, " + KOMUNIKAT_ANULUJ_PODZIAL + ".")
+
+
+def _dokument_z_podzialu(order_id: str) -> Optional[Dict[str, Any]]:
+    """Pierwszy ŻYWY dokument z podziału tego zamówienia (albo None)."""
+    return query_one(
+        "SELECT number FROM wz_documents WHERE source_type='order' AND source_id=%s "
+        "AND split_scope IS NOT NULL AND COALESCE(status,'')<>'anulowany' "
+        "ORDER BY created_at LIMIT 1", (order_id,))
+
+
+def odmow_edycji_gdy_dokumenty_wystawione(order_id: str) -> None:
+    """Trzecia siostra tej samej bramki — woła ją `orders_service.update_order`.
+
+    Wystawienie kompletu NIE zmienia statusu zamówienia: zostaje `confirmed`,
+    czyli w pełni edytowalne, a `_reconcile_lines_cx` po cichu PRZYCINA
+    `qty_invoice` do nowego `qty` (min(stare, nowe)), zabiera je razem
+    z usuniętą pozycją i daje NULL pozycji dopisanej. Zamówienie 10 szt.
+    z 8 na fakturę, poprawione na 3 szt., zostawia „na WZ" zero, podczas gdy
+    WYDRUKOWANY WZ dla klienta mówi o 2 sztukach — cicha zmiana liczb, które
+    są już na papierze (review końcowy, I1, 2026-09-11).
+
+    Stoi TUTAJ, a nie w `orders_service`, żeby wszystkie trzy odmowy
+    („na tym zamówieniu leżą papiery z podziału") czytało się w jednym
+    miejscu. Import po stronie `orders_service` jest lokalny — `wz_service`
+    importuje `orders_service`, więc import modułowy zamknąłby cykl.
+    """
+    dokument = _dokument_z_podzialu(order_id)
+    if dokument:
+        raise HTTPException(
+            400, _KOMUNIKAT_EDYCJA_PO_WYSTAWIENIU.format(numer=dokument["number"]))
+
+
 def _odmow_gdy_dokumenty_wystawione(order_id: str) -> None:
     """Guard na `zapisz_podzial` i `wyczysc_podzial`.
 
@@ -40,10 +82,7 @@ def _odmow_gdy_dokumenty_wystawione(order_id: str) -> None:
     Odmowa jest w pełni odwracalna — `anuluj_dokumenty_podzialu` zwraca towar
     na stan i odblokowuje podział (review Task 7, runda 1, finding 3).
     """
-    dokument = query_one(
-        "SELECT number FROM wz_documents WHERE source_type='order' AND source_id=%s "
-        "AND split_scope IS NOT NULL AND COALESCE(status,'')<>'anulowany' "
-        "ORDER BY created_at LIMIT 1", (order_id,))
+    dokument = _dokument_z_podzialu(order_id)
     if dokument:
         raise HTTPException(400, _KOMUNIKAT_PO_WYSTAWIENIU.format(numer=dokument["number"]))
 
@@ -157,7 +196,7 @@ def zapisany_podzial(order_id: str) -> Dict[str, Any]:
 
     * `istnieje` — którakolwiek pozycja ma zapisane `qty_invoice`;
     * `kompletny` — mają je WSZYSTKIE. Tylko wtedy komplet dokumentów da się
-      wystawić (`_sprawdz_przed_wystawieniem` odmawia przy choćby jednym
+      wystawić (`_sprawdz_gotowosc_do_kompletu` odmawia przy choćby jednym
       NULL) i tylko wtedy sumy poniżej opisują cały towar z zamówienia.
 
     Podział niepełny (np. po dopisaniu pozycji do zamówienia) oddajemy z

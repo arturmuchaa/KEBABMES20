@@ -832,6 +832,16 @@ def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
                 400,
                 "Można edytować tylko zamówienia w statusie Szkic lub Potwierdzone",
             )
+        # Papiery z podziału nie zmieniają statusu zamówienia, więc sam status
+        # NIE wystarcza: zamówienie z wystawionym WM i WZ dla klienta zostaje
+        # `confirmed` i wchodzi w edycję, która po cichu przepisuje
+        # `qty_invoice` pod wydrukowanym dokumentem (`_reconcile_lines_cx`).
+        # Bramka stoi obok swoich sióstr, w `order_split_service`; import jest
+        # lokalny, bo `wz_service` importuje ten moduł i modułowy zamknąłby
+        # cykl (review końcowy, I1, 2026-09-11).
+        from app.services.order_split_service import \
+            odmow_edycji_gdy_dokumenty_wystawione
+        odmow_edycji_gdy_dokumenty_wystawione(order_id)
         client = cx_query_one(
             conn, "SELECT * FROM clients WHERE id=%s", (dto.client_id,)
         )
