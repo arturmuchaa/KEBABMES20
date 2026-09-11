@@ -228,6 +228,84 @@ def stock_portions_for_order(
     return portion_stock_rows(shortfalls, fg_rows, order_no, wydane_wg_wiersza)
 
 
+def rozpis_palet(pallet_ids: List[str]) -> List[Dict[str, Any]]:
+    """Zawartość wskazanych palet WEDŁUG ROZPISU biura.
+
+    Pozycja palety wskazuje LINIĘ zamówienia, a z niej bierzemy tożsamość
+    wyrobu (receptura, waga sztuki, rodzaj, tuleja). Partii rozpis nie zna —
+    tę wskazuje dopiero magazyn albo dokument (patrz `picks_for_pallets`
+    i `picks_z_dokumentu`).
+    """
+    if not pallet_ids:
+        return []
+    return query_all(
+        """
+        SELECT l.recipe_id, l.kg_per_unit, l.product_type_id, l.packaging_id,
+               SUM(i.qty) AS qty
+          FROM order_pallet_items i
+          JOIN client_order_lines l ON l.id = i.order_line_id
+         WHERE i.pallet_id = ANY(%s)
+         GROUP BY 1, 2, 3, 4
+        """,
+        (pallet_ids,),
+    )
+
+
+def picks_z_dokumentu(pallet_ids: List[str],
+                      linie_dokumentu: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Zawartość palet rozpisana na PARTIE Z JUŻ WYSTAWIONEGO DOKUMENTU.
+
+    Kiedy zamówienie ma dokument, który zdjął towar ze stanu (WM przy podziale
+    wysyłki), pytanie „z jakich partii jedzie ten towar" jest już
+    rozstrzygnięte — i to jego rozstrzygnięcie wisi na wydruku u kierowcy.
+    `picks_for_pallets` wyprowadzało je DRUGI RAZ z bieżącego stanu, czyli
+    z tego, co po tym dokumencie ZOSTAŁO. Na magazynie tego zakładu (linia
+    zamówienia ~76 szt., wiersz `finished_goods` ~17 szt., średnie
+    `qty_available` 9,4) WM opróżnia wiersze co do sztuki, więc drugie
+    wyprowadzenie trafiało w resztki z INNYCH partii, w nic albo w za mało
+    (review końcowy, blokujące 1, 2026-09-11).
+
+    Tu porównujemy więc rozpis palet (co magazynier zeskanował) z liniami
+    dokumentu (co biuro wydało) — dwa NIEZALEŻNE źródła, więc weryfikacja
+    dalej ma sens; stan magazynu, który obie strony już opisały, nie bierze
+    w niej udziału i nie ma jak ich poróżnić.
+
+    Nadwyżka rozpisu ponad dokument NIE znika po cichu: wraca jako porcja
+    BEZ PARTII, więc `verify_wz_against_loaded` pokazuje ją jako rozjazd
+    („na paletach więcej, niż mówi papier") zamiast blokować całe auto.
+
+    Zwraca ten sam kształt co `picks_for_pallets` (`[{"fg": ..., "take": n}]`),
+    ale wiersze są SZTUCZNE i celowo BEZ `id`: opisują dokument, nie magazyn,
+    i nie wolno z nich rozchodować.
+    """
+    braki = compute_shortfalls(rozpis_palet(pallet_ids), {}, {})
+    if not braki:
+        return []
+    wiersze = [
+        {"recipe_id": l.get("recipe_id"), "kg_per_unit": l.get("kg_per_unit"),
+         "batch_no": l.get("batch_no"), "qty_available": int(l.get("qty") or 0)}
+        for l in linie_dokumentu or []
+        if int(l.get("qty") or 0) > 0
+    ]
+    picks = portion_stock_rows(braki, wiersze, "")
+
+    # Ile z rozpisu dokument NIE pokrył. Klucz (receptura, waga sztuki)
+    # wystarcza: `kandydaci` nigdy nie przenosi sztuk między recepturami
+    # ani wagami — tolerancyjne są tylko rodzaj i tuleja.
+    zostalo: Dict[Any, int] = {}
+    for k, ile in braki.items():
+        zostalo[(k[0], k[1])] = zostalo.get((k[0], k[1]), 0) + int(ile)
+    for poz in picks:
+        fg = poz.get("fg") or {}
+        k = (str(fg.get("recipe_id") or ""), round(float(fg.get("kg_per_unit") or 0), 3))
+        zostalo[k] = zostalo.get(k, 0) - int(poz.get("take") or 0)
+    for (recipe_id, kg), ile in sorted(zostalo.items()):
+        if ile > 0:
+            picks.append({"fg": {"recipe_id": recipe_id, "kg_per_unit": kg,
+                                 "batch_no": None}, "take": ile})
+    return picks
+
+
 def picks_for_pallets(order_id: str, pallet_ids: List[str]) -> List[Dict[str, Any]]:
     """Wiersze magazynu pokrywające ZAWARTOŚĆ WSKAZANYCH PALET.
 
@@ -243,6 +321,10 @@ def picks_for_pallets(order_id: str, pallet_ids: List[str]) -> List[Dict[str, An
     Kolejność czerpania i reguły własności są WSPÓLNE z `picks_for_order`:
     najpierw towar ostemplowany tym zamówieniem, potem najstarszy
     (`produced_date ASC`). Nie duplikujemy tu reguły FEFO — jedno źródło.
+
+    TYLKO dla zamówienia, którego nikt jeszcze nie wydał żadnym dokumentem.
+    Gdy dokument już jest (WM przy podziale wysyłki), partie wskazuje ON —
+    patrz `picks_z_dokumentu`.
     """
     if not pallet_ids:
         return []
@@ -252,20 +334,7 @@ def picks_for_pallets(order_id: str, pallet_ids: List[str]) -> List[Dict[str, An
         return []
     order_no = order.get("order_no") or ""
 
-    # Zawartość palet: pozycja palety wskazuje LINIĘ zamówienia, a z niej
-    # bierzemy tożsamość wyrobu (receptura, waga, rodzaj, tuleja).
-    pozycje = query_all(
-        """
-        SELECT l.recipe_id, l.kg_per_unit, l.product_type_id, l.packaging_id,
-               SUM(i.qty) AS qty
-          FROM order_pallet_items i
-          JOIN client_order_lines l ON l.id = i.order_line_id
-         WHERE i.pallet_id = ANY(%s)
-         GROUP BY 1, 2, 3, 4
-        """,
-        (pallet_ids,),
-    )
-    braki = compute_shortfalls(pozycje, {}, {})
+    braki = compute_shortfalls(rozpis_palet(pallet_ids), {}, {})
     if not braki:
         return []
 

@@ -675,3 +675,23 @@ def test_BEZ_podzialu_wyzerowany_stan_dalej_konczy_sie_pominieciem(db):
     assert zam.get("skipped") == "brak załadowanych sztuk"
     fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
     assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10), "drugi rozchód"
+
+
+def test_rozpis_ponad_dokument_WM_wychodzi_jako_rozjazd(db):
+    """Krótka dostawa: WM opisuje tyle, ile magazyn faktycznie miał, a rozpis
+    palet — całe zamówienie. Nadwyżka rozpisu nad papierem nie może ani zniknąć
+    po cichu, ani zatrzymać pojazdu; ma wyjść tym, czym biuro opisuje
+    niezgodność dokumentu z autem, czyli ROZJAZDEM."""
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10, kg=30)
+    _wyrob(qty=8, kg=30)                   # wyprodukowano 8 z 10
+    _paleta(); _pozycja_palety(qty=10)     # rozpisano całe zamówienie
+    zapisz_podzial("o1", 180.0)
+    wystaw_wz_wewnetrzny("o1")
+    wystaw_wz_klienta("o1")
+
+    zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
+
+    assert zam.get("skipped") is None, zam
+    assert zam["wz_status"] == "rozjazd", zam
+    assert [d["diff"] for d in zam["diff"]] == [2], zam["diff"]

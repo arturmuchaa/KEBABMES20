@@ -20,7 +20,7 @@ from fastapi import HTTPException
 
 from app.db import cx_execute, cx_query_all, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
-from app.services.order_stock_service import picks_for_pallets
+from app.services.order_stock_service import picks_for_pallets, picks_z_dokumentu
 from app.services.settings_service import get_company
 from app.services.wz_service import (_insert_wz, _seller_block, build_goods_wz_lines,
                                      naming_context)
@@ -117,6 +117,15 @@ def _units_on_pallets(conn, pallet_ids: List[str]) -> List[Dict[str, Any]]:
         (pallet_ids,))
 
 
+def _linie_dokumentu(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """`lines` z `wz_documents` — psycopg2 zwykle rozpakowuje JSONB samo, ale
+    niektóre ścieżki bazy oddają go jako surowy string."""
+    lines = (doc or {}).get("lines") or []
+    if isinstance(lines, str):
+        lines = json.loads(lines or "[]")
+    return lines
+
+
 def _order_buyer(conn, order: Dict[str, Any]) -> Dict[str, Any]:
     client = None
     if order.get("client_id"):
@@ -206,32 +215,6 @@ def finalize_loading(
             units_all = _units_on_pallets(conn, pallet_ids)
             units = [u for u in units_all if u.get("status") != SHIPPED]  # idempotencja
 
-            # Zakład NIE skanuje pojedynczych sztuk (biuro, 2026-09-09: „nie mamy
-            # możliwości — system musi wierzyć, że zeskanowany karton jest
-            # spakowany zgodnie z zamówieniem"). Gdy na paletach nie ma sztuk QR,
-            # zawartością auta jest ROZPIS PALET, a skan kartki jest jego
-            # potwierdzeniem. Partie dobiera `picks_for_pallets` tą samą regułą
-            # co „Wystaw WZ" z zamówienia: stempel tego zamówienia, potem
-            # NAJSTARSZE. Sztuki QR mają pierwszeństwo — gdy są, rozpis milczy,
-            # inaczej ten sam towar zszedłby ze stanu dwa razy.
-            z_rozpisu = [] if units_all else picks_for_pallets(order_id, pallet_ids)
-
-            # Magazyn musi pokryć CAŁY rozpis zeskanowanych palet. `picks_*`
-            # dobiera tylko to, co leży, więc przy niedoborze dokument wyszedłby
-            # po cichu zaniżony — magazynier zeskanował 16 palet, a WZ pokazałby
-            # mniej i nikt by tego nie zauważył. Lepiej zatrzymać i wyjaśnić.
-            if not units_all and z_rozpisu:
-                _sprawdz_pokrycie_rozpisu(conn, order, pallet_ids, z_rozpisu)
-
-            if not units_all and not z_rozpisu:
-                results.append({"order_id": order_id, "order_no": order.get("order_no"),
-                                "client_name": order.get("client_name"),
-                                "pallets": len(pallets), "skipped": "brak załadowanych sztuk"})
-                continue
-
-            loaded_agg = (aggregate_loaded_units(units_all) if units_all
-                          else aggregate_picks(z_rozpisu))
-
             # Który dokument potwierdza ten załadunek?
             #
             # Zamówienie Z PODZIAŁEM na fakturę ma DWA dokumenty: WM na całość
@@ -245,40 +228,86 @@ def finalize_loading(
             # który powstał pierwszy — czyli WM — i podpinał pod niego status,
             # a WZ klienta nie dostawał potwierdzenia nigdy
             # (re-review Task 4, fix round 3, 2026-09-10).
-            existing = cx_query_one(
+            #
+            # Odczyt jest TUTAJ, przed ustaleniem zawartości auta: to od tego,
+            # czy dokument już istnieje, zależy SKĄD tę zawartość bierzemy.
+            wm = cx_query_one(
                 conn,
                 "SELECT id, number, lines FROM wz_documents "
                 "WHERE source_type='order' AND source_id=%s AND split_scope='calosc' "
                 "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1",
                 (order_id,))
-            wz_klienta = None
-            if existing:
-                wz_klienta = cx_query_one(
-                    conn,
-                    "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s "
-                    "AND split_scope='wz_klienta' AND COALESCE(status,'')<>'anulowany' "
-                    "ORDER BY created_at LIMIT 1",
-                    (order_id,))
+            wz_klienta = cx_query_one(
+                conn,
+                "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s "
+                "AND split_scope='wz_klienta' AND COALESCE(status,'')<>'anulowany' "
+                "ORDER BY created_at LIMIT 1",
+                (order_id,)) if wm else None
+            # Zamówienie bez podziału — zwykły WZ, jak dotąd. ANULOWANY nie
+            # jest kandydatem: anulowanie zwróciło towar na stan, więc ten
+            # załadunek musi wystawić dokument na nowo (inaczej podpiąłby
+            # załadunek pod papier, który już nic nie wydaje).
+            existing = wm or cx_query_one(
+                conn,
+                "SELECT id, number, lines FROM wz_documents "
+                "WHERE source_type='order' AND source_id=%s "
+                "AND COALESCE(doc_series,'WZ')='WZ' AND split_scope IS NULL "
+                "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1",
+                (order_id,))
+
+            # Zakład NIE skanuje pojedynczych sztuk (biuro, 2026-09-09: „nie mamy
+            # możliwości — system musi wierzyć, że zeskanowany karton jest
+            # spakowany zgodnie z zamówieniem"). Gdy na paletach nie ma sztuk QR,
+            # zawartością auta jest ROZPIS PALET, a skan kartki jest jego
+            # potwierdzeniem. Sztuki QR mają pierwszeństwo — gdy są, rozpis
+            # milczy, inaczej ten sam towar zszedłby ze stanu dwa razy.
+            #
+            # Z JAKICH PARTII jedzie ten towar, wie ten, kto go wydał:
+            #
+            # * jest WM (podział wysyłki) — wydał go WM i tylko on. Rozpis palet
+            #   rozkładamy na JEGO linie (`picks_z_dokumentu`). Wyprowadzanie
+            #   tego drugi raz z bieżącego stanu pytało magazyn o towar, który
+            #   ten dokument już z niego zdjął: przy wierszach opróżnionych co do
+            #   sztuki (tak wygląda ten magazyn) trafiało w resztki z INNYCH
+            #   partii (fałszywy rozjazd), w nic („brak załadowanych sztuk",
+            #   WM bez `loaded_at`) albo w za mało (400 blokujące CAŁE auto)
+            #   — review końcowy, blokujące 1, 2026-09-11;
+            # * nie ma dokumentu — nikt jeszcze nic nie wydał, więc partie
+            #   dobiera magazyn tą samą regułą co „Wystaw WZ" z zamówienia:
+            #   stempel tego zamówienia, potem NAJSTARSZE.
+            if units_all:
+                z_rozpisu = []
+            elif wm:
+                z_rozpisu = picks_z_dokumentu(pallet_ids, _linie_dokumentu(wm))
             else:
-                # Zamówienie bez podziału — zwykły WZ, jak dotąd. ANULOWANY nie
-                # jest kandydatem: anulowanie zwróciło towar na stan, więc ten
-                # załadunek musi wystawić dokument na nowo (inaczej podpiąłby
-                # załadunek pod papier, który już nic nie wydaje).
-                existing = cx_query_one(
-                    conn,
-                    "SELECT id, number, lines FROM wz_documents "
-                    "WHERE source_type='order' AND source_id=%s "
-                    "AND COALESCE(doc_series,'WZ')='WZ' AND split_scope IS NULL "
-                    "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1",
-                    (order_id,))
+                z_rozpisu = picks_for_pallets(order_id, pallet_ids)
+                # Magazyn musi pokryć CAŁY rozpis zeskanowanych palet.
+                # `picks_for_pallets` dobiera tylko to, co leży, więc przy
+                # niedoborze dokument wyszedłby po cichu zaniżony — magazynier
+                # zeskanował 16 palet, a WZ pokazałby mniej i nikt by tego nie
+                # zauważył. Lepiej zatrzymać i wyjaśnić.
+                #
+                # Przy WM ta kontrola nie ma czego pilnować: `picks_z_dokumentu`
+                # oddaje CAŁY rozpis (nadwyżkę ponad dokument jako porcję bez
+                # partii), a niezgodność wychodzi rozjazdem — czyli sygnałem,
+                # który opisuje ją celniej i nie zatrzymuje reszty pojazdu.
+                if z_rozpisu:
+                    _sprawdz_pokrycie_rozpisu(conn, order, pallet_ids, z_rozpisu)
+
+            if not units_all and not z_rozpisu:
+                results.append({"order_id": order_id, "order_no": order.get("order_no"),
+                                "client_name": order.get("client_name"),
+                                "pallets": len(pallets), "skipped": "brak załadowanych sztuk"})
+                continue
+
+            loaded_agg = (aggregate_loaded_units(units_all) if units_all
+                          else aggregate_picks(z_rozpisu))
 
             if existing:
                 # Tryb „przygotuj wcześniej": rozchód zrobił WZ przy wystawieniu —
                 # tu tylko weryfikacja dokumentu z faktycznym załadunkiem.
-                wz_lines = existing.get("lines")
-                if isinstance(wz_lines, str):
-                    wz_lines = json.loads(wz_lines or "[]")
-                status, diff = verify_wz_against_loaded(wz_lines or [], loaded_agg)
+                status, diff = verify_wz_against_loaded(
+                    _linie_dokumentu(existing), loaded_agg)
                 cx_execute(
                     conn,
                     """UPDATE wz_documents
