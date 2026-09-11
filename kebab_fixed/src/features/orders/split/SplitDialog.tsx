@@ -25,7 +25,7 @@
  *     jest przycisk „Zapisz podział" stojący w TYM SAMYM oknie, więc nie
  *     trzeba niczego dodatkowo proponować, wystarczy pokazać komunikat.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { cn, fmtKgTrim } from '@/lib/utils'
 import { orderSplitApi, type SplitPreview, type SplitDocuments } from '@/lib/api'
@@ -52,6 +52,17 @@ function odchylkaTekst(odchylka: number): string {
   return `${znak}${fmtKgTrim(odchylka)} kg`
 }
 
+/** Ręczna korekta pola „na FV" — puste pole to jawne ZERO (biuro wykasowało
+ *  liczbę, żeby zdjąć tę pozycję z faktury), nie „zostaw jak było". Śmieciowy
+ *  tekst (nie liczba) wraca `undefined` — wtedy pozycja NIE trafia do
+ *  `per_line` i zostaje przy tym, co policzył backend (fix po review, runda 3). */
+function parseOverride(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined
+  if (raw.trim() === '') return 0
+  const n = parseInt(raw, 10)
+  return Number.isNaN(n) ? undefined : n
+}
+
 export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }: SplitDialogProps) {
   const [celKgInput, setCelKgInput] = useState('')
   const [preview, setPreview] = useState<SplitPreview | null>(null)
@@ -67,6 +78,15 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
   const [needsCancel, setNeedsCancel] = useState(false)
   const [info, setInfo] = useState('')
   const [documents, setDocuments] = useState<SplitDocuments | null>(null)
+  // Biuro ma ręczną korektę linii, której jeszcze nie zapisało — wiersze
+  // pokazują nowe liczby, ale zapisany w bazie podział (i to, co wystawiłby
+  // „Wystaw komplet") wciąż jest SPRZED tej korekty (review, runda 2 i 3).
+  const hasPendingOverrides = Object.keys(overrides).length > 0
+  // Licznik żądań podglądu: „8000" wpisane znak po znaku to kilka POST-ów,
+  // które mogą wrócić NIE PO KOLEI. Bez tego spóźniona odpowiedź na stary
+  // cel potrafiłaby nadpisać tabelę już PO tym, jak backend odpowiedział na
+  // aktualny — operator zatwierdzałby podział, którego nigdy nie widział.
+  const previewSeq = useRef(0)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -75,17 +95,20 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
   }, [onClose])
 
   async function runPreview(celKg: number) {
+    const seq = ++previewSeq.current
     setLoadingPreview(true)
     setDocuments(null); setInfo('')
     try {
       const r = await orderSplitApi.preview(orderId, celKg)
+      if (seq !== previewSeq.current) return  // spóźniona odpowiedź na stary cel — pomiń
       setPreview(r)
       setOverrides({})
     } catch (e: any) {
+      if (seq !== previewSeq.current) return
       setErr(e?.message || 'Nie udało się policzyć podziału')
       setPreview(null)
     } finally {
-      setLoadingPreview(false)
+      if (seq === previewSeq.current) setLoadingPreview(false)
     }
   }
 
@@ -114,10 +137,8 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
     if (Number.isNaN(celKg)) return
     const perLine: Record<string, number> = {}
     for (const line of preview.lines) {
-      const raw = overrides[line.id]
-      if (raw === undefined) continue
-      const n = parseInt(raw, 10)
-      if (!Number.isNaN(n)) perLine[line.id] = n
+      const n = parseOverride(overrides[line.id])
+      if (n !== undefined) perLine[line.id] = n
     }
     setSaving(true); setErr(''); setNeedsCancel(false); setInfo('')
     try {
@@ -135,6 +156,19 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
   }
 
   async function handleIssue() {
+    // Trzy bramki, nie jedna — ten przycisk ZDEJMUJE STAN MAGAZYNU (review,
+    // runda 3): bez podglądu biuro nie widziało podziału, który wystawia;
+    // przy niezapisanej korekcie dokumenty powstałyby z podziału ZAPISANEGO
+    // w bazie (sprzed korekty), a tabela na ekranie pokazuje już nowe liczby.
+    if (issuing || hasPendingOverrides || !preview) return
+    const listaDokumentow = hdiFv
+      ? 'WZ wewnętrzny (WM), WZ dla klienta, 2× CMR, HDI na całość i HDI do faktury'
+      : 'WZ wewnętrzny (WM), WZ dla klienta, 2× CMR i HDI na całość'
+    const ok = window.confirm(
+      `Wystawić komplet dokumentów?\n\nPowstaną: ${listaDokumentow}.\n\n` +
+      'WZ wewnętrzny ZDEJMIE towar ze stanu magazynu wyrobów gotowych — cofniesz to ' +
+      'TYLKO anulując cały komplet.')
+    if (!ok) return
     setIssuing(true); setErr(''); setNeedsCancel(false); setInfo('')
     try {
       const r = await orderSplitApi.documents(orderId, hdiFv)
@@ -167,12 +201,6 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
       setCancelling(false)
     }
   }
-
-  // Biuro ma ręczną korektę linii, której jeszcze nie zapisało — wiersze
-  // pokazują nowe liczby, ale stopka wciąż liczy sumy z POPRZEDNIEJ
-  // odpowiedzi API (backend nie ma trasy „podgląd z per_line"). To musi być
-  // widoczne, inaczej biuro odczyta stare sumy jako aktualne (review, runda 2).
-  const hasPendingOverrides = Object.keys(overrides).length > 0
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" onClick={onClose}>
@@ -237,10 +265,8 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
                   <tbody className="divide-y divide-surface-3">
                     {preview.lines.map(line => {
                       const raw = overrides[line.id]
-                      const parsed = raw !== undefined ? parseInt(raw, 10) : NaN
-                      const naWz = raw !== undefined && !Number.isNaN(parsed)
-                        ? line.qty - parsed
-                        : line.qty_wz
+                      const parsed = parseOverride(raw)
+                      const naWz = parsed !== undefined ? line.qty - parsed : line.qty_wz
                       return (
                         <tr key={line.id}>
                           <td className="px-3 py-2">
@@ -324,8 +350,18 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
           )}
 
           {documents && (
-            <div className="space-y-1 rounded border border-emerald-200 bg-emerald-50 px-3 py-3 text-[12.5px]">
-              <div className="font-semibold text-emerald-800">Komplet dokumentów wystawiony</div>
+            <div className="space-y-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-3 text-[12.5px]">
+              <div className="flex items-center justify-between gap-3">
+                <div className="font-semibold text-emerald-800">Komplet dokumentów wystawiony</div>
+                {/* Tu WIADOMO na pewno, że dokumenty istnieją — akcja wycofania
+                    stoi obok nich ZAWSZE, nie tylko po odmowie (`needsCancel`),
+                    bo bez tego jedyna droga do niej bywała nieosiągalna
+                    (review, runda 3, Important 2). */}
+                <button type="button" onClick={handleCancelDocuments} disabled={cancelling}
+                  className="shrink-0 rounded border border-red-300 px-2.5 py-1 text-[11px] font-medium text-red-700 hover:bg-red-50 disabled:opacity-50">
+                  {cancelling ? 'Anuluję…' : 'Anuluj dokumenty podziału'}
+                </button>
+              </div>
               <DocRow label="WZ wewnętrzny (WM)" doc={documents.wm} typ="wz" />
               <DocRow label="WZ dla klienta" doc={documents.wz} typ="wz" />
               {(documents.cmr ?? []).map((c, i) => (
@@ -351,11 +387,22 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
               className="rounded border border-surface-4 px-3 py-2 text-[12.5px] font-medium text-ink hover:bg-surface-2 disabled:opacity-50">
               {saving ? 'Zapisywanie…' : 'Zapisz podział'}
             </button>
-            <button type="button" onClick={handleIssue} disabled={issuing}
+            {/* Trzy bramki (review, runda 3, Important 1) — ZDEJMUJE STAN: */}
+            <button type="button" onClick={handleIssue}
+              disabled={issuing || hasPendingOverrides || !preview}
               className="rounded bg-ink px-4 py-2 text-[12.5px] font-medium text-surface hover:bg-ink-2 disabled:opacity-50">
               {issuing ? 'Wystawiam…' : 'Wystaw komplet dokumentów'}
             </button>
           </div>
+          {!issuing && (hasPendingOverrides || !preview) && (
+            // Widoczny powód blokady zamiast wyszarzonego przycisku bez
+            // wyjaśnienia — biuro ma wiedzieć, co zrobić, nie zgadywać.
+            <div className="basis-full text-right text-[11px] text-ink-4">
+              {hasPendingOverrides
+                ? 'Zapisz ręczną korektę, żeby wystawić komplet dokumentów.'
+                : 'Wpisz kilogramy na fakturę (albo kliknij „50/50"), żeby zobaczyć podział przed wystawieniem.'}
+            </div>
+          )}
         </footer>
       </div>
     </div>
