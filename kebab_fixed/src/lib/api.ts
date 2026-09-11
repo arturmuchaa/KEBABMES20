@@ -1708,6 +1708,67 @@ export const clientOrdersApi = {
     post<any>(`/client-orders/${orderId}/assign-stock-carton`, { carton_id: cartonId }),
 }
 
+// ─── Podział wysyłki na fakturę i WZ (Task 7 backend, ekran w Tasku 8) ────
+// Kształt 1:1 z `order_split_service` — CELOWO bez mapowania na camelCase.
+// SplitDialog nic nie liczy sam, tylko pyta backend i pokazuje, co przyszło —
+// mapowanie pól tylko rozjeżdżałoby nazwy między kontraktem a ekranem.
+export interface SplitLine {
+  id: string
+  position?: number
+  recipe_name: string
+  product_type_name?: string
+  kg_per_unit: number
+  qty: number
+  qty_invoice: number
+  qty_wz: number
+}
+
+export interface SplitPreview {
+  order_id?: string
+  cel_kg?: number
+  lines: SplitLine[]
+  kg_fv: number
+  kg_wz: number
+  kg_calosc: number
+  trafiono?: boolean
+  odchylka: number
+}
+
+export interface SplitDocRef { id: string; number: string }
+
+export interface SplitDocuments {
+  order_id?: string
+  wm?: SplitDocRef
+  wz?: SplitDocRef
+  cmr?: SplitDocRef[]
+  hdi_calosc?: SplitDocRef
+  hdi_fv?: SplitDocRef | null
+}
+
+export interface SplitCancelResult {
+  order_id?: string
+  documents?: Array<{ id: string; number: string; scope?: string }>
+  returned_qty?: number
+}
+
+export const orderSplitApi = {
+  preview: (orderId: string, celKg: number) =>
+    post<SplitPreview>(`/client-orders/${orderId}/split/preview`, { cel_kg: celKg }),
+  // `per_line` idzie TYLKO gdy biuro coś ręcznie poprawiło — puste pole
+  // znaczy „zostaw wyliczenie backendu" (patrz `ZapisPodzialu` w routach).
+  save: (orderId: string, celKg: number, perLine?: Record<string, number>) =>
+    put<SplitPreview>(`/client-orders/${orderId}/split`, {
+      cel_kg: celKg,
+      ...(perLine && Object.keys(perLine).length ? { per_line: perLine } : {}),
+    }),
+  documents: (orderId: string, hdiFv: boolean) =>
+    post<SplitDocuments>(`/client-orders/${orderId}/split/documents`, { hdi_fv: hdiFv }),
+  // Wyjście ze ślepego zaułka: zwraca towar na stan i zwalnia podział do
+  // ponownej edycji (patrz komentarz w `split_documents_service.anuluj_dokumenty_podzialu`).
+  cancelDocuments: (orderId: string) =>
+    del<SplitCancelResult>(`/client-orders/${orderId}/split/documents`),
+}
+
 export interface StockCartonSuggestionLine {
   recipeName: string
   productTypeName: string

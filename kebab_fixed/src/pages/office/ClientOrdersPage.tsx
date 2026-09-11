@@ -11,6 +11,7 @@ import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi } from '@/lib/apiClient'
 import { hdiApi, wzApi } from '@/lib/api'
 import { CmrFormModal } from '@/components/cmr/CmrFormModal'
+import { SplitDialog } from '@/features/orders/split/SplitDialog'
 import { useClientNames } from '@/lib/clientNames'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { wydane, wydaneWCalosci } from '@/features/orders/lineShipping'
@@ -78,6 +79,7 @@ export function ClientOrdersPage() {
   const clientDisplay = useClientNames()
   const { data: orders, loading, refetch } = useApi(() => clientOrdersApi.list())
   const [cmrOrderId,   setCmrOrderId]   = useState<string | null>(null)
+  const [splitOrder,   setSplitOrder]   = useState<ClientOrder | null>(null)
   const [expanded,     setExpanded]     = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState('')
   // Start z ?q= — globalne szukanie (Ctrl+K) kieruje tu z numerem zamówienia.
@@ -288,6 +290,16 @@ export function ClientOrdersPage() {
                                 title="Wystaw CMR"
                               >
                                 CMR
+                              </button>
+                              <button
+                                /* Rozłożenie dostawy na część fakturowaną (Subiekt,
+                                   poza tym systemem) i część na WZ — kilogram w kilogram
+                                   z ledgerem, patrz features/orders/split/SplitDialog. */
+                                onClick={(e) => { e.stopPropagation(); setSplitOrder(o) }}
+                                className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-indigo-700 hover:bg-indigo-50"
+                                title="Podział wysyłki na fakturę i WZ"
+                              >
+                                Podział
                               </button>
                               {o.status === 'draft' && (
                                 <button
@@ -578,6 +590,15 @@ export function ClientOrdersPage() {
       </Card>
 
       {cmrOrderId && <CmrFormModal orderId={cmrOrderId} onClose={() => setCmrOrderId(null)} />}
+      {splitOrder && (
+        <SplitDialog
+          orderId={splitOrder.id}
+          orderNo={splitOrder.orderNo}
+          clientName={splitOrder.clientName}
+          kgCalosc={splitOrder.totalKg}
+          onClose={() => setSplitOrder(null)}
+        />
+      )}
 
     </div>
   )
