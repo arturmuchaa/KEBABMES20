@@ -1719,19 +1719,31 @@ export interface SplitLine {
   product_type_name?: string
   kg_per_unit: number
   qty: number
-  qty_invoice: number
-  qty_wz: number
+  /** `null` WYŁĄCZNIE w odpowiedzi „zapisany podział" i tylko dla pozycji,
+   *  której podział jeszcze nie obejmuje (dopisanej po zapisie). Podgląd i
+   *  zapis zawsze dają liczbę. Nie udajemy tu zera, którego nikt nie zapisał. */
+  qty_invoice: number | null
+  qty_wz: number | null
 }
 
 export interface SplitPreview {
   order_id?: string
-  cel_kg?: number
+  cel_kg?: number | null
   lines: SplitLine[]
   kg_fv: number
   kg_wz: number
   kg_calosc: number
-  trafiono?: boolean
-  odchylka: number
+  trafiono?: boolean | null
+  /** `null` przy niepełnym zapisanym podziale — nie ma czego porównać z celem. */
+  odchylka: number | null
+}
+
+/** Podział ZAPISANY na zamówieniu (GET) — nie propozycja algorytmu.
+ *  `istnieje` = którakolwiek pozycja ma zapisane sztuki na fakturę;
+ *  `kompletny` = mają je wszystkie, czyli komplet dokumentów da się wystawić. */
+export interface SplitSaved extends SplitPreview {
+  istnieje: boolean
+  kompletny: boolean
 }
 
 export interface SplitDocRef { id: string; number: string }
@@ -1752,6 +1764,10 @@ export interface SplitCancelResult {
 }
 
 export const orderSplitApi = {
+  // Czytane przy otwarciu okna podziału: dokumenty powstają z tego, co leży
+  // w bazie, więc ekran musi to znać, zanim biuro cokolwiek wpisze.
+  saved: (orderId: string) =>
+    get<SplitSaved>(`/client-orders/${orderId}/split`),
   preview: (orderId: string, celKg: number) =>
     post<SplitPreview>(`/client-orders/${orderId}/split/preview`, { cel_kg: celKg }),
   // `per_line` idzie TYLKO gdy biuro coś ręcznie poprawiło — puste pole

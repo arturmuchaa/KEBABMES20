@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { act, render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 
 const podglad   = vi.hoisted(() => ({ fn: vi.fn() }))
 const zapisz    = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve({})) }))
 const dokumenty = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve({})) }))
 const anuluj    = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve({})) }))
+const wczytaj   = vi.hoisted(() => ({ fn: vi.fn() }))
 vi.mock('@/lib/api', () => ({
   orderSplitApi: {
+    saved: wczytaj.fn,
     preview: podglad.fn,
     save: zapisz.fn,
     documents: dokumenty.fn,
@@ -29,6 +31,30 @@ const ODPOWIEDZ = {
 // przywrócenia `vi.spyOn(window, 'confirm')` i `mockRejectedValue` ustawione
 // w jednym teście zostawały aktywne w KOLEJNYCH (dopisanych PO nim), które
 // nie wiedziały, dlaczego nagle dostają odmowę (review, runda 3, minor 3).
+const BRAK_PODZIALU = {
+  istnieje: false, kompletny: false, cel_kg: null, lines: [],
+  kg_calosc: 13005, kg_fv: 0, kg_wz: 0, trafiono: null, odchylka: null,
+}
+
+// Zapisany podział z RĘCZNĄ korektą: cel 400 kg, ale w bazie leży 490 kg,
+// bo biuro poprawiło pierwszą pozycję z 5 na 8 sztuk. Algorytm sam nigdy by
+// tych liczb nie dał — po to są, żeby było widać, że wracają Z BAZY.
+const ZAPISANY = {
+  istnieje: true, kompletny: true, cel_kg: 400,
+  kg_calosc: 800, kg_fv: 490, kg_wz: 310, trafiono: false, odchylka: 90,
+  lines: [
+    { id: 'l1', recipe_name: 'KIRMIZI', kg_per_unit: 30, qty: 10, qty_invoice: 8, qty_wz: 2 },
+    { id: 'l2', recipe_name: 'BEYAZ AFIYET', kg_per_unit: 25, qty: 20, qty_invoice: 10, qty_wz: 10 },
+  ],
+}
+
+// `vi.clearAllMocks()` nie zdejmuje `mockResolvedValue`, więc domyślną
+// odpowiedź „brak podziału" uzbrajamy PRZED każdym testem — inaczej podział
+// ustawiony w jednym teście wyciekałby do kolejnych.
+beforeEach(() => {
+  wczytaj.fn.mockResolvedValue(BRAK_PODZIALU)
+})
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
@@ -94,7 +120,7 @@ describe('SplitDialog', () => {
     // Biuro poprawia RĘCZNIE jedną pozycję — z 9 na 10 sztuk na fakturę.
     fireEvent.change(screen.getByDisplayValue('9'), { target: { value: '10' } })
     fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
-    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, { l1: 10 }))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, { l1: 10, l2: 25 }))
     // Po udanym zapisie korekta jest utrwalona — ostrzeżenie o starych sumach znika.
     expect(screen.queryByText(/sprzed tej korekty/i)).toBeNull()
   })
@@ -131,7 +157,7 @@ describe('SplitDialog', () => {
     fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
     await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
-    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, undefined))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, { l1: 9, l2: 25 }))
     fireEvent.click(screen.getByLabelText(/także HDI do faktury/i))
     fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
     await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith('o1', true))
@@ -151,7 +177,7 @@ describe('SplitDialog', () => {
     fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
     await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
-    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, undefined))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, { l1: 9, l2: 25 }))
     fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
     expect(confirmSpy).toHaveBeenCalled()
     expect(dokumenty.fn).not.toHaveBeenCalled()
@@ -167,7 +193,7 @@ describe('SplitDialog', () => {
     fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
     await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
-    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, undefined))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, { l1: 9, l2: 25 }))
     fireEvent.change(screen.getByDisplayValue('9'), { target: { value: '10' } })
     const przycisk = screen.getByRole('button', { name: /wystaw komplet dokumentów/i }) as HTMLButtonElement
     expect(przycisk.disabled).toBe(true)
@@ -204,7 +230,7 @@ describe('SplitDialog', () => {
     const komorki = within(wiersz).getAllByRole('cell')
     expect(komorki[komorki.length - 1].textContent).toBe('15')
     fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
-    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, { l1: 0 }))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, { l1: 0, l2: 25 }))
   })
 
   it('gdy zapis odmawia bo dokumenty juz wystawione, oferuje anulowanie ich na miejscu', async () => {
@@ -238,7 +264,7 @@ describe('SplitDialog', () => {
     fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
     await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
-    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, undefined))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, { l1: 9, l2: 25 }))
     fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
     await waitFor(() => expect(screen.getByText(/najpierw zapisz podział/i)).toBeTruthy())
     expect(screen.queryByRole('button', { name: /anuluj dokumenty podziału/i })).toBeNull()
@@ -257,7 +283,7 @@ describe('SplitDialog', () => {
     fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
     await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
-    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, undefined))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, { l1: 9, l2: 25 }))
     // Nowy cel: NOWY, niezapisany podgląd — bez dotykania ręcznych korekt.
     podglad.fn.mockResolvedValue({ ...ODPOWIEDZ, kg_fv: 8995, kg_wz: 4010 })
     fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '9000' } })
@@ -280,7 +306,7 @@ describe('SplitDialog', () => {
     fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
     await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
-    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, undefined))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, { l1: 9, l2: 25 }))
     const nowy = { ...ODPOWIEDZ, kg_fv: 8995, kg_wz: 4010 }
     podglad.fn.mockResolvedValue(nowy)
     zapisz.fn.mockResolvedValue(nowy)
@@ -288,7 +314,7 @@ describe('SplitDialog', () => {
     await waitFor(() => expect(screen.getByText('8995')).toBeTruthy())
     // Zapis dogania ekran — i dopiero wtedy komplet wolno wystawić.
     fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
-    await waitFor(() => expect(zapisz.fn).toHaveBeenLastCalledWith('o1', 9000, undefined))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenLastCalledWith('o1', 9000, { l1: 9, l2: 25 }))
     fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
     await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith('o1', false))
   })
@@ -307,5 +333,72 @@ describe('SplitDialog', () => {
     expect(screen.queryByText('KIRMIZI')).toBeNull()
     // …i nie zostawia wiecznego „Liczę…" zamiast podpowiedzi, co wpisać.
     expect(screen.queryByText(/Liczę/)).toBeNull()
+  })
+
+  // ── Okno wczytuje podział ZAPISANY w bazie ──────────────────────────
+
+  it('otwarte na zamowieniu z zapisanym podzialem pokazuje go i pozwala wystawic BEZ zapisu', async () => {
+    // Sedno: dokumenty powstają z bazy, więc gdy okno wie, co w bazie leży,
+    // nie ma powodu kazać biuru zapisywać podziału jeszcze raz — a ten
+    // ponowny zapis kasował ręczną korektę z poprzedniej sesji.
+    wczytaj.fn.mockResolvedValue(ZAPISANY)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    // Ręczna korekta z poprzedniej sesji (8 szt., algorytm dałby 5) WIDOCZNA.
+    await waitFor(() => expect(screen.getByDisplayValue('8')).toBeTruthy())
+    expect((screen.getByLabelText(/na fakturę/i) as HTMLInputElement).value).toBe('400')
+    // 490 kg na fakturę = zapisany podział, nie propozycja algorytmu na 400 kg.
+    // (Liczba pada dwa razy: w ostrzeżeniu o nietrafieniu i w sumach stopki.)
+    expect(screen.getAllByText('490').length).toBeGreaterThan(0)
+    expect(screen.getByText('310')).toBeTruthy()
+    const przycisk = screen.getByRole('button', { name: /wystaw komplet dokumentów/i }) as HTMLButtonElement
+    expect(przycisk.disabled).toBe(false)
+    fireEvent.click(przycisk)
+    await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith('o1', false))
+    // Po drodze NIE było żadnego zapisu — czyli nie było czego nadpisać.
+    expect(zapisz.fn).not.toHaveBeenCalled()
+  })
+
+  it('otwarte na zamowieniu bez zapisanego podzialu zachowuje sie jak dotad', async () => {
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    await act(async () => {})
+    expect((screen.getByLabelText(/na fakturę/i) as HTMLInputElement).value).toBe('')
+    expect(screen.getAllByText(/wpisz kilogramy na fakturę/i).length).toBeGreaterThan(0)
+    const przycisk = screen.getByRole('button', { name: /wystaw komplet dokumentów/i }) as HTMLButtonElement
+    expect(przycisk.disabled).toBe(true)
+    fireEvent.click(przycisk)
+    expect(dokumenty.fn).not.toHaveBeenCalled()
+  })
+
+  it('niepelny zapisany podzial pokazuje zapisane sztuki i przenosi je do zapisu', async () => {
+    // Pozycja dopisana PO zapisie ma puste sztuki na fakturę. Komplet jest
+    // wtedy odmawiany przez backend, więc biuro MUSI zapisać podział jeszcze
+    // raz — i właśnie wtedy wcześniejsza ręczna korekta ginęła, bo okno
+    // wysyłało sam cel i pozwalało algorytmowi przeliczyć wszystko od nowa.
+    wczytaj.fn.mockResolvedValue({
+      istnieje: true, kompletny: false, cel_kg: 400,
+      kg_calosc: 840, kg_fv: 490, kg_wz: 310, trafiono: null, odchylka: null,
+      lines: [
+        ...ZAPISANY.lines,
+        { id: 'l3', recipe_name: 'NOWA POZYCJA', kg_per_unit: 10, qty: 4,
+          qty_invoice: null, qty_wz: null },
+      ],
+    })
+    zapisz.fn.mockResolvedValue(ZAPISANY)
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByDisplayValue('8')).toBeTruthy())
+    expect(screen.getByText(/nie obejmuje wszystkich pozycji/i)).toBeTruthy()
+    // Pozycja bez podziału nie udaje zera — pole puste, „Na WZ" bez liczby.
+    expect((screen.getByLabelText('na FV — NOWA POZYCJA') as HTMLInputElement).value).toBe('')
+    // Wystawić się nie da: backend i tak odmówi przy pustych sztukach.
+    const przycisk = screen.getByRole('button', { name: /wystaw komplet dokumentów/i }) as HTMLButtonElement
+    fireEvent.click(przycisk)
+    await act(async () => {})
+    expect(dokumenty.fn).not.toHaveBeenCalled()
+    expect(przycisk.disabled).toBe(true)
+    // Zapis przenosi ZAPISANE sztuki pozycji, których nikt nie ruszał —
+    // inaczej algorytm przeliczyłby l1 z 8 z powrotem na 5.
+    fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 400, { l1: 8, l2: 10 }))
   })
 })

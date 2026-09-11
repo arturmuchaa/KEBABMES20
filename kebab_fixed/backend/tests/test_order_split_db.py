@@ -5,7 +5,8 @@ powtórzy się historia znikających palet z sierpnia 2026.
 """
 from app.db import execute, query_all
 from app.models.orders import ClientOrderCreate
-from app.services.order_split_service import podglad_podzialu, zapisz_podzial
+from app.services.order_split_service import (podglad_podzialu, zapisany_podzial,
+                                              zapisz_podzial)
 from app.services.orders_service import get_order, update_order
 
 
@@ -173,3 +174,98 @@ def test_dopasowanie_po_tozsamosci_zachowuje_podzial(db):
         ]}))
     podzial = {l["id"]: l["qty_invoice"] for l in get_order("o1")["lines"]}
     assert podzial == {"l1": 5, "l2": 10}, "dopasowanie po tożsamości zgubiło podział"
+
+
+# ── Odczyt ZAPISANEGO podziału (GET) ──────────────────────────────
+#
+# Okno podziału musi wiedzieć, co JEST w bazie, a nie tylko jak BY się
+# rozłożyło. Bez tego biuro, które wczoraj poprawiło pozycję ręcznie, dziś
+# zastaje wyszarzony przycisk, zapisuje podział jeszcze raz „żeby odblokować"
+# i wczorajsza korekta ginie bez pytania — `zapisz_podzial` nadpisuje
+# `qty_invoice` na KAŻDEJ pozycji propozycją algorytmu.
+
+
+def test_zapisany_podzial_oddaje_baze_a_nie_propozycje_algorytmu(db):
+    _slownik(); _zamowienie()                       # 300 + 500 = 800 kg
+    zapisz_podzial("o1", 400.0, {"l1": 8})          # algorytm sam dałby l1=5
+    z = zapisany_podzial("o1")
+    assert z["istnieje"] is True
+    assert z["kompletny"] is True
+    assert z["cel_kg"] == 400.0
+    assert {l["id"]: l["qty_invoice"] for l in z["lines"]} == {"l1": 8, "l2": 10}
+    assert {l["id"]: l["qty_wz"] for l in z["lines"]} == {"l1": 2, "l2": 10}
+    assert z["kg_fv"] == 490.0                      # 8*30 + 10*25
+    assert z["kg_wz"] == 310.0                      # 2*30 + 10*25
+    assert z["kg_calosc"] == 800.0
+    assert z["trafiono"] is False                   # zapisane 490 kg wobec celu 400
+    assert z["odchylka"] == 90.0
+
+
+def test_zapisany_podzial_mowi_wprost_ze_podzialu_nie_ma(db):
+    _slownik(); _zamowienie()
+    z = zapisany_podzial("o1")
+    assert z["istnieje"] is False
+    assert z["kompletny"] is False
+    assert z["cel_kg"] is None
+    assert z["trafiono"] is None
+    assert z["odchylka"] is None
+    assert all(l["qty_invoice"] is None for l in z["lines"])
+    assert z["kg_calosc"] == 800.0                  # pozycje są, podziału nie ma
+
+
+def test_zapisany_podzial_niepelny_gdy_doszla_nowa_pozycja(db):
+    """Pozycja dopisana PO zapisie ma `qty_invoice` NULL (patrz
+    `test_nowa_pozycja_ma_puste_qty_invoice`). Podział wtedy ISTNIEJE — stare
+    pozycje mają swoje sztuki, w tym ręczną korektę biura — ale nie jest
+    KOMPLETNY, a komplet dokumentów odmawia przy choćby jednym NULL.
+
+    Okno potrzebuje obu tych informacji OSOBNO: zapisane liczby ma pokazać
+    (inaczej znikną przy ponownym zapisie), a przycisku wystawienia nie ma
+    odblokować."""
+    _slownik(); _zamowienie()
+    zapisz_podzial("o1", 400.0, {"l1": 8})
+    execute("INSERT INTO client_order_lines (id, order_id, recipe_id, product_type_id, "
+            " qty, kg_per_unit, total_kg) VALUES ('l3','o1','r1','pt1',4,10,40)")
+    z = zapisany_podzial("o1")
+    assert z["istnieje"] is True
+    assert z["kompletny"] is False
+    assert z["trafiono"] is None                    # niepełnego podziału nie ma do czego porównać
+    assert z["odchylka"] is None
+    po_id = {l["id"]: l for l in z["lines"]}
+    assert po_id["l1"]["qty_invoice"] == 8          # korekta z poprzedniej sesji WIDOCZNA
+    assert po_id["l3"]["qty_invoice"] is None
+    assert po_id["l3"]["qty_wz"] is None
+    assert z["kg_calosc"] == 840.0
+    assert z["kg_fv"] == 490.0                      # tylko pozycje z zapisanym podziałem
+
+
+def test_zapisany_podzial_liczy_trafiono_TAK_SAMO_jak_zapis(db):
+    """Trzecie miejsce liczące „trafiono" to trzecia okazja, żeby znaczyło coś
+    innego. Odczyt musi oddać dokładnie to, co powiedział zapis — inaczej ten
+    sam podział raz „trafia", a raz nie, zależnie od tego, którą trasą biuro
+    na niego patrzy."""
+    _slownik(); _zamowienie()
+    zapis = zapisz_podzial("o1", 400.0, None)
+    odczyt = zapisany_podzial("o1")
+    assert zapis["trafiono"] is True
+    assert odczyt["trafiono"] == zapis["trafiono"]
+    assert odczyt["odchylka"] == zapis["odchylka"] == 0.0
+    # Cel spoza siatki całych sztuk (30/25 kg) — nie da się trafić dokładnie.
+    zapis_2 = zapisz_podzial("o1", 401.0, None)
+    odczyt_2 = zapisany_podzial("o1")
+    assert zapis_2["trafiono"] is False
+    assert odczyt_2["trafiono"] == zapis_2["trafiono"]
+    assert odczyt_2["odchylka"] == zapis_2["odchylka"]
+    assert odczyt_2["kg_fv"] == zapis_2["kg_fv"]
+
+
+def test_zapisany_podzial_przezywa_wyczyszczenie(db):
+    """Po `wyczysc_podzial` odczyt ma mówić „nie ma", a nie oddawać ostatnie
+    znane liczby — inaczej okno pokaże podział, którego w bazie już nie ma."""
+    _slownik(); _zamowienie()
+    zapisz_podzial("o1", 400.0, None)
+    from app.services.order_split_service import wyczysc_podzial
+    wyczysc_podzial("o1")
+    z = zapisany_podzial("o1")
+    assert z["istnieje"] is False
+    assert z["cel_kg"] is None

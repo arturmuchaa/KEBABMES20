@@ -56,6 +56,26 @@ def test_zapis_przepisuje_reczne_korekty_pozycji(db):
     assert out["kg_fv"] == 125.0            # 4 szt. * 25 kg + 1 szt. * 25 kg
 
 
+def test_get_oddaje_ZAPISANY_podzial(db):
+    """Trasa GET istnieje po to, żeby okno wiedziało, co leży w bazie, zanim
+    biuro cokolwiek wpisze — bez niej jedyną drogą do odblokowania przycisku
+    jest ponowny zapis, który kasuje ręczne korekty z poprzedniej sesji."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    out = route.zapisany_podzial("o1")
+    assert out["istnieje"] is True
+    assert out["kompletny"] is True
+    assert out["cel_kg"] == 300.0
+    assert out["kg_fv"] == 300.0
+    assert len(out["lines"]) == 2
+
+
+def test_get_bez_podzialu_mowi_ze_go_nie_ma(db):
+    _przygotuj_bez_podzialu()
+    out = route.zapisany_podzial("o1")
+    assert out["istnieje"] is False
+    assert out["cel_kg"] is None
+
+
 def test_czyszczenie_podzialu(db):
     _przygotuj_z_podzialem(cel_kg=300.0)
     route.wyczysc_podzial("o1")

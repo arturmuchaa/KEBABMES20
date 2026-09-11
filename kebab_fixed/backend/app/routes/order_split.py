@@ -50,6 +50,17 @@ def podglad_podzialu(order_id: str, body: CelPodzialu):
     return svc.podglad_podzialu(order_id, body.cel_kg)
 
 
+@router.get("/{order_id}/split")
+def zapisany_podzial(order_id: str):
+    """Podział ZAPISANY na zamówieniu — nie propozycja algorytmu.
+
+    Okno podziału czyta to przy otwarciu, żeby wiedzieć, co leży w bazie,
+    zanim biuro cokolwiek wpisze: z bazy powstają dokumenty, więc bez tego
+    jedyną drogą do odblokowania „Wystaw komplet" był ponowny zapis —
+    kasujący ręczne korekty z poprzedniej sesji."""
+    return svc.zapisany_podzial(order_id)
+
+
 @router.put("/{order_id}/split")
 def zapisz_podzial(order_id: str, body: ZapisPodzialu):
     return svc.zapisz_podzial(order_id, body.cel_kg, body.per_line)

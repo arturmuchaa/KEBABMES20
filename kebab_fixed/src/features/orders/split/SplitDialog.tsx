@@ -34,11 +34,19 @@
  * obecność podglądu, ani brak ręcznej korekty nie są dowodem zgodności:
  * „zapisz 8000 → wpisz 9000 → wystaw" dawało komplet na 8000 przy ekranie
  * pokazującym 9000, a numery dokumentów są wypalone w chwili wystawienia.
- * `savedSplit` trzyma cel i sztuki na fakturę z OSTATNIEGO udanego zapisu
- * W TEJ SESJI (Task 7 nie ma trasy „pobierz obecny podział", więc to jedyna
- * pewna wiedza o bazie, jaką okno ma); `matchesSaved` porównuje to z bieżącym
- * ekranem i blokuje przycisk przy jakiejkolwiek rozbieżności — w tym wtedy,
- * gdy w tej sesji nie zapisano jeszcze niczego.
+ * `savedSplit` trzyma cel i sztuki na fakturę z tego, co ZAPISANE:
+ * wczytane z `orderSplitApi.saved` przy otwarciu okna albo zapamiętane po
+ * udanym zapisie. `matchesSaved` porównuje to z bieżącym ekranem i blokuje
+ * przycisk przy jakiejkolwiek rozbieżności.
+ *
+ * DLACZEGO okno wczytuje podział przy otwarciu, a nie zaczyna od pustego:
+ * bez tego jedyną drogą do odblokowania „Wystaw komplet" na zamówieniu
+ * podzielonym WCZORAJ był ponowny zapis — a `zapisz_podzial` nadpisuje
+ * `qty_invoice` na KAŻDEJ pozycji propozycją algorytmu, więc wczorajsza
+ * ręczna korekta znikała bez pytania i to z niej powstawały papiery. Stąd
+ * też zasada zapisu: `handleSave` wysyła w `per_line` DOKŁADNIE to, co widać
+ * w tabeli (razem z liczbami wczytanymi z bazy, których nikt nie ruszał) —
+ * ekran jest tym, co się zapisuje, tak samo jak jest tym, co się wystawia.
  */
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
@@ -62,7 +70,10 @@ export interface SplitDialogProps {
  *  sposób odróżnienia dwóch odmów jest po treści komunikatu. */
 const WYMAGA_ANULOWANIA = /anuluj dokument(y|ów) podzia/i
 
-function odchylkaTekst(odchylka: number): string {
+function odchylkaTekst(odchylka: number | null | undefined): string {
+  // Niepełny zapisany podział nie ma odchyłki — `kg_fv` nie opisuje jeszcze
+  // całego zamówienia, więc porównanie z celem mówiłoby nieprawdę.
+  if (odchylka == null) return '—'
   const znak = odchylka > 0 ? '+' : ''
   return `${znak}${fmtKgTrim(odchylka)} kg`
 }
@@ -91,6 +102,20 @@ function perLineEqual(a: Record<string, number>, b: Record<string, number>): boo
 }
 
 interface SavedSplit { celKg: number; perLine: Record<string, number> }
+
+/** Sztuki na fakturę tak, jak je TERAZ widać w tabeli: ręczna korekta, a gdy
+ *  jej nie ma — liczba z ostatniej odpowiedzi API. `null`, gdy którakolwiek
+ *  pozycja nie ma jeszcze żadnej liczby (niepełny zapisany podział): takiego
+ *  ekranu nie ma z czym porównywać i nie wolno z niego wystawiać. */
+function naEkranie(p: SplitPreview, o: Record<string, string>): Record<string, number> | null {
+  const out: Record<string, number> = {}
+  for (const l of p.lines) {
+    const v = parseOverride(o[l.id]) ?? l.qty_invoice
+    if (v === null) return null
+    out[l.id] = v
+  }
+  return out
+}
 
 export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }: SplitDialogProps) {
   const [celKgInput, setCelKgInput] = useState('')
@@ -122,16 +147,19 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
   // cel z górnego pola plus sztuki na fakturę z każdego wiersza (łącznie z
   // niezapisanymi ręcznymi korektami). Jedna bramka zamiast kilku, bo to
   // jedno pytanie — i pokrywa wszystkie drogi do rozjazdu: brak podglądu
-  // (nie ma czego porównywać), brak zapisu w tej sesji (nie wiadomo, co
-  // leży w bazie), zmieniony cel, poprawiona linia.
+  // (nie ma czego porównywać), nieznany podział w bazie, zmieniony cel,
+  // poprawiona linia, niepełny podział zapisany na zamówieniu.
   const celKgTeraz = parseFloat(celKgInput.replace(',', '.'))
+  const ekran = preview === null ? null : naEkranie(preview, overrides)
   const matchesSaved =
-    preview !== null && savedSplit !== null && !Number.isNaN(celKgTeraz) &&
+    ekran !== null && savedSplit !== null && !Number.isNaN(celKgTeraz) &&
     celKgTeraz === savedSplit.celKg &&
-    perLineEqual(
-      Object.fromEntries(
-        preview.lines.map(l => [l.id, parseOverride(overrides[l.id]) ?? l.qty_invoice])),
-      savedSplit.perLine)
+    perLineEqual(ekran, savedSplit.perLine)
+  // Zapisany podział nie obejmuje wszystkich pozycji (któraś doszła po
+  // zapisie). Rozpoznajemy to po samej odpowiedzi, a nie po zapamiętanym
+  // „skąd to przyszło" — podgląd i zapis nigdy nie mają pustych sztuk, więc
+  // ta flaga nie ma jak się zestarzeć.
+  const niepelnyZapis = preview !== null && preview.lines.some(l => l.qty_invoice === null)
   // Licznik żądań podglądu: „8000" wpisane znak po znaku to kilka POST-ów,
   // które mogą wrócić NIE PO KOLEI. Bez tego spóźniona odpowiedź na stary
   // cel potrafiłaby nadpisać tabelę już PO tym, jak backend odpowiedział na
@@ -143,6 +171,37 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  // Wczytaj podział ZAPISANY w bazie — patrz docblock. Wynik traktujemy jak
+  // każdą inną odpowiedź podglądu, z tym samym licznikiem kolejności: jeśli
+  // biuro zdążyło już coś wpisać, ta (starsza) odpowiedź nie ma prawa
+  // podmienić tabeli pod palcami.
+  useEffect(() => {
+    let aktualne = true
+    const seq = previewSeq.current
+    void (async () => {
+      try {
+        const z = await orderSplitApi.saved(orderId)
+        if (!aktualne || seq !== previewSeq.current || !z?.istnieje) return
+        if (z.cel_kg != null) setCelKgInput(String(z.cel_kg))
+        setPreview(z)
+        // `savedSplit` TYLKO dla pełnego podziału: przy niepełnym komplet
+        // dokumentów i tak jest odmawiany (backend wymaga sztuk na KAŻDEJ
+        // pozycji), więc przycisk ma zostać zablokowany, a biuro ma najpierw
+        // uzupełnić i zapisać.
+        if (z.kompletny && z.cel_kg != null) {
+          setSavedSplit({
+            celKg: z.cel_kg,
+            perLine: Object.fromEntries(z.lines.map(l => [l.id, l.qty_invoice ?? 0])),
+          })
+        }
+      } catch {
+        // Brak podziału albo błąd odczytu — okno działa jak przy pustym
+        // zamówieniu: biuro wpisuje kilogramy i zapisuje. Nic nie udajemy.
+      }
+    })()
+    return () => { aktualne = false }
+  }, [orderId])
 
   async function runPreview(celKg: number) {
     const seq = ++previewSeq.current
@@ -195,10 +254,15 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
     if (!preview) return
     const celKg = parseFloat(celKgInput.replace(',', '.'))
     if (Number.isNaN(celKg)) return
+    // W `per_line` idzie DOKŁADNIE to, co widać w tabeli — także liczby
+    // wczytane z bazy, których operator nie ruszał. Bez tego `zapisz_podzial`
+    // przeliczyłby te pozycje algorytmem i ręczna korekta z poprzedniej sesji
+    // zniknęłaby przy zapisie, którego biuro dokonało w zupełnie innym celu
+    // (np. żeby uzupełnić nowo dodaną pozycję).
     const perLine: Record<string, number> = {}
     for (const line of preview.lines) {
-      const n = parseOverride(overrides[line.id])
-      if (n !== undefined) perLine[line.id] = n
+      const n = parseOverride(overrides[line.id]) ?? line.qty_invoice
+      if (n !== null) perLine[line.id] = n
     }
     setSaving(true); setErr(''); setNeedsCancel(false); setInfo('')
     try {
@@ -210,7 +274,7 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
       // zresetowaliśmy.
       setSavedSplit({
         celKg,
-        perLine: Object.fromEntries(r.lines.map(l => [l.id, l.qty_invoice])),
+        perLine: Object.fromEntries(r.lines.map(l => [l.id, l.qty_invoice ?? 0])),
       })
       setInfo('Podział zapisany.')
     } catch (e: any) {
@@ -311,6 +375,14 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
 
           {preview && (
             <>
+              {niepelnyZapis && (
+                <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800">
+                  Zapisany podział nie obejmuje wszystkich pozycji zamówienia — któraś
+                  doszła już po jego zapisaniu. Uzupełnij ją i zapisz podział; sumy poniżej
+                  liczą na razie tylko pozycje z zapisanym podziałem.
+                </div>
+              )}
+
               {preview.trafiono === false && (
                 <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800">
                   Nie da się trafić dokładnie w podany cel całymi sztukami — najbliższy możliwy
@@ -348,15 +420,15 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
                           <td className="px-3 py-2 text-right">
                             <input
                               type="number" min="0" max={line.qty} step="1"
-                              value={raw ?? String(line.qty_invoice)}
+                              value={raw ?? (line.qty_invoice == null ? '' : String(line.qty_invoice))}
                               onChange={e => setOverrides(o => ({ ...o, [line.id]: e.target.value }))}
                               aria-label={`na FV — ${line.recipe_name}`}
                               className="h-8 w-20 rounded border border-surface-4 bg-surface px-2 text-right tabular-nums"
                             />
                           </td>
                           <td className={cn('px-3 py-2 text-right tabular-nums',
-                            naWz < 0 && 'font-semibold text-red-600')}>
-                            {naWz}
+                            naWz != null && naWz < 0 && 'font-semibold text-red-600')}>
+                            {naWz ?? '—'}
                           </td>
                         </tr>
                       )

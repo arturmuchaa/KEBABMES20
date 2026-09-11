@@ -50,8 +50,21 @@ def _odmow_gdy_dokumenty_wystawione(order_id: str) -> None:
 
 def _linie(order_id: str) -> List[Dict[str, Any]]:
     return query_all(
-        "SELECT id, qty, kg_per_unit, recipe_name, product_type_name, position "
+        "SELECT id, qty, kg_per_unit, recipe_name, product_type_name, position, qty_invoice "
         "FROM client_order_lines WHERE order_id=%s ORDER BY position", (order_id,))
+
+
+def _trafiono(kg_fv: float, cel_kg: float, kg_calosc: float) -> bool:
+    """JEDNA definicja „trafiono" dla wszystkich odpowiedzi tego modułu.
+
+    Ta sama co w `podziel_pozycje` (tolerancja 1e-6, cel obcięty do
+    [0, całość] liczonej BEZ zaokrąglenia). Trzymana w jednym miejscu,
+    bo każde kolejne miejsce, które liczy to samo pojęcie po swojemu, to
+    kolejna szansa, żeby ten sam podział raz „trafiał", a raz nie —
+    zależnie od tego, którą trasą biuro na niego patrzy.
+    """
+    cel_obciety = max(0.0, min(float(cel_kg or 0), kg_calosc))
+    return abs(kg_fv - cel_obciety) < 1e-6
 
 
 def podglad_podzialu(order_id: str, cel_kg: float) -> Dict[str, Any]:
@@ -118,16 +131,88 @@ def zapisz_podzial(order_id: str, cel_kg: float,
     # zapisany podział jest o kilkadziesiąt kg obok celu — liczba na ekranie,
     # która nie opisuje stanu w bazie (fix po review, runda 2, Task 8).
     #
-    # TA SAMA definicja co `podziel_pozycje` (tolerancja 1e-6, cel obcięty do
-    # [0, całość] — niezaokrąglonej, jak tam), żeby w kontrakcie nie było
-    # dwóch znaczeń „trafiono". Bez korekt (`per_line` puste) `kg_fv` tutaj
-    # jest identyczne z tym z `podglad_podzialu`, więc przeliczenie jest
-    # bezpieczne (nie zmienia wyniku) także wtedy, gdy nic nie poprawiono.
+    # `_trafiono` to TA SAMA definicja co w `podziel_pozycje` i w odczycie
+    # zapisanego podziału — jedno pojęcie, jedno miejsce. Bez korekt
+    # (`per_line` puste) `kg_fv` tutaj jest identyczne z tym z
+    # `podglad_podzialu`, więc przeliczenie niczego nie zmienia także wtedy,
+    # gdy nic nie poprawiono ręcznie.
     kg_calosc_nieokragl = sum(l["qty"] * l["kg_per_unit"] for l in podglad["lines"])
-    cel_obcieta = max(0.0, min(float(cel_kg or 0), kg_calosc_nieokragl))
-    podglad["trafiono"] = abs(kg_fv - cel_obcieta) < 1e-6
+    podglad["trafiono"] = _trafiono(kg_fv, cel_kg, kg_calosc_nieokragl)
     podglad["odchylka"] = round(kg_fv - float(cel_kg or 0), 3)
     return podglad
+
+
+def zapisany_podzial(order_id: str) -> Dict[str, Any]:
+    """Podział ZAPISANY na zamówieniu — to, co naprawdę leży w bazie.
+
+    Osobne pytanie niż `podglad_podzialu`, który odpowiada „jak BY się
+    rozłożyło". Z bazy powstają dokumenty (`wystaw_komplet` nie dostaje ani
+    celu, ani pozycji — czyta `qty_invoice`), więc okno musi umieć zapytać
+    „jak JEST", zanim biuro cokolwiek wpisze. Bez tej trasy jedyną drogą do
+    odblokowania „Wystaw komplet" był ponowny zapis — a `zapisz_podzial`
+    nadpisuje `qty_invoice` na KAŻDEJ pozycji propozycją algorytmu, więc
+    ręczna korekta z poprzedniej sesji znikała bez pytania.
+
+    Dwie osobne flagi, bo to dwa różne fakty:
+
+    * `istnieje` — którakolwiek pozycja ma zapisane `qty_invoice`;
+    * `kompletny` — mają je WSZYSTKIE. Tylko wtedy komplet dokumentów da się
+      wystawić (`_sprawdz_przed_wystawieniem` odmawia przy choćby jednym
+      NULL) i tylko wtedy sumy poniżej opisują cały towar z zamówienia.
+
+    Podział niepełny (np. po dopisaniu pozycji do zamówienia) oddajemy z
+    zapisanymi liczbami i `kompletny=False`: biuro ma ZOBACZYĆ, co już jest
+    zapisane — inaczej zapisze podział na nowo i skasuje własną korektę.
+    `qty_invoice`/`qty_wz` pozycji bez podziału zostają NULL — nie udajemy
+    zera, którego nikt nie zapisał. `kg_fv`/`kg_wz` sumują wtedy wyłącznie
+    pozycje z zapisanym podziałem, więc nie dodają się do `kg_calosc`; tę
+    różnicę widać i o to chodzi.
+    """
+    linie = _linie(order_id)
+    if not linie:
+        raise HTTPException(404, "Zamówienie nie ma pozycji")
+    zamowienie = query_one("SELECT invoice_kg_target FROM client_orders WHERE id=%s",
+                           (order_id,))
+    if zamowienie is None:
+        raise HTTPException(404, "Nie ma takiego zamówienia")
+
+    lines: List[Dict[str, Any]] = []
+    for l in linie:
+        qty = int(l["qty"] or 0)
+        na_fv = None if l.get("qty_invoice") is None else int(l["qty_invoice"])
+        lines.append({
+            "id": l["id"], "position": l["position"],
+            "recipe_name": l.get("recipe_name") or "",
+            "product_type_name": l.get("product_type_name") or "",
+            "kg_per_unit": float(l["kg_per_unit"] or 0),
+            "qty": qty,
+            "qty_invoice": na_fv,
+            "qty_wz": None if na_fv is None else qty - na_fv,
+        })
+
+    z_podzialem = [x for x in lines if x["qty_invoice"] is not None]
+    istnieje = bool(z_podzialem)
+    kompletny = istnieje and len(z_podzialem) == len(lines)
+    kg_all = sum(x["qty"] * x["kg_per_unit"] for x in lines)
+    kg_fv = sum(x["qty_invoice"] * x["kg_per_unit"] for x in z_podzialem)
+    kg_wz = sum((x["qty"] - x["qty_invoice"]) * x["kg_per_unit"] for x in z_podzialem)
+    cel_kg = zamowienie.get("invoice_kg_target")
+    cel_kg = None if cel_kg is None else float(cel_kg)
+
+    # `trafiono`/`odchylka` mają sens tylko wobec ZAPISANEGO celu i tylko dla
+    # pełnego podziału — przy niepełnym `kg_fv` nie opisuje jeszcze całego
+    # zamówienia, więc porównanie z celem mówiłoby nieprawdę.
+    trafiono = None
+    odchylka = None
+    if kompletny and cel_kg is not None:
+        trafiono = _trafiono(kg_fv, cel_kg, kg_all)
+        odchylka = round(kg_fv - cel_kg, 3)
+
+    return {"order_id": order_id, "istnieje": istnieje, "kompletny": kompletny,
+            "cel_kg": cel_kg, "lines": lines,
+            "kg_fv": round(kg_fv, 3), "kg_wz": round(kg_wz, 3),
+            "kg_calosc": round(kg_all, 3),
+            "trafiono": trafiono, "odchylka": odchylka}
 
 
 def wyczysc_podzial(order_id: str) -> None:
