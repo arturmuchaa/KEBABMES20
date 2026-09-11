@@ -516,3 +516,72 @@ def test_hdi_nie_pali_drugiego_numeru_gdy_rywal_zdazyl_pierwszy(db, monkeypatch)
     out = hdi_service.generate_hdi("o1", scope="calosc")
     assert out["number"] == "9/09/26"
     assert len(query_all("SELECT id FROM hdi_documents")) == 1
+
+
+# ── Zamknięcie zamówienia po komplecie ────────────────────────────
+#
+# `zamknij_wyslane_zamowienia` woła się z `create_manual_wz`,
+# `create_wz_from_order` i `update_order` — ścieżka podziału NIE woła jej
+# nigdzie, a `create_wz_from_order` jest dla takiego zamówienia zablokowane.
+# Do czasu bramki z poprzedniej rundy zamykała je przypadkowa edycja; teraz
+# i ta droga jest zamknięta, więc zamówienie z KOMPLETEM PAPIERÓW zostaje na
+# liście „do zrobienia" na zawsze i jednocześnie nie da się go poprawić — ta
+# sama skarga biura, którą opisuje komentarz w `orders_service` (ZAGROS/Z/1).
+#
+# PUŁAPKA: zamykać wolno dopiero NA KOŃCU. `generate_hdi` dla zamówienia
+# w statusie `done` nie wystawia nowego dokumentu, więc zamknięcie wcześniej
+# (albo w `wystaw_wz_wewnetrzny`) rozbiłoby komplet, którego jest częścią.
+def test_komplet_zamyka_zamowienie(db):
+    _przygotuj_z_podzialem(cel_kg=300.0)
+
+    route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
+
+    assert query_one("SELECT status FROM client_orders WHERE id='o1'")["status"] == "done"
+
+
+def test_komplet_zamyka_DOPIERO_po_papierach(db):
+    """Gdyby zamknięcie poszło przed HDI, komplet zostałby bez HDI i bez CMR —
+    zamówienie `done` nie dostaje nowych dokumentów."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+
+    dane = route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
+
+    assert dane["hdi_calosc"]["number"], dane
+    assert dane["hdi_fv"]["number"], dane
+    assert len(query_all("SELECT id FROM hdi_documents")) == 2
+    assert len(query_all("SELECT id FROM cmr_documents")) == 2
+    assert query_one("SELECT status FROM client_orders WHERE id='o1'")["status"] == "done"
+
+
+def test_komplet_NIE_zamyka_krotkiej_dostawy(db):
+    """Zamykamy tylko zamówienie, z którego WSZYSTKO wyjechało. Krótka dostawa
+    zostaje otwarta — magazynier ma ją nadal na liście do skompletowania."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    execute("UPDATE finished_goods SET qty=1, qty_available=1, total_kg=25 WHERE id='f2'")
+
+    route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
+
+    assert query_one("SELECT status FROM client_orders WHERE id='o1'")["status"] == "confirmed"
+
+
+def test_anulowanie_kompletu_oddaje_zamowienie_do_edycji(db):
+    """Zamknięcie musi być odwracalne tak samo jak reszta kompletu: po
+    anulowaniu papierów towar wraca na stan, więc zamówienie znowu czeka na
+    wysyłkę — a `update_order` edytuje tylko szkic i potwierdzone."""
+    from app.models.orders import ClientOrderCreate
+    from app.services.orders_service import update_order
+
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    route.wystaw_komplet("o1", route.KompletDokumentow())
+    route.anuluj_komplet("o1")
+
+    assert query_one("SELECT status FROM client_orders WHERE id='o1'")["status"] == "confirmed"
+    update_order("o1", ClientOrderCreate.model_validate({
+        "client_id": "c1", "order_date": "2026-09-08",
+        "lines": [
+            {"id": "o1-l1", "recipe_id": "r1", "product_type_id": "pt1",
+             "qty": 3, "kg_per_unit": 25},
+            {"id": "o1-l2", "recipe_id": "r2", "product_type_id": "pt2",
+             "qty": 2, "kg_per_unit": 25},
+        ]}))
+    assert int(query_one("SELECT qty FROM client_order_lines WHERE id='o1-l1'")["qty"]) == 3

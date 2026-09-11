@@ -544,3 +544,134 @@ def test_ANULOWANY_wz_nie_jest_kandydatem_przy_zaladunku(db):
     assert zam["wz_id"] != "w1", "podpięto załadunek pod anulowany dokument"
     fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
     assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10)
+
+
+# ── WM zdejmuje stan DO SZTUKI, a załadunek liczy zawartość auta drugi raz ─
+#
+# Tak wygląda magazyn tego zakładu: linia zamówienia to średnio 76 szt.
+# (30-120), wiersz `finished_goods` średnio 17,2 szt. (max 82), średnie
+# `qty_available` 9,4 — jedną pozycję pokrywa KILKA wierszy i WM opróżnia je
+# CO DO SZTUKI. Zasiew `_przygotuj_podzial` (20 szt. na stanie na 10
+# zamówionych) omijał to założeniem, którego produkcja nie spełnia.
+#
+# `picks_for_pallets` wyprowadzało zawartość auta z BIEŻĄCEGO stanu
+# (`qty_available > 0`), choć decyzję „co jedzie i z jakiej partii" podjął
+# już dokument WM. Trzy skutki, wszystkie na typowej ścieżce:
+#   (a) resztki pochodzą z INNEJ partii → klucz `aggregate_picks` nie trafia
+#       w linię WM → fałszywy ROZJAZD na każdej poprawnej wysyłce;
+#   (b) nie zostaje nic → `finalize_loading` melduje „brak załadowanych
+#       sztuk", WM nigdy nie dostaje `loaded_at`, a bramka odmawiająca
+#       anulowania PO ZAŁADUNKU nie ma na czym zadziałać — biuro anuluje
+#       komplet, gdy towar jest już na naczepie;
+#   (c) zostaje MNIEJ, niż mówi rozpis → `_sprawdz_pokrycie_rozpisu` rzuca
+#       400 w transakcji obejmującej CAŁE auto i magazynier nie zamknie
+#       załadunku ŻADNEGO zamówienia na tym pojeździe.
+def _przygotuj_podzial_stan_do_sztuki(qty=10, kg=30, cel_kg=180.0, na_stanie=10):
+    """Jak `_przygotuj_podzial`, ale na stanie leży DOKŁADNIE tyle, ile bierze
+    zamówienie — czyli WM zeruje wiersz magazynu, tak jak na produkcji."""
+    _przygotuj_podzial(qty=qty, kg=kg, cel_kg=cel_kg, na_stanie=na_stanie)
+
+
+def test_zaladunek_podzialu_gdy_WM_zdjal_CALY_wiersz(db):
+    """(b) Wiersz wyzerowany przez WM — auto dalej jedzie i papier to wie."""
+    _przygotuj_podzial_stan_do_sztuki()
+    assert int(query_one("SELECT qty_available FROM finished_goods "
+                         "WHERE id='f1'")["qty_available"]) == 0, "zasiew nie odwzorował WM"
+
+    zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
+
+    assert zam.get("skipped") is None, zam
+    assert zam["wz_number"].startswith("WM/"), zam
+    assert zam["wz_status"] == "potwierdzony", zam["diff"]
+
+
+def test_WM_dostaje_slad_zaladunku_mimo_wyzerowanego_stanu(db):
+    """(b) Bez `loaded_at` na WM cała kontrola „towar już pojechał" jest ślepa."""
+    _przygotuj_podzial_stan_do_sztuki()
+
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    wm = _wm()
+    assert wm["loaded_at"] is not None, "WM bez znacznika załadunku"
+    assert wm["loading_status"] == "potwierdzony"
+
+
+def test_anulowanie_po_zaladunku_ma_na_czym_zadzialac(db):
+    """(b) Druga połowa tej samej szkody: dopóki WM nie ma `loaded_at`, bramka
+    z poprzedniej rundy przepuszcza anulowanie kompletu po odjeździe auta —
+    ruchy CANCEL podnoszą stan towaru, który leży na naczepie."""
+    _przygotuj_podzial_stan_do_sztuki()
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    with pytest.raises(Exception) as e:
+        anuluj_dokumenty_podzialu("o1")
+    assert "załadunkiem" in str(e.value), e.value
+
+
+def test_resztka_z_INNEJ_partii_nie_robi_falszywego_rozjazdu(db):
+    """(a) WM wydał partię NAJSTARSZĄ, na stanie została nowsza. Wyprowadzanie
+    zawartości auta z bieżącego stanu podstawiało tę nowszą partię pod klucz
+    porównania i każda poprawna wysyłka wychodziła jako ROZJAZD."""
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10, kg=30)
+    _wyrob_z_data("f-stara", qty=10, produced="2026-09-01")   # tę weźmie WM
+    _wyrob_z_data("f-nowa", qty=10, produced="2026-09-08")    # ta zostanie
+    _paleta(); _pozycja_palety(qty=10)
+    zapisz_podzial("o1", 180.0)
+    wystaw_wz_wewnetrzny("o1")
+    wystaw_wz_klienta("o1")
+
+    zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
+
+    assert zam["wz_status"] == "potwierdzony", (
+        "poprawny załadunek uznany za rozjazd: " + repr(zam["diff"]))
+    assert zam["diff"] == []
+
+
+def test_niedobor_po_WM_nie_blokuje_CALEGO_auta(db):
+    """(c) Kontrola pokrycia rzucała 400 w transakcji obejmującej cały pojazd:
+    jedno zamówienie z podziałem zatrzymywało załadunek WSZYSTKICH, a komunikat
+    obwiniał magazyn za towar, który WM zdjął kwadrans wcześniej."""
+    _firma(); _pojazd(); _klient(); _receptura()
+    # o1 — z podziałem, na stanie 15 szt., WM bierze 10 → zostaje 5 z 10.
+    _zamowienie(qty=10, kg=30)
+    _wyrob(gid="f1", qty=15, kg=30)
+    _paleta("p1", "o1", nr=1); _pozycja_palety("p1", "o1-l1", qty=10, iid="pi1")
+    zapisz_podzial("o1", 180.0)
+    wystaw_wz_wewnetrzny("o1")
+    wystaw_wz_klienta("o1")
+    # o2 — zwykłe zamówienie tym samym autem. Inna waga sztuki, więc wiersze
+    # magazynu obu zamówień nie mają jak się pomieszać.
+    _zamowienie(oid="o2", order_no="YALCIN/Z/5/09/26", qty=5, kg=25)
+    _wyrob_z_data("f2", qty=5, produced="2026-09-05", kg=25)
+    _paleta("p2", "o2", nr=2); _pozycja_palety("p2", "o2-l1", qty=5, iid="pi2")
+
+    wynik = finalize_loading("v1", ["o1", "o2"], plate="KR 99999")
+
+    wg_zam = {z["order_id"]: z for z in wynik["orders"]}
+    assert wg_zam["o2"].get("skipped") is None, "zamówienie bez podziału nie pojechało"
+    assert wg_zam["o2"]["wz_number"], "drugie zamówienie na aucie zostało bez papieru"
+    assert wg_zam["o1"].get("skipped") is None, wg_zam["o1"]
+
+
+# ── Zamówienie BEZ podziału — zachowanie ma zostać DOKŁADNIE takie jak dziś ─
+#
+# Test CHARAKTERYZACYJNY: przypina zachowanie, które JUŻ jest poprawne (był
+# zielony przed poprawką i po niej), bo to ono jest warunkiem bezpieczeństwa
+# całej zmiany. Zamówienie bez podziału nie ma dokumentu WM, więc załadunek
+# musi dalej wyprowadzać zawartość auta z `picks_for_pallets` — z bieżącego
+# stanu, ze wszystkimi tego konsekwencjami. Ta sama luka co (b) istnieje na
+# ścieżce „WZ przygotowany wcześniej" i NIE jest tu naprawiana: poprawianie
+# jej zmieniłoby zachowanie ścieżki bez podziału, czego ta zmiana robić nie ma.
+def test_BEZ_podzialu_wyzerowany_stan_dalej_konczy_sie_pominieciem(db):
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10, kg=30); _wyrob(qty=10, kg=30); _paleta(); _pozycja_palety(qty=10)
+    _wz_zamowienia(linie=[_linia_wz(qty=10)])
+    # Zwykły WZ zdjął stan przy wystawieniu — dokładnie jak `create_wz_from_order`.
+    execute("UPDATE finished_goods SET qty_available=0, qty_shipped=10 WHERE id='f1'")
+
+    zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
+
+    assert zam.get("skipped") == "brak załadowanych sztuk"
+    fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10), "drugi rozchód"

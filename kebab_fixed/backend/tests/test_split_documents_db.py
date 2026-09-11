@@ -347,3 +347,52 @@ def test_nazwa_na_WM_ma_dopisek_tulei_tak_jak_WZ_klienta(db):
 
     assert any(n.endswith("(80cm)") for n in _nazwy(wm["id"])), _nazwy(wm["id"])
     assert any(n.endswith("(80cm)") for n in _nazwy(wz["id"])), _nazwy(wz["id"])
+
+
+# ── Usunięcie zamówienia pod wystawionymi papierami ───────────────────────
+#
+# Rodzona siostra bramki na `update_order`. Wystawienie kompletu nie zmienia
+# statusu zamówienia (`confirmed`), a `delete_order` kasuje wszystko, co jest
+# szkicem albo potwierdzone — razem z pozycjami. `wz_documents.source_id` to
+# zwykła kolumna tekstowa bez klucza obcego, więc WM (jedyny dokument, który
+# ZDJĄŁ STAN MAGAZYNU) zostaje sierotą: papier z ruchami magazynowymi
+# wskazuje na zamówienie, którego już nie ma, a dwustronna identyfikowalność
+# urywa się w pół drogi. CLAUDE.md: „no data loss: no silent updates,
+# no deletes".
+def test_usuniecie_zamowienia_POD_dokumentami_podzialu_jest_odrzucone(db):
+    from app.services.orders_service import delete_order
+
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wystaw_wz_wewnetrzny("o1")
+    wystaw_wz_klienta("o1")
+
+    with pytest.raises(Exception) as e:
+        delete_order("o1")
+
+    assert "anuluj dokumenty podziału" in str(e.value), e.value
+    assert query_one("SELECT id FROM client_orders WHERE id='o1'"), "zamówienie skasowane"
+    assert len(query_all("SELECT id FROM wz_documents WHERE source_id='o1'")) == 2
+
+
+def test_usuniecie_zamowienia_BEZ_dokumentow_podzialu_dziala_dalej(db):
+    """Bramka ma zatrzymać kasowanie tylko tam, gdzie leżą papiery."""
+    from app.services.orders_service import delete_order
+
+    _przygotuj_z_podzialem(cel_kg=300.0)
+
+    delete_order("o1")
+
+    assert not query_all("SELECT id FROM client_orders WHERE id='o1'")
+
+
+def test_ANULOWANY_komplet_odblokowuje_usuniecie_zamowienia(db):
+    from app.services.orders_service import delete_order
+
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wystaw_wz_wewnetrzny("o1")
+    wystaw_wz_klienta("o1")
+    anuluj_dokumenty_podzialu("o1")
+
+    delete_order("o1")
+
+    assert not query_all("SELECT id FROM client_orders WHERE id='o1'")
