@@ -22,6 +22,10 @@ export type WzDocData = {
   total_value?: number
   currency?: string
   eur_rate?: number | null
+  /** 'WM' = wewnętrzny WZ podziału wysyłki (Task 3) — niesie CAŁĄ przesyłkę
+   *  (także część spoza faktury) i NIE MOŻE wyjść do klienta; stąd dopisek
+   *  ostrzegawczy na wydruku, patrz niżej. */
+  doc_series?: string
 }
 
 export function asWzDocData(doc: WzDoc): WzDocData { return doc }
@@ -177,6 +181,22 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
           WZ — Wydanie zewnętrzne&nbsp;&nbsp;{doc.number || (draft ? '— / —— / ——' : '')}
         </span>
       </div>
+
+      {/* ── Dopisek WZ wewnętrznego (seria WM, Task 3 podziału wysyłki) ──
+             WM ląduje w tym samym transporcie co fakturowany WZ i pokazuje
+             CAŁĄ przesyłkę (również część spoza faktury) — istnieje TYLKO
+             po to, żeby stan ruszył raz. Musi zostać w zakładzie: jeżeli
+             trafi do klienta jak zwykły WZ, ujawnia ilości spoza faktury.
+             Pasek gruby i kontrastowy — dokument czyta się na hali z ręki,
+             nie na ekranie, i musi działać wydrukowany czarno-biało. */}
+      {doc.doc_series === 'WM' && (
+        <div className="text-center font-bold" style={{
+          background: '#DC2626', color: '#fff', border: '2px solid #7F1D1D',
+          fontSize: 12.5, padding: '5px 8px', letterSpacing: '.03em', marginBottom: 6,
+        }}>
+          DOKUMENT WEWNĘTRZNY — NIE WYDAWAĆ KLIENTOWI
+        </div>
+      )}
 
       {/* ── Pozycje ── */}
       <table className="w-full" style={{ borderCollapse: 'collapse' }}>

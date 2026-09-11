@@ -2387,6 +2387,11 @@ export interface WzLoadingDiff {
 export interface WzDoc {
   id: string; number: string; sourceType?: string; sourceId?: string
   source_type?: string; source_id?: string
+  /** Seria dokumentu — 'WZ' zwykły albo 'WM' wewnętrzny (podział wysyłki,
+   *  Task 3). WM niesie CAŁĄ przesyłkę, także część spoza faktury, i nie
+   *  może trafić do klienta — wydruk pokazuje dopisek ostrzegawczy, gdy
+   *  ustawione na 'WM'. Backend zwraca to pole od Tasku 3. */
+  doc_series?: string
   seller?: { name?: string; address?: string; nip?: string; email?: string }
   buyer_name?: string; buyer_address?: string; buyer_nip?: string
   valued: boolean; lines: WzLine[]; total_value: number
