@@ -8,6 +8,9 @@ const dokumenty = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve({})) }))
 const anuluj    = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve({})) }))
 const wczytaj   = vi.hoisted(() => ({ fn: vi.fn() }))
 vi.mock('@/lib/api', () => ({
+  // Ten sam odczyt kodu HTTP co w prawdziwym module — okno odróżnia po nim
+  // „zamówienie bez pozycji" (404) od awarii odczytu.
+  errStatus: (e: any) => e?.status ?? 0,
   orderSplitApi: {
     saved: wczytaj.fn,
     preview: podglad.fn,
@@ -47,6 +50,16 @@ const ZAPISANY = {
     { id: 'l2', recipe_name: 'BEYAZ AFIYET', kg_per_unit: 25, qty: 20, qty_invoice: 10, qty_wz: 10 },
   ],
 }
+
+/** Odpowiedź „zapisany podział" opisująca to, co właśnie zapisano — od rundy 4
+ *  okno czyta bazę jeszcze raz tuż przed wystawieniem kompletu, więc test,
+ *  który zapisuje podział i wystawia dokumenty, musi mieć czym odpowiedzieć na
+ *  to sprawdzenie. Rozjazd tu = odmowa, i o to chodzi. */
+const zapisanyJak = (celKg: number, lines: any[] = ODPOWIEDZ.lines) => ({
+  istnieje: true, kompletny: true, cel_kg: celKg,
+  kg_calosc: ODPOWIEDZ.kg_calosc, kg_fv: ODPOWIEDZ.kg_fv, kg_wz: ODPOWIEDZ.kg_wz,
+  trafiono: true, odchylka: 0, lines,
+})
 
 // `vi.clearAllMocks()` nie zdejmuje `mockResolvedValue`, więc domyślną
 // odpowiedź „brak podziału" uzbrajamy PRZED każdym testem — inaczej podział
@@ -158,6 +171,7 @@ describe('SplitDialog', () => {
     await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
     await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, { l1: 9, l2: 25 }))
+    wczytaj.fn.mockResolvedValue(zapisanyJak(8000))     // baza zgodna z ekranem
     fireEvent.click(screen.getByLabelText(/także HDI do faktury/i))
     fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
     await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith('o1', true))
@@ -265,6 +279,7 @@ describe('SplitDialog', () => {
     await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
     await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, { l1: 9, l2: 25 }))
+    wczytaj.fn.mockResolvedValue(zapisanyJak(8000))     // baza zgodna z ekranem
     fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
     await waitFor(() => expect(screen.getByText(/najpierw zapisz podział/i)).toBeTruthy())
     expect(screen.queryByRole('button', { name: /anuluj dokumenty podziału/i })).toBeNull()
@@ -315,6 +330,7 @@ describe('SplitDialog', () => {
     // Zapis dogania ekran — i dopiero wtedy komplet wolno wystawić.
     fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
     await waitFor(() => expect(zapisz.fn).toHaveBeenLastCalledWith('o1', 9000, { l1: 9, l2: 25 }))
+    wczytaj.fn.mockResolvedValue(zapisanyJak(9000))     // baza zgodna z ekranem
     fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
     await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith('o1', false))
   })
@@ -400,5 +416,99 @@ describe('SplitDialog', () => {
     // inaczej algorytm przeliczyłby l1 z 8 z powrotem na 5.
     fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
     await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 400, { l1: 8, l2: 10 }))
+  })
+
+  // ── Runda 4: odczyt bazy nie ma prawa udawać pustki ─────────────────
+
+  it('blad odczytu zapisanego podzialu NIE udaje zamowienia bez podzialu', async () => {
+    // Puste pole i pusta tabela po nieudanym odczycie wyglądają dokładnie jak
+    // zamówienie bez podziału. Biuro wpisuje wtedy kilogramy, zapisuje — i
+    // ręczna korekta, której nigdy nie zobaczyło, ginie bez pytania. Ten sam
+    // scenariusz co przy wyszarzonym przycisku, tylko wywołany awarią odczytu.
+    wczytaj.fn.mockRejectedValue(new Error('HTTP 500: Internal Server Error'))
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByText(/nie udało się sprawdzić/i)).toBeTruthy())
+    // Wyjście jest tu, na miejscu: ponowna próba odczytu.
+    wczytaj.fn.mockResolvedValue(ZAPISANY)
+    fireEvent.click(screen.getByRole('button', { name: /spróbuj ponownie/i }))
+    await waitFor(() => expect(screen.getByDisplayValue('8')).toBeTruthy())
+    expect(screen.queryByText(/nie udało się sprawdzić/i)).toBeNull()
+  })
+
+  it('spozniony odczyt bazy nie podmienia tabeli, ale nadal zasila bramke', async () => {
+    // Operator zdążył stuknąć w pole celu, zanim wrócił odczyt bazy. Tabela
+    // ma zostać jego, ALE `savedSplit` opisuje bazę, nie ekran — odrzucenie
+    // całej odpowiedzi zostawiało okno w stanie „nic nie wiem o bazie".
+    let odpowiedz: (v: unknown) => void = () => {}
+    wczytaj.fn.mockImplementation(() => new Promise(res => { odpowiedz = res }))
+    podglad.fn.mockResolvedValue(ODPOWIEDZ)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
+    await waitFor(() => expect(screen.getByText('7995')).toBeTruthy())
+    await act(async () => { odpowiedz(ZAPISANY) })
+    // Tabela i pole celu zostają takie, jakie operator sobie ustawił.
+    expect(screen.getByText('7995')).toBeTruthy()
+    expect((screen.getByLabelText(/na fakturę/i) as HTMLInputElement).value).toBe('8000')
+    // A okno JEDNAK wie, co w bazie: gdy operator wróci do zapisanego celu i
+    // zobaczy te same sztuki, komplet wolno wystawić bez ponownego zapisu.
+    podglad.fn.mockResolvedValue({ ...ZAPISANY, istnieje: undefined, kompletny: undefined })
+    fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '400' } })
+    await waitFor(() => expect(screen.getByDisplayValue('8')).toBeTruthy())
+    wczytaj.fn.mockResolvedValue(ZAPISANY)
+    fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
+    await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith('o1', false))
+    expect(zapisz.fn).not.toHaveBeenCalled()
+  })
+
+  it('ulamek w polu pozycji blokuje wystawienie kompletu', async () => {
+    // `parseInt` obcinał „8,5" do 8: komórka pokazywała 8,5, bramka widziała
+    // 8 (tyle, co w bazie) i komplet powstawał z 8. Ostatnia droga do
+    // „dokumenty z innej liczby niż na ekranie" w jednej sesji.
+    wczytaj.fn.mockResolvedValue(ZAPISANY)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByDisplayValue('8')).toBeTruthy())
+    const przycisk = screen.getByRole('button', { name: /wystaw komplet dokumentów/i }) as HTMLButtonElement
+    expect(przycisk.disabled).toBe(false)
+    fireEvent.change(screen.getByDisplayValue('8'), { target: { value: '8.5' } })
+    fireEvent.click(przycisk)
+    await act(async () => {})
+    expect(dokumenty.fn).not.toHaveBeenCalled()
+    expect(przycisk.disabled).toBe(true)
+  })
+
+  it('wczytany zapis z odchylka nie klamie, ze algorytm nie trafil w cel', async () => {
+    // ZAPISANY: cel 400 kg, w bazie 490 kg — bo ktoś poprawił pozycję ręcznie.
+    // Algorytm trafia w 400 co do kilograma, więc „nie da się trafić całymi
+    // sztukami" byłoby nieprawdą o PRZYCZYNIE, choć odchyłka jest prawdziwa.
+    wczytaj.fn.mockResolvedValue(ZAPISANY)
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByDisplayValue('8')).toBeTruthy())
+    expect(screen.queryByText(/nie da się trafić/i)).toBeNull()
+    expect(screen.getByText(/jest o \+90 kg od celu/i)).toBeTruthy()
+  })
+
+  it('wystawienie sprawdza baze tuz przed wypaleniem numerow', async () => {
+    // Druga osoba zapisała inny podział, gdy to okno stało otwarte. Komplet
+    // powstaje z BAZY, więc powstałby z jej liczb, a biuro patrzyłoby na swoje.
+    const INNY = {
+      ...ZAPISANY, cel_kg: 300, kg_fv: 300, kg_wz: 500, trafiono: true, odchylka: 0,
+      lines: [
+        { ...ZAPISANY.lines[0], qty_invoice: 6, qty_wz: 4 },
+        { ...ZAPISANY.lines[1], qty_invoice: 12, qty_wz: 8 },
+      ],
+    }
+    wczytaj.fn.mockResolvedValueOnce(ZAPISANY).mockResolvedValueOnce(INNY)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    await waitFor(() => expect(screen.getByDisplayValue('8')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
+    await waitFor(() => expect(screen.getByText(/ktoś zmienił podział/i)).toBeTruthy())
+    expect(dokumenty.fn).not.toHaveBeenCalled()
+    // Okno pokazuje TERAZ to, co naprawdę leży w bazie — nie zostawia biura
+    // przy tabeli, o której właśnie powiedziało, że jest nieaktualna.
+    expect(screen.getByDisplayValue('6')).toBeTruthy()
+    expect((screen.getByLabelText(/na fakturę/i) as HTMLInputElement).value).toBe('300')
   })
 })
