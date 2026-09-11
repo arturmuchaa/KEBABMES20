@@ -2,6 +2,8 @@
 import pytest
 
 from app.db import query_all, query_one
+from app.models.orders import ClientOrderCreate
+from app.services.orders_service import update_order
 from app.services.split_documents_service import (anuluj_dokumenty_podzialu,
                                                    wystaw_wz_klienta,
                                                    wystaw_wz_wewnetrzny)
@@ -244,3 +246,78 @@ def test_anulowanie_bez_dokumentow_mowi_wprost(db):
     with pytest.raises(Exception) as e:
         anuluj_dokumenty_podzialu("o1")
     assert "nie ma dokument" in str(e.value).lower()
+
+
+# ── Edycja zamówienia POD wystawionymi dokumentami ────────────────────────
+#
+# Wystawienie kompletu NIE zmienia statusu zamówienia — zostaje `confirmed`,
+# czyli w pełni edytowalne. `_reconcile_lines_cx` po cichu PRZYCINA
+# `qty_invoice` do nowego `qty` (min(stare, nowe)), zabiera je razem z
+# usuniętą pozycją i daje NULL pozycji dopisanej. Po takiej edycji
+# `qty - qty_invoice` opisuje co innego niż WYDRUKOWANY WZ dla klienta —
+# cicha zmiana liczb, które są już na papierze (review końcowy, I1).
+#
+# Bramka stoi w `order_split_service` obok swoich sióstr
+# (`zapisz_podzial`, `wyczysc_podzial`), bo to jedno i to samo pojęcie:
+# „na tym zamówieniu leżą już papiery z podziału".
+def test_edycja_zamowienia_POD_dokumentami_podzialu_jest_odrzucona(db):
+    _przygotuj_z_podzialem(cel_kg=300.0)          # o1-l1: 30 szt, 11 na fakturę
+    wystaw_wz_wewnetrzny("o1")
+    wz = wystaw_wz_klienta("o1")
+
+    with pytest.raises(Exception) as e:
+        update_order("o1", ClientOrderCreate.model_validate({
+            "client_id": "c1", "order_date": "2026-09-08",
+            "lines": [
+                {"id": "o1-l1", "recipe_id": "r1", "product_type_id": "pt1",
+                 "qty": 3, "kg_per_unit": 25},
+                {"id": "o1-l2", "recipe_id": "r2", "product_type_id": "pt2",
+                 "qty": 2, "kg_per_unit": 25},
+            ]}))
+
+    assert "anuluj dokumenty podziału" in str(e.value), e.value
+    linia = query_one("SELECT qty, qty_invoice FROM client_order_lines WHERE id='o1-l1'")
+    assert (int(linia["qty"]), int(linia["qty_invoice"])) == (30, 11), (
+        "edycja przeszła mimo wystawionych dokumentów")
+    # Papier się nie zmienił, więc liczby w bazie też nie mają prawa.
+    assert wz["kg"] == 500.0
+
+
+def test_edycja_zamowienia_BEZ_dokumentow_podzialu_dziala_dalej(db):
+    """Bramka ma zatrzymać edycję tylko tam, gdzie są papiery. Zamówienie
+    z samym ZAPISANYM podziałem (bez dokumentów) biuro poprawia normalnie —
+    po to jest okno podziału."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+
+    update_order("o1", ClientOrderCreate.model_validate({
+        "client_id": "c1", "order_date": "2026-09-08",
+        "lines": [
+            {"id": "o1-l1", "recipe_id": "r1", "product_type_id": "pt1",
+             "qty": 3, "kg_per_unit": 25},
+            {"id": "o1-l2", "recipe_id": "r2", "product_type_id": "pt2",
+             "qty": 2, "kg_per_unit": 25},
+        ]}))
+
+    linia = query_one("SELECT qty, qty_invoice FROM client_order_lines WHERE id='o1-l1'")
+    assert (int(linia["qty"]), int(linia["qty_invoice"])) == (3, 3)
+
+
+def test_ANULOWANY_komplet_odblokowuje_edycje_zamowienia(db):
+    """Odmowa musi być odwracalna — anulowanie kompletu zwraca towar na stan
+    i oddaje zamówienie do edycji."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wystaw_wz_wewnetrzny("o1")
+    wystaw_wz_klienta("o1")
+    anuluj_dokumenty_podzialu("o1")
+
+    update_order("o1", ClientOrderCreate.model_validate({
+        "client_id": "c1", "order_date": "2026-09-08",
+        "lines": [
+            {"id": "o1-l1", "recipe_id": "r1", "product_type_id": "pt1",
+             "qty": 3, "kg_per_unit": 25},
+            {"id": "o1-l2", "recipe_id": "r2", "product_type_id": "pt2",
+             "qty": 2, "kg_per_unit": 25},
+        ]}))
+
+    linia = query_one("SELECT qty, qty_invoice FROM client_order_lines WHERE id='o1-l1'")
+    assert (int(linia["qty"]), int(linia["qty_invoice"])) == (3, 3)

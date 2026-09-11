@@ -127,6 +127,48 @@ def test_komplet_dzieli_kilogramy_miedzy_dokumenty(db):
     assert dane["cmr"][1]["payload"]["gross_kg"] == 300.0
 
 
+# ── Pokrycie: papier nie może opisywać więcej, niż wyjechało ──────
+#
+# `_sprawdz_gotowosc_do_kompletu` liczy sztuki z `client_order_lines`,
+# a `portion_stock_rows` przy niedoborze po cichu oddaje MNIEJ porcji
+# (`take = min(need, pool)`, bez wyjątku). Na krótkiej dostawie WM opisuje
+# więc FAKTYCZNE pokrycie, a WZ dla klienta i CMR do faktury — ZAMÓWIENIE:
+# kg(WZ) + kg(CMR fv) > kg(WM), czyli papieru na więcej, niż wyjechało
+# z zakładu, i nic tego nie pokazuje (review końcowy, I3).
+#
+# Decyzja kontrolera: OSTRZEGAĆ, nie odmawiać — zakład wysyła to, co zrobił,
+# a zablokowanie krótkiej dostawy byłoby gorsze niż poinformowanie o niej.
+# `wystaw_komplet` zna `wm["kg"]` i kilogramy zamówienia, i jest ostatnim
+# miejscem, w którym ktokolwiek może to powiedzieć przed odjazdem auta.
+def test_komplet_melduje_ze_papier_opisuje_wiecej_niz_wyjechalo(db):
+    _przygotuj_z_podzialem(cel_kg=300.0)          # zamówienie: 800 kg
+    # Krótka dostawa: drugiej receptury zrobiono 1 szt. zamiast 2 (25 kg mniej).
+    execute("UPDATE finished_goods SET qty=1, qty_available=1, total_kg=25 WHERE id='f2'")
+
+    dane = route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
+
+    assert dane["wm"]["kg"] == 775.0
+    pokrycie = dane["pokrycie"]
+    assert pokrycie["pelne"] is False
+    assert pokrycie["kg_wydane"] == 775.0
+    assert pokrycie["kg_zamowienia"] == 800.0
+    assert pokrycie["kg_braku"] == 25.0
+    # Papier NAPRAWDĘ opisuje więcej: WZ klienta (500) + CMR do faktury (300).
+    assert dane["wz"]["kg"] + dane["cmr"][1]["payload"]["gross_kg"] > dane["wm"]["kg"]
+
+
+def test_komplet_na_pelnym_pokryciu_nie_straszy(db):
+    """Alarm, który odzywa się przy każdej poprawnej wysyłce, biuro nauczy
+    się ignorować — a wtedy przestaje działać przy tej jednej krótkiej."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+
+    dane = route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
+
+    assert dane["pokrycie"]["pelne"] is True
+    assert dane["pokrycie"]["kg_braku"] == 0.0
+    assert dane["pokrycie"]["kg_wydane"] == dane["pokrycie"]["kg_zamowienia"] == 800.0
+
+
 def test_komplet_buduje_oba_cmr_z_tego_samego_formularza(db):
     """Jeden kierowca, jedno auto, dwa listy — różni je WYŁĄCZNIE zakres."""
     _przygotuj_z_podzialem(cel_kg=300.0)

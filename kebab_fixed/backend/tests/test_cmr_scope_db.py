@@ -2,7 +2,7 @@
 import pytest
 from fastapi import HTTPException
 
-from app.db import query_all
+from app.db import execute, query_all
 from app.services.cmr_service import generate_cmr
 from tests.conftest_split import _przygotuj_bez_podzialu, _przygotuj_z_podzialem
 
@@ -62,3 +62,46 @@ def test_cmr_do_faktury_bez_podzialu_odmawia(db):
         generate_cmr("o1", FORM, scope="fv")
     assert exc.value.status_code == 400
     assert "podziału" in exc.value.detail
+
+
+# ── Numeracja CMR: numer ma być UNIKALNY, nie „zwykle unikalny" ────────────
+#
+# `generate_cmr` bierze numer z `MAX(seq)+1` BEZ blokady. Powtórny odczyt
+# wewnątrz transakcji zamyka okno dwukliku (ten sam `order_id` + `scope`),
+# ale dwie NAPRAWDĘ równoległe transakcje w READ COMMITTED (dwa różne
+# zamówienia, dwie osoby w biurze) policzą to samo `MAX+1` i obie wstawią
+# swój wiersz. HDI tego problemu nie ma — `_next_hdi_seq` bierze `FOR UPDATE`
+# na wierszu licznika.
+#
+# Indeks unikalny nie naprawia numeracji, tylko zamienia CICHY duplikat
+# numeru na głośny błąd. Dwa listy przewozowe o tym samym numerze to
+# dokumenty handlowe nie do rozróżnienia — cicho jest tu najgorzej
+# (review końcowy, I5). Przebudowa numeracji na licznik z `FOR UPDATE`
+# świadomie NIE wchodzi w tę falę.
+def _wstaw_cmr(cid, seq, ym="2609"):
+    execute(
+        "INSERT INTO cmr_documents (id, number, seq, year_month, order_id, client_name, "
+        " status, payload, issue_date, created_at, scope) "
+        "VALUES (%s,%s,%s,%s,'o1','YBM Gastro GmbH','wystawiony','{}'::jsonb,"
+        " '10.09.2026', now(), 'calosc')",
+        (cid, f"{seq}/09/26", seq, ym))
+
+
+def test_dwa_CMR_o_tym_samym_numerze_sa_odrzucane_przez_baze(db):
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    _wstaw_cmr("cmr-a", seq=1)
+
+    with pytest.raises(Exception) as e:
+        _wstaw_cmr("cmr-b", seq=1)
+
+    assert "ux_cmr_ym_seq" in str(e.value) or "unique" in str(e.value).lower(), e.value
+    assert len(query_all("SELECT id FROM cmr_documents")) == 1
+
+
+def test_ten_sam_numer_w_INNYM_miesiacu_jest_poprawny(db):
+    """Numeracja startuje od 1 w każdym miesiącu — indeks nie może tego
+    zablokować."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    _wstaw_cmr("cmr-a", seq=1, ym="2609")
+    _wstaw_cmr("cmr-b", seq=1, ym="2610")
+    assert len(query_all("SELECT id FROM cmr_documents")) == 2

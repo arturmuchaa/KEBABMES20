@@ -19,6 +19,10 @@ import pytest
 
 from app.db import execute, query_all, query_one
 from app.services.loading_service import finalize_loading
+from app.services.order_split_service import zapisz_podzial
+from app.services.split_documents_service import (anuluj_dokumenty_podzialu,
+                                                  wystaw_wz_klienta,
+                                                  wystaw_wz_wewnetrzny)
 
 
 # ── Zasiew ────────────────────────────────────────────────────────────────
@@ -395,70 +399,134 @@ def test_sztuki_qr_maja_pierwszenstwo_nad_rozpisem(db):
 # poprawny załadunek wychodziłby jako rozjazd. `ORDER BY created_at LIMIT 1`
 # brało po prostu dokument, który powstał pierwszy
 # (re-review Task 4, fix round 3, 2026-09-10).
-def _dokument_z_podzialu(wid, oid="o1", series="WM", scope="calosc", nr=1,
-                         linie=None, minut_temu=10):
-    execute(
-        "INSERT INTO wz_documents (id, number, seq, year_month, source_type, source_id, "
-        " buyer_name, valued, lines, status, currency, pallets_h1, pallets_other, "
-        " issued_date, doc_series, split_scope, created_at) "
-        "VALUES (%s,%s,%s,'09/26','order',%s,'YBM Gastro GmbH',false,%s::jsonb,'wstepny',"
-        " 'PLN',0,0,'2026-09-10',%s,%s, now() - (%s || ' minutes')::interval)",
-        (wid, f"{series}/{nr}/09/26", nr, oid, json.dumps(linie or []), series, scope,
-         str(minut_temu)))
-    return wid
+def _przygotuj_podzial(qty=10, kg=30, cel_kg=180.0, na_stanie=20):
+    """Zamówienie z podziałem i dokumentami wystawionymi ŚCIEŻKĄ PRODUKCYJNĄ:
+    `zapisz_podzial` → `wystaw_wz_wewnetrzny` → `wystaw_wz_klienta`.
+
+    DLACZEGO NIE ręcznie sklejony JSON (tak było do 2026-09-11): poprzedni
+    zasiew wpisywał w linie dokumentu `recipe_id`, którego kod produkcyjny
+    NIGDY tam nie wpisywał — `build_goods_wz_lines` (linie WM) go gubił.
+    Test sprawdzał więc własny fixture, nie funkcję, i świecił na zielono,
+    podczas gdy KAŻDA podzielona wysyłka wychodziła przy załadunku jako
+    „ROZJAZD z dokumentem WZ": klucz dokumentu miał puste `recipe_id`, klucz
+    załadunku prawdziwe, więc nic się nie dopasowywało i każda pozycja
+    dublowała się na dwie (doc 10/loaded 0 obok doc 0/loaded 10).
+
+    Załadunek idzie ROZPISEM PALET, nie sztukami QR — tak pracuje ten zakład
+    (na produkcji 0 z 59 sztuk QR leży na palecie) i tylko tak partia
+    z dokumentu (`finished_goods.batch_no`) opisuje to samo, co partia
+    z załadunku (`aggregate_picks` też bierze ją z wiersza magazynu).
+
+    Na stanie leży WIĘCEJ, niż bierze zamówienie (20 szt. wobec 10): WM
+    zdejmuje swoje 10, reszta zostaje, więc `picks_for_pallets` (warunek
+    `qty_available > 0`) ma czym potwierdzić zawartość auta. Tak wygląda
+    magazyn tego zakładu — partie po 60-120 szt. na kilkanaście sztuk
+    zamówienia.
+    """
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=qty, kg=kg)
+    _wyrob(qty=na_stanie, kg=kg)
+    _paleta()
+    _pozycja_palety(qty=qty)               # rozpis palety, ZERO sztuk QR
+    zapisz_podzial("o1", cel_kg)
+    wystaw_wz_wewnetrzny("o1")
+    wystaw_wz_klienta("o1")
+    # Kolejność w bazie ODWRÓCONA wobec kolejności wystawiania — celowo.
+    # Produkcyjnie WM musi powstać pierwszy (`wystaw_wz_klienta` bez niego
+    # odmawia), ale wtedy dawne, niefiltrowane `ORDER BY created_at LIMIT 1`
+    # trafiałoby w WM tak samo jak dzisiejszy filtr po `split_scope` i test
+    # nie odróżniałby starego kodu od nowego (uwaga z re-review rundy 3).
+    # Cofamy więc sam ZEGAR na WZ klienta; linie dokumentów zostają takie,
+    # jakie wystawił kod produkcyjny, i o to w tym zasiewie chodzi.
+    execute("UPDATE wz_documents SET created_at = now() - interval '20 minutes' "
+            "WHERE source_id='o1' AND split_scope='wz_klienta'")
+    execute("UPDATE wz_documents SET created_at = now() - interval '10 minutes' "
+            "WHERE source_id='o1' AND split_scope='calosc'")
 
 
-def _przygotuj_podzial(qty=10, kg=30, na_fakture=6):
-    """Zamówienie z kompletem dokumentów podziału. Seed celowo ODWRACA
-    kolejność z rzeczywistości: WZ klienta jest STARSZY, WM NOWSZY (patrz
-    niżej) — bo seed z WM najstarszym przechodziłby oba testy nawet na
-    starym, niefiltrowanym `ORDER BY created_at LIMIT 1` i niczego by nie
-    sprawdzał."""
-    _przygotuj(qty=qty, kg=kg)
-    execute("UPDATE finished_goods SET qty_available=0, qty_shipped=%s WHERE id='f1'", (qty,))
-    # WZ klienta jest STARSZY — celowo. Gdyby WM był najstarszy, dawne
-    # niefiltrowane `ORDER BY created_at LIMIT 1` trafiałoby w niego tak samo
-    # i test nie odróżniałby starego kodu od nowego (uwaga z re-review rundy 3).
-    _dokument_z_podzialu("wzk1", series="WZ", scope="wz_klienta", nr=2,
-                         linie=[_linia_wz(qty=qty - na_fakture, kg=kg)], minut_temu=20)
-    _dokument_z_podzialu("wm1", series="WM", scope="calosc", nr=1,
-                         linie=[_linia_wz(qty=qty, kg=kg)], minut_temu=10)
+def _wm(oid="o1"):
+    return query_one(
+        "SELECT id, number, loaded_at, loading_status, loading_diff FROM wz_documents "
+        "WHERE source_id=%s AND split_scope='calosc'", (oid,))
+
+
+def _wz_klienta_doc(oid="o1"):
+    return query_one(
+        "SELECT id, number, loaded_at, vehicle_plate, loading_status FROM wz_documents "
+        "WHERE source_id=%s AND split_scope='wz_klienta'", (oid,))
 
 
 def test_zaladunek_podzialu_weryfikuje_sie_z_dokumentem_NA_CALOSC(db):
-    _przygotuj_podzial(qty=10, kg=30, na_fakture=6)
+    _przygotuj_podzial(qty=10, kg=30, cel_kg=180.0)
 
     zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
 
     assert zam["wz_number"].startswith("WM/"), "załadunek podpiął się pod zły dokument"
     assert zam["wz_status"] == "potwierdzony", (
-        "całość auta uznana za rozjazd — porównano z częściowym WZ klienta")
+        "poprawny załadunek uznany za rozjazd z dokumentem WM: " + repr(zam["diff"]))
+    assert zam["diff"] == []
 
 
 def test_zaladunek_podzialu_NIE_zdejmuje_stanu_drugi_raz(db):
     """Stan zszedł już przy wystawieniu WM — załadunek tylko potwierdza."""
-    _przygotuj_podzial(qty=10, kg=30)
+    _przygotuj_podzial(qty=10, kg=30, cel_kg=180.0)
     ruchow_przed = query_one("SELECT COUNT(*) AS n FROM stock_movements")["n"]
 
     finalize_loading("v1", ["o1"], plate="KR 99999")
 
     fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
-    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10)
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (10, 10)
     assert query_one("SELECT COUNT(*) AS n FROM stock_movements")["n"] == ruchow_przed
 
 
 def test_WZ_klienta_dostaje_numer_auta_i_godzine(db):
     """Ten papier jedzie z kierowcą — musi mieć na wydruku auto i godzinę,
     choć diffu (porównania z zawartością) nie dostaje, bo jest częściowy."""
-    _przygotuj_podzial(qty=10, kg=30, na_fakture=6)
+    _przygotuj_podzial(qty=10, kg=30, cel_kg=180.0)
 
     finalize_loading("v1", ["o1"], plate="KR 99999")
 
-    wzk = query_one("SELECT loaded_at, vehicle_plate, loading_status "
-                    "FROM wz_documents WHERE id='wzk1'")
+    wzk = _wz_klienta_doc()
     assert wzk["loaded_at"] is not None
     assert wzk["vehicle_plate"] == "KR 99999"
     assert not wzk["loading_status"], "częściowy WZ klienta nie może dostać statusu zgodności"
+
+
+# ── Anulowanie kompletu PO załadunku ──────────────────────────────────────
+#
+# `anuluj_dokumenty_podzialu` pisze ruchy CANCEL i podnosi `qty_available`.
+# Po `finalize_loading` towar leży już na naczepie — zwrot na stan opisywałby
+# magazyn, którego nie ma. Do tej pory taka droga w ogóle nie istniała
+# (`cancel_wz` odrzuca wszystko z `source_type != 'manual'`), więc to
+# ekspozycja WNIESIONA przez tę gałąź (review końcowy, I2).
+def test_anulowanie_kompletu_PO_ZALADUNKU_jest_odrzucone(db):
+    _przygotuj_podzial(qty=10, kg=30, cel_kg=180.0)
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+    przed = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
+    ruchow_przed = query_one("SELECT COUNT(*) AS n FROM stock_movements")["n"]
+
+    with pytest.raises(Exception) as e:
+        anuluj_dokumenty_podzialu("o1")
+
+    assert "załadowan" in str(e.value).lower() or "wyjechał" in str(e.value).lower(), e.value
+    po = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
+    assert (int(po["qty_available"]), int(po["qty_shipped"])) == (
+        int(przed["qty_available"]), int(przed["qty_shipped"])), "odmowa mimo to ruszyła stan"
+    assert query_one("SELECT COUNT(*) AS n FROM stock_movements")["n"] == ruchow_przed
+    assert not query_all(
+        "SELECT id FROM wz_documents WHERE source_id='o1' AND COALESCE(status,'')='anulowany'")
+
+
+def test_anulowanie_kompletu_PRZED_zaladunkiem_dziala(db):
+    """Druga strona tej samej bramki: dopóki auto nie odjechało, wycofanie
+    kompletu jest jedyną drogą powrotną i musi działać."""
+    _przygotuj_podzial(qty=10, kg=30, cel_kg=180.0)
+
+    wynik = anuluj_dokumenty_podzialu("o1")
+
+    assert len(wynik["documents"]) == 2
+    fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (20, 0)
 
 
 def test_ANULOWANY_wz_nie_jest_kandydatem_przy_zaladunku(db):

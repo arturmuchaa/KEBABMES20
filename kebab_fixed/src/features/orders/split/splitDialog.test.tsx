@@ -557,6 +557,103 @@ describe('SplitDialog', () => {
     await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, { l1: 9, l2: 25 }))
   })
 
+  // ── Anulowanie kompletu: okno ma mówić, co NAPRAWDĘ znika ──────────────
+  //
+  // `anuluj_dokumenty_podzialu` anuluje WYŁĄCZNIE rodzinę WZ (WM + WZ dla
+  // klienta). Oba CMR-y i oba HDI zostają żywe, z numerami i z treścią
+  // opisującą podział, którego już nie ma. Obietnica „numery WM / WZ / HDI /
+  // CMR przepadną" była nieprawdą o dokumentach handlowych (review końcowy, I4).
+  async function doKompletu() {
+    podglad.fn.mockResolvedValue(ODPOWIEDZ)
+    zapisz.fn.mockResolvedValue(ODPOWIEDZ)
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
+    await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, { l1: 9, l2: 25 }))
+    wczytaj.fn.mockResolvedValue(zapisanyJak(8000))     // baza zgodna z ekranem
+    fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
+    await waitFor(() => expect(dokumenty.fn).toHaveBeenCalled())
+  }
+
+  const KOMPLET = {
+    order_id: 'o1',
+    wm: { id: 'wm1', number: 'WM/1/09/2026' },
+    wz: { id: 'wz1', number: 'WZ/2/09/2026' },
+    cmr: [{ id: 'c1', number: 'CMR/1' }, { id: 'c2', number: 'CMR/2' }],
+    hdi_calosc: { id: 'h1', number: 'HDI/1' },
+    hdi_fv: null,
+  }
+
+  it('potwierdzenie anulowania NIE obiecuje, ze numery HDI i CMR przepadna', async () => {
+    dokumenty.fn.mockResolvedValue(KOMPLET)
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await doKompletu()
+    fireEvent.click(screen.getByRole('button', { name: /anuluj dokumenty podziału/i }))
+
+    const tekst = String(confirmSpy.mock.calls[0]?.[0] ?? '')
+    expect(tekst).toMatch(/HDI i CMR zostaj/i)
+    expect(tekst).not.toMatch(/przepadn/i)
+    expect(anuluj.fn).not.toHaveBeenCalled()
+  })
+
+  it('baner odmowy tez mowi, ze HDI i CMR zostaja', async () => {
+    podglad.fn.mockResolvedValue(ODPOWIEDZ)
+    zapisz.fn.mockRejectedValue(new Error(
+      'Zamówienie ma już wystawione dokumenty z podziału (WM/1/09/2026) — żeby zmienić ' +
+      'podział, najpierw anuluj dokumenty podziału (przycisk „Anuluj podział” na zamówieniu).'))
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
+    await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /anuluj dokumenty podziału/i })).toBeTruthy())
+
+    expect(screen.getByText(/HDI i CMR zostaj/i)).toBeTruthy()
+    expect(screen.queryByText(/przepadn/i)).toBeNull()
+  })
+
+  // ── Krótka dostawa: papier opisuje więcej, niż wyjechało ───────────────
+  //
+  // WM opisuje FAKTYCZNE pokrycie z magazynu, a WZ dla klienta i CMR do
+  // faktury liczą się z ZAMÓWIENIA. Przy niedoborze suma papieru przekracza
+  // to, co wyjechało z zakładu. Backend melduje to w `pokrycie`; to jest
+  // ostatnia chwila, gdy ktokolwiek może to zobaczyć przed odjazdem auta
+  // (review końcowy, I3 — decyzja kontrolera: ostrzec, nie blokować).
+  it('pokazuje, o ile kilogramow papier przekracza to, co wyjechalo', async () => {
+    dokumenty.fn.mockResolvedValue({
+      ...KOMPLET,
+      pokrycie: { pelne: false, kg_wydane: 775, kg_zamowienia: 800, kg_braku: 25 },
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await doKompletu()
+
+    expect(screen.getByText(/o 25 kg więcej/i)).toBeTruthy()
+    expect(screen.getByText(/775/)).toBeTruthy()
+    expect(screen.getByText(/800/)).toBeTruthy()
+  })
+
+  it('przy pelnym pokryciu nie straszy niczym', async () => {
+    dokumenty.fn.mockResolvedValue({
+      ...KOMPLET,
+      pokrycie: { pelne: true, kg_wydane: 800, kg_zamowienia: 800, kg_braku: 0 },
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await doKompletu()
+
+    expect(screen.getByText('WM/1/09/2026')).toBeTruthy()
+    expect(screen.queryByText(/więcej, niż wyjechało/i)).toBeNull()
+  })
+
+  it('starszy backend bez pola pokrycie nie wywraca okna', async () => {
+    dokumenty.fn.mockResolvedValue(KOMPLET)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await doKompletu()
+
+    expect(screen.getByText('WM/1/09/2026')).toBeTruthy()
+    expect(screen.queryByText(/więcej, niż wyjechało/i)).toBeNull()
+  })
+
   it('zapis z ulamkiem w polu pozycji jest odmawiany i nazywa pozycje', async () => {
     // Bliźniak testu o martwym przycisku „Wystaw": tam ułamek blokuje
     // wystawienie, tu ma NIE pojechać do zapisu jako obcięta liczba.
