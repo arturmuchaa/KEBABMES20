@@ -587,11 +587,15 @@ describe('SplitDialog', () => {
 
   it('potwierdzenie anulowania NIE obiecuje, ze numery HDI i CMR przepadna', async () => {
     dokumenty.fn.mockResolvedValue(KOMPLET)
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    // Dwa potwierdzenia po kolei: pierwsze na wystawienie kompletu (zgoda),
+    // drugie na anulowanie — jego treść tu badamy, więc odmawiamy.
+    const confirmSpy = vi.spyOn(window, 'confirm')
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false)
     await doKompletu()
     fireEvent.click(screen.getByRole('button', { name: /anuluj dokumenty podziału/i }))
 
-    const tekst = String(confirmSpy.mock.calls[0]?.[0] ?? '')
+    const tekst = String(confirmSpy.mock.calls[1]?.[0] ?? '')
     expect(tekst).toMatch(/HDI i CMR zostaj/i)
     expect(tekst).not.toMatch(/przepadn/i)
     expect(anuluj.fn).not.toHaveBeenCalled()

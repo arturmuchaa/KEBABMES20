@@ -18,8 +18,10 @@
  *   - po wystawieniu kompletu dokumentów zapis/kasowanie podziału jest
  *     zablokowane („najpierw anuluj dokumenty podziału") — to okno NIE
  *     zostawia biura w ślepym zaułku: przy takiej odmowie od razu proponuje
- *     anulowanie kompletu, tu na miejscu, z jasno napisaną konsekwencją
- *     (towar wraca na stan, numery WM/WZ/HDI/CMR przepadają);
+ *     anulowanie kompletu, tu na miejscu, z jasno napisaną konsekwencją —
+ *     a konsekwencją jest to, co `anuluj_dokumenty_podzialu` NAPRAWDĘ robi:
+ *     anuluje rodzinę WZ (WM + WZ dla klienta) i oddaje towar na stan,
+ *     natomiast HDI i CMR ZOSTAJĄ żywe, ze swoimi numerami;
  *   - gdy zamówienie dostało nową pozycję bez zapisanego podziału,
  *     wystawienie kompletu odmawia („najpierw zapisz podział") — wyjściem
  *     jest przycisk „Zapisz podział" stojący w TYM SAMYM oknie, więc nie
@@ -133,7 +135,7 @@ function naEkranie(p: SplitPreview, o: Record<string, string>): Record<string, n
 /** Podział zapisany W BAZIE, przepisany na to, z czym porównuje się ekran.
  *  `null` = w bazie nie ma PEŁNEGO podziału, więc nie ma czego potwierdzać:
  *  komplet dokumentów i tak jest odmawiany przy choćby jednej pozycji bez
- *  sztuk (patrz `_sprawdz_przed_wystawieniem` w `split_documents_service`). */
+ *  sztuk (patrz `_sprawdz_gotowosc_do_kompletu` w `split_documents_service`). */
 function savedZ(z: SplitSaved): SavedSplit | null {
   if (!z.istnieje || !z.kompletny || z.cel_kg == null) return null
   return {
@@ -400,10 +402,19 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
   }
 
   async function handleCancelDocuments() {
+    // Treść MUSI opisywać to, co robi `anuluj_dokumenty_podzialu`: anuluje
+    // WYŁĄCZNIE rodzinę WZ (po `split_scope`), bo tylko o tych liniach wie,
+    // jak wyglądają i jak zwrócić z nich towar. Oba CMR-y i oba HDI zostają
+    // żywe, z numerami — obietnica „numery WM / WZ / HDI / CMR przepadną"
+    // była nieprawdą o dokumentach handlowych, a to w tym systemie osobna
+    // klasa błędu: ekran mówi jedno, baza robi drugie
+    // (review końcowy, I4, 2026-09-11).
     const ok = window.confirm(
       'Anulować dokumenty podziału?\n\n' +
-      'Towar wróci na stan, a numery WM / WZ / HDI / CMR tego kompletu przepadną ' +
-      '— trzeba będzie wystawić je jeszcze raz.')
+      'Anulowane zostaną WZ wewnętrzny (WM) i WZ dla klienta — towar wróci na stan ' +
+      'wyrobów gotowych.\n' +
+      'HDI i CMR zostają: te same numery, treść odświeży się przy ponownym wystawieniu ' +
+      'kompletu.')
     if (!ok) return
     setCancelling(true)
     try {
@@ -586,9 +597,9 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
               {needsCancel && (
                 <>
                   <div className="text-[11.5px] text-red-700/80">
-                    Wyjście jest jedno: anulować komplet dokumentów tego podziału. Towar wróci na
-                    stan, a numery WM / WZ / HDI / CMR przepadną — trzeba będzie wystawić je
-                    jeszcze raz.
+                    Wyjście jest jedno: anulować dokumenty podziału. Anulowane zostaną WZ
+                    wewnętrzny (WM) i WZ dla klienta, a towar wróci na stan. HDI i CMR zostają
+                    — te same numery, treść odświeży się przy ponownym wystawieniu kompletu.
                   </div>
                   <button type="button" onClick={handleCancelDocuments} disabled={cancelling}
                     className="rounded bg-red-600 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-red-700 disabled:opacity-50">
@@ -618,6 +629,27 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
                   {cancelling ? 'Anuluję…' : 'Anuluj dokumenty podziału'}
                 </button>
               </div>
+              {documents.pokrycie && !documents.pokrycie.pelne && (
+                // Papier opisuje WIĘCEJ, niż wyjechało: WM powstaje
+                // z faktycznego pokrycia w magazynie, a WZ dla klienta i CMR
+                // do faktury liczą się z ZAMÓWIENIA. To ostatnia chwila, gdy
+                // ktokolwiek może to zobaczyć przed odjazdem auta — dalej
+                // zostaje już tylko korekta faktury (review końcowy, I3).
+                // Ostrzeżenie, nie blokada: zakład wysyła to, co wyprodukował.
+                <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">
+                  <div className="font-semibold">
+                    Papiery opisują o {fmtKgTrim(documents.pokrycie.kg_braku)} kg więcej,
+                    niż wyjechało.
+                  </div>
+                  <div className="mt-1 text-[11.5px]">
+                    WZ wewnętrzny (WM) obejmuje <b>{fmtKgTrim(documents.pokrycie.kg_wydane)}</b> kg
+                    — tyle znalazło pokrycie w magazynie. WZ dla klienta i CMR do faktury liczą
+                    się z zamówienia (<b>{fmtKgTrim(documents.pokrycie.kg_zamowienia)}</b> kg),
+                    więc opisują też towar, który nie wyjechał. Sprawdź dostawę, zanim faktura
+                    pójdzie do Subiekta.
+                  </div>
+                </div>
+              )}
               <DocRow label="WZ wewnętrzny (WM)" doc={documents.wm} typ="wz" />
               <DocRow label="WZ dla klienta" doc={documents.wz} typ="wz" />
               {(documents.cmr ?? []).map((c, i) => (

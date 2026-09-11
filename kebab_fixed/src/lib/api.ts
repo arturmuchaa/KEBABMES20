@@ -1748,6 +1748,22 @@ export interface SplitSaved extends SplitPreview {
 
 export interface SplitDocRef { id: string; number: string }
 
+/** Czy papier opisuje dokładnie tyle, ile wyjechało z zakładu.
+ *
+ *  WM powstaje z FAKTYCZNEGO pokrycia w magazynie, a WZ dla klienta i CMR do
+ *  faktury liczą się z ZAMÓWIENIA. Na krótkiej dostawie suma papieru
+ *  przekracza to, co wyjechało — i nic tego dotąd nie pokazywało. Backend
+ *  OSTRZEGA, nie odmawia: zakład wysyła to, co wyprodukował.
+ *  Pole opcjonalne, bo starszy backend go nie odsyła. */
+export interface SplitCoverage {
+  pelne: boolean
+  /** kg objęte WZ wewnętrznym (WM) — tyle faktycznie zeszło ze stanu. */
+  kg_wydane: number
+  kg_zamowienia: number
+  /** kg, o które papier przekracza wysyłkę (0, gdy pokrycie pełne). */
+  kg_braku: number
+}
+
 export interface SplitDocuments {
   order_id?: string
   wm?: SplitDocRef
@@ -1755,6 +1771,7 @@ export interface SplitDocuments {
   cmr?: SplitDocRef[]
   hdi_calosc?: SplitDocRef
   hdi_fv?: SplitDocRef | null
+  pokrycie?: SplitCoverage
 }
 
 export interface SplitCancelResult {
