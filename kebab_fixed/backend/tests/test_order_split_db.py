@@ -82,6 +82,33 @@ def test_podglad_mowi_czy_trafiono_w_cel(db):
     assert podglad_podzialu("o1", 401.0)["trafiono"] is False
 
 
+def test_korekta_reczna_zmienia_trafiono_i_odchylke_na_zapisany_stan(db):
+    """Fix po review (runda 2, Task 8): `trafiono`/`odchylka` MUSZĄ opisywać
+    ZAPISANY (skorygowany) podział, nie propozycję algorytmu sprzed korekty —
+    inaczej biuro poprawia pozycję ręcznie, zapisuje i widzi „trafiono,
+    odchyłka 0", choć zapisany podział jest o kilkadziesiąt kg obok celu.
+    To dokładnie ta klasa błędu, przed którą broni się ten projekt: liczba
+    na ekranie, która nie opisuje stanu w bazie."""
+    _slownik(); _zamowienie()                      # 300 + 500 = 800 kg
+    # Propozycja algorytmu na cel 400 trafia DOKŁADNIE: l1=5 (150kg), l2=10 (250kg).
+    assert podglad_podzialu("o1", 400.0)["trafiono"] is True
+    wynik = zapisz_podzial("o1", 400.0, {"l1": 8})  # ręcznie: l1 -> 8 szt (240kg)
+    # Zapisany podział: l1=8*30=240kg + l2=10*25=250kg = 490kg, cel=400kg.
+    assert wynik["kg_fv"] == 490.0
+    assert wynik["odchylka"] == 90.0
+    assert wynik["trafiono"] is False
+
+
+def test_zapis_bez_korekty_trafia_tak_samo_jak_podglad(db):
+    """Regresja: bez ręcznej korekty `trafiono`/`odchylka` po przeliczeniu
+    mają wyjść IDENTYCZNE jak w podglądzie — przeliczenie po zapisie nie ma
+    prawa zmienić wyniku, gdy nic nie zostało poprawione ręcznie."""
+    _slownik(); _zamowienie()
+    wynik = zapisz_podzial("o1", 400.0, None)
+    assert wynik["trafiono"] is True
+    assert wynik["odchylka"] == 0.0
+
+
 def test_zmniejszenie_ilosci_przycina_qty_invoice(db):
     """Fix round 1 (recenzja): qty=10, qty_invoice=8, edycja zmniejsza qty do 3.
 

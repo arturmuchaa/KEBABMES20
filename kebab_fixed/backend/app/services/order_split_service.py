@@ -111,6 +111,22 @@ def zapisz_podzial(order_id: str, cel_kg: float,
     kg_fv = sum(l["qty_invoice"] * l["kg_per_unit"] for l in podglad["lines"])
     podglad["kg_fv"] = round(kg_fv, 3)
     podglad["kg_wz"] = round(podglad["kg_calosc"] - kg_fv, 3)
+    # `trafiono`/`odchylka` odziedziczone z `podglad_podzialu` (powyżej) opisują
+    # PROPOZYCJĘ algorytmu SPRZED ręcznej korekty — po nałożeniu `per_line`
+    # muszą opisywać to, co FAKTYCZNIE zapisane. Bez tego biuro poprawia
+    # pozycję ręcznie, zapisuje i widzi „trafiono, odchyłka 0", podczas gdy
+    # zapisany podział jest o kilkadziesiąt kg obok celu — liczba na ekranie,
+    # która nie opisuje stanu w bazie (fix po review, runda 2, Task 8).
+    #
+    # TA SAMA definicja co `podziel_pozycje` (tolerancja 1e-6, cel obcięty do
+    # [0, całość] — niezaokrąglonej, jak tam), żeby w kontrakcie nie było
+    # dwóch znaczeń „trafiono". Bez korekt (`per_line` puste) `kg_fv` tutaj
+    # jest identyczne z tym z `podglad_podzialu`, więc przeliczenie jest
+    # bezpieczne (nie zmienia wyniku) także wtedy, gdy nic nie poprawiono.
+    kg_calosc_nieokragl = sum(l["qty"] * l["kg_per_unit"] for l in podglad["lines"])
+    cel_obcieta = max(0.0, min(float(cel_kg or 0), kg_calosc_nieokragl))
+    podglad["trafiono"] = abs(kg_fv - cel_obcieta) < 1e-6
+    podglad["odchylka"] = round(kg_fv - float(cel_kg or 0), 3)
     return podglad
 
 

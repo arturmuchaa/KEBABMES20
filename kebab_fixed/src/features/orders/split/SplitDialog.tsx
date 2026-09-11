@@ -168,6 +168,12 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
     }
   }
 
+  // Biuro ma ręczną korektę linii, której jeszcze nie zapisało — wiersze
+  // pokazują nowe liczby, ale stopka wciąż liczy sumy z POPRZEDNIEJ
+  // odpowiedzi API (backend nie ma trasy „podgląd z per_line"). To musi być
+  // widoczne, inaczej biuro odczyta stare sumy jako aktualne (review, runda 2).
+  const hasPendingOverrides = Object.keys(overrides).length > 0
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" onClick={onClose}>
       <div onClick={e => e.stopPropagation()}
@@ -265,7 +271,17 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
                 </table>
               </div>
 
-              <div className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded border border-surface-4 bg-surface-2 px-3 py-2 text-[12.5px] text-ink-3">
+              <div className={cn('flex flex-wrap items-center gap-x-6 gap-y-1 rounded border px-3 py-2 text-[12.5px]',
+                hasPendingOverrides ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-surface-4 bg-surface-2 text-ink-3')}>
+                {hasPendingOverrides && (
+                  // Wiersze pokazują NOWE liczby (po ręcznej korekcie), ale te
+                  // sumy wciąż liczone są z poprzedniej odpowiedzi API — nie
+                  // wolno dać biuru odczytać ich jako aktualnych (przeliczenie
+                  // sum to „split", a tego ekran sam nie robi — patrz „Zapisz").
+                  <div className="basis-full text-[11.5px] font-semibold text-amber-800">
+                    Sumy poniżej są sprzed tej korekty — zapisz podział, żeby je przeliczyć.
+                  </div>
+                )}
                 <div>Razem <b className="text-ink">{fmtKgTrim(preview.kg_calosc)}</b> kg</div>
                 <div>Na fakturę <b className="text-ink">{fmtKgTrim(preview.kg_fv)}</b> kg</div>
                 <div>Na WZ <b className="text-ink">{fmtKgTrim(preview.kg_wz)}</b> kg</div>

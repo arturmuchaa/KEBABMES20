@@ -87,6 +87,22 @@ describe('SplitDialog', () => {
     fireEvent.change(screen.getByDisplayValue('9'), { target: { value: '10' } })
     fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
     await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, { l1: 10 }))
+    // Po udanym zapisie korekta jest utrwalona — ostrzeżenie o starych sumach znika.
+    expect(screen.queryByText(/sprzed tej korekty/i)).toBeNull()
+  })
+
+  it('niezapisana reczna korekta oznacza sumy w stopce jako nieaktualne', async () => {
+    podglad.fn.mockResolvedValue(ODPOWIEDZ)
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
+    await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
+    // Zanim biuro cokolwiek poprawi, sumy w stopce są aktualne — bez ostrzeżenia.
+    expect(screen.queryByText(/sprzed tej korekty/i)).toBeNull()
+    // Wiersz pokazuje nową liczbę, ale stopka jeszcze liczy z POPRZEDNIEJ
+    // odpowiedzi API (backend nie ma trasy „podgląd z per_line") — musi być
+    // widoczne, że te sumy jeszcze nie opisują tego, co na ekranie.
+    fireEvent.change(screen.getByDisplayValue('9'), { target: { value: '10' } })
+    expect(screen.getByText(/sprzed tej korekty/i)).toBeTruthy()
   })
 
   it('wystawia komplet dokumentow z checkboxem HDI do faktury i pokazuje numery', async () => {
