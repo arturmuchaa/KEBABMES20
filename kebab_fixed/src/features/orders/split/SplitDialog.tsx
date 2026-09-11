@@ -24,6 +24,21 @@
  *     wystawienie kompletu odmawia („najpierw zapisz podział") — wyjściem
  *     jest przycisk „Zapisz podział" stojący w TYM SAMYM oknie, więc nie
  *     trzeba niczego dodatkowo proponować, wystarczy pokazać komunikat.
+ *
+ * REGUŁA „Wystaw komplet dokumentów": wolno go kliknąć TYLKO wtedy, gdy to,
+ * co widać na ekranie, jest tym, co jest ZAPISANE W BAZIE. Powód jest w
+ * `orderSplitApi.documents`: ta trasa wysyła samo `{hdi_fv}` — ani celu, ani
+ * `per_line` — więc komplet ZAWSZE powstaje z podziału leżącego w bazie,
+ * niezależnie od tego, co pokazuje okno. Wpisanie nowej liczby w „Na fakturę
+ * [kg]" robi NOWY, niezapisany podgląd bez dotykania `overrides`, więc ani
+ * obecność podglądu, ani brak ręcznej korekty nie są dowodem zgodności:
+ * „zapisz 8000 → wpisz 9000 → wystaw" dawało komplet na 8000 przy ekranie
+ * pokazującym 9000, a numery dokumentów są wypalone w chwili wystawienia.
+ * `savedSplit` trzyma cel i sztuki na fakturę z OSTATNIEGO udanego zapisu
+ * W TEJ SESJI (Task 7 nie ma trasy „pobierz obecny podział", więc to jedyna
+ * pewna wiedza o bazie, jaką okno ma); `matchesSaved` porównuje to z bieżącym
+ * ekranem i blokuje przycisk przy jakiejkolwiek rozbieżności — w tym wtedy,
+ * gdy w tej sesji nie zapisano jeszcze niczego.
  */
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
@@ -63,6 +78,20 @@ function parseOverride(raw: string | undefined): number | undefined {
   return Number.isNaN(n) ? undefined : n
 }
 
+/** Migawka „ile sztuk na fakturę per pozycja" — do porównania z tym, co
+ *  faktycznie leży w bazie (`SavedSplit`). Brakujący klucz w którejkolwiek
+ *  stronie liczy się jako 0, nie jako „pomiń" — inaczej nowa/usunięta
+ *  pozycja przechodziłaby porównanie po cichu. */
+function perLineEqual(a: Record<string, number>, b: Record<string, number>): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+  for (const k of keys) {
+    if ((a[k] ?? 0) !== (b[k] ?? 0)) return false
+  }
+  return true
+}
+
+interface SavedSplit { celKg: number; perLine: Record<string, number> }
+
 export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }: SplitDialogProps) {
   const [celKgInput, setCelKgInput] = useState('')
   const [preview, setPreview] = useState<SplitPreview | null>(null)
@@ -78,10 +107,31 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
   const [needsCancel, setNeedsCancel] = useState(false)
   const [info, setInfo] = useState('')
   const [documents, setDocuments] = useState<SplitDocuments | null>(null)
+  // Cel i sztuki na fakturę per pozycja z OSTATNIEGO udanego zapisu w tej
+  // sesji — jedyne źródło prawdy o tym, co NAPRAWDĘ leży w bazie (Task 7 nie
+  // ma trasy „pobierz obecny podział"). `null` = w tej sesji nie zapisano
+  // jeszcze niczego, więc okno nie ma czym potwierdzić zgodności z bazą.
+  const [savedSplit, setSavedSplit] = useState<SavedSplit | null>(null)
   // Biuro ma ręczną korektę linii, której jeszcze nie zapisało — wiersze
-  // pokazują nowe liczby, ale zapisany w bazie podział (i to, co wystawiłby
-  // „Wystaw komplet") wciąż jest SPRZED tej korekty (review, runda 2 i 3).
+  // pokazują nowe liczby, ale sumy w stopce są wciąż SPRZED tej korekty
+  // (przeliczyć je umie tylko backend, przy zapisie). Steruje WYŁĄCZNIE tym
+  // ostrzeżeniem; bramki „Wystaw komplet" pilnuje `matchesSaved`, bo ta sama
+  // rozbieżność powstaje też bez żadnej ręcznej korekty — samą zmianą celu.
   const hasPendingOverrides = Object.keys(overrides).length > 0
+  // Czy to, co TERAZ na ekranie, jest dokładnie tym, co zapisane w bazie:
+  // cel z górnego pola plus sztuki na fakturę z każdego wiersza (łącznie z
+  // niezapisanymi ręcznymi korektami). Jedna bramka zamiast kilku, bo to
+  // jedno pytanie — i pokrywa wszystkie drogi do rozjazdu: brak podglądu
+  // (nie ma czego porównywać), brak zapisu w tej sesji (nie wiadomo, co
+  // leży w bazie), zmieniony cel, poprawiona linia.
+  const celKgTeraz = parseFloat(celKgInput.replace(',', '.'))
+  const matchesSaved =
+    preview !== null && savedSplit !== null && !Number.isNaN(celKgTeraz) &&
+    celKgTeraz === savedSplit.celKg &&
+    perLineEqual(
+      Object.fromEntries(
+        preview.lines.map(l => [l.id, parseOverride(overrides[l.id]) ?? l.qty_invoice])),
+      savedSplit.perLine)
   // Licznik żądań podglądu: „8000" wpisane znak po znaku to kilka POST-ów,
   // które mogą wrócić NIE PO KOLEI. Bez tego spóźniona odpowiedź na stary
   // cel potrafiłaby nadpisać tabelę już PO tym, jak backend odpowiedział na
@@ -116,7 +166,17 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
     setCelKgInput(raw)
     setErr(''); setNeedsCancel(false)
     const n = parseFloat(raw.replace(',', '.'))
-    if (raw.trim() === '' || Number.isNaN(n) || n < 0) { setPreview(null); return }
+    if (raw.trim() === '' || Number.isNaN(n) || n < 0) {
+      // Unieważnij żądanie w locie: bez podbicia licznika jego spóźniona
+      // odpowiedź przechodzi kontrolę `seq === previewSeq.current` i wskrzesza
+      // tabelę dla celu, którego w polu już nie ma. Po podbiciu nikt już nie
+      // zgasi „Liczę…" (stary `finally` też odpada na tej kontroli), więc
+      // gasimy je tutaj — inaczej zamiast podpowiedzi zostaje wieczny spinner.
+      previewSeq.current++
+      setPreview(null)
+      setLoadingPreview(false)
+      return
+    }
     void runPreview(n)
   }
 
@@ -145,6 +205,13 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
       const r = await orderSplitApi.save(orderId, celKg, Object.keys(perLine).length ? perLine : undefined)
       setPreview(r)
       setOverrides({})
+      // To, co ZAPISANE — czytane z odpowiedzi zapisu (czyli z tego, co
+      // backend faktycznie zapisał), nie z lokalnego stanu, który właśnie
+      // zresetowaliśmy.
+      setSavedSplit({
+        celKg,
+        perLine: Object.fromEntries(r.lines.map(l => [l.id, l.qty_invoice])),
+      })
       setInfo('Podział zapisany.')
     } catch (e: any) {
       const msg = e?.message || 'Nie udało się zapisać podziału'
@@ -156,11 +223,12 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
   }
 
   async function handleIssue() {
-    // Trzy bramki, nie jedna — ten przycisk ZDEJMUJE STAN MAGAZYNU (review,
-    // runda 3): bez podglądu biuro nie widziało podziału, który wystawia;
-    // przy niezapisanej korekcie dokumenty powstałyby z podziału ZAPISANEGO
-    // w bazie (sprzed korekty), a tabela na ekranie pokazuje już nowe liczby.
-    if (issuing || hasPendingOverrides || !preview) return
+    // Ten przycisk ZDEJMUJE STAN MAGAZYNU i wypala numery dokumentów, a
+    // powstają one z podziału ZAPISANEGO W BAZIE — nie z tego, co na ekranie.
+    // Wolno go więc ruszyć tylko wtedy, gdy jedno jest drugim (`matchesSaved`).
+    // Bramka siedzi też tutaj, nie tylko w atrybucie `disabled`, żeby żadna
+    // inna droga do handlera jej nie ominęła.
+    if (issuing || !matchesSaved) return
     const listaDokumentow = hdiFv
       ? 'WZ wewnętrzny (WM), WZ dla klienta, 2× CMR, HDI na całość i HDI do faktury'
       : 'WZ wewnętrzny (WM), WZ dla klienta, 2× CMR i HDI na całość'
@@ -387,20 +455,21 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
               className="rounded border border-surface-4 px-3 py-2 text-[12.5px] font-medium text-ink hover:bg-surface-2 disabled:opacity-50">
               {saving ? 'Zapisywanie…' : 'Zapisz podział'}
             </button>
-            {/* Trzy bramki (review, runda 3, Important 1) — ZDEJMUJE STAN: */}
+            {/* ZDEJMUJE STAN: aktywny tylko, gdy ekran = baza (`matchesSaved`). */}
             <button type="button" onClick={handleIssue}
-              disabled={issuing || hasPendingOverrides || !preview}
+              disabled={issuing || !matchesSaved}
               className="rounded bg-ink px-4 py-2 text-[12.5px] font-medium text-surface hover:bg-ink-2 disabled:opacity-50">
               {issuing ? 'Wystawiam…' : 'Wystaw komplet dokumentów'}
             </button>
           </div>
-          {!issuing && (hasPendingOverrides || !preview) && (
+          {!issuing && !matchesSaved && (
             // Widoczny powód blokady zamiast wyszarzonego przycisku bez
             // wyjaśnienia — biuro ma wiedzieć, co zrobić, nie zgadywać.
+            // Wyjście jest w TYM oknie: przycisk „Zapisz podział" obok.
             <div className="basis-full text-right text-[11px] text-ink-4">
-              {hasPendingOverrides
-                ? 'Zapisz ręczną korektę, żeby wystawić komplet dokumentów.'
-                : 'Wpisz kilogramy na fakturę (albo kliknij „50/50"), żeby zobaczyć podział przed wystawieniem.'}
+              {!preview
+                ? 'Wpisz kilogramy na fakturę (albo kliknij „50/50"), żeby zobaczyć podział przed wystawieniem.'
+                : 'Zapisz podział, żeby wystawić komplet dokumentów — powstają one z tego, co zapisane w bazie, nie z tego, co widać na ekranie.'}
             </div>
           )}
         </footer>

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
+import { act, render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 
 const podglad   = vi.hoisted(() => ({ fn: vi.fn() }))
 const zapisz    = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve({})) }))
@@ -123,11 +123,15 @@ describe('SplitDialog', () => {
       hdi_calosc: { id: 'h1', number: 'HDI/1' },
       hdi_fv: { id: 'h2', number: 'HDI/2' },
     })
+    zapisz.fn.mockResolvedValue(ODPOWIEDZ)
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<SplitDialog orderId="o1" onClose={() => {}} />)
-    // Przycisk jest zablokowany, dopóki biuro nie zobaczyło podglądu (Important 1c).
+    // Przycisk jest zablokowany, dopóki biuro nie zobaczyło podglądu ORAZ
+    // dopóki to, co na ekranie, nie jest tym, co zapisane w bazie.
     fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
     await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, undefined))
     fireEvent.click(screen.getByLabelText(/także HDI do faktury/i))
     fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
     await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith('o1', true))
@@ -141,22 +145,29 @@ describe('SplitDialog', () => {
     // Important 1a: przycisk ZDEJMUJE STAN MAGAZYNU — jedno kliknięcie bez
     // słowa o konsekwencji było dziurą, nie skrótem.
     podglad.fn.mockResolvedValue(ODPOWIEDZ)
+    zapisz.fn.mockResolvedValue(ODPOWIEDZ)
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
     render(<SplitDialog orderId="o1" onClose={() => {}} />)
     fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
     await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, undefined))
     fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
     expect(confirmSpy).toHaveBeenCalled()
     expect(dokumenty.fn).not.toHaveBeenCalled()
   })
 
   it('wystawienie kompletu jest zablokowane przy niezapisanej recznej korekcie', async () => {
-    // Important 1b: dokumenty powstałyby z podziału ZAPISANEGO w bazie
-    // (sprzed korekty), a tabela na ekranie już pokazuje nowe liczby.
+    // Dokumenty powstałyby z podziału ZAPISANEGO w bazie (sprzed korekty),
+    // a tabela na ekranie już pokazuje nowe liczby. Zapis PRZED korektą, żeby
+    // test mierzył właśnie korektę, a nie „nic jeszcze nie zapisano".
     podglad.fn.mockResolvedValue(ODPOWIEDZ)
+    zapisz.fn.mockResolvedValue(ODPOWIEDZ)
     render(<SplitDialog orderId="o1" onClose={() => {}} />)
     fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
     await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, undefined))
     fireEvent.change(screen.getByDisplayValue('9'), { target: { value: '10' } })
     const przycisk = screen.getByRole('button', { name: /wystaw komplet dokumentów/i }) as HTMLButtonElement
     expect(przycisk.disabled).toBe(true)
@@ -216,15 +227,85 @@ describe('SplitDialog', () => {
   })
 
   it('gdy wystawienie kompletu odmawia bo brak zapisanego podzialu, nie proponuje anulowania', async () => {
+    // Zapis się udał, ale zamówienie dostało POTEM nową pozycję bez podziału
+    // — backend odmawia dopiero na wystawieniu i to okno musi to pokazać.
     podglad.fn.mockResolvedValue(ODPOWIEDZ)
+    zapisz.fn.mockResolvedValue(ODPOWIEDZ)
     dokumenty.fn.mockRejectedValue(new Error(
       'Zamówienie nie ma podziału na fakturę i WZ — najpierw zapisz podział.'))
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     render(<SplitDialog orderId="o1" onClose={() => {}} />)
     fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
     await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, undefined))
     fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
     await waitFor(() => expect(screen.getByText(/najpierw zapisz podział/i)).toBeTruthy())
     expect(screen.queryByRole('button', { name: /anuluj dokumenty podziału/i })).toBeNull()
+  })
+
+  it('zmiana celu po zapisie blokuje wystawienie kompletu', async () => {
+    // Dziura, którą to zamyka: `documents` wysyła SAMO `{hdi_fv}` — żadnego
+    // celu, żadnego per_line. Dokumenty powstają więc z podziału ZAPISANEGO
+    // w bazie. Ciąg „zapisz 8000 → wpisz 9000 → wystaw komplet" dawał komplet
+    // na 8000, podczas gdy biuro patrzyło na ekran z 9000. Żadna z wcześniejszych
+    // bramek tego nie łapała: podgląd JEST, `overrides` PUSTE, potwierdzenie klikniete.
+    podglad.fn.mockResolvedValue(ODPOWIEDZ)
+    zapisz.fn.mockResolvedValue(ODPOWIEDZ)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
+    await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, undefined))
+    // Nowy cel: NOWY, niezapisany podgląd — bez dotykania ręcznych korekt.
+    podglad.fn.mockResolvedValue({ ...ODPOWIEDZ, kg_fv: 8995, kg_wz: 4010 })
+    fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '9000' } })
+    await waitFor(() => expect(screen.getByText('8995')).toBeTruthy())
+    // Liczy się to, że dokumenty NIE POWSTAJĄ — sam atrybut `disabled` to za
+    // mało, bo zostałby zielony, gdyby ktoś kiedyś wywołał handler inaczej.
+    const przycisk = screen.getByRole('button', { name: /wystaw komplet dokumentów/i }) as HTMLButtonElement
+    fireEvent.click(przycisk)
+    await act(async () => {})
+    expect(dokumenty.fn).not.toHaveBeenCalled()
+    expect(przycisk.disabled).toBe(true)
+    expect(screen.getByText(/z tego, co zapisane w bazie/i)).toBeTruthy()
+  })
+
+  it('po zapisaniu nowego celu wystawienie kompletu znowu dziala', async () => {
+    podglad.fn.mockResolvedValue(ODPOWIEDZ)
+    zapisz.fn.mockResolvedValue(ODPOWIEDZ)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
+    await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalledWith('o1', 8000, undefined))
+    const nowy = { ...ODPOWIEDZ, kg_fv: 8995, kg_wz: 4010 }
+    podglad.fn.mockResolvedValue(nowy)
+    zapisz.fn.mockResolvedValue(nowy)
+    fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '9000' } })
+    await waitFor(() => expect(screen.getByText('8995')).toBeTruthy())
+    // Zapis dogania ekran — i dopiero wtedy komplet wolno wystawić.
+    fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenLastCalledWith('o1', 9000, undefined))
+    fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
+    await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith('o1', false))
+  })
+
+  it('spozniona odpowiedz podgladu nie wskrzesza tabeli po wyczyszczeniu pola', async () => {
+    // Wyczyszczenie pola musi UNIEWAŻNIĆ żądanie w locie. Inaczej jego
+    // spóźniona odpowiedź przechodzi kontrolę kolejności i pokazuje podział
+    // dla celu, którego w polu już nie ma.
+    let odpowiedz: (v: unknown) => void = () => {}
+    podglad.fn.mockImplementation(() => new Promise(res => { odpowiedz = res }))
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    const pole = screen.getByLabelText(/na fakturę/i)
+    fireEvent.change(pole, { target: { value: '8000' } })
+    fireEvent.change(pole, { target: { value: '' } })
+    await act(async () => { odpowiedz(ODPOWIEDZ) })
+    expect(screen.queryByText('KIRMIZI')).toBeNull()
+    // …i nie zostawia wiecznego „Liczę…" zamiast podpowiedzi, co wpisać.
+    expect(screen.queryByText(/Liczę/)).toBeNull()
   })
 })
