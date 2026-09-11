@@ -75,11 +75,16 @@ def _fg(id="G1", batch="100626 353", recipe="GOLD KEBAB", kgpu=40.0, avail=20):
 def test_goods_wz_lines_full_batch_and_kg():
     # Partia na dokumencie = pełna partia WYROBU (ddmmrr partia), nie partia mięsa;
     # kg_per_unit/total_kg dołączone → uzupełnianie cen liczy za kg.
+    #
+    # `recipe_id` dopisane 2026-09-11 (review końcowy, C1): weryfikacja
+    # załadunku (`verify_wz_against_loaded`) porównuje dokument z autem po
+    # kluczu (receptura, waga, partia) i bez tego pola nie dopasowywała
+    # NICZEGO — każdy poprawny załadunek wychodził jako rozjazd.
     lines = build_goods_wz_lines([{"goods": _fg(), "count": 10}])
     assert lines == [{
         "name": "GOLD KEBAB", "qty": 10, "unit": "szt", "batch_no": "100626 353",
         "price": None, "value": None, "stock_type": "fg", "stock_id": "G1",
-        "kg_per_unit": 40.0, "total_kg": 400.0,
+        "recipe_id": "R1", "kg_per_unit": 40.0, "total_kg": 400.0,
     }]
 
 

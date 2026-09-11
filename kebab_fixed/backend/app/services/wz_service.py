@@ -253,6 +253,15 @@ def build_goods_wz_lines(
     jak na etykiecie i HDI). kg_per_unit/total_kg dołączone, żeby późniejsze
     uzupełnienie cen liczyło ZA KG (apply_wz_prices). Bez cen (WZ wstępny).
 
+    `recipe_id` na linii jest OBOWIĄZKOWE, choć nazwa pozycji go nie
+    potrzebuje: `loading_service.verify_wz_against_loaded` porównuje dokument
+    z zawartością auta po kluczu (receptura, waga sztuki, partia), a klucz
+    załadunku recepturę ZAWSZE niesie. Bez tego pola klucze nie mają jak się
+    spotkać i KAŻDY poprawny załadunek wychodził jako „ROZJAZD z dokumentem
+    WZ" — z pozycjami zdublowanymi na dwie (doc 10/loaded 0 obok doc
+    0/loaded 10). Od podziału wysyłki dotyczy to każdej wysyłki z dokumentem
+    WM (review końcowy, C1, 2026-09-11).
+
     goods_with_counts: [{"goods": wiersz finished_goods, "count": szt}]
     """
     lines: List[Dict[str, Any]] = []
@@ -274,6 +283,7 @@ def build_goods_wz_lines(
             "value": None,
             "stock_type": "fg",
             "stock_id": fg.get("id"),
+            "recipe_id": fg.get("recipe_id"),
         }
         if kgpu > 0:
             line["kg_per_unit"] = round(kgpu, 3)
