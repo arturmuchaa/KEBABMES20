@@ -2139,6 +2139,12 @@ export const palletScanApi = {
   ) =>
     post<any>('/pallets/scan', { code, action, operator, vehicle_id: vehicleId })
       .then(mapScanResult),
+  /** Zamówienia, których palety STOJĄ na tym aucie — wspólna prawda dla
+   *  wszystkich skanerów (do 12.09.2026 lista żyła w localStorage telefonu). */
+  ordersOnVehicle: (vehicleId: string) =>
+    get<any[]>(`/pallets/on-vehicle/${encodeURIComponent(vehicleId)}`)
+      .then(arr => (Array.isArray(arr) ? arr : []).map(r => String(r.id ?? ''))
+        .filter(Boolean)),
   inColdStorage: () =>
     get<any[]>('/pallets/in-cold-storage')
       .then(arr => (Array.isArray(arr) ? arr : []).map(mapColdStoragePallet)),

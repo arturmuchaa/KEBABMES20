@@ -495,6 +495,38 @@ def active_orders_for_loading() -> List[Dict]:
     )
 
 
+def orders_on_vehicle(vehicle_id: str) -> List[Dict]:
+    """Zamówienia, których palety STOJĄ na wskazanym aucie.
+
+    Wspólna prawda dla wszystkich skanerów. Do 12.09.2026 lista zamówień
+    pojazdu żyła w `localStorage` telefonu, więc każdy skaner miał własną:
+    magazynier B skanował paletę, a magazynier C widział u siebie „brak
+    wybranych zamówień" — choć serwer od początku wiedział swoje, bo sam
+    skan zawsze do niego szedł. Brakowało tylko pytania o ten stan.
+
+    Bierzemy WYŁĄCZNIE `status='loaded'` z tym `loaded_vehicle_id`: paleta
+    w mroźni ani paleta z innego auta nie są „na tym aucie". Cofnięcie skanu
+    czyści `loaded_vehicle_id`, więc zamówienie znika z listy u wszystkich
+    naraz — to jest sens synchronizacji.
+
+    Palety WYSŁANE (`shipped`) już pojechały i dokument został wystawiony —
+    na ekranie załadunku nie mają czego robić.
+    """
+    if not vehicle_id:
+        return []
+    return query_all(
+        """SELECT o.id, o.order_no, o.client_name, o.delivery_date,
+                  o.status AS order_status,
+                  COUNT(p.id)::int AS loaded_pallets
+           FROM client_orders o
+           JOIN order_pallets p ON p.order_id = o.id
+           WHERE p.status = 'loaded' AND p.loaded_vehicle_id = %s
+           GROUP BY o.id
+           ORDER BY o.delivery_date NULLS LAST, o.order_no""",
+        (vehicle_id,),
+    )
+
+
 def reset_pallet(order_id: str, pallet_no: int) -> Dict:
     """Cofnij wszystkie skany palety (status → created, czyść timestampy)."""
     pallet = query_one(

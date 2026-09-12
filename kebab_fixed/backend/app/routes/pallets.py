@@ -48,6 +48,12 @@ def active_loading():
     return pallets_service.active_orders_for_loading()
 
 
+@router.get("/on-vehicle/{vehicle_id}")
+def on_vehicle(vehicle_id: str):
+    """Zamówienia stojące na tym aucie — wspólna lista dla wszystkich skanerów."""
+    return pallets_service.orders_on_vehicle(vehicle_id)
+
+
 @router.get("/in-cold-storage")
 def in_cold_storage():
     return pallets_service.pallets_in_cold_storage()

@@ -198,6 +198,8 @@ export function MobileZaladunekPage() {
   const [toast, setToast] = useState<Toast | null>(null)
   const [scannerOpen, setScannerOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
+  // Czy padła już odpowiedź serwera „co stoi na tym aucie".
+  const [serwerSprawdzony, setSerwerSprawdzony] = useState(false)
   const inputRef = useRef<HTMLInputElement | null>(null)
 
   const activeRes = useApi(() => palletScanApi.activeLoading(), [])
@@ -219,6 +221,36 @@ export function MobileZaladunekPage() {
     catch { setSelectedIds([]) }
   }, [storageKey])
 
+  /** Dociągnij z serwera zamówienia, które NAPRAWDĘ stoją na tym aucie.
+   *
+   * Biuro (12.09.2026): „na biuro pokazuje wybrane zamówienia na samochodzie,
+   * a z telefonu, że nie ma wybranych". Lista żyła w `localStorage` TEGO
+   * telefonu, więc drugi skaner widział pustkę — choć sam skan od zawsze szedł
+   * na serwer i biuro miało prawdę. Teraz serwer ją oddaje i każdy telefon
+   * widzi to samo: co zeskanuje osoba B, osoba C ma u siebie po odświeżeniu.
+   *
+   * SUMA, nie podmiana — z dwóch powodów:
+   *   * zamówienie wybrane na tym telefonie, ale jeszcze bez zeskanowanej
+   *     palety, serwerowi nie jest znane i nie może zniknąć spod ręki;
+   *   * cofnięcie ostatniej palety nie wyrywa zamówienia z ekranu komuś,
+   *     kto właśnie przy nim stoi — zostaje z zerem palet i można je zdjąć
+   *     ręcznie.
+   * Nieudany odczyt (chłodnia bez zasięgu) zostawia listę lokalną nietkniętą.
+   */
+  const dociagnijZSerwera = useCallback(async () => {
+    if (!vehicleId) return
+    try {
+      const zSerwera = await palletScanApi.ordersOnVehicle(vehicleId)
+      setSelectedIds((prev) => {
+        const brakujace = zSerwera.filter((id) => !prev.includes(id))
+        return brakujace.length === 0 ? prev : [...prev, ...brakujace]
+      })
+    } catch { /* brak sieci — zostaje to, co telefon ma u siebie */ }
+    finally { setSerwerSprawdzony(true) }
+  }, [vehicleId])
+
+  useEffect(() => { dociagnijZSerwera() }, [dociagnijZSerwera])
+
   const focusInput = useCallback(() => {
     setTimeout(() => inputRef.current?.focus(), 30)
   }, [])
@@ -236,9 +268,13 @@ export function MobileZaladunekPage() {
     refreshAll(selectedIds)
   }, [selectedIds, refreshAll])
 
+  // Okno wyboru otwieramy DOPIERO gdy wiadomo, że na aucie nic nie stoi.
+  // Inaczej świeży telefon zasłaniał nim listę, która właśnie przychodziła
+  // z serwera — magazynier widział „wybierz zamówienia", choć auto było
+  // w połowie załadowane przez kolegę.
   useEffect(() => {
-    if (selectedIds.length === 0) setPickerOpen(true)
-  }, [selectedIds.length])
+    if (serwerSprawdzony && selectedIds.length === 0) setPickerOpen(true)
+  }, [serwerSprawdzony, selectedIds.length])
 
   function toggleOrder(id: string) {
     setSelectedIds((prev) =>
@@ -286,6 +322,7 @@ export function MobileZaladunekPage() {
       })
       try { navigator.vibrate?.(80) } catch {}
       await refreshAll(selectedIds)
+      await dociagnijZSerwera()
     } catch (e) {
       setToast({ ok: false, message: e instanceof Error ? e.message : 'Błąd skanowania', ts: Date.now() })
       try { navigator.vibrate?.([60, 40, 60]) } catch {}
@@ -306,6 +343,7 @@ export function MobileZaladunekPage() {
       setToast({ ok: true, message: `P${palletNo} zdjęta z samochodu`, ts: Date.now() })
       try { navigator.vibrate?.(60) } catch {}
       await refreshAll(selectedIds)
+      await dociagnijZSerwera()
     } catch (e) {
       setToast({
         ok: false,

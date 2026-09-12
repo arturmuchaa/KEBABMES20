@@ -187,3 +187,65 @@ class TestCofniecieSkanu:
         with pytest.raises(Exception) as e:
             pallets_service.scan(KOD, "undo")
         assert "wysłan" in str(e.value).lower() or "shipped" in str(e.value)
+
+
+# ── Co stoi na TYM aucie — wspólna prawda dla wszystkich telefonów ────
+#
+# Biuro (12.09.2026): „na biuro pokazuje wybrane zamówienia na samochodzie,
+# a z telefonu, że nie ma wybranych". Przyczyna: lista zamówień pojazdu
+# siedziała w `localStorage` TEGO telefonu, więc drugi skaner widział pustkę.
+# Skan zawsze szedł na serwer — brakowało pytania o to, co serwer już wie.
+def _pojazd_i_zamowienie(vid="v1", oid="o1", nr="Z/1/09/26"):
+    execute("INSERT INTO vehicles (id, name, plate, active) "
+            "VALUES (%s,'Dostawczy','KR 12345',true) "
+            "ON CONFLICT (id) DO NOTHING", (vid,))
+    execute("INSERT INTO client_orders (id, order_no, client_name, order_date, status) "
+            "VALUES (%s,%s,'ODBIORCA','2026-09-12','confirmed')", (oid, nr))
+
+
+def _paleta_na_aucie(pid, oid, nr, vid):
+    execute("INSERT INTO order_pallets (id, order_id, pallet_no, status, "
+            " loaded_vehicle_id, loaded_at) VALUES (%s,%s,%s,'loaded',%s,now())",
+            (pid, oid, nr, vid))
+
+
+def test_auto_oddaje_zamowienia_ktore_na_nim_stoja(db):
+    from app.services.pallets_service import orders_on_vehicle
+    _pojazd_i_zamowienie()
+    _paleta_na_aucie("p1", "o1", 1, "v1")
+
+    wynik = orders_on_vehicle("v1")
+
+    assert [r["id"] for r in wynik] == ["o1"]
+    assert wynik[0]["loaded_pallets"] == 1
+
+
+def test_paleta_z_INNEGO_auta_nie_wchodzi(db):
+    from app.services.pallets_service import orders_on_vehicle
+    _pojazd_i_zamowienie()
+    execute("INSERT INTO vehicles (id, name, plate, active) "
+            "VALUES ('v2','Chlodnia','KR 99999',true) ON CONFLICT (id) DO NOTHING")
+    _paleta_na_aucie("p1", "o1", 1, "v2")
+
+    assert orders_on_vehicle("v1") == []
+
+
+def test_paleta_w_mrozni_nie_jest_na_aucie(db):
+    from app.services.pallets_service import orders_on_vehicle
+    _pojazd_i_zamowienie()
+    execute("INSERT INTO order_pallets (id, order_id, pallet_no, status, cold_storage_at) "
+            "VALUES ('p1','o1',1,'cold_storage',now())")
+
+    assert orders_on_vehicle("v1") == []
+
+
+def test_cofniecie_palety_zdejmuje_zamowienie_z_auta(db):
+    """To jest cały sens synchronizacji: osoba B cofa, osoba C od razu widzi."""
+    from app.services.pallets_service import orders_on_vehicle, scan
+    _pojazd_i_zamowienie()
+    _paleta_na_aucie("p1", "o1", 1, "v1")
+    assert len(orders_on_vehicle("v1")) == 1
+
+    scan(KOD, "undo", operator="magazyn")
+
+    assert orders_on_vehicle("v1") == []
