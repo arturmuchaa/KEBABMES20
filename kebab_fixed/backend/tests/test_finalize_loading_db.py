@@ -18,6 +18,7 @@ import json
 import pytest
 
 from app.db import execute, query_all, query_one
+from app.services import loading_service
 from app.services.loading_service import finalize_loading
 from app.services.order_split_service import zapisz_podzial
 from app.services.split_documents_service import (anuluj_dokumenty_podzialu,
@@ -695,3 +696,92 @@ def test_rozpis_ponad_dokument_WM_wychodzi_jako_rozjazd(db):
     assert zam.get("skipped") is None, zam
     assert zam["wz_status"] == "rozjazd", zam
     assert [d["diff"] for d in zam["diff"]] == [2], zam["diff"]
+
+
+# ── Niedowóz przy dokumencie WM — kontrola NIE MOŻE zamilknąć ─────────────
+#
+# To jedyne miejsce, w którym „partie z dokumentu" mogłoby wyjść GORZEJ niż
+# dobieranie ich z magazynu: skoro porcje bierzemy z linii WM, łatwo o taką
+# implementację, która zawsze melduje zgodność, bo porównuje papier sam
+# ze sobą. Nie melduje: braki liczą się z ROZPISU PALET (co zeskanował
+# magazynier), a dokument wnosi wyłącznie PARTIE. Mniej na paletach niż na
+# papierze to nadal rozjazd, z tą samą liczbą co przedtem.
+def test_mniej_na_paletach_niz_na_WM_dalej_jest_rozjazdem(db):
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10, kg=30)
+    _wyrob(qty=10, kg=30)
+    _paleta()
+    _pozycja_palety(qty=6)                 # na auto weszło 6 z 10
+    zapisz_podzial("o1", 180.0)
+    wystaw_wz_wewnetrzny("o1")             # WM na całe 10 szt.
+    wystaw_wz_klienta("o1")
+
+    zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
+
+    assert zam["wz_status"] == "rozjazd", zam
+    assert sum(d["diff"] for d in zam["diff"]) == -4, zam["diff"]
+    wm = _wm()
+    assert wm["loading_status"] == "rozjazd"
+    assert wm["loaded_at"] is not None, "niezgodność nie zwalnia z zapisu załadunku"
+
+
+def test_niedowoz_liczy_sie_w_SUMIE_takze_przy_kilku_partiach(db):
+    """WM na dwie partie, na aucie mniej niż suma. Której partii brakuje, nie
+    wie nikt — sztuk nikt nie skanuje, więc przypisanie braku do konkretnej
+    partii jest UMOWNE (idzie po kolejności linii dokumentu). Nośna jest suma
+    i ta musi się zgadzać co do sztuki."""
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10, kg=30)
+    _wyrob_z_data("f-stara", qty=6, produced="2026-09-01")
+    _wyrob_z_data("f-nowa", qty=4, produced="2026-09-08")
+    _paleta()
+    _pozycja_palety(qty=7)                 # na auto weszło 7 z 10
+    zapisz_podzial("o1", 180.0)
+    wystaw_wz_wewnetrzny("o1")
+    wystaw_wz_klienta("o1")
+
+    zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
+
+    assert zam["wz_status"] == "rozjazd", zam
+    assert sum(d["diff"] for d in zam["diff"]) == -3, zam["diff"]
+    # Odpowiedź niesie same pozycje NIEZGODNE, ale zapisany na dokumencie
+    # raport (`loading_diff` — to jego czyta biuro) ma OBIE partie: widać,
+    # czego brakuje i wobec czego, choć przypisanie braku do partii jest umowne.
+    pelny = _wm()["loading_diff"]
+    if isinstance(pelny, str):
+        pelny = json.loads(pelny)
+    assert {d["batch_no"] for d in pelny} == {"2026-09-01 500", "2026-09-08 500"}
+    assert sum(d["diff"] for d in pelny) == -3
+
+
+def test_BEZ_podzialu_nowa_sciezka_w_ogole_sie_nie_odpala(db, monkeypatch):
+    """Dowód MECHANICZNY, nie zapewnienie: dla zamówienia bez dokumentu WM
+    `picks_z_dokumentu` nie ma prawa wykonać się ani razu, bo cała zmiana
+    siedzi w gałęzi `elif wm:`. Podstawiona pułapka wywraca test, gdyby
+    kiedykolwiek zaczęła się odpalać na wspólnej ścieżce załadunku."""
+    def _pulapka(*args, **kwargs):
+        raise AssertionError("załadunek BEZ podziału wszedł w ścieżkę dokumentową")
+
+    monkeypatch.setattr(loading_service, "picks_z_dokumentu", _pulapka)
+
+    # (1) bez żadnego dokumentu, załadunek z rozpisu palet
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10, kg=30); _wyrob(qty=10, kg=30); _paleta(); _pozycja_palety(qty=10)
+    assert finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]["wz_number"]
+
+    # (2) sztuki QR na palecie, bez dokumentu
+    _zamowienie(oid="o2", order_no="YALCIN/Z/6/09/26", qty=5, kg=25)
+    _wyrob_z_data("f2", qty=5, produced="2026-09-05", kg=25)
+    _paleta("p2", "o2", nr=2); _sztuki("p2", "f2", ile=5, kg=25, oid="o2", od=100)
+    assert finalize_loading("v1", ["o2"], plate="KR 99999")["orders"][0]["wz_number"]
+
+    # (3) zwykły WZ przygotowany WCZEŚNIEJ + sztuki QR
+    _zamowienie(oid="o3", order_no="YALCIN/Z/7/09/26", qty=3, kg=20)
+    _wyrob_z_data("f3", qty=3, produced="2026-09-06", kg=20)
+    _paleta("p3", "o3", nr=3); _sztuki("p3", "f3", ile=3, kg=20, oid="o3", od=200)
+    _wz_zamowienia(wid="w3", oid="o3", nr=7,
+                   linie=[{"stock_type": "fg", "stock_id": "f3", "qty": 3, "unit": "szt",
+                           "recipe_id": "r1", "kg_per_unit": 20, "batch_no": "500",
+                           "name": "KEBAB UDO 100% KIRMIZI 20 kg"}])
+    assert finalize_loading("v1", ["o3"], plate="KR 99999")["orders"][0]["wz_status"] == \
+        "potwierdzony"
