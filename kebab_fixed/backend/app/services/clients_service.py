@@ -80,8 +80,9 @@ def create_client(dto: ClientCreate) -> Dict:
                 (id, code, name, display_name, nip, regon, address, postal_code, city,
                  contact_name, phone, email, language, dest_name, dest_address, dest_city,
                  dest_for_hdi, dest_for_cmr, halal_supervision, hdi_name_mode,
+                 wz_uses_hdi_names,
                  active, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
             RETURNING *
             """,
             (
@@ -105,6 +106,7 @@ def create_client(dto: ClientCreate) -> Dict:
                 bool(dto.dest_for_cmr),
                 bool(dto.halal_supervision),
                 _hdi_name_mode(dto.hdi_name_mode),
+                bool(dto.wz_uses_hdi_names),
                 now_iso(),
             ),
         )
@@ -123,7 +125,7 @@ def update_client(client_id: str, dto: ClientCreate) -> Dict:
                 contact_name=%s, phone=%s, email=%s,
                 language=%s, dest_name=%s, dest_address=%s, dest_city=%s,
                 dest_for_hdi=%s, dest_for_cmr=%s, halal_supervision=%s,
-                hdi_name_mode=%s
+                hdi_name_mode=%s, wz_uses_hdi_names=%s
             WHERE id=%s
             RETURNING *
             """,
@@ -146,6 +148,7 @@ def update_client(client_id: str, dto: ClientCreate) -> Dict:
                 bool(dto.dest_for_cmr),
                 bool(dto.halal_supervision),
                 _hdi_name_mode(dto.hdi_name_mode),
+                bool(dto.wz_uses_hdi_names),
                 client_id,
             ),
         )

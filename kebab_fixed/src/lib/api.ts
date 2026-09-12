@@ -1123,6 +1123,9 @@ function mapClient(raw: any): Client {
     halalSupervision: !!(raw.halal_supervision ?? raw.halalSupervision ?? false),
     // Nazwa pozycji HDI: co odbiorca chce widzieć na papierze (POLAT vs TRUVA).
     hdiNameMode: (raw.hdi_name_mode ?? raw.hdiNameMode ?? 'type_recipe'),
+    // Czy nazewnictwo z kartoteki schodzi także na WZ. Brak pola = tak:
+    // starsze karty (sprzed 12.09.2026) mają być zgodne, nie ogólne.
+    wzUsesHdiNames: !!(raw.wz_uses_hdi_names ?? raw.wzUsesHdiNames ?? true),
     hdiRecipeNames: (Array.isArray(raw.hdi_recipe_names ?? raw.hdiRecipeNames)
       ? (raw.hdi_recipe_names ?? raw.hdiRecipeNames)
       : []).map((n: any) => ({

@@ -56,3 +56,51 @@ def test_domyslny_odbiorca_ma_rodzaj_z_receptura(db):
     assert row["hdi_name_mode"] == "type_recipe"
     klient = [c for c in list_clients() if c["id"] == row["id"]][0]
     assert klient["hdi_recipe_names"] == []
+
+
+# ── Ptaszek „własne nazewnictwo także na WZ" (12.09.2026) ────────────
+#
+# Do tej pory reguła z kartoteki sięgała HDI zawsze, a WZ zależnie od
+# ścieżki — ręczny WZ składał nazwę w przeglądarce i kartoteki nie znał.
+# Teraz o WZ decyduje ptaszek, a HDI zostaje przy swoim niezależnie od niego.
+def test_domyslnie_nazewnictwo_obowiazuje_takze_na_wz(db):
+    _receptura()
+    row = create_client(_dto())
+    assert row["wz_uses_hdi_names"] is True
+
+    from app.services.wz_service import naming_context
+    mode, wlasne, _ = naming_context(client_name="POLAT")
+    assert mode == "type"
+    assert wlasne == {"r1": "BEYAZ"}
+
+
+def test_odznaczony_ptaszek_zdejmuje_nazewnictwo_z_WZ_ale_nie_z_HDI(db):
+    _receptura()
+    row = create_client(_dto(wz_uses_hdi_names=False))
+    assert row["wz_uses_hdi_names"] is False
+
+    from app.services.hdi_service import client_naming
+    from app.services.wz_service import naming_context
+
+    # WZ wraca do nazwy ogólnej…
+    mode, wlasne, _ = naming_context(client_name="POLAT")
+    assert mode == "type_recipe"
+    assert wlasne == {}
+
+    # …a HDI dalej trzyma się kartoteki.
+    hdi_mode, hdi_wlasne = client_naming(
+        {"id": row["id"], "hdi_name_mode": row["hdi_name_mode"]})
+    assert hdi_mode == "type"
+    assert hdi_wlasne == {"r1": "BEYAZ"}
+
+
+def test_ptaszek_da_sie_przestawic_edycja(db):
+    _receptura()
+    row = create_client(_dto())
+    from app.services.wz_service import naming_context
+
+    update_client(row["id"], _dto(wz_uses_hdi_names=False))
+    assert naming_context(client_name="POLAT")[0] == "type_recipe"
+
+    update_client(row["id"], _dto(wz_uses_hdi_names=True))
+    assert naming_context(client_name="POLAT")[0] == "type"

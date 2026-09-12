@@ -10,7 +10,8 @@ dostawał dwa papiery z różnymi nazwami tego samego wyrobu.
 
 Test czysty — buildery są funkcjami, baza niepotrzebna."""
 from app.services.hdi_service import hdi_product_base
-from app.services.wz_service import (build_goods_wz_lines, build_order_wz_lines,
+from app.services.wz_service import (build_goods_wz_lines, build_manual_wz_lines,
+                                     build_order_wz_lines,
                                      build_stock_wz_lines)
 
 RODZAJ = "KEBAB MIX"
@@ -144,3 +145,55 @@ def test_hdi_standardowa_tuleja_stoi_przed_niestandardowa():
          "batch_no": "518", "produced_date": "2026-09-01", "shelf_life_days": 365},
     ])
     assert [p["name"] for p in poz] == ["KIRMIZI 30KG", "KIRMIZI 70KG (80cm)"]
+
+
+# ── Ścieżka RĘCZNA — tu zasada dotąd nie sięgała ─────────────────────
+#
+# WZ ręczny jako jedyny składał nazwę W PRZEGLĄDARCE
+# (`WzNewPage` → `zlozNazweWyrobu(product_type_name, recipe_name)`), więc
+# kartoteki odbiorcy nie widział w ogóle. Na produkcji dawało to tego samego
+# dnia (4.09.2026, MATEUSZ STYRNIK, tryb „sam rodzaj") HDI „KEBAB UDO 80KG"
+# obok WZ „KEBAB UDO 100% WROCŁAW 80kg".
+#
+# Nazwę składa więc backend, z wiersza `finished_goods`, który za chwilę
+# rozchoduje. Zapis rodzaju i wagi zostaje DOTYCHCZASOWY (decyzja
+# właściciela): wyrównujemy tryb i własne nazwy receptur, nie kosmetykę.
+WIERSZE_FG = {"fg1": {
+    "id": "fg1", "recipe_id": "r1", "recipe_name": RECEPTURA,
+    "product_type_id": "pt1", "product_type_name": RODZAJ,
+    "packaging_name": None, "kg_per_unit": 30.0}}
+
+
+def _wybor_fg(nazwa_z_przegladarki=f"{RODZAJ} {RECEPTURA} 30kg"):
+    """Wybór magazynu tak, jak przysyła go ekran WZ — z gotowym napisem."""
+    return {"stock_type": "fg", "stock_id": "fg1", "name": nazwa_z_przegladarki,
+            "qty": 10, "unit": "szt", "kg_per_unit": 30.0, "batch_no": "010926 518"}
+
+
+def test_reczny_wz_bierze_tryb_sam_rodzaj_z_kartoteki():
+    linie, _ = build_manual_wz_lines([_wybor_fg()], False, mode="type",
+                                     fg_rows=WIERSZE_FG)
+    assert linie[0]["name"] == f"{RODZAJ} 30kg"
+
+
+def test_reczny_wz_bierze_wlasna_nazwe_receptury():
+    linie, _ = build_manual_wz_lines([_wybor_fg()], False, mode="type_recipe",
+                                     recipe_names=WLASNE, fg_rows=WIERSZE_FG)
+    assert linie[0]["name"] == f"{RODZAJ} BEYAZ 30kg"
+
+
+def test_reczny_wz_bez_ustawien_w_kartotece_nazywa_TAK_JAK_DOTAD():
+    """Strażnik regresji dla całej reszty zakładu: odbiorca bez własnego
+    nazewnictwa ma dostać dokładnie ten napis co przed zmianą."""
+    linie, _ = build_manual_wz_lines([_wybor_fg()], False, fg_rows=WIERSZE_FG)
+    assert linie[0]["name"] == f"{RODZAJ} {RECEPTURA} 30kg"
+
+
+def test_reczny_wz_nie_rusza_pozycji_surowcowej():
+    """Kartoteka nazewnictwa opisuje wyrób gotowy. Surowiec, mięso i uboczne
+    zachowują nazwę z ekranu — nie ma ich w `finished_goods`."""
+    surowiec = {"stock_type": "raw", "stock_id": "rb1", "name": "Ćwiartka kurczaka",
+                "qty": 120.0, "unit": "kg", "batch_no": "556"}
+    linie, _ = build_manual_wz_lines([surowiec], False, mode="type",
+                                     recipe_names=WLASNE, fg_rows=WIERSZE_FG)
+    assert linie[0]["name"] == "Ćwiartka kurczaka"

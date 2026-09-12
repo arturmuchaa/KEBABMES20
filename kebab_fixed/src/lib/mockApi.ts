@@ -2127,6 +2127,8 @@ export interface Client {
   hdiNameMode?: HdiNameMode
   /** Własne nazwy receptur TEGO odbiorcy (BEYAZ AFIYET → BEYAZ). */
   hdiRecipeNames?: ClientRecipeName[]
+  /** Czy to nazewnictwo obowiązuje TAKŻE na WZ (domyślnie tak). */
+  wzUsesHdiNames?: boolean
   active:       boolean
   createdAt:    string
 }
@@ -2139,6 +2141,7 @@ export interface CreateClientDto {
   halalSupervision?: boolean
   hdiNameMode?: HdiNameMode
   hdiRecipeNames?: ClientRecipeName[]
+  wzUsesHdiNames?: boolean
 }
 
 let clients    = load<Client>('kebab_mes_clients', [])

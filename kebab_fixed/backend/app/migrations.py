@@ -477,6 +477,13 @@ _DDL: list[str] = [
     # rodzaj i kilogramy, TRUVA odwrotnie — rodzaj ORAZ recepture, zeby odroznic
     # dwa wyroby z jednej receptury. Tryby: type_recipe (domyslny) | type | recipe.
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS hdi_name_mode TEXT NOT NULL DEFAULT 'type_recipe'",
+    # Czy wlasne nazewnictwo odbiorcy obowiazuje TAKZE na WZ (12.09.2026).
+    # Do tej pory reczny WZ skladal nazwe w przegladarce i kartoteki nie
+    # widzial — tego samego dnia HDI mowilo „KEBAB UDO 80KG", a WZ
+    # „KEBAB UDO 100% WROCLAW 80kg". Domyslnie TRUE: zgodnosc jest tym,
+    # czego oczekuje biuro, a odznaczenie zostaje na wypadek odbiorcy,
+    # ktory ma widziec na WZ co innego niz na HDI.
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS wz_uses_hdi_names BOOLEAN NOT NULL DEFAULT true",
     # Wlasna nazwa receptury dla odbiorcy — u POLATA „BEYAZ AFIYET" ma schodzic
     # na dokument jako samo „BEYAZ". Rodzaj zostaje wspolny, zmienia sie tylko
     # to, co odbiorca widzi na papierze.

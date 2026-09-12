@@ -217,11 +217,62 @@ def build_wz_lines(items: List[Dict[str, Any]], valued: bool) -> Tuple[List[Dict
     return lines, round(total, 2)
 
 
-def build_manual_wz_lines(selections: List[Dict[str, Any]], valued: bool) -> Tuple[List[Dict[str, Any]], float]:
+def _nazwa_pozycji_recznej(
+    s: Dict[str, Any],
+    mode: str,
+    recipe_names: Optional[Dict[str, str]],
+    fg_rows: Optional[Dict[str, Dict[str, Any]]],
+) -> Any:
+    """Nazwa pozycji ręcznego WZ — składana TU, nie w przeglądarce.
+
+    Ręczny WZ był jedyną ścieżką, w której nazwę składał front
+    (`WzNewPage` → `zlozNazweWyrobu(product_type_name, recipe_name)`), więc
+    kartoteki odbiorcy nie widział w ogóle. Na produkcji dawało to tego
+    samego dnia (4.09.2026, MATEUSZ STYRNIK, tryb „sam rodzaj") HDI
+    „KEBAB UDO 80KG" obok WZ „KEBAB UDO 100% WROCŁAW 80kg" — dwa papiery
+    z różnymi nazwami tego samego wyrobu.
+
+    Tożsamość bierzemy z wiersza `finished_goods`, który ta pozycja za
+    chwilę rozchoduje — backend zna ją lepiej niż przysłany napis.
+
+    Zapis RODZAJU i WAGI zostaje dotychczasowy (decyzja właściciela,
+    12.09.2026): wyrównujemy tryb i własne nazwy receptur, nie kosmetykę.
+    Dzięki temu odbiorca bez własnych ustawień dostaje dokładnie ten sam
+    napis co przed zmianą.
+
+    Surowiec, mięso i uboczne zachowują nazwę z ekranu — kartoteka
+    nazewnictwa opisuje wyrób gotowy, a ich w `finished_goods` nie ma.
+    """
+    if (s.get("stock_type") or "") != "fg":
+        return s.get("name")
+    fg = (fg_rows or {}).get(s.get("stock_id") or "")
+    if not fg:
+        return s.get("name")
+    baza = hdi_product_base(
+        fg.get("product_type_name") or "",
+        (recipe_names or {}).get(fg.get("recipe_id") or "") or fg.get("recipe_name") or "",
+        mode) or "Wyrób"
+    kg = float(fg.get("kg_per_unit") or s.get("kg_per_unit") or 0)
+    return f"{baza} {_fmt_kg(kg)}kg" if kg > 0 else baza
+
+
+def build_manual_wz_lines(
+    selections: List[Dict[str, Any]],
+    valued: bool,
+    mode: str = "type_recipe",
+    recipe_names: Optional[Dict[str, str]] = None,
+    fg_rows: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Tuple[List[Dict[str, Any]], float]:
     """Mapuje wybór magazynu na pozycje WZ (reużywa build_wz_lines) i dokleja
-    ślad magazynowy (stock_type/stock_id) do każdej pozycji."""
+    ślad magazynowy (stock_type/stock_id) do każdej pozycji.
+
+    `mode`/`recipe_names` z kartoteki odbiorcy (`naming_context`),
+    `fg_rows` = wiersze `finished_goods` po `stock_id` — patrz
+    `_nazwa_pozycji_recznej`.
+    """
     items = [
-        {"name": s.get("name"), "qty": s.get("qty"), "unit": s.get("unit"),
+        {"name": _nazwa_pozycji_recznej(s, mode, recipe_names, fg_rows),
+         "qty": s.get("qty"), "unit": s.get("unit"),
          "price": s.get("price"), "batch_no": s.get("batch_no"),
          "kg_per_unit": s.get("kg_per_unit"), "vat_rate": s.get("vat_rate")}
         for s in (selections or [])
@@ -699,7 +750,18 @@ def create_manual_wz(
     if not selections:
         raise HTTPException(400, "WZ wymaga co najmniej jednej pozycji")
 
-    lines, total = build_manual_wz_lines(selections, valued)
+    # Tożsamość wyrobu bierzemy z wierszy magazynu, które ten dokument za
+    # chwilę rozchoduje — nazwę pozycji składa backend, nie przeglądarka
+    # (patrz `_nazwa_pozycji_recznej`).
+    fg_ids = [s.get("stock_id") for s in selections
+              if (s.get("stock_type") or "") == "fg" and s.get("stock_id")]
+    fg_rows = {r["id"]: r for r in query_all(
+        "SELECT id, recipe_id, recipe_name, product_type_id, product_type_name, "
+        "       kg_per_unit "
+        "FROM finished_goods WHERE id = ANY(%s)", (fg_ids,))} if fg_ids else {}
+    mode, recipe_names, _doc_names = naming_context(
+        client_name=(buyer or {}).get("name") or "")
+    lines, total = build_manual_wz_lines(selections, valued, mode, recipe_names, fg_rows)
     # Tabela HDI na dokumencie (tylko surowiec): daty uboju/ważności partii
     # stemplowane na liniach W CHWILI wystawienia — dokument to snapshot.
     # Numer LOTU mięsa b/s ma sufiks rodzaju („440-BS"), a partia ćwiartki
@@ -1211,11 +1273,21 @@ def naming_context(client_id: str = "", client_name: str = "") -> tuple:
     client = None
     if client_id:
         client = query_one(
-            "SELECT id, hdi_name_mode FROM clients WHERE id=%s", (client_id,))
+            "SELECT id, hdi_name_mode, wz_uses_hdi_names FROM clients WHERE id=%s",
+            (client_id,))
     if not client and client_name:
         client = query_one(
-            "SELECT id, hdi_name_mode FROM clients WHERE name=%s", (client_name,))
-    mode, recipe_names = client_naming(client or {})
+            "SELECT id, hdi_name_mode, wz_uses_hdi_names FROM clients WHERE name=%s",
+            (client_name,))
+    client = client or {}
+    # Ptaszek „własne nazewnictwo także na WZ" (kartoteka odbiorcy). Odznaczony
+    # → WZ wraca do nazwy ogólnej, HDI zostaje przy swojej. Bramka siedzi TU,
+    # bo `naming_context` obsługuje wyłącznie ścieżki WZ — HDI woła
+    # `client_naming` wprost i ptaszek go nie dotyczy.
+    # Brak kolumny (None) = true, jak przy `dest_for_hdi`.
+    if client.get("wz_uses_hdi_names") is False:
+        return "type_recipe", {}, document_type_names()
+    mode, recipe_names = client_naming(client)
     return mode, recipe_names, document_type_names()
 
 

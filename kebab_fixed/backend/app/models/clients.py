@@ -33,6 +33,8 @@ class ClientCreate(BaseModel):
     # Nazwa pozycji HDI: rodzaj + receptura (domyślnie), sam rodzaj albo
     # sama receptura — życzenie odbiorcy (POLAT vs TRUVA).
     hdi_name_mode: str = "type_recipe"
+    # Czy to nazewnictwo obowiązuje także na WZ (ptaszek w kartotece).
+    wz_uses_hdi_names: bool = True
     # Własne nazwy receptur dla tego odbiorcy (BEYAZ AFIYET → BEYAZ).
     hdi_recipe_names: List[ClientRecipeName] = []
     halal_supervision: bool = False

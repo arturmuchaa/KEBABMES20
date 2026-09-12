@@ -38,7 +38,7 @@ function langFromNip(nip?: string): string {
 }
 
 function emptyForm(): CreateClientDto {
-  return { name: '', displayName: '', nip: '', regon: '', address: '', postalCode: '', city: '', contactName: '', phone: '', email: '', language: '', destName: '', destAddress: '', destCity: '', destForHdi: true, destForCmr: true, halalSupervision: false, hdiNameMode: 'type_recipe', hdiRecipeNames: [] }
+  return { name: '', displayName: '', nip: '', regon: '', address: '', postalCode: '', city: '', contactName: '', phone: '', email: '', language: '', destName: '', destAddress: '', destCity: '', destForHdi: true, destForCmr: true, halalSupervision: false, hdiNameMode: 'type_recipe', hdiRecipeNames: [], wzUsesHdiNames: true }
 }
 
 interface AddressParts { address: string; postalCode: string; city: string }
@@ -113,7 +113,7 @@ function ClientForm({ initial, onSave, onClose }: {
 }) {
   const [form, setForm] = useState<CreateClientDto>(
     initial
-      ? { name: initial.name, displayName: initial.displayName, nip: initial.nip, regon: initial.regon, address: initial.address, postalCode: initial.postalCode, city: initial.city, contactName: initial.contactName, phone: initial.phone, email: initial.email, language: initial.language, destName: initial.destName, destAddress: initial.destAddress, destCity: initial.destCity, destForHdi: initial.destForHdi ?? true, destForCmr: initial.destForCmr ?? true, halalSupervision: initial.halalSupervision, hdiNameMode: initial.hdiNameMode ?? 'type_recipe', hdiRecipeNames: initial.hdiRecipeNames ?? [] }
+      ? { name: initial.name, displayName: initial.displayName, nip: initial.nip, regon: initial.regon, address: initial.address, postalCode: initial.postalCode, city: initial.city, contactName: initial.contactName, phone: initial.phone, email: initial.email, language: initial.language, destName: initial.destName, destAddress: initial.destAddress, destCity: initial.destCity, destForHdi: initial.destForHdi ?? true, destForCmr: initial.destForCmr ?? true, halalSupervision: initial.halalSupervision, hdiNameMode: initial.hdiNameMode ?? 'type_recipe', hdiRecipeNames: initial.hdiRecipeNames ?? [], wzUsesHdiNames: initial.wzUsesHdiNames ?? true }
       : emptyForm()
   )
   const [saving,   setSaving]   = useState(false)
@@ -318,6 +318,22 @@ function ClientForm({ initial, onSave, onClose }: {
               Waga pozycji dochodzi zawsze. Przy „tylko rodzaj" dwie receptury tego
               samego rodzaju i wagi schodzą jako jedna pozycja — partie zostają rozpisane pod nią.
             </div>
+            {/* Do 12.09.2026 ręczny WZ składał nazwę po swojemu i tej kartoteki
+                nie widział — tego samego dnia HDI mówiło „KEBAB UDO 80KG",
+                a WZ „KEBAB UDO 100% WROCŁAW 80kg". Domyślnie zgodnie; ptaszek
+                zostaje dla odbiorcy, który ma widzieć na WZ co innego. */}
+            <label className="flex items-start gap-2 pt-1 border-t border-slate-200 text-sm">
+              <input type="checkbox" className="mt-0.5"
+                data-testid="nazwa-takze-na-wz"
+                checked={form.wzUsesHdiNames ?? true}
+                onChange={e => setForm(p => ({ ...p, wzUsesHdiNames: e.target.checked }))} />
+              <span>
+                Stosuj też na WZ
+                <span className="block text-xs text-slate-500">
+                  Odznaczone — WZ nazywa wyrób ogólnie (rodzaj i receptura), HDI zostaje przy ustawieniu powyżej.
+                </span>
+              </span>
+            </label>
             {recipes.length > 0 && (
               <div className="space-y-1.5 pt-1 border-t border-slate-200">
                 <div className="text-xs font-semibold text-slate-600">
