@@ -76,7 +76,7 @@ def test_anulowanie_wm_nie_rusza_puli_wz(db):
     assert po["doc_series"] == "WZ"
 
 
-def test_podpowiedz_numeru_widzi_serie():
+def test_podpowiedz_numeru_widzi_serie(db):
     """`next_wz_number` z parametrem `series` podpowiada z WŁAŚCIWEGO rejestru."""
     from app.services.wz_service import next_wz_number
     assert next_wz_number(series="WM")["number"].startswith("WM/")
