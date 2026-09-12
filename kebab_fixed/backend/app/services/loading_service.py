@@ -231,17 +231,29 @@ def finalize_loading(
             #
             # Odczyt jest TUTAJ, przed ustaleniem zawartości auta: to od tego,
             # czy dokument już istnieje, zależy SKĄD tę zawartość bierzemy.
+            #
+            # `FOR UPDATE`, bo między tym odczytem a zapisem `loaded_at` niżej
+            # mieści się CAŁE anulowanie kompletu — a ono bierze ten sam wiersz
+            # pod `FOR UPDATE` i odmawia, gdy załadunek już się zapisał
+            # (`anuluj_dokumenty_podzialu`). Bez blokady po TEJ stronie ochrona
+            # działała tylko w jedną stronę: anulowanie wchodziło w szczelinę,
+            # oddawało towar na stan i commitowało, po czym `UPDATE ... WHERE
+            # id=%s` i tak stawiał `loaded_at` na ANULOWANYM dokumencie, a
+            # palety szły na `shipped`. Papier mówił wtedy, że nic nie wydał,
+            # magazyn — że wydał. Teraz kolejność rozstrzyga się na wierszu WM:
+            # kto pierwszy go weźmie, ten kończy, drugi dostaje odmowę.
             wm = cx_query_one(
                 conn,
                 "SELECT id, number, lines FROM wz_documents "
                 "WHERE source_type='order' AND source_id=%s AND split_scope='calosc' "
-                "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1",
+                "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1 "
+                "FOR UPDATE",
                 (order_id,))
             wz_klienta = cx_query_one(
                 conn,
                 "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s "
                 "AND split_scope='wz_klienta' AND COALESCE(status,'')<>'anulowany' "
-                "ORDER BY created_at LIMIT 1",
+                "ORDER BY created_at LIMIT 1 FOR UPDATE",
                 (order_id,)) if wm else None
             # Zamówienie bez podziału — zwykły WZ, jak dotąd. ANULOWANY nie
             # jest kandydatem: anulowanie zwróciło towar na stan, więc ten
@@ -252,7 +264,8 @@ def finalize_loading(
                 "SELECT id, number, lines FROM wz_documents "
                 "WHERE source_type='order' AND source_id=%s "
                 "AND COALESCE(doc_series,'WZ')='WZ' AND split_scope IS NULL "
-                "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1",
+                "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1 "
+                "FOR UPDATE",
                 (order_id,))
 
             # Zakład NIE skanuje pojedynczych sztuk (biuro, 2026-09-09: „nie mamy
