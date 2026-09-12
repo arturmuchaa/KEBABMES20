@@ -658,11 +658,16 @@ export function DashboardPage() {
                   <span className="text-[11px] text-muted-foreground whitespace-nowrap">
                     {k.dokumentow} dok.
                   </span>
-                  {k.rozjazd && (
-                    <Badge variant="outline" className="border-amber-400 text-amber-700 flex-shrink-0">
-                      rozjazd
-                    </Badge>
-                  )}
+                  {/* Biuro ma widzieć TAKŻE stan pozytywny — inaczej brak alarmu
+                      jest nie do odróżnienia od tego, że nikt nie sprawdził. */}
+                  <Badge
+                    variant="outline"
+                    className={k.rozjazd
+                      ? 'border-amber-400 text-amber-700 flex-shrink-0'
+                      : 'border-emerald-400 text-emerald-700 flex-shrink-0'}
+                  >
+                    {k.rozjazd ? 'rozjazd — popraw papiery' : 'zgodne'}
+                  </Badge>
                   <Badge className="ml-auto flex-shrink-0">Wydrukuj</Badge>
                 </Link>
               ))}

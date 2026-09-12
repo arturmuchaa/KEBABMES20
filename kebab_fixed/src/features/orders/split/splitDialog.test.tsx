@@ -7,6 +7,8 @@ const zapisz    = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve({})) }))
 const dokumenty = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve({})) }))
 const anuluj    = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve({})) }))
 const wczytaj   = vi.hoisted(() => ({ fn: vi.fn() }))
+const zaladunek = vi.hoisted(() => ({ stan: { totals: { totalPallets: 2, loadedPallets: 0 } } as any }))
+
 vi.mock('@/lib/api', () => ({
   // Ten sam odczyt kodu HTTP co w prawdziwym module — okno odróżnia po nim
   // „zamówienie bez pozycji" (404) od awarii odczytu.
@@ -18,6 +20,9 @@ vi.mock('@/lib/api', () => ({
     documents: dokumenty.fn,
     cancelDocuments: anuluj.fn,
   },
+  // Okno pyta, czy auto już wyjechało — od tego zależy ostrzeżenie, że
+  // papiery opiszą PLAN, a nie zawartość auta.
+  palletScanApi: { loadingStatus: () => Promise.resolve(zaladunek.stan) },
 }))
 
 import { SplitDialog } from './SplitDialog'
@@ -670,5 +675,27 @@ describe('SplitDialog', () => {
     await act(async () => {})
     expect(zapisz.fn).not.toHaveBeenCalled()
     expect(screen.getByText(/Pozycja KIRMIZI/)).toBeTruthy()
+  })
+})
+
+
+// ── Ostrzeżenie: papiery przed załadunkiem opisują PLAN ──────────────
+//
+// Biuro (12.09.2026): „aby można było po prostu wystawić dokumenty, ale
+// z ostrzeżeniem, że może być błąd". Wystawianie wcześniej jest potrzebne
+// (są klienci, dla których papiery muszą być przed kursem), ale wtedy
+// dokument opisuje plan, a nie zawartość auta.
+describe('ostrzeżenie o wystawianiu przed załadunkiem', () => {
+  it('auto NIE załadowane — okno ostrzega', async () => {
+    zaladunek.stan = { totals: { totalPallets: 2, loadedPallets: 0 } }
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    expect(await screen.findByTestId('ostrzezenie-przed-zaladunkiem')).toBeTruthy()
+  })
+
+  it('auto już załadowane — bez ostrzeżenia', async () => {
+    zaladunek.stan = { totals: { totalPallets: 2, loadedPallets: 2 } }
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    await waitFor(() => expect(wczytaj.fn).toHaveBeenCalled())
+    expect(screen.queryByTestId('ostrzezenie-przed-zaladunkiem')).toBeNull()
   })
 })

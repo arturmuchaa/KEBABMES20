@@ -53,7 +53,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { cn, fmtKgTrim } from '@/lib/utils'
-import { errStatus, orderSplitApi, type SplitPreview, type SplitSaved,
+import { errStatus, orderSplitApi, palletScanApi, type SplitPreview, type SplitSaved,
          type SplitDocuments } from '@/lib/api'
 
 export interface SplitDialogProps {
@@ -146,6 +146,11 @@ function savedZ(z: SplitSaved): SavedSplit | null {
 
 export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }: SplitDialogProps) {
   const [celKgInput, setCelKgInput] = useState('')
+  // Czy auto już wyjechało. Papiery wolno wystawić wcześniej — biuro czasem
+  // MUSI je mieć przed kursem — ale wtedy opisują PLAN, nie zawartość auta,
+  // a rozbieżność wyjdzie dopiero przy skanie (biuro, 12.09.2026). Lepiej
+  // powiedzieć to przed wypaleniem numerów niż po.
+  const [zaladowane, setZaladowane] = useState<{ loaded: number; total: number } | null>(null)
   // Liczby na ekranie RAZEM z ich pochodzeniem — `zrodlo` jest ich
   // właściwością, nie osobnym faktem, więc trzymane osobno mogłoby się z nimi
   // rozjechać. Rozróżnienie jest nośne dla tego, co okno pisze o odchyłce:
@@ -153,6 +158,20 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
   // w którym odchyłka bierze się zwykle z RĘCZNEJ korekty, a nie z tego, że
   // algorytm nie umiał trafić.
   const [tabela, setTabela] = useState<{ dane: SplitPreview; zrodlo: 'podglad' | 'zapisany' } | null>(null)
+
+  useEffect(() => {
+    let anulowane = false
+    palletScanApi.loadingStatus(orderId)
+      .then(st => {
+        if (anulowane) return
+        setZaladowane({
+          loaded: Number(st?.totals?.loadedPallets ?? 0),
+          total: Number(st?.totals?.totalPallets ?? 0),
+        })
+      })
+      .catch(() => { if (!anulowane) setZaladowane(null) })
+    return () => { anulowane = true }
+  }, [orderId])
   const preview = tabela?.dane ?? null
   const zZapisu = tabela?.zrodlo === 'zapisany'
   const [loadingPreview, setLoadingPreview] = useState(false)
@@ -357,8 +376,14 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
     const listaDokumentow = hdiFv
       ? 'WZ wewnętrzny (WM), WZ dla klienta, 2× CMR, HDI na całość i HDI do faktury'
       : 'WZ wewnętrzny (WM), WZ dla klienta, 2× CMR i HDI na całość'
+    const przedZaladunkiem = !!zaladowane && zaladowane.loaded === 0
     const ok = window.confirm(
       `Wystawić komplet dokumentów?\n\nPowstaną: ${listaDokumentow}.\n\n` +
+      (przedZaladunkiem
+        ? 'UWAGA: auto nie jest jeszcze załadowane. Papiery opiszą PLAN, nie zawartość '
+          + 'auta — jeśli czegoś zabraknie, skan pokaże rozjazd i dokumenty trzeba '
+          + 'będzie poprawić.\n\n'
+        : '') +
       'WZ wewnętrzny ZDEJMIE towar ze stanu magazynu wyrobów gotowych — cofniesz to ' +
       'TYLKO anulując cały komplet.')
     if (!ok) return
@@ -675,6 +700,16 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
               className="rounded border border-surface-4 px-3 py-2 text-[12.5px] font-medium text-ink hover:bg-surface-2 disabled:opacity-50">
               {saving ? 'Zapisywanie…' : 'Zapisz podział'}
             </button>
+            {/* Papiery wolno wystawić przed kursem — biuro czasem MUSI je mieć
+                wcześniej — ale wtedy opisują PLAN, a nie zawartość auta. */}
+            {zaladowane && zaladowane.loaded === 0 && (
+              <div data-testid="ostrzezenie-przed-zaladunkiem"
+                className="w-full rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+                <b>Auto nie jest jeszcze załadowane.</b> Dokumenty opiszą plan, nie zawartość
+                auta. Jeśli czegoś zabraknie, skan magazyniera pokaże <b>rozjazd</b> i papiery
+                trzeba będzie poprawić.
+              </div>
+            )}
             {/* ZDEJMUJE STAN: aktywny tylko, gdy ekran = baza (`matchesSaved`). */}
             <button type="button" onClick={handleIssue}
               disabled={issuing || !matchesSaved}
