@@ -686,6 +686,17 @@ def delete_order(order_id: str) -> Dict[str, bool]:
                 400,
                 "Można usunąć tylko zamówienie w statusie Szkic lub Potwierdzone",
             )
+        # Rodzona siostra bramki z `update_order`, ta sama odmowa i to samo
+        # wyjście. Wystawienie kompletu nie zmienia statusu zamówienia, więc
+        # sam status znowu nie wystarcza: `confirmed` z wystawionym WM da się
+        # SKASOWAĆ razem z pozycjami, a `wz_documents.source_id` to zwykła
+        # kolumna tekstowa bez klucza obcego — dokument, który ZDJĄŁ STAN
+        # MAGAZYNU, zostaje sierotą wskazującą na zamówienie, którego nie ma,
+        # i identyfikowalność „gotowe → surowiec" urywa się w pół drogi.
+        # CLAUDE.md: „no data loss: no silent updates, no deletes".
+        from app.services.order_split_service import \
+            odmow_edycji_gdy_dokumenty_wystawione
+        odmow_edycji_gdy_dokumenty_wystawione(order_id)
         cx_execute(conn, "DELETE FROM client_orders WHERE id=%s", (order_id,))
     logger.info("order.deleted", extra={"order_id": order_id})
     return {"ok": True}

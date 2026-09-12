@@ -45,7 +45,8 @@ def _dokument_z_podzialu(order_id: str) -> Optional[Dict[str, Any]]:
 
 
 def odmow_edycji_gdy_dokumenty_wystawione(order_id: str) -> None:
-    """Trzecia siostra tej samej bramki — woła ją `orders_service.update_order`.
+    """Trzecia siostra tej samej bramki — wołają ją `orders_service.update_order`
+    i `orders_service.delete_order`.
 
     Wystawienie kompletu NIE zmienia statusu zamówienia: zostaje `confirmed`,
     czyli w pełni edytowalne, a `_reconcile_lines_cx` po cichu PRZYCINA
@@ -54,6 +55,11 @@ def odmow_edycji_gdy_dokumenty_wystawione(order_id: str) -> None:
     z 8 na fakturę, poprawione na 3 szt., zostawia „na WZ" zero, podczas gdy
     WYDRUKOWANY WZ dla klienta mówi o 2 sztukach — cicha zmiana liczb, które
     są już na papierze (review końcowy, I1, 2026-09-11).
+
+    Kasowanie jest tą samą szkodą doprowadzoną do końca: pozycje znikają
+    CASCADE, a `wz_documents.source_id` nie ma klucza obcego, więc WM —
+    jedyny dokument, który ruszył magazyn — zostaje sierotą i dwustronna
+    identyfikowalność urywa się w pół drogi.
 
     Stoi TUTAJ, a nie w `orders_service`, żeby wszystkie trzy odmowy
     („na tym zamówieniu leżą papiery z podziału") czytało się w jednym

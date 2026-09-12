@@ -30,6 +30,7 @@ from app.services.document_naming import tuleja_suffix
 from app.services.hdi_service import hdi_product_base
 from app.services.loading_service import _order_buyer
 from app.services.order_stock_service import picks_for_order
+from app.services.orders_service import zamknij_wyslane_zamowienia
 from app.services.settings_service import get_company
 from app.services.wz_service import (_fmt_kg, _insert_wz, _rebook_wz_containers,
                                      _seller_block, build_goods_wz_lines,
@@ -407,6 +408,21 @@ def anuluj_dokumenty_podzialu(order_id: str) -> Dict[str, Any]:
             anulowane.append({"id": d["id"], "number": d["number"],
                               "scope": d.get("split_scope")})
 
+        # Wycofanie kompletu OTWIERA zamówienie z powrotem. Komplet je zamyka
+        # (`wystaw_komplet`), więc bez tej symetrii anulowanie zostawiałoby
+        # zamówienie `done` z towarem oddanym na stan: `update_order` edytuje
+        # tylko szkic i potwierdzone, a `generate_hdi` dla zamkniętego oddaje
+        # dokument zamrożony — czyli dokładnie ten ślepy zaułek, dla którego
+        # ta funkcja w ogóle powstała, tylko przesunięty o jeden krok.
+        # Wolno bezwarunkowo: `_odmow_jesli_koliduje` nie dopuszcza, by
+        # zamówienie z podziałem miało JAKIKOLWIEK inny dokument wydania, więc
+        # jedynym powodem, dla którego takie zamówienie jest `done`, jest
+        # właśnie wycofywany teraz komplet.
+        cx_execute(
+            conn,
+            "UPDATE client_orders SET status='confirmed' WHERE id=%s AND status='done'",
+            (order_id,))
+
     logger.info("podzial.anulowany",
                 extra={"order_id": order_id, "ile_dokumentow": len(anulowane),
                        "zwrocone_szt": zwrocone_szt})
@@ -542,8 +558,28 @@ def wystaw_komplet(order_id: str, forma_cmr: Dict[str, Any],
                        extra={"order_id": order_id, "kg_wydane": pokrycie["kg_wydane"],
                               "kg_zamowienia": pokrycie["kg_zamowienia"],
                               "kg_braku": pokrycie["kg_braku"]})
+
+    # Zamknięcie zamówienia, z którego WSZYSTKO wyjechało — dokładnie ta sama
+    # reguła i ta sama funkcja, co po zwykłym WZ. Ścieżka podziału nie wołała
+    # jej NIGDZIE: `zamknij_wyslane_zamowienia` odzywa się z `create_manual_wz`,
+    # z `create_wz_from_order` (dla takiego zamówienia zablokowanego) i z
+    # `update_order`. Zamykała je więc przypadkowa edycja — a od bramki
+    # `odmow_edycji_gdy_dokumenty_wystawione` także ta droga jest zamknięta.
+    # Zamówienie z KOMPLETEM PAPIERÓW zostawało na liście „do zrobienia"
+    # na zawsze i jednocześnie nie dawało się poprawić: ta sama skarga biura,
+    # którą opisuje komentarz przy `update_order` (ZAGROS/Z/1/09/26).
+    #
+    # NA KOŃCU, nie wcześniej i nie w `wystaw_wz_wewnetrzny`: `generate_hdi`
+    # dla zamówienia w statusie `done` nie wystawia nowego dokumentu (oddaje
+    # zamrożony albo odmawia), więc zamknięcie przed HDI rozbiłoby komplet,
+    # którego jest częścią.
+    #
+    # Krótka dostawa się nie zamyka i tak ma być — pokrycie liczy się z pozycji
+    # zamówienia, więc zamówienie niedowiezione zostaje magazynierowi na liście.
+    zamkniete = zamknij_wyslane_zamowienia([_zamowienie(order_id).get("order_no") or ""])
     logger.info("podzial.komplet.wystawiony",
-                extra={"order_id": order_id, "z_hdi_fv": bool(hdi_fv)})
+                extra={"order_id": order_id, "z_hdi_fv": bool(hdi_fv),
+                       "zamkniete": bool(zamkniete)})
     return {"order_id": order_id, "wm": wm, "wz": wz, "cmr": cmr,
             "hdi_calosc": hdi_calosc, "hdi_fv": hdi_do_faktury,
             "pokrycie": pokrycie}
