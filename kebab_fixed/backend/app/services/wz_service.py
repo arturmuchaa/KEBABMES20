@@ -222,6 +222,7 @@ def _nazwa_pozycji_recznej(
     mode: str,
     recipe_names: Optional[Dict[str, str]],
     fg_rows: Optional[Dict[str, Dict[str, Any]]],
+    doc_names: Optional[Dict[str, str]] = None,
 ) -> Any:
     """Nazwa pozycji ręcznego WZ — składana TU, nie w przeglądarce.
 
@@ -235,10 +236,13 @@ def _nazwa_pozycji_recznej(
     Tożsamość bierzemy z wiersza `finished_goods`, który ta pozycja za
     chwilę rozchoduje — backend zna ją lepiej niż przysłany napis.
 
-    Zapis RODZAJU i WAGI zostaje dotychczasowy (decyzja właściciela,
-    12.09.2026): wyrównujemy tryb i własne nazwy receptur, nie kosmetykę.
-    Dzięki temu odbiorca bez własnych ustawień dostaje dokładnie ten sam
-    napis co przed zmianą.
+    RODZAJ bierzemy NAZWĄ DOKUMENTOWĄ (`product_types.document_name`), tak
+    jak pozostałe trzy buildery WZ i jak HDI: „KEBAB MIX 95/5" schodzi na
+    papier jako „KEBAB MIX UDO/FILET", bo proporcji składu klientowi nie
+    pokazujemy. Pierwsza wersja tej funkcji brała nazwę wewnętrzną i przez
+    to FUDI dostawało na WZ „KEBAB MIX", a na HDI „MIX UDO/FILET".
+
+    Zapis WAGI zostaje dotychczasowy dla WZ (małe „kg").
 
     Surowiec, mięso i uboczne zachowują nazwę z ekranu — kartoteka
     nazewnictwa opisuje wyrób gotowy, a ich w `finished_goods` nie ma.
@@ -249,7 +253,8 @@ def _nazwa_pozycji_recznej(
     if not fg:
         return s.get("name")
     baza = hdi_product_base(
-        fg.get("product_type_name") or "",
+        (doc_names or {}).get(fg.get("product_type_id") or "")
+        or fg.get("product_type_name") or "",
         (recipe_names or {}).get(fg.get("recipe_id") or "") or fg.get("recipe_name") or "",
         mode) or "Wyrób"
     kg = float(fg.get("kg_per_unit") or s.get("kg_per_unit") or 0)
@@ -262,6 +267,7 @@ def build_manual_wz_lines(
     mode: str = "type_recipe",
     recipe_names: Optional[Dict[str, str]] = None,
     fg_rows: Optional[Dict[str, Dict[str, Any]]] = None,
+    doc_names: Optional[Dict[str, str]] = None,
 ) -> Tuple[List[Dict[str, Any]], float]:
     """Mapuje wybór magazynu na pozycje WZ (reużywa build_wz_lines) i dokleja
     ślad magazynowy (stock_type/stock_id) do każdej pozycji.
@@ -271,7 +277,7 @@ def build_manual_wz_lines(
     `_nazwa_pozycji_recznej`.
     """
     items = [
-        {"name": _nazwa_pozycji_recznej(s, mode, recipe_names, fg_rows),
+        {"name": _nazwa_pozycji_recznej(s, mode, recipe_names, fg_rows, doc_names),
          "qty": s.get("qty"), "unit": s.get("unit"),
          "price": s.get("price"), "batch_no": s.get("batch_no"),
          "kg_per_unit": s.get("kg_per_unit"), "vat_rate": s.get("vat_rate")}
@@ -759,9 +765,10 @@ def create_manual_wz(
         "SELECT id, recipe_id, recipe_name, product_type_id, product_type_name, "
         "       kg_per_unit "
         "FROM finished_goods WHERE id = ANY(%s)", (fg_ids,))} if fg_ids else {}
-    mode, recipe_names, _doc_names = naming_context(
+    mode, recipe_names, doc_names = naming_context(
         client_name=(buyer or {}).get("name") or "")
-    lines, total = build_manual_wz_lines(selections, valued, mode, recipe_names, fg_rows)
+    lines, total = build_manual_wz_lines(
+        selections, valued, mode, recipe_names, fg_rows, doc_names)
     # Tabela HDI na dokumencie (tylko surowiec): daty uboju/ważności partii
     # stemplowane na liniach W CHWILI wystawienia — dokument to snapshot.
     # Numer LOTU mięsa b/s ma sufiks rodzaju („440-BS"), a partia ćwiartki

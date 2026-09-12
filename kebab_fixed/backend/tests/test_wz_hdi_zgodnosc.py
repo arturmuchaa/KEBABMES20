@@ -197,3 +197,38 @@ def test_reczny_wz_nie_rusza_pozycji_surowcowej():
     linie, _ = build_manual_wz_lines([surowiec], False, mode="type",
                                      recipe_names=WLASNE, fg_rows=WIERSZE_FG)
     assert linie[0]["name"] == "Ćwiartka kurczaka"
+
+
+# ── Rodzaj schodzi NAZWĄ DOKUMENTOWĄ, nie wewnętrzną ─────────────────
+#
+# W kartotece rodzajów „KEBAB MIX 95/5" ma nazwę dokumentową
+# „KEBAB MIX UDO/FILET", a „KEBAB UDO 100%" — „KEBAB UDO". Proporcji składu
+# klientowi NIE pokazujemy (patrz `hdi_product_base`), więc ręczny WZ musi
+# brać to samo źródło co pozostałe trzy buildery i co HDI.
+RODZAJ_WEWNETRZNY = "KEBAB MIX 95/5"
+RODZAJ_DOKUMENTOWY = "KEBAB MIX UDO/FILET"
+NAZWY_DOK = {"pt9": RODZAJ_DOKUMENTOWY}
+WIERSZE_FG_95 = {"fg9": {
+    "id": "fg9", "recipe_id": "r1", "recipe_name": RECEPTURA,
+    "product_type_id": "pt9", "product_type_name": RODZAJ_WEWNETRZNY,
+    "packaging_name": None, "kg_per_unit": 20.0}}
+
+
+def _wybor_fg_95():
+    return {"stock_type": "fg", "stock_id": "fg9", "name": "cokolwiek z ekranu",
+            "qty": 3, "unit": "szt", "kg_per_unit": 20.0, "batch_no": "010926 518"}
+
+
+def test_reczny_wz_nie_pokazuje_klientowi_proporcji_skladu():
+    """95/5 to nasza kuchnia — na papier idzie nazwa dokumentowa."""
+    linie, _ = build_manual_wz_lines([_wybor_fg_95()], False, mode="type",
+                                     doc_names=NAZWY_DOK, fg_rows=WIERSZE_FG_95)
+    assert linie[0]["name"] == f"{RODZAJ_DOKUMENTOWY} 20kg"
+    assert "95/5" not in linie[0]["name"]
+
+
+def test_reczny_wz_bez_nazwy_dokumentowej_bierze_wewnetrzna():
+    """Puste pole w kartotece rodzajów = nazwa rodzaju, jak w `document_type_names`."""
+    linie, _ = build_manual_wz_lines([_wybor_fg_95()], False, mode="type",
+                                     doc_names={}, fg_rows=WIERSZE_FG_95)
+    assert linie[0]["name"] == f"{RODZAJ_WEWNETRZNY} 20kg"
