@@ -3288,6 +3288,8 @@ export interface StockCartonLine {
 export interface StockCarton {
   id: string
   cartonNo: number | null
+  /** Odbiorca kartonu — po id kartoteka daje jego własne nazwy receptur. */
+  clientId: string
   clientName: string
   /** Skład kartonu (pozycje). Karton jednorodny = jedna pozycja. */
   lines: StockCartonLine[]
@@ -3322,6 +3324,7 @@ function mapStockCarton(r: any): StockCarton {
   return {
     id: r.id,
     cartonNo: r.carton_no ?? r.cartonNo ?? null,
+    clientId: r.client_id ?? r.clientId ?? '',
     clientName: r.client_name ?? '',
     lines,
     recipeName: first?.recipeName ?? r.recipe_name ?? '',

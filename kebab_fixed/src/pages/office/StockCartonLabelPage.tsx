@@ -8,13 +8,14 @@ import QRCode from 'qrcode'
 import { useApi } from '@/hooks/useApi'
 import { stockCartonsApi } from '@/lib/api'
 import { formatCartonNo } from '@/lib/unitLocation'
-import { useClientNames } from '@/lib/clientNames'
+import { useClientNames, useClientRecipeNames } from '@/lib/clientNames'
 import { CartonLabel } from '@/features/labels/CartonLabel'
 import { buildCartonLabelContent, cartonLabelTotalKg } from '@/features/labels/cartonLabelLines'
 
 export function StockCartonLabelPage() {
   const { id = '' } = useParams<{ id: string }>()
   const clientDisplay = useClientNames()
+  const nazwaReceptury = useClientRecipeNames()
   const { data: carton } = useApi(() => stockCartonsApi.get(id), [id])
   const [qrUrl, setQrUrl] = useState('')
 
@@ -31,11 +32,17 @@ export function StockCartonLabelPage() {
   const cartonNo = formatCartonNo(carton.cartonNo)
   // Karton mieszany: jedna linia opisu na pozycję; total = suma po pozycjach.
   // Ta sama reguła co na palecie zamówienia — jeden wydruk w dwóch miejscach.
+  // Receptura nazwana tak, jak nazywa ją odbiorca kartonu (kartoteka,
+  // „Nazwa pozycji na HDI") — kartka palety i kartka kartonu to jeden wydruk.
+  const klient = { id: carton.clientId, name: carton.clientName }
   const items = carton.lines?.length
     ? carton.lines.map(l => ({
         qty: l.targetQty, kgPerUnit: l.kgPerUnit,
-        recipeName: l.recipeName, packagingName: l.packagingName,
+        recipeName: nazwaReceptury(klient, l.recipeId, l.recipeName),
+        packagingName: l.packagingName,
       }))
+    // Karton bez rozpisanych pozycji nie niesie id receptury — nie ma czego
+    // szukać w kartotece, zostaje nazwa z receptury.
     : [{
         qty: carton.targetQty, kgPerUnit: carton.kgPerUnit,
         recipeName: carton.recipeName, packagingName: carton.packagingName,

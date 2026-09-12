@@ -323,6 +323,11 @@ function ClientForm({ initial, onSave, onClose }: {
                 <div className="text-xs font-semibold text-slate-600">
                   Własne nazwy receptur <span className="font-normal text-slate-400">(puste = nazwa z receptury)</span>
                 </div>
+                {/* Ta sama nazwa schodzi na kartkę palety/kartonu — odbiorca
+                    ma znać swój wyrób pod jedną nazwą, na papierze i na palecie. */}
+                <div className="text-xs text-slate-500">
+                  Nazwa schodzi też na kartkę naklejaną na paletę i karton.
+                </div>
                 <div className="max-h-48 space-y-1 overflow-auto pr-1">
                   {recipes.map(r => (
                     <div key={r.id} className="grid grid-cols-2 items-center gap-2">

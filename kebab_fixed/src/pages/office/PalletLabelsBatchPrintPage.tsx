@@ -18,7 +18,7 @@ import QRCode from 'qrcode'
 
 import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, orderPalletsApi } from '@/lib/apiClient'
-import { useClientNames } from '@/lib/clientNames'
+import { useClientNames, useClientRecipeNames } from '@/lib/clientNames'
 import { drukuj } from '@/lib/print'
 import {
   CARTON_LABEL_STYLES, CartonLabelPages, KOPII_NA_PALETE,
@@ -38,6 +38,7 @@ export function parsePalletParam(raw: string | null): number[] | null {
 
 export function PalletLabelsBatchPrintPage() {
   const clientDisplay = useClientNames()
+  const nazwaReceptury = useClientRecipeNames()
   const { id = '' } = useParams<{ id: string }>()
   const [params] = useSearchParams()
   const orderRes = useApi(() => clientOrdersApi.byId(id), [id])
@@ -59,6 +60,7 @@ export function PalletLabelsBatchPrintPage() {
 
   const kartki = useMemo(() => {
     if (!order) return []
+    const klient = { id: order.clientId, name: order.clientName }
     const linesById = Object.fromEntries(order.lines.map(line => [line.id, line]))
     return wybrane.map(paleta => {
       const items = paleta.items.map(item => {
@@ -66,7 +68,12 @@ export function PalletLabelsBatchPrintPage() {
         return {
           qty: item.qty,
           kgPerUnit: Number(line?.kgPerUnit ?? item.kgPerUnit ?? 0),
-          recipeName: line?.recipeName ?? item.recipeName ?? '',
+          // Receptura nazwana tak, jak nazywa ją TEN odbiorca (kartoteka,
+          // „Nazwa pozycji na HDI"): „BEYAZ AFIYET" u nas = „BEYAZ" u POLATa.
+          // Ta sama nazwa co na jego dokumentach — magazynier i odbiorca
+          // czytają z kartki to samo słowo.
+          recipeName: nazwaReceptury(
+            klient, line?.recipeId, line?.recipeName ?? item.recipeName ?? ''),
           packagingName: line?.packagingName ?? item.packagingName ?? '',
         }
       })
@@ -82,7 +89,7 @@ export function PalletLabelsBatchPrintPage() {
         totalKg: cartonLabelTotalKg(items),
       }
     })
-  }, [order, wybrane])
+  }, [order, wybrane, nazwaReceptury])
 
   useEffect(() => {
     document.title = order
