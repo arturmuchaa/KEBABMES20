@@ -73,8 +73,10 @@ def pdf(wz_id: str):
 
 
 @router.get("/stock/finished-goods")
-def stock_fg():
-    return svc.stock_finished_goods()
+def stock_fg(client_id: str = ""):
+    """`client_id` — po to, by nazwa pozycji na ekranie była TĄ, którą
+    wystawi dokument dla tego odbiorcy (kartoteka nazw)."""
+    return svc.stock_finished_goods(client_id=client_id)
 
 
 @router.get("/stock/raw")

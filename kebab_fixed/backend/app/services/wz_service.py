@@ -217,6 +217,33 @@ def build_wz_lines(items: List[Dict[str, Any]], valued: bool) -> Tuple[List[Dict
     return lines, round(total, 2)
 
 
+def nazwa_wyrobu_na_wz(
+    fg: Dict[str, Any],
+    mode: str = "type_recipe",
+    recipe_names: Optional[Dict[str, str]] = None,
+    doc_names: Optional[Dict[str, str]] = None,
+) -> str:
+    """Nazwa pozycji WZ dla wiersza wyrobu gotowego.
+
+    JEDNO miejsce dla ekranu i dla dokumentu. Formularz WZ składał tę nazwę
+    po swojemu w przeglądarce (`zlozNazweWyrobu`) i kartoteki odbiorcy nie
+    znał, więc biuro widziało „KEBAB MIX FUDI KIRMIZI 30kg", a wystawiony
+    dokument — „MIX UDO/FILET 30kg". Papier był dobry, ekran kłamał, a biuro
+    nie miało jak sprawdzić dokumentu przed wystawieniem (12.09.2026).
+
+    RODZAJ nazwą dokumentową (proporcji składu „95/5" klientowi nie
+    pokazujemy), RECEPTURA własną nazwą odbiorcy, gdy ją ma, tryb
+    z kartoteki. Waga małym „kg" — zapis WZ.
+    """
+    baza = hdi_product_base(
+        (doc_names or {}).get(fg.get("product_type_id") or "")
+        or fg.get("product_type_name") or "",
+        (recipe_names or {}).get(fg.get("recipe_id") or "") or fg.get("recipe_name") or "",
+        mode) or "Wyrób"
+    kg = float(fg.get("kg_per_unit") or 0)
+    return f"{baza} {_fmt_kg(kg)}kg" if kg > 0 else baza
+
+
 def _nazwa_pozycji_recznej(
     s: Dict[str, Any],
     mode: str,
@@ -252,13 +279,11 @@ def _nazwa_pozycji_recznej(
     fg = (fg_rows or {}).get(s.get("stock_id") or "")
     if not fg:
         return s.get("name")
-    baza = hdi_product_base(
-        (doc_names or {}).get(fg.get("product_type_id") or "")
-        or fg.get("product_type_name") or "",
-        (recipe_names or {}).get(fg.get("recipe_id") or "") or fg.get("recipe_name") or "",
-        mode) or "Wyrób"
-    kg = float(fg.get("kg_per_unit") or s.get("kg_per_unit") or 0)
-    return f"{baza} {_fmt_kg(kg)}kg" if kg > 0 else baza
+    # Waga z wiersza magazynu, a gdy jej tam nie ma — z wyboru z ekranu.
+    wiersz = dict(fg)
+    if not wiersz.get("kg_per_unit"):
+        wiersz["kg_per_unit"] = s.get("kg_per_unit")
+    return nazwa_wyrobu_na_wz(wiersz, mode, recipe_names, doc_names)
 
 
 def build_manual_wz_lines(
@@ -1548,6 +1573,11 @@ def picks_from_order(order_id: str) -> Dict[str, Any]:
     _odmow_gdy_zamowienie_ma_podzial_bez_conn(order_id)
     p = _order_wz_payload(order_id)
     picks = picks_for_order(order_id)
+    # Nazwę składa TU backend, żeby formularz pokazywał dokładnie to, co
+    # wystawi dokument — patrz `nazwa_wyrobu_na_wz`.
+    mode, recipe_names, doc_names = naming_context(
+        client_id=p["order"].get("client_id") or "",
+        client_name=p["order"].get("client_name") or "")
     return {
         "order_id": order_id,
         "order_no": p["order"].get("order_no"),
@@ -1559,6 +1589,7 @@ def picks_from_order(order_id: str) -> Dict[str, Any]:
                 "stock_id": (poz["fg"] or {}).get("id"),
                 "qty": int(poz.get("take") or 0),
                 "batch_no": (poz["fg"] or {}).get("batch_no"),
+                "name": nazwa_wyrobu_na_wz(poz["fg"] or {}, mode, recipe_names, doc_names),
                 "product_type_name": (poz["fg"] or {}).get("product_type_name") or "",
                 "recipe_name": (poz["fg"] or {}).get("recipe_name") or "",
                 "kg_per_unit": float((poz["fg"] or {}).get("kg_per_unit") or 0),
@@ -1705,12 +1736,26 @@ def list_wz() -> List[Dict[str, Any]]:
     )
 
 
-def stock_finished_goods() -> List[Dict[str, Any]]:
-    return query_all(
-        """SELECT id, batch_no, recipe_name, product_type_name,
+def stock_finished_goods(client_id: str = "",
+                         client_name: str = "") -> List[Dict[str, Any]]:
+    """Wiersze magazynu wyrobu gotowego do formularza WZ.
+
+    `name` składa backend — ten sam napis, który wystawi dokument. Bez tego
+    formularz nazywał wyrób po swojemu i jeden ekran pokazywał dwie
+    konwencje: pozycje z zamówienia wg kartoteki, a dobrane ręcznie z
+    magazynu — surowymi nazwami. Odbiorca nieznany = nazwa ogólna.
+    """
+    rows = query_all(
+        """SELECT id, batch_no, recipe_id, recipe_name,
+                  product_type_id, product_type_name,
                   qty_available, kg_per_unit, client_name, client_order_no
            FROM finished_goods WHERE COALESCE(qty_available,0) > 0
            ORDER BY produced_date DESC NULLS LAST, batch_no""")
+    mode, recipe_names, doc_names = naming_context(
+        client_id=client_id, client_name=client_name)
+    for r in rows:
+        r["name"] = nazwa_wyrobu_na_wz(r, mode, recipe_names, doc_names)
+    return rows
 
 
 def stock_raw() -> List[Dict[str, Any]]:

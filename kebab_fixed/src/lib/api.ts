@@ -2474,7 +2474,10 @@ export const wzApi = {
   nextNumber: () => get<{ number: string; seq: number; yearMonth: string; note: string }>('/wz/next-number'),
 
   byId: (id: string) => get<WzDoc>(`/wz/${id}`),
-  stockFg: () => get<any[]>('/wz/stock/finished-goods'),
+  /** `clientId` — nazwa pozycji ma być TĄ, którą wystawi dokument dla tego
+   *  odbiorcy (kartoteka nazw). Bez odbiorcy: nazwa ogólna. */
+  stockFg: (clientId = '') =>
+    get<any[]>(`/wz/stock/finished-goods${clientId ? `?client_id=${encodeURIComponent(clientId)}` : ''}`),
   stockRaw: () => get<any[]>('/wz/stock/raw'),
   stockRawCard: (stockType: string, stockId: string) =>
     get<any>(`/wz/stock/raw/card?stock_type=${encodeURIComponent(stockType)}&stock_id=${encodeURIComponent(stockId)}`),
@@ -2514,6 +2517,8 @@ export const wzApi = {
       ordered: number
       picks: {
         stock_id: string; qty: number; batch_no: string | null
+        /** Nazwa złożona przez backend — ta sama, którą wystawi dokument. */
+        name?: string
         product_type_name: string; recipe_name: string
         kg_per_unit: number; qty_available: number
       }[]

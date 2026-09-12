@@ -114,8 +114,13 @@ export function WzNewPage() {
       if (d.client_id) { setClientId(d.client_id); setStockView('client') }
       const wiersze: Row[] = d.picks.map(p => ({
         stockType: 'fg', stockId: p.stock_id,
-        name: zlozNazweWyrobu(p.product_type_name, p.recipe_name)
-          + (p.kg_per_unit > 0 ? ` ${fmtKg3(p.kg_per_unit)}kg` : ''),
+        // Nazwę składa backend (`nazwa_wyrobu_na_wz`) — ten sam napis, który
+        // wystawi dokument. Składanie jej tutaj pokazywało biuru „rodzaj +
+        // receptura", choć kartoteka mówiła „sam rodzaj" (FUDI, 12.09.2026).
+        // Fallback zostaje dla starszego backendu bez pola `name`.
+        name: p.name
+          || (zlozNazweWyrobu(p.product_type_name, p.recipe_name)
+            + (p.kg_per_unit > 0 ? ` ${fmtKg3(p.kg_per_unit)}kg` : '')),
         unit: 'szt', qtyStr: String(p.qty), priceStr: '',
         batchNo: p.batch_no ?? undefined,
         available: p.qty_available,
@@ -132,6 +137,15 @@ export function WzNewPage() {
     }).catch(e => setErr(e?.message || 'Nie udało się wczytać pozycji zamówienia'))
     return () => { anulowane = true }
   }, [])
+
+  // Nazwa pozycji zależy od kartoteki odbiorcy, więc po jego wyborze magazyn
+  // trzeba przeczytać na nowo — inaczej w jednym formularzu stałyby obok
+  // siebie dwie konwencje: pozycje z zamówienia wg kartoteki, a dobrane
+  // ręcznie z magazynu — surowymi nazwami.
+  useEffect(() => {
+    if (!clientId) return
+    wzApi.stockFg(clientId).then(setFg).catch(() => {})
+  }, [clientId])
 
   useEffect(() => {
     clientsApi.list().then(setClients)
@@ -154,7 +168,7 @@ export function WzNewPage() {
         // Dedupe: efekt potrafi odpalić dwa razy (StrictMode).
         const juz = new Set(r.filter(x => x.stockType === 'fg').map(x => x.stockId))
         const nowe = wybrane.filter(g => !juz.has(g.id)).map(g => ({
-          stockType: 'fg' as const, stockId: g.id, name: fgLabel(g),
+          stockType: 'fg' as const, stockId: g.id, name: g.name || fgLabel(g),
           unit: 'szt', qtyStr: String(chce.get(g.id) ?? 1), priceStr: '',
           batchNo: g.batch_no,
           clientOrderNo: g.client_order_no ?? null, clientName: g.client_name ?? null,
@@ -270,7 +284,7 @@ export function WzNewPage() {
 
   const addedIds = useMemo(() => new Set(rows.map(r => r.stockId)), [rows])
   const addFg = (g: any) => setRows(r => [...r, {
-    stockType: 'fg', stockId: g.id, name: fgLabel(g),
+    stockType: 'fg', stockId: g.id, name: g.name || fgLabel(g),
     unit: 'szt', qtyStr: '1', priceStr: '', batchNo: g.batch_no,
     clientOrderNo: g.client_order_no ?? null, clientName: g.client_name ?? null,
     available: Number(g.qty_available || 0),

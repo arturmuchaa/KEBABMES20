@@ -124,3 +124,63 @@ def test_proporcja_skladu_nie_wychodzi_na_papier(db):
     nazwa = _nazwa(wz["id"])
     assert nazwa == "KEBAB MIX UDO/FILET 20kg"
     assert "95/5" not in nazwa
+
+
+# ── Formularz ma pokazywać TĘ nazwę, którą wystawi dokument ───────────
+#
+# Biuro (12.09.2026): „podczas wystawiania WZ dalej pokazuje rodzaj +
+# receptura, mimo że w ustawieniach zaznaczone tylko rodzaj i stosuj na WZ".
+# Papier był już dobry — nazwę nadpisywał backend przy wystawianiu — ale ekran
+# składał ją PO SWOJEMU w przeglądarce i kartoteki nie znał. Biuro nie miało
+# jak sprawdzić dokumentu przed wystawieniem.
+def _zamowienie_fudi(oid="oF", qty=2, kg=30.0):
+    execute(
+        "INSERT INTO client_orders (id, order_no, client_id, client_name, order_date, "
+        " status) VALUES (%s,'FUDI/Z/1/09/26',"
+        " (SELECT id FROM clients WHERE nip=%s),%s,'2026-09-12','confirmed')",
+        (oid, NABYWCA["nip"], NABYWCA["name"]))
+    execute(
+        "INSERT INTO client_order_lines (id, order_id, recipe_id, product_type_id, qty, "
+        " kg_per_unit, total_kg) VALUES (%s,%s,'r1','pt1',%s,%s,%s)",
+        (f"{oid}-l1", oid, qty, kg, qty * kg))
+    return oid
+
+
+def test_formularz_dostaje_nazwe_z_kartoteki(db):
+    """`picks_from_order` oddaje nazwę gotową — tę samą, którą wystawi WZ."""
+    from app.services.wz_service import picks_from_order
+    _kartoteka(tryb="type")
+    _wyrob(kg=30.0)
+    _zamowienie_fudi()
+
+    dane = picks_from_order("oF")
+
+    assert dane["picks"], dane
+    assert dane["picks"][0]["name"] == "KEBAB UDO 30kg"
+
+
+def test_formularz_i_dokument_daja_TEN_SAM_napis(db):
+    """Sedno: ekran i papier z jednego źródła, więc nie mają jak się rozjechać."""
+    from app.services.wz_service import picks_from_order
+    _kartoteka(tryb="type_recipe", wlasna="BEYAZ")
+    _wyrob(kg=80.0)
+    _zamowienie_fudi(kg=80.0)
+
+    z_formularza = picks_from_order("oF")["picks"][0]["name"]
+    wz = _wystaw()
+
+    assert z_formularza == _nazwa(wz["id"])
+
+
+def test_magazyn_do_formularza_tez_dostaje_nazwe_z_kartoteki(db):
+    """Wiersze dobierane RĘCZNIE z magazynu nie mogą nazywać się inaczej niż
+    pozycje z zamówienia w tym samym formularzu."""
+    from app.services.wz_service import stock_finished_goods
+    k = _kartoteka(tryb="type")
+    _wyrob(kg=80.0)
+
+    wiersz = next(r for r in stock_finished_goods(client_id=k["id"]) if r["id"] == "fg1")
+    assert wiersz["name"] == "KEBAB UDO 80kg"
+
+    ogolnie = next(r for r in stock_finished_goods() if r["id"] == "fg1")
+    assert ogolnie["name"] == "KEBAB UDO WROCŁAW 80kg"
