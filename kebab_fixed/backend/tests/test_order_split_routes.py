@@ -279,15 +279,23 @@ def test_komplet_bez_sztuk_na_fakture_nie_rusza_magazynu(db):
     _nic_nie_powstalo()
 
 
-def test_komplet_z_caloscia_na_fakture_nie_rusza_magazynu(db):
-    """(c) Cały towar na fakturę — `zapisz_podzial` na to pozwala, a WZ dla
-    klienta nie ma wtedy ani jednej pozycji."""
+def test_wz_klienta_WPROST_dalej_odmawia_przy_calosci_na_fakture(db):
+    """(c) Cały towar na fakturę: dla KOMPLETU to poprawny układ (patrz testy
+    NAZARA niżej), ale `wystaw_wz_klienta` wywołany WPROST dalej odmawia —
+    tam brak części niefakturowanej naprawdę znaczy pomyłkę operatora.
+
+    Do 12.09.2026 ten układ odrzucał cały komplet; właściciel wyjaśnił, że
+    odbiorca biorący wszystko na fakturę ma dostać WM na całe zamówienie
+    (to ono zdejmuje stan) plus HDI i CMR, a WZ powstaje tylko przy podziale.
+    """
+    from app.services.split_documents_service import (wystaw_wz_klienta,
+                                                      wystaw_wz_wewnetrzny)
     _przygotuj_z_podzialem(cel_kg=800.0)
+    wystaw_wz_wewnetrzny("o1")
     with pytest.raises(HTTPException) as exc:
-        route.wystaw_komplet("o1", route.KompletDokumentow())
+        wystaw_wz_klienta("o1")
     assert exc.value.status_code == 400
-    assert "WZ" in exc.value.detail
-    _nic_nie_powstalo()
+    assert "fakturę" in exc.value.detail
 
 
 def test_trasa_kompletu_tylko_przekazuje_do_serwisu(monkeypatch):
@@ -585,3 +593,45 @@ def test_anulowanie_kompletu_oddaje_zamowienie_do_edycji(db):
              "qty": 2, "kg_per_unit": 25},
         ]}))
     assert int(query_one("SELECT qty FROM client_order_lines WHERE id='o1-l1'")["qty"]) == 3
+
+
+# ── Odbiorca biorący WSZYSTKO na fakturę ─────────────────────────────
+#
+# Biuro (12.09.2026): „jeżeli u klienta np. NAZAR wszystko na fakturę, wtedy
+# nie ma problemu — drukujemy HDI i CMR na całość", oraz: „jak wszystko idzie
+# na fakturę, to system tworzy WM, które ściąga stan na całe zamówienie,
+# a WZ tworzymy tylko, jeżeli dzielimy".
+#
+# Do tej pory komplet w tym układzie PADAŁ: `wystaw_wz_klienta` odmawia, gdy
+# nie ma nic niefakturowanego, a `wystaw_komplet` wołał go bezwarunkowo. WZ dla
+# klienta opisuje część NIEFAKTUROWANĄ — jej brak nie jest błędem, tylko innym
+# układem zamówienia.
+def test_calosc_na_fakture_wystawia_komplet_BEZ_wz_klienta(db):
+    _przygotuj_z_podzialem(cel_kg=800.0)        # 750 + 50 = całe zamówienie
+
+    dane = route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=False))
+
+    assert dane["wm"]["number"].startswith("WM/"), "WM zdejmuje stan — musi być"
+    assert dane["wz"] is None, "brak części niefakturowanej = brak WZ dla klienta"
+    assert dane["hdi_calosc"]["number"], "HDI na całość obowiązkowe"
+    assert len(dane["cmr"]) == 2, "CMR na drogę i do faktury"
+
+
+def test_calosc_na_fakture_ZDEJMUJE_caly_stan(db):
+    """WM obejmuje całe zamówienie, więc magazyn ma zejść do zera."""
+    _przygotuj_z_podzialem(cel_kg=800.0)
+
+    route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=False))
+
+    stany = {r["id"]: r["qty_available"] for r in query_all(
+        "SELECT id, qty_available FROM finished_goods WHERE id IN ('f1','f2')")}
+    assert stany == {"f1": 0, "f2": 0}, stany
+
+
+def test_podzial_DALEJ_dostaje_wz_klienta(db):
+    """Strażnik: zwykły podział ma działać jak dotąd."""
+    _przygotuj_z_podzialem(cel_kg=300.0)
+
+    dane = route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=False))
+
+    assert dane["wm"] and dane["wz"], dane

@@ -396,3 +396,4 @@ def test_ANULOWANY_komplet_odblokowuje_usuniecie_zamowienia(db):
     delete_order("o1")
 
     assert not query_all("SELECT id FROM client_orders WHERE id='o1'")
+

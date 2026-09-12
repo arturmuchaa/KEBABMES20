@@ -223,6 +223,16 @@ def wystaw_wz_wewnetrzny(order_id: str) -> Dict[str, Any]:
     return {"id": wid, "number": number, "kg": kg}
 
 
+def _ma_czesc_niefakturowana(order_id: str) -> bool:
+    """Czy z zamówienia zostaje cokolwiek POZA fakturą (czyli czy WZ dla
+    klienta ma co opisać). Brak podziału = nie ma o czym mówić."""
+    linie = query_all(
+        "SELECT qty, qty_invoice FROM client_order_lines WHERE order_id=%s", (order_id,))
+    if not linie or any(l.get("qty_invoice") is None for l in linie):
+        return False
+    return any(int(l.get("qty") or 0) - int(l.get("qty_invoice") or 0) > 0 for l in linie)
+
+
 def _pozycje_niefakturowane(order: Dict[str, Any],
                             linie: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Pozycje WZ klienta: `qty - qty_invoice` z każdej linii zamówienia.
@@ -463,10 +473,14 @@ def _sprawdz_gotowosc_do_kompletu(order_id: str) -> None:
         raise HTTPException(
             400, "Podział nie przewiduje ani jednej sztuki na fakturę — popraw podział "
                  "albo wystaw zwykłe WZ na całość.")
-    if na_wz <= 0:
-        raise HTTPException(
-            400, "Cały towar poszedł na fakturę — nie ma nic do WZ dla klienta. Popraw "
-                 "podział albo wystaw zwykłe WZ na całość.")
+    # `na_wz == 0` NIE jest błędem: to odbiorca biorący wszystko na fakturę
+    # (biuro, 12.09.2026 — „u NAZARA wszystko na fakturę, wtedy nie ma
+    # problemu, drukujemy HDI i CMR na całość"). Powstaje wtedy WM na całe
+    # zamówienie, które zdejmuje stan, oraz HDI i CMR — bez WZ dla klienta,
+    # bo ten opisuje wyłącznie część niefakturowaną. Do 12.09.2026 ten
+    # strażnik odrzucał taki układ i komplet nie dawał się wystawić w ogóle.
+    # `wystaw_wz_klienta` wywołany WPROST dalej odmawia — tam brak części
+    # niefakturowanej naprawdę znaczy pomyłkę operatora.
 
 
 def _kg_zamowienia(order_id: str) -> float:
@@ -542,7 +556,17 @@ def wystaw_komplet(order_id: str, forma_cmr: Dict[str, Any],
     """
     _sprawdz_gotowosc_do_kompletu(order_id)
     wm = wystaw_wz_wewnetrzny(order_id)
-    wz = wystaw_wz_klienta(order_id)
+    # WZ dla klienta opisuje część NIEFAKTUROWANĄ. Gdy CAŁOŚĆ idzie na
+    # fakturę (biuro, 12.09.2026: „u NAZARA wszystko na fakturę, wtedy nie ma
+    # problemu — drukujemy HDI i CMR na całość"), tej części nie ma i dokument
+    # nie ma czego opisać. To nie jest błąd, tylko inny układ zamówienia —
+    # stan i tak zszedł w całości, bo zdejmuje go WM.
+    #
+    # Do tej pory `wystaw_komplet` wołał `wystaw_wz_klienta` bezwarunkowo,
+    # więc komplet dla takiego odbiorcy PADAŁ na 400 i nie dawał się wystawić
+    # w ogóle. Sam `wystaw_wz_klienta` dalej odmawia przy wywołaniu wprost —
+    # tam brak części niefakturowanej naprawdę znaczy pomyłkę.
+    wz = wystaw_wz_klienta(order_id) if _ma_czesc_niefakturowana(order_id) else None
     hdi_calosc = hdi_service.generate_hdi(order_id)
     hdi_do_faktury = hdi_service.generate_hdi(
         order_id, scope=hdi_service.ZAKRES_FV) if hdi_fv else None
