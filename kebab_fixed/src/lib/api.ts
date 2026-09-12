@@ -2130,7 +2130,7 @@ function mapColdStoragePallet(r: any): ColdStoragePallet {
 export const palletScanApi = {
   scan: (
     code: string,
-    action: 'cold_storage' | 'loaded',
+    action: 'cold_storage' | 'loaded' | 'undo',
     operator = '',
     vehicleId = '',
   ) =>
@@ -3387,6 +3387,8 @@ export interface StockCartonLine {
 export interface StockCarton {
   id: string
   cartonNo: number | null
+  /** Odbiorca kartonu — po id kartoteka daje jego własne nazwy receptur. */
+  clientId: string
   clientName: string
   /** Skład kartonu (pozycje). Karton jednorodny = jedna pozycja. */
   lines: StockCartonLine[]
@@ -3421,6 +3423,7 @@ function mapStockCarton(r: any): StockCarton {
   return {
     id: r.id,
     cartonNo: r.carton_no ?? r.cartonNo ?? null,
+    clientId: r.client_id ?? r.clientId ?? '',
     clientName: r.client_name ?? '',
     lines,
     recipeName: first?.recipeName ?? r.recipe_name ?? '',

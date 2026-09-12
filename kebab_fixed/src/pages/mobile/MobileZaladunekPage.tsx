@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import {
   ArrowLeft, Camera, CheckCircle2, AlertTriangle, Truck, RefreshCw,
   CircleDashed, CircleDot, CheckCircle, ChevronDown, ChevronUp, Plus, X,
-  ArrowUp, ArrowDown, ListChecks,
+  ArrowUp, ArrowDown, ListChecks, RotateCcw,
 } from 'lucide-react'
 import {
   palletScanApi,
@@ -141,8 +141,19 @@ function partsLabelFromItems(items: OrderPallet['items']): string {
     .join(' + ')
 }
 
-function PalletRow({ p }: { p: OrderPallet }) {
+function PalletRow({ p, orderId, onCofnij, cofanaNr }: {
+  p: OrderPallet
+  orderId: string
+  onCofnij: (orderId: string, palletNo: number) => void
+  cofanaNr: number | null
+}) {
   const label = partsLabelFromItems(p.items)
+  // Cofnięcie WPROST na liście załadunku. Biuro (2026-09-10): „zeskanowałem
+  // paletę na auto przez przypadek, a nie mam przycisku cofnij". Przycisk był
+  // tylko na ekranie POJEDYNCZEJ palety (po skanie kartki QR), a magazynier
+  // ładuje z tego ekranu — musiałby wyjść i zeskanować kartkę drugi raz.
+  const mozna = p.status === 'loaded'
+  const wTrakcie = cofanaNr === p.palletNo
   return (
     <li className="flex items-center gap-3 px-3 py-2">
       <StatusBadge status={p.status} />
@@ -156,6 +167,18 @@ function PalletRow({ p }: { p: OrderPallet }) {
         <div className="font-semibold text-slate-900">{fmtKg(p.totalKg ?? 0, 1)} kg</div>
         <div className="text-xs text-slate-500">{p.totalQty ?? 0} szt</div>
       </div>
+      {mozna && (
+        <button
+          type="button"
+          onClick={() => onCofnij(orderId, p.palletNo)}
+          disabled={wTrakcie}
+          aria-label={`Zdejmij paletę P${p.palletNo} z samochodu`}
+          title="Zdejmij z samochodu"
+          className="shrink-0 rounded-lg border border-slate-300 p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+        >
+          <RotateCcw size={18} />
+        </button>
+      )}
     </li>
   )
 }
@@ -169,6 +192,7 @@ export function MobileZaladunekPage() {
     try { return JSON.parse(localStorage.getItem(storageKey) || '[]') } catch { return [] }
   })
   const [statuses, setStatuses] = useState<Record<string, LoadingStatus>>({})
+  const [cofanaNr, setCofanaNr] = useState<number | null>(null)
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<Toast | null>(null)
@@ -269,6 +293,27 @@ export function MobileZaladunekPage() {
       setBusy(false)
       setValue('')
       focusInput()
+    }
+  }
+
+  /** Zdejmij paletę z samochodu — cofnięcie omyłkowego skanu.
+   *  Backend odsyła ją tam, skąd przyszła: do mroźni, jeśli w niej była. */
+  async function cofnijPalete(orderId: string, palletNo: number) {
+    if (cofanaNr !== null) return
+    setCofanaNr(palletNo)
+    try {
+      await palletScanApi.scan(`PAL|${orderId}|${palletNo}`, 'undo')
+      setToast({ ok: true, message: `P${palletNo} zdjęta z samochodu`, ts: Date.now() })
+      try { navigator.vibrate?.(60) } catch {}
+      await refreshAll(selectedIds)
+    } catch (e) {
+      setToast({
+        ok: false,
+        message: e instanceof Error ? e.message : 'Nie udało się cofnąć',
+        ts: Date.now(),
+      })
+    } finally {
+      setCofanaNr(null)
     }
   }
 
@@ -622,7 +667,15 @@ export function MobileZaladunekPage() {
                       </div>
                     </div>
                     <ul className="divide-y divide-slate-100">
-                      {sorted.map((p) => <PalletRow key={p.palletNo} p={p} />)}
+                      {sorted.map((p) => (
+                        <PalletRow
+                          key={p.palletNo}
+                          p={p}
+                          orderId={s.order.id}
+                          onCofnij={cofnijPalete}
+                          cofanaNr={cofanaNr}
+                        />
+                      ))}
                     </ul>
                   </section>
                 )

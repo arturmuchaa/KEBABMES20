@@ -14,13 +14,26 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 
-const stan = vi.hoisted(() => ({ zamowienie: null as any, palety: [] as any[] }))
+const stan = vi.hoisted(() => ({
+  zamowienie: null as any,
+  palety: [] as any[],
+  // Własne nazwy receptur odbiorcy z kartoteki (id receptury → nazwa).
+  wlasneNazwy: {} as Record<string, string>,
+}))
 
 vi.mock('@/lib/apiClient', () => ({
   clientOrdersApi: { byId: () => Promise.resolve(JSON.parse(JSON.stringify(stan.zamowienie))) },
   orderPalletsApi: { list: () => Promise.resolve(JSON.parse(JSON.stringify(stan.palety))) },
 }))
-vi.mock('@/lib/clientNames', () => ({ useClientNames: () => (n: string) => n }))
+// Funkcja nazywająca recepturę musi być STAŁA między renderami — inaczej
+// `kartki` przeliczają się w kółko i efekt kodów QR kręci pętlę renderów.
+const nazwaReceptury = vi.hoisted(() =>
+  (_klient: any, recipeId: string | null | undefined, fallback: string) =>
+    stan.wlasneNazwy[recipeId ?? ''] ?? fallback)
+vi.mock('@/lib/clientNames', () => ({
+  useClientNames: () => (n: string) => n,
+  useClientRecipeNames: () => nazwaReceptury,
+}))
 vi.mock('@/lib/print', () => ({ drukuj: vi.fn() }))
 vi.mock('qrcode', () => ({ default: { toDataURL: () => Promise.resolve('data:image/png;base64,AAA') } }))
 
@@ -30,10 +43,11 @@ beforeEach(() => {
   stan.zamowienie = {
     id: 'o1', orderNo: 'YALCIN/Z/4/09/26', clientName: 'YALCIN',
     lines: [
-      { id: 'l1', qty: 10, kgPerUnit: 80, recipeName: 'BEYAZ AFIYET', packagingName: 'METAL 60CM' },
-      { id: 'l2', qty: 5,  kgPerUnit: 40, recipeName: 'KIRMIZI',      packagingName: 'METAL 80CM' },
+      { id: 'l1', qty: 10, kgPerUnit: 80, recipeId: 'r-beyaz',   recipeName: 'BEYAZ AFIYET', packagingName: 'METAL 60CM' },
+      { id: 'l2', qty: 5,  kgPerUnit: 40, recipeId: 'r-kirmizi', recipeName: 'KIRMIZI',      packagingName: 'METAL 80CM' },
     ],
   }
+  stan.wlasneNazwy = {}
   stan.palety = [
     { id: 'p1', palletNo: 1, cartonNo: '000001', items: [{ orderLineId: 'l1', qty: 10 }] },
     { id: 'p2', palletNo: 2, cartonNo: '000002', items: [{ orderLineId: 'l2', qty: 5 }] },
@@ -94,13 +108,30 @@ describe('PalletLabelsBatchPrintPage — tresc kartek', () => {
     expect(screen.getAllByText('2 X 40KG 80CM KIRMIZI')).toHaveLength(2)
   })
 
+  it('receptura schodzi na kartke pod nazwa z kartoteki odbiorcy', async () => {
+    // Właściciel: „np. POLAT BEYAZ AFIYET, a w ustawieniach ma BEYAZ,
+    // czyli na karton pokazuje POLAT BEYAZ".
+    stan.wlasneNazwy = { 'r-beyaz': 'BEYAZ' }
+    await pokaz('?palety=1')
+    expect(screen.getAllByText('BEYAZ')).toHaveLength(2)
+    expect(screen.queryAllByText('BEYAZ AFIYET')).toHaveLength(0)
+  })
+
+  it('wlasna nazwa stoi tez przy pozycji palety mieszanej', async () => {
+    stan.wlasneNazwy = { 'r-beyaz': 'BEYAZ' }
+    await pokaz('?palety=3')
+    expect(screen.getAllByText('4 X 80KG BEYAZ')).toHaveLength(2)
+    expect(screen.getAllByText('2 X 40KG 80CM KIRMIZI')).toHaveLength(2)
+  })
+
   it('mowi, ktore palety poszly na wydruk', async () => {
     await pokaz('?palety=1,3')
     expect(screen.getByText(/palety 1, 3/i)).toBeTruthy()
   })
 
   it('zamowienie bez palet nie drukuje pustej kartki', async () => {
-    stan.palety = []
+    stan.wlasneNazwy = {}
+  stan.palety = []
     render(
       <MemoryRouter initialEntries={['/office/zamowienia/o1/palety/druk']}>
         <Routes>

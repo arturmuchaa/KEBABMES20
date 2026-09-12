@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 
 import { RawBatchesTable } from './components/RawBatchesTable'
@@ -23,7 +23,17 @@ const BATCH = {
   createdAt: '2026-08-12T08:00:00Z',
 } as any
 
-afterEach(cleanup)
+// Historia startuje z oknem 30 dni, a dostawa w teście ma datę na sztywno
+// (12.08.2026) — na prawdziwym zegarze wiersz wypadał z listy 31. dnia po niej
+// i test robił się czerwony sam z siebie (CI 12.09.2026). Zegar stoi.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-08-13T09:00:00Z'))
+})
+afterEach(() => {
+  vi.useRealTimers()
+  cleanup()
+})
 
 describe('RawBatchesTable — druk zawieszek z rejestru dostaw', () => {
   it('daje przy dostawie przycisk zawieszek', () => {
