@@ -909,3 +909,107 @@ def test_anulowanie_w_TRAKCIE_zamykania_zaladunku_nie_rozjezdza_stanu(db, monkey
     assert wm["loaded_at"] is not None, "załadunek miał się zapisać"
     assert wm["status"] != "anulowany", wm
     assert wynik["skutek"] == "odmowa", wynik
+
+
+# ── Ślad po ZAŁADUNKU jako zdarzeniu — powiadomienie dla biura ────────
+#
+# Biuro (12.09.2026): „magazynier potwierdza załadunek, a biuro dostaje
+# informację i drukuje dokument — magazynier nie ma drukarki ani uprawnień".
+#
+# Do tej pory po załadunku nie zostawał ŻADEN ślad jako po zdarzeniu:
+# dokumenty miały własne `loaded_at`, nic ich nie łączyło i nic nie pamiętało,
+# czy biuro je wydrukowało. Stąd osobny wiersz na kurs — a nie grupowanie po
+# numerze auta i godzinie, bo ten sam samochód potrafi jechać dwa razy dziennie
+# i okno czasowe byłoby zgadywaniem.
+def test_potwierdzenie_zaladunku_zostawia_slad_dla_biura(db):
+    from app.services.loading_service import zaladunki_do_wydruku
+    _przygotuj(qty=10, kg=30)
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    do_druku = zaladunki_do_wydruku()
+
+    assert len(do_druku) == 1, do_druku
+    assert do_druku[0]["plate"] == "KR 99999"
+    assert do_druku[0]["klienci"] == ["YBM Gastro GmbH"]
+    assert do_druku[0]["dokumentow"] >= 1
+
+
+def test_wydrukowany_zaladunek_znika_z_pulpitu(db):
+    from app.services.loading_service import (oznacz_wydrukowany,
+                                              zaladunki_do_wydruku)
+    _przygotuj(qty=10, kg=30)
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+    kurs = zaladunki_do_wydruku()[0]
+
+    oznacz_wydrukowany(kurs["id"], operator="biuro")
+
+    assert zaladunki_do_wydruku() == []
+
+
+def test_kurs_z_rozjazdem_jest_OZNACZONY(db):
+    """Biuro ma zobaczyć niezgodność ZANIM wydrukuje, nie po."""
+    from app.services.loading_service import zaladunki_do_wydruku
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10, kg=30)
+    _wyrob(qty=10, kg=30)
+    _paleta(); _pozycja_palety(qty=6)       # na auto weszło 6 z 10
+    zapisz_podzial("o1", 180.0)
+    wystaw_wz_wewnetrzny("o1")
+    wystaw_wz_klienta("o1")
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    assert zaladunki_do_wydruku()[0]["rozjazd"] is True
+
+
+def test_dwa_kursy_TEGO_SAMEGO_auta_to_dwa_wiersze(db):
+    """Solówka potrafi jechać dwa razy dziennie — grupowanie po numerze
+    rejestracyjnym scaliłoby dwa różne kursy w jeden."""
+    from app.services.loading_service import zaladunki_do_wydruku
+    _przygotuj(qty=10, kg=30)
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    _zamowienie(oid="o2", order_no="YALCIN/Z/5/09/26", qty=4, kg=30)
+    _wyrob(gid="f2", qty=4, kg=30)
+    _paleta(pid="p2", oid="o2", nr=2)
+    _sztuki("p2", "f2", ile=4, kg=30, oid="o2", od=100)
+    finalize_loading("v1", ["o2"], plate="KR 99999")
+
+    assert len(zaladunki_do_wydruku()) == 2
+
+
+def test_kurs_oddaje_KOMPLET_papierow_per_odbiorca(db):
+    """Kierowca bez CMR nie ruszy, odbiorca bez HDI nie przyjmie — biuro ma
+    dostać wszystko, co do tego zamówienia wystawiono, nie sam WZ."""
+    from app.services.loading_service import zaladunek, zaladunki_do_wydruku
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10, kg=30)
+    _wyrob(qty=10, kg=30)
+    _paleta(); _pozycja_palety(qty=10)
+    zapisz_podzial("o1", 180.0)
+    wystaw_wz_wewnetrzny("o1")
+    wystaw_wz_klienta("o1")
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    kurs = zaladunek(zaladunki_do_wydruku()[0]["id"])
+
+    assert len(kurs["pozycje"]) == 1
+    poz = kurs["pozycje"][0]
+    assert poz["client_name"] == "YBM Gastro GmbH"
+    # WM (podział) i WZ dla klienta — oba na liście do druku.
+    serie = {w["doc_series"] for w in poz["wz"]}
+    assert "WM" in serie and "WZ" in serie, poz["wz"]
+    assert poz["hdi"], "HDI ma być na liście"
+
+
+def test_pominiete_zamowienie_nie_robi_pustej_karty(db):
+    """Pusta karta na pulpicie to szum — biuro przestaje czytać powiadomienia,
+    które nic nie znaczą."""
+    from app.services.loading_service import zaladunki_do_wydruku
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10, kg=30)
+    _wyrob(qty=10, kg=30)
+    _paleta(status="created")               # paleta NIE załadowana
+
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    assert zaladunki_do_wydruku() == []

@@ -2130,6 +2130,33 @@ function mapColdStoragePallet(r: any): ColdStoragePallet {
   }
 }
 
+/** Kursy zakończone przez magazyniera — biuro dostaje powiadomienie
+ *  i drukuje papiery (magazynier nie ma drukarki ani uprawnień). */
+export interface ZaladunekDoWydruku {
+  id: string
+  plate: string
+  finishedAt: string
+  klienci: string[]
+  dokumentow: number
+  rozjazd: boolean
+}
+export const zaladunkiApi = {
+  doWydruku: () =>
+    get<any[]>('/pallets/zaladunki/do-wydruku').then((arr): ZaladunekDoWydruku[] =>
+      (Array.isArray(arr) ? arr : []).map(r => ({
+        id: r.id,
+        plate: r.plate ?? '',
+        finishedAt: r.finished_at ?? '',
+        klienci: Array.isArray(r.klienci) ? r.klienci.filter(Boolean) : [],
+        dokumentow: Number(r.dokumentow ?? 0),
+        rozjazd: !!r.rozjazd,
+      }))),
+  get: (id: string) => get<any>(`/pallets/zaladunki/${encodeURIComponent(id)}`),
+  wydrukowano: (id: string, operator = '') =>
+    post<{ ok: boolean }>(`/pallets/zaladunki/${encodeURIComponent(id)}/wydrukowano`,
+      { operator }),
+}
+
 export const palletScanApi = {
   scan: (
     code: string,

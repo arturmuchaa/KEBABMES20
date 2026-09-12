@@ -44,6 +44,7 @@ import { CmrPrintPage }         from '@/pages/office/CmrPrintPage'
 import { BatchReportPage }      from '@/pages/office/BatchReportPage'
 import { HdiDocumentsPage }     from '@/pages/office/HdiDocumentsPage'
 import { CmrDocumentsPage }     from '@/pages/office/CmrDocumentsPage'
+import { ZaladunekDrukPage } from '@/pages/office/ZaladunekDrukPage'
 import { WzPrintPage }          from '@/pages/office/WzPrintPage'
 import { DeboningReportPrintPage } from '@/pages/office/DeboningReportPrintPage'
 import { MixingPlanPrintPage }    from '@/pages/office/MixingPlanPrintPage'
@@ -143,6 +144,7 @@ export default function App() {
       <Route path="/office/hdi/:id/druk" element={<HdiPrintPage />} />
       <Route path="/office/cmr/:id/druk" element={<CmrPrintPage />} />
       <Route path="/office/wz/:id/druk" element={<WzPrintPage />} />
+      <Route path="/office/zaladunek/:id/druk" element={<ZaladunekDrukPage />} />
       <Route path="/office/rozbior-raport/druk" element={<DeboningReportPrintPage />} />
       <Route path="/office/plan-masowania/druk" element={<MixingPlanPrintPage />} />
       <Route path="/office/wyplaty/druk" element={<PaySlipsPrintPage />} />

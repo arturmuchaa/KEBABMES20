@@ -18,7 +18,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
 
-from app.db import cx_execute, cx_query_all, cx_query_one, query_all, query_one, transaction
+from app.db import (cx_execute, cx_query_all, cx_query_one, execute, query_all,
+                    query_one, transaction)
+from app.utils.ids import cuid
 from app.logging_config import get_logger
 from app.services.order_stock_service import picks_for_pallets, picks_z_dokumentu
 from app.services.settings_service import get_company
@@ -436,10 +438,116 @@ def finalize_loading(
             continue
         r.update(_ensure_hdi(r["order_id"], effective_plate))
 
+    kurs = _zapisz_kurs(vehicle_id, effective_plate, operator, results)
+
     logger.info("loading.finalized", extra={
         "vehicle_id": vehicle_id, "orders": len(results),
         "rozjazd": sum(1 for r in results if r.get("wz_status") == "rozjazd")})
-    return {"ok": True, "vehicle_id": vehicle_id, "plate": effective_plate, "orders": results}
+    return {"ok": True, "vehicle_id": vehicle_id, "plate": effective_plate,
+            "loading_id": kurs, "orders": results}
+
+
+def _zapisz_kurs(vehicle_id: str, plate: str, operator: str,
+                 results: List[Dict[str, Any]]) -> Optional[str]:
+    """Zapisz KURS — ślad po załadunku jako zdarzeniu, dla powiadomienia biura.
+
+    Magazynier nie ma drukarki ani uprawnień, więc papiery drukuje biuro —
+    a żeby mogło, musi się najpierw dowiedzieć, że auto zakończyło załadunek
+    (biuro, 12.09.2026). Dokumenty same tego nie powiedzą: mają własne
+    `loaded_at`, nic ich nie łączy w jeden kurs i nic nie pamięta, czy ktoś
+    je już wydrukował.
+
+    Zamówienia POMINIĘTE (bez palet, bez sztuk) nie wchodzą — nie ma z nich
+    czego drukować. Gdy nie zostało nic, kursu nie zapisujemy: pusta karta na
+    pulpicie to szum, a biuro przestaje czytać powiadomienia, które nic nie
+    znaczą.
+    """
+    wzięte = [r for r in results if not r.get("skipped")]
+    if not wzięte:
+        return None
+    kurs_id = cuid()
+    with transaction() as conn:
+        cx_execute(
+            conn,
+            "INSERT INTO loadings (id, vehicle_id, plate, finished_by) "
+            "VALUES (%s,%s,%s,%s)", (kurs_id, vehicle_id, plate, operator or ""))
+        for r in wzięte:
+            cx_execute(
+                conn,
+                "INSERT INTO loading_orders (loading_id, order_id, wz_id, wz_status) "
+                "VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                (kurs_id, r.get("order_id"), r.get("wz_id"), r.get("wz_status")))
+    return kurs_id
+
+
+def zaladunki_do_wydruku() -> List[Dict[str, Any]]:
+    """Kursy zakończone, których papierów biuro jeszcze nie wydrukowało."""
+    return query_all(
+        """SELECT l.id, l.plate, l.finished_at,
+                  ARRAY_REMOVE(ARRAY_AGG(DISTINCT o.client_name), NULL) AS klienci,
+                  COUNT(DISTINCT lo.wz_id) FILTER (WHERE lo.wz_id IS NOT NULL)::int
+                      AS dokumentow,
+                  BOOL_OR(lo.wz_status = 'rozjazd') AS rozjazd
+             FROM loadings l
+             JOIN loading_orders lo ON lo.loading_id = l.id
+             LEFT JOIN client_orders o ON o.id = lo.order_id
+            WHERE l.printed_at IS NULL
+            GROUP BY l.id
+            ORDER BY l.finished_at DESC""")
+
+
+def zaladunek(loading_id: str) -> Dict[str, Any]:
+    """Kurs z papierami do wydruku — per odbiorca.
+
+    Oddajemy WSZYSTKIE dokumenty zamówienia: WZ (także WM i WZ klienta przy
+    podziale wysyłki), HDI i CMR. Biuro drukuje komplet, a nie sam WZ —
+    kierowca bez CMR nie ruszy, a odbiorca bez HDI nie przyjmie towaru.
+    """
+    kurs = query_one(
+        "SELECT id, plate, finished_at, printed_at FROM loadings WHERE id=%s",
+        (loading_id,))
+    if not kurs:
+        raise HTTPException(404, "Kurs nie znaleziony")
+    pozycje = []
+    for r in query_all(
+            "SELECT lo.order_id, lo.wz_status, o.order_no, o.client_name "
+            "FROM loading_orders lo LEFT JOIN client_orders o ON o.id = lo.order_id "
+            "WHERE lo.loading_id=%s ORDER BY o.client_name", (loading_id,)):
+        oid = r["order_id"]
+        pozycje.append({
+            "order_id": oid,
+            "order_no": r.get("order_no"),
+            "client_name": r.get("client_name"),
+            "wz_status": r.get("wz_status"),
+            "wz": query_all(
+                "SELECT id, number, doc_series, split_scope FROM wz_documents "
+                "WHERE source_type='order' AND source_id=%s "
+                "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at", (oid,)),
+            "hdi": query_all(
+                "SELECT id, number, scope FROM hdi_documents WHERE order_id=%s "
+                "ORDER BY created_at", (oid,)),
+            "cmr": query_all(
+                "SELECT id, number, scope FROM cmr_documents WHERE order_id=%s "
+                "ORDER BY created_at", (oid,)),
+        })
+    return {**kurs, "pozycje": pozycje}
+
+
+def oznacz_wydrukowany(loading_id: str, operator: str = "") -> Dict[str, Any]:
+    """Kurs wydrukowany — karta znika z pulpitu.
+
+    Ponowny wydruk zawsze jest z listy „Dokumenty WZ": dokumenty się nie
+    zmieniają, więc nic nie ginie.
+    """
+    row = query_one("SELECT id FROM loadings WHERE id=%s", (loading_id,))
+    if not row:
+        raise HTTPException(404, "Kurs nie znaleziony")
+    execute(
+        "UPDATE loadings SET printed_at=now(), printed_by=%s "
+        "WHERE id=%s AND printed_at IS NULL", (operator or "", loading_id))
+    logger.info("loading.printed", extra={"loading_id": loading_id,
+                                          "operator": operator or "-"})
+    return {"ok": True, "loading_id": loading_id}
 
 
 def loading_document(vehicle_id: str, order_ids: List[str]) -> Dict[str, Any]:

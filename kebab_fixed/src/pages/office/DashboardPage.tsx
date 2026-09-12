@@ -5,7 +5,7 @@ import { ProcessStatusBadge } from '@/features/operations/ProcessStatusBadge'
 import {
   rawBatchesApi, meatStockApi, seasonedMeatApi,
   productionPlansApi, mixingOrdersApi, clientOrdersApi, finishedGoodsApi,
-  deboningApi, productionSessionsApi, receptionChecksApi,
+  deboningApi, productionSessionsApi, receptionChecksApi, zaladunkiApi,
 } from '@/lib/apiClient'
 import {
   FINISHED_BATCHES_LIMIT, filterDeboningBatches, lastFinishedBatches,
@@ -258,6 +258,8 @@ export function DashboardPage() {
   // STAN, nie archiwum — pełna historia świeciłaby setką starych dostaw,
   // których nikt już nie uzupełni, i kafel przestałby cokolwiek znaczyć.
   const haccpRes    = useApi(() => receptionChecksApi.pending(14))
+  // Kursy zakończone przez magazyniera, których biuro jeszcze nie wydrukowało.
+  const kursyRes    = useApi(() => zaladunkiApi.doWydruku())
 
   // Live polling — odświeża sekcje produkcyjne i magazynowe co POLL_MS
   useEffect(() => {
@@ -626,6 +628,48 @@ export function DashboardPage() {
             to: '/office/zamowienia', alert: shipsToday > 0 },
         ]} />
       })()}
+
+      {/* ── Samochód zakończył załadunek — biuro drukuje papiery ────
+          Magazynier nie ma ani drukarki, ani uprawnień, więc papiery
+          drukuje biuro (12.09.2026). Bez tej karty nikt biura nie zaczepiał:
+          dokumenty pojawiały się cicho na liście WZ i trzeba było wiedzieć,
+          że się ich szuka. */}
+      {(kursyRes.data ?? []).length > 0 && (
+        <Card className="border-emerald-300 bg-emerald-50/40">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Truck size={15} className="text-emerald-700" />
+              <span className="text-sm font-bold text-emerald-900">
+                Załadunek zakończony — do wydruku · {(kursyRes.data ?? []).length}
+              </span>
+            </div>
+            <div className="space-y-2">
+              {(kursyRes.data ?? []).map((k) => (
+                <Link
+                  key={k.id}
+                  to={`/office/zaladunek/${k.id}/druk`}
+                  data-testid={`kurs-${k.id}`}
+                  className="flex items-center gap-3 bg-white border border-emerald-200 rounded-lg px-3 py-2 hover:bg-emerald-50 transition-colors"
+                >
+                  <code className="font-mono font-bold text-xs">{k.plate || '—'}</code>
+                  <span className="text-xs font-semibold truncate">
+                    {k.klienci.length > 0 ? k.klienci.join(', ') : '—'}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                    {k.dokumentow} dok.
+                  </span>
+                  {k.rozjazd && (
+                    <Badge variant="outline" className="border-amber-400 text-amber-700 flex-shrink-0">
+                      rozjazd
+                    </Badge>
+                  )}
+                  <Badge className="ml-auto flex-shrink-0">Wydrukuj</Badge>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── Przyjęcia bez kompletu HACCP ───────────────────────────
           Dostawa zapisuje się bez kontroli (nie może czekać na kierownika),

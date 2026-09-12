@@ -484,6 +484,36 @@ _DDL: list[str] = [
     # czego oczekuje biuro, a odznaczenie zostaje na wypadek odbiorcy,
     # ktory ma widziec na WZ co innego niz na HDI.
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS wz_uses_hdi_names BOOLEAN NOT NULL DEFAULT true",
+    # ZALADUNEK JAKO ZDARZENIE (12.09.2026). Magazynier potwierdza kurs,
+    # a biuro ma dostac powiadomienie i wydrukowac papiery — magazynier nie ma
+    # ani drukarki, ani uprawnien. Do tej pory po zaladunku nie zostawal zaden
+    # slad jako po zdarzeniu: dokumenty mialy wlasne `loaded_at`, nic ich nie
+    # laczylo i nic nie pamietalo, czy biuro je wydrukowalo.
+    #
+    # Osobny wiersz na kurs, a NIE grupowanie po numerze auta i godzinie:
+    # ta sama solowka potrafi jechac dwa razy dziennie, a okno czasowe byloby
+    # zgadywaniem.
+    """
+    CREATE TABLE IF NOT EXISTS loadings (
+        id          TEXT PRIMARY KEY,
+        vehicle_id  TEXT,
+        plate       TEXT NOT NULL DEFAULT '',
+        finished_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        finished_by TEXT NOT NULL DEFAULT '',
+        printed_at  TIMESTAMPTZ,
+        printed_by  TEXT NOT NULL DEFAULT ''
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS loading_orders (
+        loading_id TEXT NOT NULL REFERENCES loadings(id) ON DELETE CASCADE,
+        order_id   TEXT NOT NULL,
+        wz_id      TEXT,
+        wz_status  TEXT,
+        PRIMARY KEY (loading_id, order_id)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_loadings_do_wydruku ON loadings(printed_at) WHERE printed_at IS NULL",
     # Wlasna nazwa receptury dla odbiorcy — u POLATA „BEYAZ AFIYET" ma schodzic
     # na dokument jako samo „BEYAZ". Rodzaj zostaje wspolny, zmienia sie tylko
     # to, co odbiorca widzi na papierze.

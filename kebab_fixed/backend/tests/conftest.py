@@ -36,6 +36,11 @@ _TRUNCATE = [
     # Dokumenty WZ czyszczone od 21.08.2026: numeracja WZ liczy się z tabeli
     # (MAX(seq) w miesiącu), więc dokumenty z poprzedniego przebiegu podbijały
     # numer i testy serii dostawały 1871 zamiast 1.
+    # `loadings` dopisane 12.09.2026 (kurs jako zdarzenie, powiadomienie dla
+    # biura): wiersze z poprzedniego przebiegu zostawały na liście „do
+    # wydruku" i test liczący kursy widział 33 zamiast jednego.
+    # `loading_orders` schodzi z nimi przez CASCADE (FK).
+    "loadings",
     "wz_documents",
     # `hdi_documents` dopisane 2026-08-27: numeracja HDI liczy się z tabeli
     # (MAX(seq) w miesiącu), więc dokumenty z poprzedniego przebiegu podbijały

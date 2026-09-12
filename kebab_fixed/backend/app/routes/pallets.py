@@ -48,6 +48,23 @@ def active_loading():
     return pallets_service.active_orders_for_loading()
 
 
+@router.get("/zaladunki/do-wydruku")
+def zaladunki_do_wydruku():
+    """Kursy zakończone, których biuro jeszcze nie wydrukowało (pulpit)."""
+    return loading_service.zaladunki_do_wydruku()
+
+
+@router.get("/zaladunki/{loading_id}")
+def zaladunek(loading_id: str):
+    return loading_service.zaladunek(loading_id)
+
+
+@router.post("/zaladunki/{loading_id}/wydrukowano")
+def zaladunek_wydrukowano(loading_id: str, body: dict | None = None):
+    return loading_service.oznacz_wydrukowany(
+        loading_id, operator=((body or {}).get("operator") or ""))
+
+
 @router.get("/on-vehicle/{vehicle_id}")
 def on_vehicle(vehicle_id: str):
     """Zamówienia stojące na tym aucie — wspólna lista dla wszystkich skanerów."""
