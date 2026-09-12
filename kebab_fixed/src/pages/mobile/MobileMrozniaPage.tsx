@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  ArrowLeft, Camera, CheckCircle2, AlertTriangle, Snowflake, RefreshCw,
+  ArrowLeft, Camera, CheckCircle2, AlertTriangle, Snowflake, RefreshCw, Undo2,
 } from 'lucide-react'
 import { palletScanApi, type ColdStoragePallet, type PalletScanResult } from '@/lib/api'
 import { useApi } from '@/hooks/useApi'
@@ -85,6 +85,36 @@ export function MobileMrozniaPage() {
   }, [])
 
   useEffect(() => { focusInput() }, [focusInput])
+
+  /** Cofnij paletę z mroźni — z powrotem na halę.
+   *
+   * Biuro (12.09.2026): „zeskanowałem DEMS i nie ma możliwości cofnięcia
+   * palety, po prostu się skanuje i tyle". Cofnięcie istniało (akcja `undo`),
+   * ale WYŁĄCZNIE na ekranie palety, na który wchodzi się z adresu w QR —
+   * skaner w tej zakładce wykonywał `cold_storage` i nic poza tym. Kto
+   * patrzył na mroźnię, nie miał jak tam trafić.
+   */
+  async function handleUndo(orderId: string, palletNo: number, clientName: string) {
+    if (busy) return
+    setBusy(true)
+    try {
+      await palletScanApi.scan(`PAL|${orderId}|${palletNo}`, 'undo')
+      setLast({
+        ts: Date.now(),
+        ok: true,
+        message: `P${palletNo} cofnięta z mroźni na halę (${clientDisplay(clientName)})`,
+      })
+      try { navigator.vibrate?.(80) } catch {}
+      inColdRes.refetch()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Nie udało się cofnąć palety'
+      setLast({ ts: Date.now(), ok: false, message: msg })
+      try { navigator.vibrate?.([60, 40, 60]) } catch {}
+    } finally {
+      setBusy(false)
+      focusInput()
+    }
+  }
 
   async function handleSubmit(code: string) {
     const trimmed = code.trim()
@@ -248,6 +278,16 @@ export function MobileMrozniaPage() {
                             <div className="font-semibold text-slate-900">{fmtKg(p.totalKg, 1)} kg</div>
                             <div className="text-xs text-slate-500">{p.totalQty} szt</div>
                           </div>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            data-testid={`cofnij-${p.orderId}-${p.palletNo}`}
+                            onClick={() => handleUndo(p.orderId, p.palletNo, p.clientName)}
+                            className="shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold uppercase tracking-wide text-amber-800 disabled:opacity-50"
+                          >
+                            <Undo2 size={14} className="mx-auto mb-0.5" />
+                            Wróć
+                          </button>
                         </li>
                       )
                     })}
