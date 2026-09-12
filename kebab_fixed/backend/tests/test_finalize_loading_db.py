@@ -785,3 +785,127 @@ def test_BEZ_podzialu_nowa_sciezka_w_ogole_sie_nie_odpala(db, monkeypatch):
                            "name": "KEBAB UDO 100% KIRMIZI 20 kg"}])
     assert finalize_loading("v1", ["o3"], plate="KR 99999")["orders"][0]["wz_status"] == \
         "potwierdzony"
+
+
+# ── Dwa warianty RODZAJOWE tej samej receptury na jednym WM ───────────────
+#
+# Linie dokumentu nie niosą rodzaju ani tulei — niosą partię. Dopasowywanie
+# ich do braków po PEŁNYM kluczu kazało `kandydaci` rozstrzygać remis między
+# wariantami alfabetycznie po rodzaju, czyli w kolejności, która z zawartością
+# dokumentu nie ma nic wspólnego. Wiersz partii jednego wariantu dostawał brak
+# DRUGIEGO, brał `min(potrzeba, qty)` i resztę gubił: auto załadowane co do
+# sztuki zgodnie z papierem meldowało ROZJAZD.
+#
+# To jest układ z incydentu TRUVA (UDO 100 % obok MIX 95/5 — ta sama receptura,
+# ta sama waga sztuki, inny rodzaj), opisany w `app/utils/product_key.py`.
+def _linia_wariantu(lid, ptype, qty, oid="o1", kg=30):
+    execute(
+        "INSERT INTO client_order_lines (id, order_id, recipe_id, product_type_id, qty, "
+        " kg_per_unit, total_kg) VALUES (%s,%s,'r1',%s,%s,%s,%s)",
+        (lid, oid, ptype, qty, kg, qty * kg))
+    return lid
+
+
+def _wyrob_wariantu(gid, ptype, nazwa, qty, produced, kg=30):
+    execute(
+        "INSERT INTO finished_goods (id, batch_no, recipe_id, recipe_name, product_type_id, "
+        " product_type_name, qty, kg_per_unit, total_kg, qty_available, qty_shipped, "
+        " client_id, client_name, produced_date) "
+        "VALUES (%s,%s,'r1','KIRMIZI',%s,%s,%s,%s,%s,%s,0,'c1','YBM Gastro GmbH',%s)",
+        (gid, f"{produced} 500", ptype, nazwa, qty, kg, qty * kg, qty, produced))
+    return gid
+
+
+def test_dwa_warianty_tej_samej_receptury_nie_robia_falszywego_rozjazdu(db):
+    """Auto zgodne z papierem co do sztuki — status musi być POTWIERDZONY."""
+    _firma(); _pojazd(); _klient(); _receptura()
+    execute(
+        "INSERT INTO client_orders (id, order_no, client_id, client_name, order_date, "
+        " created_at, status) VALUES ('o1','YALCIN/Z/4/09/26','c1','YBM Gastro GmbH',"
+        " '2026-09-08','2026-09-08 08:00:00+00','confirmed')")
+    _linia_wariantu("o1-l1", "pt1", 6)          # UDO 100 %
+    _linia_wariantu("o1-l2", "pt2", 4)          # MIX 95/5
+    # Wariant pt2 jest STARSZY, więc wchodzi na dokument jako pierwszy —
+    # odwrotnie niż alfabetyczna kolejność rodzajów, na której opierało się
+    # błędne dopasowanie.
+    _wyrob_wariantu("f-mix", "pt2", "KEBAB MIX 95/5", 4, "2026-09-01")
+    _wyrob_wariantu("f-udo", "pt1", "KEBAB UDO 100", 6, "2026-09-08")
+    _paleta()
+    _pozycja_palety(line_id="o1-l1", qty=6, iid="pi1")
+    _pozycja_palety(line_id="o1-l2", qty=4, iid="pi2")
+    zapisz_podzial("o1", 180.0)
+    wystaw_wz_wewnetrzny("o1")
+    wystaw_wz_klienta("o1")
+
+    zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
+
+    assert zam.get("skipped") is None, zam
+    assert zam["wz_status"] == "potwierdzony", (zam["wz_status"], zam["diff"])
+    assert zam["diff"] == [], zam["diff"]
+
+
+# ── Wyścig: anulowanie kompletu ↔ zamykanie załadunku ────────────────────
+#
+# `anuluj_dokumenty_podzialu` bierze `FOR UPDATE` na wierszu WM i odmawia,
+# gdy dokument ma już `loaded_at`. `finalize_loading` czytał ten sam wiersz
+# ZWYKŁYM `SELECT`-em, a potem robił `UPDATE ... WHERE id=%s` bez ponownego
+# sprawdzenia statusu — więc anulowanie, które zdążyło wejść i zacommitować
+# MIĘDZY tym odczytem a tym zapisem, zostawiało dokument jednocześnie
+# `anulowany` I „załadowany", palety `shipped`, a towar z powrotem na stanie.
+# Sprzeczny stan: papier mówi, że nic nie wydał, magazyn że wydał.
+#
+# Przeplecenie wymuszamy w jedynym deterministycznym miejscu — hakiem
+# wpiętym POMIĘDZY odczyt a zapis (`verify_wz_against_loaded`), który puszcza
+# anulowanie z drugiego połączenia i daje mu czas na commit.
+def test_anulowanie_w_TRAKCIE_zamykania_zaladunku_nie_rozjezdza_stanu(db, monkeypatch):
+    import threading
+
+    from fastapi import HTTPException
+
+    _firma(); _pojazd(); _klient(); _receptura()
+    _zamowienie(qty=10, kg=30)
+    _wyrob(qty=10, kg=30)
+    _paleta(); _pozycja_palety(qty=10)
+    zapisz_podzial("o1", 180.0)
+    wystaw_wz_wewnetrzny("o1")
+    wystaw_wz_klienta("o1")
+
+    wynik: dict = {}
+    prawdziwa_weryfikacja = loading_service.verify_wz_against_loaded
+
+    def _anuluj_w_tle():
+        try:
+            anuluj_dokumenty_podzialu("o1")
+            wynik["skutek"] = "anulowane"
+        except HTTPException as e:
+            wynik["skutek"] = "odmowa"
+            wynik["detail"] = e.detail
+        except Exception as e:                      # noqa: BLE001
+            wynik["skutek"] = f"blad: {e!r}"
+
+    def _hak(*a, **kw):
+        # Jesteśmy w środku transakcji `finalize_loading`: dokument już
+        # odczytany, jeszcze nie zapisany. Puszczamy anulowanie i dajemy mu
+        # czas. Bez blokady zdąży zacommitować i rozjedzie stan.
+        watek = threading.Thread(target=_anuluj_w_tle)
+        watek.start()
+        watek.join(timeout=2.0)
+        wynik["watek"] = watek
+        return prawdziwa_weryfikacja(*a, **kw)
+
+    monkeypatch.setattr(loading_service, "verify_wz_against_loaded", _hak)
+
+    zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
+    wynik["watek"].join(timeout=10.0)
+    assert not wynik["watek"].is_alive(), "anulowanie wisi — nie puściła blokada"
+
+    wm = query_one(
+        "SELECT status, loaded_at, loading_status FROM wz_documents "
+        "WHERE source_id='o1' AND split_scope='calosc'")
+    # Sedno: te dwa stany nie mają prawa współistnieć.
+    assert not (wm["status"] == "anulowany" and wm["loaded_at"] is not None), wm
+    # Załadunek wygrał wyścig (trzymał wiersz), więc anulowanie musi odmówić.
+    assert zam.get("skipped") is None, zam
+    assert wm["loaded_at"] is not None, "załadunek miał się zapisać"
+    assert wm["status"] != "anulowany", wm
+    assert wynik["skutek"] == "odmowa", wynik

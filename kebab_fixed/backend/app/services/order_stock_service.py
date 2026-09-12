@@ -287,7 +287,26 @@ def picks_z_dokumentu(pallet_ids: List[str],
         for l in linie_dokumentu or []
         if int(l.get("qty") or 0) > 0
     ]
-    picks = portion_stock_rows(braki, wiersze, "")
+    # Braki scalamy do (receptura, waga sztuki) — BEZ rodzaju i tulei.
+    #
+    # Linia dokumentu niesie PARTIĘ, nie rodzaj. Zestawiana z brakami po pełnym
+    # kluczu kazała `kandydaci` rozstrzygać remis między wariantami tej samej
+    # receptury alfabetycznie po rodzaju — w kolejności, która z zawartością
+    # dokumentu nie ma nic wspólnego. Przy zamówieniu na UDO 100 % obok
+    # MIX 95/5 (ta sama receptura, ta sama waga, inny rodzaj — układ
+    # z incydentu TRUVA, patrz `app/utils/product_key.py`) wiersz partii
+    # jednego wariantu dostawał brak DRUGIEGO, brał `min(potrzeba, qty)`,
+    # a resztę gubił: auto zgodne z papierem co do sztuki meldowało ROZJAZD.
+    #
+    # Scalenie niczego nie traci: rodzaju i tak nie ma z czym porównać, a sumy
+    # per partia zostają nienaruszone — `kandydaci` nigdy nie przenosi sztuk
+    # między recepturami ani wagami, więc granice, na których stoi
+    # weryfikacja, są dokładnie te same.
+    scalone: Dict[Key, int] = {}
+    for k, ile in braki.items():
+        kk = klucz_wyrobu(k[0], k[1])
+        scalone[kk] = scalone.get(kk, 0) + int(ile)
+    picks = portion_stock_rows(scalone, wiersze, "")
 
     # Ile z rozpisu dokument NIE pokrył. Klucz (receptura, waga sztuki)
     # wystarcza: `kandydaci` nigdy nie przenosi sztuk między recepturami
