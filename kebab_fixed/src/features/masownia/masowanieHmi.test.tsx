@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 
 const stan = vi.hoisted(() => ({
   zlecenia: [] as any[],
@@ -98,5 +98,78 @@ describe('MasowanieHmiPage', () => {
     render(<MasowanieHmiPage />)
     await waitFor(() => expect(screen.getByText(/Przygotuj przyprawy/i)).toBeInTheDocument())
     expect(screen.getByText(/Załaduj masownicę/i)).toBeInTheDocument()
+  })
+})
+
+describe('ścieżka załadunku — od maszyny do bramki partii', () => {
+  it('operator wskazuje maszynę i zlecenie, a potem widzi tylko partie biura', async () => {
+    stan.wsady = []
+    stan.pojemniki = []
+    stan.zlecenia = [
+      { id: 'o1', orderNo: 'MAS/17/09/26', recipeId: 'r1', recipeName: 'KIRMIZI',
+        meatKg: 200, kgDone: 0, daySeq: 1, status: 'confirmed',
+        meatLots: [{ meatLotNo: '511', meatLotId: 'ms-511', kgPlanned: 200 }] },
+    ]
+    stan.mieso = {
+      pallets: [
+        { id: 'p1', palletNo: 'PAL/17/09/26/1', kgNet: 200, expiryDate: '2026-10-01',
+          lots: [{ lotNo: '511', kg: 200 }] },
+        { id: 'p2', palletNo: 'PAL/17/09/26/2', kgNet: 200, expiryDate: '2026-10-01',
+          lots: [{ lotNo: '513', kg: 200 }] },
+      ],
+      lots: [
+        { meatStockId: 'ms-511', lotNo: '511', materialName: 'Mięso z/s', kgFree: 200, expiryDate: '2026-10-01' },
+        { meatStockId: 'ms-513', lotNo: '513', materialName: 'Mięso z/s', kgFree: 200, expiryDate: '2026-10-01' },
+      ],
+      taken: {},
+    }
+
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getByText(/Załaduj masownicę/i)).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: /Załaduj masownicę/i }))
+    await waitFor(() => expect(screen.getByText('Wsad i masownica')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Masownica 1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Wsad MAS/17/09/26' }))
+    fireEvent.click(screen.getByRole('button', { name: /Dalej — mięso/ }))
+
+    await waitFor(() => expect(screen.getByText('Mięso do wsadu')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /PAL\/17\/09\/26\/1/ })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /PAL\/17\/09\/26\/2/ })).toBeDisabled()
+    expect(screen.getByText(/Biuro wskazało partię: 511/)).toBeInTheDocument()
+  })
+
+  it('bez partii u biura cały magazyn jest do wzięcia', async () => {
+    stan.wsady = []
+    stan.pojemniki = []
+    stan.zlecenia = [
+      { id: 'o1', orderNo: 'MAS/17/09/26', recipeId: 'r1', recipeName: 'KIRMIZI',
+        meatKg: 200, kgDone: 0, daySeq: 1, status: 'confirmed', meatLots: [] },
+    ]
+    stan.mieso = {
+      pallets: [
+        { id: 'p1', palletNo: 'PAL/17/09/26/1', kgNet: 200, expiryDate: '2026-10-01',
+          lots: [{ lotNo: '511', kg: 200 }] },
+        { id: 'p2', palletNo: 'PAL/17/09/26/2', kgNet: 200, expiryDate: '2026-10-01',
+          lots: [{ lotNo: '513', kg: 200 }] },
+      ],
+      lots: [
+        { meatStockId: 'ms-511', lotNo: '511', materialName: 'Mięso z/s', kgFree: 200, expiryDate: '2026-10-01' },
+        { meatStockId: 'ms-513', lotNo: '513', materialName: 'Mięso z/s', kgFree: 200, expiryDate: '2026-10-01' },
+      ],
+      taken: {},
+    }
+
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getByText(/Załaduj masownicę/i)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Załaduj masownicę/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Masownica 1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Wsad MAS/17/09/26' }))
+    fireEvent.click(screen.getByRole('button', { name: /Dalej — mięso/ }))
+
+    await waitFor(() => expect(screen.getByText('Mięso do wsadu')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /PAL\/17\/09\/26\/1/ })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /PAL\/17\/09\/26\/2/ })).toBeEnabled()
   })
 })

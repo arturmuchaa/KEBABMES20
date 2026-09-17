@@ -24,9 +24,12 @@ albo ręcznie, gdy kopia już istnieje:
 """
 from pathlib import Path
 
-from app.db import query_all, query_one
+from app.db import execute, query_all, query_one
+from app.models.masownia import ChargeCreate, ChargeFinish, ChargeMeatDto
 from app.models.receptions import ReceptionCreate, ReceptionUpdate
+from app.services.masownia_service import finish_charge, load_charge
 from app.services.receptions_service import create_reception, get_reception, update_reception
+from app.utils.ids import cuid, now_iso
 
 DZIEN = "2026-12-31"          # data poza bieżącą pracą zakładu
 bledy: list[str] = []
@@ -278,6 +281,60 @@ def ksiega_calej_bazy() -> None:
                       f"{len(rozjazdy) - len(nowe)} znanych historycznych)")
 
 
+def masowanie() -> None:
+    """Wsad w masownicy na PRAWDZIWYM mięsie zakładu: załadunek i odbiór.
+
+    Panel masowni zapisuje wsad od razu przy załadowaniu (żeby paleta zniknęła
+    z ekranu), a księguje dopiero przy odbiorze — przez tę samą ścieżkę, co
+    dotychczasowe masowanie. Tutaj sprawdzamy, że po tej drodze kilogramy
+    zgadzają się na stanie partii.
+    """
+    print("▶ masownia: wsad i odbiór")
+    lot = query_one(
+        "SELECT id, lot_no, kg_available, kg_used FROM meat_stock "
+        "WHERE kg_available - COALESCE(kg_reserved, 0) > 220 "
+        "ORDER BY expiry_date LIMIT 1")
+    if not lot:
+        print("   – brak partii z zapasem 220 kg — pomijam (to nie błąd)")
+        return
+    recepta = query_one("SELECT id, name FROM recipes WHERE active = true ORDER BY name LIMIT 1")
+    if not recepta:
+        print("   – kopia bazy nie ma receptur — pomijam")
+        return
+
+    przed = query_one(
+        "SELECT kg_available, kg_used FROM meat_stock WHERE id=%s", (lot["id"],))
+    oid = cuid()
+    execute(
+        "INSERT INTO mixing_orders (id, order_no, recipe_id, recipe_name, meat_kg, kg_done, "
+        "status, created_at) VALUES (%s,%s,%s,%s,200,0,'confirmed',%s)",
+        (oid, "MAS/PROBA/1", recepta["id"], recepta["name"], now_iso()))
+
+    wsad = load_charge(ChargeCreate(
+        orderId=oid, machineId=1, waterL=36,
+        meat=[ChargeMeatDto(lotNo=lot["lot_no"], meatStockId=lot["id"], kg=200)]))
+    sprawdz(wsad["status"] == "mixing", "załadunek zajmuje masownicę")
+
+    zajete = query_one(
+        "SELECT COALESCE(SUM(kg),0) AS kg FROM mixing_charge_pallets WHERE charge_id=%s",
+        (wsad["id"],))
+    sprawdz(abs(float(zajete["kg"]) - 200) < 0.01, "wsad pamięta, z czego jest zrobiony")
+
+    finish_charge(wsad["id"], ChargeFinish(kgOutput=236))
+    po = query_one("SELECT kg_available, kg_used FROM meat_stock WHERE id=%s", (lot["id"],))
+    sprawdz(
+        abs((float(przed["kg_available"]) - float(po["kg_available"])) - 200) < 0.01,
+        f"odbiór zdejmuje 200 kg ze stanu partii {lot['lot_no']}")
+    sprawdz(
+        abs((float(po["kg_used"]) - float(przed["kg_used"])) - 200) < 0.01,
+        "te same 200 kg dopisuje się do zużycia partii")
+
+    ruch = query_one(
+        "SELECT COUNT(*) AS n FROM stock_movements WHERE source_type='mixing' "
+        "AND created_at > now() - interval '5 minutes'")
+    sprawdz(int(ruch["n"]) > 0, "odbiór zostawia ślad w księdze ruchów")
+
+
 def main() -> int:
     sup = query_one("SELECT id, name FROM suppliers WHERE name ILIKE %s LIMIT 1", ("%KOKO%",))
     if not sup:
@@ -290,6 +347,7 @@ def main() -> int:
     cwiartka(sup["id"])
     bez_rozbioru(sup["id"])
     numeracja_ciagla(sup["id"])
+    masowanie()
     ksiega_calej_bazy()
 
     print()

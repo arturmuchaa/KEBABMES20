@@ -54,6 +54,10 @@ ADMIN_PREFIXES = ("/api/app-users", "/api/audit-log",
 DEPARTMENT_PREFIXES = {
     "rozbior": ("/api/deboning",),
     "produkcja": ("/api/mixing", "/api/seasoned_meat"),
+    # Masownia ma własny panel (kiosk `masowanie.html`): pojemniki z przyprawami,
+    # wsady w masownicach i odbiór. Zlecenia masowania układa biuro — patrz
+    # reguła `/api/mixing-orders` niżej.
+    "masowanie": ("/api/masownia",),
     # `/api/finished-units` ma WŁASNĄ regułę niżej (dzielą je produkcja
     # i pakowanie). Nie wracać tu z wpisem `/api/finished_units` —
     # z podkreśleniem nigdy nie pasował do trasy i cicho nic nie robił.
@@ -159,6 +163,16 @@ def permission_for_path(path: str, method: str = "GET") -> str:
         if path.endswith("/from-plan-line"):
             return "office"
         return "produkcja|pakowanie"
+    # Plan dnia masowania: panel masowni i kiosk produkcji go CZYTAJĄ (kolejka
+    # zleceń, partie wskazane przez biuro). Układanie planu — utworzenie,
+    # potwierdzenie, anulowanie — zostaje w biurze; hala zapisuje wyłącznie
+    # przez `/api/masownia`.
+    if _matches(path, "/api/mixing-orders"):
+        return "masowanie|produkcja" if method == "GET" else "office"
+    # Receptury: panel masowni musi je czytać, żeby wiedzieć, co odważyć na
+    # wsad. Zmiana receptury zostaje w biurze.
+    if _matches(path, "/api/recipes"):
+        return "masowanie|produkcja" if method == "GET" else "office"
     # Kartoteka opakowań: CZYTAĆ musi kilka działów naraz (kiosk produkcji
     # wybiera z niej tuleję pozycji), zmieniać — tylko pakowanie i biuro.
     if _matches(path, "/api/packaging"):

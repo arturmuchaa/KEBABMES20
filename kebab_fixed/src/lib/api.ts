@@ -92,7 +92,12 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     // twardy skok do /login załadowałby index.html, czyli PEŁNY MES na
     // kiosku operatora (prod 2026-07-09 po auto-update). Reload wraca do
     // entry kiosku, a AuthProvider bez tokenu pokaże logowanie PIN.
-    const standaloneKiosk = location.pathname.includes('rozbior-v') || location.pathname.includes('kiosk')
+    // Każde samodzielne wejście kiosku musi tu być wymienione. `produkcja`
+    // i `masowanie` wypadły z tej listy przy dodawaniu kolejnych stanowisk
+    // i 401 wyrzucał tam operatora do pełnego MES-a — tego samego błędu, który
+    // naprawiono dla rozbioru w 2026-07.
+    const standaloneKiosk = ['rozbior-v', 'kiosk', 'produkcja', 'masowanie']
+      .some(entry => location.pathname.includes(entry))
     if (standaloneKiosk) {
       location.reload()
     } else if (!location.pathname.startsWith('/login') && !location.pathname.startsWith('/panel')) {

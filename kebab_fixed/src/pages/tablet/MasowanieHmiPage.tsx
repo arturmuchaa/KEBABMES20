@@ -27,6 +27,7 @@ import { MachineRail, machineState } from '@/features/masownia/components/Machin
 import { DayQueue, type QueueOrder } from '@/features/masownia/components/DayQueue'
 import { CartList } from '@/features/masownia/components/CartList'
 import { SpiceWeighing } from '@/features/masownia/components/SpiceWeighing'
+import { LoadPicker } from '@/features/masownia/components/LoadPicker'
 import { MeatPicker, type MeatTake } from '@/features/masownia/components/MeatPicker'
 import { WaterStep } from '@/features/masownia/components/WaterStep'
 import { PickupDialog } from '@/features/masownia/components/PickupDialog'
@@ -41,7 +42,7 @@ type Tryb =
   | null
   | { kind: 'prep'; orderId: string; kg: number; cartNo: number; cartId: string | null }
   | { kind: 'prep-size'; orderId: string }
-  | { kind: 'load-machine'; orderId: string | null }
+  | { kind: 'load-pick'; machineId: number | null; cartId: string | null; orderId: string | null }
   | { kind: 'load'; orderId: string; machineId: number; cartId: string | null; step: 'meat' | 'water'; take: MeatTake[] }
 
 export function MasowanieHmiPage() {
@@ -155,16 +156,7 @@ export function MasowanieHmiPage() {
       if (machineState(charge, now) === 'ready') setOdbior(charge)
       return
     }
-    setTryb({ kind: 'load-machine', orderId: null })
-    const pojemnik = pojemniki.find(p => fitsMachine(Number(p.kg_target), MACHINES.find(m => m.id === machineId)!.cap))
-    if (pojemnik) {
-      setTryb({ kind: 'load', orderId: pojemnik.order_id, machineId, cartId: pojemnik.id, step: 'meat', take: [] })
-    } else if (nastepne) {
-      setTryb({ kind: 'load', orderId: nastepne.id, machineId, cartId: null, step: 'meat', take: [] })
-    } else {
-      setTryb(null)
-      setKomunikat('Nie ma czego załadować — cały plan dnia jest rozpisany.')
-    }
+    setTryb({ kind: 'load-pick', machineId, cartId: null, orderId: null })
   }
 
   const zaladujZPojemnika = (cart: SpiceCart) => {
@@ -173,7 +165,7 @@ export function MasowanieHmiPage() {
       setKomunikat('Nie ma wolnej masownicy na ten wsad — poczekaj na koniec cyklu.')
       return
     }
-    setTryb({ kind: 'load', orderId: cart.order_id, machineId: maszyna.id, cartId: cart.id, step: 'meat', take: [] })
+    setTryb({ kind: 'load-pick', machineId: maszyna.id, cartId: cart.id, orderId: cart.order_id })
   }
 
   const wyslijWsad = async (litry: number) => {
@@ -258,15 +250,37 @@ export function MasowanieHmiPage() {
         <section className="flex-1 min-w-0 flex flex-col min-h-0 rounded-xl overflow-hidden relative"
           style={{ background: 'var(--panel)', border: '1px solid var(--line)' }}>
 
-          {tryb === null || tryb.kind === 'load-machine' ? (
+          {tryb === null ? (
             <RestScreen doOdbioru={doOdbioru} wolneMaszyny={wolneMaszyny}
               pojemnikiGotowe={pojemniki.length} nastepne={nastepne?.recipeName ?? ''}
               onPrzyprawy={() => nastepne && zacznijPrzyprawy(nastepne.id)}
-              onZaladunek={() => {
-                const wolna = wolneMaszyny[0]
-                if (wolna) wybierzMaszyne(wolna.id, undefined)
-              }}
+              onZaladunek={() => setTryb({
+                kind: 'load-pick',
+                machineId: wolneMaszyny.length === 1 ? wolneMaszyny[0].id : null,
+                cartId: null, orderId: null,
+              })}
               onOdbierz={() => doOdbioru[0] && setOdbior(doOdbioru[0])} />
+          ) : null}
+
+          {tryb?.kind === 'load-pick' ? (
+            <LoadPicker
+              carts={pojemniki}
+              orders={kolejka.filter(o => zostaloW(o.id) > 0).map(o => ({ ...o, zostalo: zostaloW(o.id) }))}
+              zajeteMaszyny={wsady.map(c => c.machine_id)}
+              machineId={tryb.machineId}
+              cartId={tryb.cartId}
+              orderId={tryb.orderId}
+              onMachine={id => setTryb({ ...tryb, machineId: id })}
+              onCart={c => setTryb({ ...tryb, cartId: c.id, orderId: c.order_id })}
+              onOrder={id => setTryb({ ...tryb, cartId: null, orderId: id })}
+              onBack={() => setTryb(null)}
+              onNext={() => {
+                if (!tryb.machineId || !tryb.orderId) return
+                setTryb({
+                  kind: 'load', orderId: tryb.orderId, machineId: tryb.machineId,
+                  cartId: tryb.cartId, step: 'meat', take: [],
+                })
+              }} />
           ) : null}
 
           {tryb?.kind === 'prep-size' ? (
