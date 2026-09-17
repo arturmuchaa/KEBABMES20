@@ -130,24 +130,38 @@ impl StabilityWindow {
 }
 
 fn config_paths(app: &tauri::AppHandle) -> Vec<std::path::PathBuf> {
+    device_config_paths(app, "scale.json")
+}
+
+/// Ścieżki pliku konfiguracyjnego urządzenia (`scale.json`, `doser.json`).
+///
+/// Wspólne dla wszystkich mostów sprzętowych kiosku, bo serwisant ma jedno
+/// miejsce do zapamiętania.
+pub fn device_config_paths(app: &tauri::AppHandle, file: &str) -> Vec<std::path::PathBuf> {
     let mut paths = Vec::new();
-    // 1. Wspólny plik dla CAŁEGO komputera — widoczny ze WSZYSTKICH kont
-    //    (Admin ustawia raz, konto operatora go widzi). To rozwiązuje pułapkę
-    //    "działa na Adminie, nie działa na rozbior": AppData jest per-konto,
-    //    a instalacja per-user trzyma exe też w profilu, więc bez tej ścieżki
-    //    plik z jednego konta był niewidoczny dla drugiego.
+    // 1. Wspólny plik dla CAŁEGO komputera, w katalogu TEGO kiosku. Stanowiska
+    //    mają różne urządzenia (masownia waży przyprawy z działką 0,01 kg,
+    //    rozbiór jeździ wagą najazdową 0,5 kg), więc nie mogą dzielić jednego
+    //    pliku, gdy stoją na tym samym komputerze.
     if let Some(pd) = std::env::var_os("ProgramData") {
-        paths.push(std::path::Path::new(&pd).join("Rozbior HMI").join("scale.json"));
-    }
-    // 2. Obok exe (per-konto — zgodność wstecz).
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            paths.push(dir.join("scale.json"));
+        let base = std::path::Path::new(&pd);
+        let produkt = app.package_info().name.clone();
+        paths.push(base.join(&produkt).join(file));
+        // 2. Katalog historyczny — rozbiór v10 i v11 mają tu swoje pliki od
+        //    2026-08 i przeniesienie ich wymagałoby wizyty przy panelu.
+        if produkt != "Rozbior HMI" {
+            paths.push(base.join("Rozbior HMI").join(file));
         }
     }
-    // 3. AppData bieżącego konta (per-konto — zgodność wstecz).
+    // 3. Obok exe (per-konto — zgodność wstecz).
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            paths.push(dir.join(file));
+        }
+    }
+    // 4. AppData bieżącego konta (per-konto — zgodność wstecz).
     if let Ok(dir) = app.path().app_config_dir() {
-        paths.push(dir.join("scale.json"));
+        paths.push(dir.join(file));
     }
     paths
 }
