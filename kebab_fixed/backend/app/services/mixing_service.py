@@ -1203,10 +1203,22 @@ def undo_mixing_confirmation(order_id: str) -> Dict:
         )
         if not order:
             raise HTTPException(404, "Zlecenie nie znalezione")
-        if order.get("status") != "done":
+        # `in_progress` dopuszczone od 17.09.2026: panel masowni miesza WSAD PO
+        # WSADZIE, więc zlecenie na 3 600 kg z jednym wsadem 800 kg stoi jako
+        # „w trakcie" z prawdziwą sesją. To normalny stan, nie awaria — a gdy
+        # biuro zauważy, że wsad zapisano przez pomyłkę, bramka „tylko done"
+        # odsyłała je do gołego SQL-a.
+        if order.get("status") not in ("done", "in_progress"):
             raise HTTPException(
-                400, "Cofnięcie dotyczy tylko potwierdzonych (gotowych) zleceń."
+                400, "Cofnięcie dotyczy tylko zleceń z zapisanym masowaniem."
             )
+        # Cofnięcie odwraca ŚLAD masowania, więc bez sesji nie ma czego cofać.
+        # Bez tej bramki zlecenie świeżo rozpoczęte (0 kg) cicho wracałoby do
+        # „potwierdzone" i wyglądało, jakby coś odkręcono.
+        if not cx_query_one(
+            conn, "SELECT id FROM mixing_sessions WHERE order_id=%s LIMIT 1", (order_id,)
+        ):
+            raise HTTPException(400, "To zlecenie nie ma zapisanego masowania — nie ma czego cofać.")
 
         # Partie przyprawionego zlecenia (seasoned IN: batch_id = seasoned_meat.id)
         seasoned = cx_query_all(

@@ -100,3 +100,41 @@ def test_undo_rejects_non_done(db):
     with pytest.raises(HTTPException) as ei:
         undo_mixing_confirmation("ou3")
     assert ei.value.status_code == 400
+
+
+def test_cofniecie_dziala_takze_dla_zlecenia_W_TRAKCIE(db):
+    """Panel masowni zostawia zlecenia W TRAKCIE z zamkniętymi sesjami.
+
+    Operator miesza wsad po wsadzie, więc zlecenie na 1000 kg z jednym wsadem
+    400 kg stoi jako `in_progress` z prawdziwą sesją — to normalny stan, nie
+    awaria. Gdy biuro zauważy, że wsad zapisano przez pomyłkę, musi mieć czym
+    go cofnąć; bramka „tylko done" odsyłała je wtedy do gołego SQL-a.
+    """
+    _seed_raw_batch("rb-wt", 611)
+    _seed_stock("ms-wt", "611", 1000, 400, "rb-wt")
+    _seed_order("ou-wt", "r-wt", "WsadCzesciowy", meat_kg=1000)
+    _finish("ou-wt", "ms-wt", 400)
+
+    w_trakcie = query_one("SELECT status, kg_done FROM mixing_orders WHERE id=%s", ("ou-wt",))
+    assert w_trakcie["status"] == "in_progress", "wsad czesciowy ma zostawic zlecenie w trakcie"
+    przed = query_one("SELECT kg_available, kg_used FROM meat_stock WHERE id=%s", ("ms-wt",))
+
+    undo_mixing_confirmation("ou-wt")
+
+    o = query_one("SELECT status, kg_done FROM mixing_orders WHERE id=%s", ("ou-wt",))
+    assert o["status"] == "confirmed"
+    assert float(o["kg_done"]) == 0.0
+    po = query_one("SELECT kg_available, kg_used FROM meat_stock WHERE id=%s", ("ms-wt",))
+    assert float(po["kg_available"]) == float(przed["kg_available"]) + 400
+    assert float(po["kg_used"]) == float(przed["kg_used"]) - 400
+    assert query_all("SELECT id FROM mixing_sessions WHERE order_id=%s", ("ou-wt",)) == []
+
+
+def test_cofniecie_zlecenia_bez_sesji_jest_odrzucane(db):
+    # Bez tej bramki zlecenie swiezo rozpoczete (0 kg) cicho wracaloby do
+    # „potwierdzone" i wygladalo, jakby cos odkrecono.
+    _seed_order("ou-brak", "r-brak", "BezSesji", meat_kg=500)
+    with pytest.raises(HTTPException) as ei:
+        undo_mixing_confirmation("ou-brak")
+    assert ei.value.status_code == 400
+    assert "nie ma czego cofać" in str(ei.value.detail).lower()
