@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Camera, CheckCircle2, AlertTriangle, Truck, X, Undo2 } from 'lucide-react'
 import { dispatchesApi, clientsApi, type DispatchScanResult, type DispatchBatchRow } from '@/lib/api'
+import { useSkanAutoSubmit } from '@/features/scan/useSkanAutoSubmit'
 import { useApi } from '@/hooks/useApi'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { beepOk, beepErr } from '@/features/pwa/beep'
@@ -43,6 +44,12 @@ export function MobileWydanieLuzemPage() {
     setBatch(d.batch_breakdown ?? [])
     setLast(null)
   }
+
+  // Skan ma wpadać SAM, jak z kamery w telefonie (właściciel, 17.09.2026).
+  // Skaner HID wrzuca kod znak po znaku; o tym, że się skończył, decyduje
+  // tempo — człowiek nie wpisze kilkunastu znaków w kilkadziesiąt ms.
+  // Enter, jeśli skaner go dosyła, jest bezczynny (ta sama bramka).
+  const { zatwierdz } = useSkanAutoSubmit(value, handleScan)
 
   async function handleScan(code: string, mode: 'scan' | 'remove' = 'scan') {
     const trimmed = code.trim()
@@ -122,7 +129,7 @@ export function MobileWydanieLuzemPage() {
               </div>
             </div>
 
-            <form onSubmit={(e) => { e.preventDefault(); handleScan(value) }} className="flex items-stretch gap-2">
+            <form onSubmit={(e) => { e.preventDefault(); zatwierdz(value) }} className="flex items-stretch gap-2">
               <input ref={inputRef} value={value} onChange={(e) => setValue(e.target.value)} placeholder="Zeskanuj QR sztuki lub kartonu" autoFocus autoComplete="off" spellCheck={false}
                 className="flex-1 rounded-lg border-2 border-orange-300 bg-white px-3 py-3 text-base focus:border-orange-500 focus:outline-none" />
               <button type="button" onClick={() => setScannerOpen(true)} className="flex items-center justify-center rounded-lg bg-orange-600 px-4 text-white" aria-label="Kamera"><Camera size={22} /></button>

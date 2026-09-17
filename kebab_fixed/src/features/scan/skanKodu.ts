@@ -60,3 +60,33 @@ export function utworzStraznikaWysylki(oknoMs = 2000) {
     },
   }
 }
+
+
+/**
+ * Czy to wpisał SKANER, a nie człowiek.
+ *
+ * Właściciel (17.09.2026): „chciałbym, aby wpadało wszystko automatycznie bez
+ * Entera, tak jak było na telefonie kamerą". Kamera miała łatwiej — oddawała
+ * gotowy kod prosto do obsługi, z pominięciem formularza. Przy skanerze HID
+ * kod przychodzi znak po znaku i trzeba wiedzieć, KIEDY się skończył.
+ *
+ * Wyliczanie wszystkich formatów (palety, sztuki, kartony) byłoby zgadywaniem
+ * — pierwszy nieznany kod znowu by nie zadziałał. Dlatego rozpoznajemy nie
+ * treść, tylko TEMPO: skaner wrzuca kilkanaście znaków w kilkadziesiąt
+ * milisekund, człowiek potrzebuje na to sekund. Margines jest ogromny
+ * (skaner ~1 ms/znak, pisanie ręczne ~200 ms/znak), więc pomyłka w żadną
+ * stronę nie jest realna.
+ *
+ * Krótkie ciągi odrzucamy: kilka znaków może wpaść z klawiatury przypadkiem,
+ * a żaden kod w zakładzie nie jest tak krótki.
+ */
+export const MIN_ZNAKOW_SKANU = 8
+export const MAX_MS_SKANU = 250
+
+export function czyWpisalSkaner(
+  dlugosc: number,
+  czasTrwaniaMs: number,
+): boolean {
+  if (dlugosc < MIN_ZNAKOW_SKANU) return false
+  return czasTrwaniaMs <= MAX_MS_SKANU
+}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
-import { czyKompletnyKodPalety, utworzStraznikaWysylki } from './skanKodu'
+import { czyKompletnyKodPalety, czyWpisalSkaner, utworzStraznikaWysylki } from './skanKodu'
 
 /**
  * Auto-wysyłka zeskanowanego kodu — MES niezależny od konfiguracji skanera.
@@ -44,8 +44,25 @@ export function useSkanAutoSubmit(
     }
   }, [])
 
+  // Kiedy pole zaczęło się wypełniać — z tego liczymy TEMPO, po którym
+  // poznajemy skaner. Zerujemy przy pustym polu, więc każdy skan mierzy się
+  // od nowa (po udanej wysyłce ekran czyści pole).
+  const startCzas = useRef(0)
+
   useEffect(() => {
-    if (!czyKompletnyKodPalety(wartosc)) return
+    const teraz = Date.now()
+    if (!wartosc) { startCzas.current = 0; return }
+    if (startCzas.current === 0) startCzas.current = teraz
+
+    // Dwa niezależne sygnały, że kod jest kompletny:
+    //   * ZNANY FORMAT palety — pewny, działa nawet gdy ktoś wklei kod myszą;
+    //   * TEMPO — skaner wrzuca kilkanaście znaków w kilkadziesiąt ms, czego
+    //     człowiek nie osiągnie. To obejmuje formaty, których tu nie
+    //     wyliczamy: sztuki, kartony i cokolwiek dojdzie później.
+    const wystarczy = czyKompletnyKodPalety(wartosc)
+      || czyWpisalSkaner(wartosc.length, teraz - startCzas.current)
+    if (!wystarczy) return
+
     const t = setTimeout(() => probuj(wartosc), opoznienieMs)
     return () => clearTimeout(t)
   }, [wartosc, opoznienieMs, probuj])

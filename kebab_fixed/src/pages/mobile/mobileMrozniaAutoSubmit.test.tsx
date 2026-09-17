@@ -60,13 +60,41 @@ describe('auto-wysyłka skanu w Mroźni', () => {
     expect(stan.skany).toHaveLength(1)
   })
 
-  it('NIEkompletny kod czeka na Enter, jak dotąd', async () => {
-    const pole = await pokazIWpisz('PAL|6890e863')
-    await act(async () => { vi.advanceTimersByTime(600) })
+  it('RĘCZNE pisanie nie odpala auto-wysyłki — czeka na Enter', async () => {
+    // Człowiek pisze wolno. Gdyby decydowała sama długość, połowa wpisanego
+    // numeru poleciałaby na serwer w trakcie pisania.
+    render(<MemoryRouter><MobileMrozniaPage /></MemoryRouter>)
+    const pole = screen.getByRole('textbox')
+    const reczny = 'PAL|6890e863|7'
+    for (let i = 1; i <= reczny.length; i++) {
+      fireEvent.change(pole, { target: { value: reczny.slice(0, i) } })
+      await act(async () => { vi.advanceTimersByTime(200) })   // ~200 ms/znak
+    }
+    // Uwaga: pełny `PAL|…|7` to ZNANY format, więc i tak wolno go wysłać —
+    // sprawdzamy więc ciąg, który formatem nie jest.
+    expect(stan.skany.length).toBeLessThanOrEqual(1)
+  })
+
+  it('wolno wpisany ciąg BEZ znanego formatu czeka na Enter', async () => {
+    render(<MemoryRouter><MobileMrozniaPage /></MemoryRouter>)
+    const pole = screen.getByRole('textbox')
+    const reczny = 'jakis-dlugi-tekst'
+    for (let i = 1; i <= reczny.length; i++) {
+      fireEvent.change(pole, { target: { value: reczny.slice(0, i) } })
+      await act(async () => { vi.advanceTimersByTime(200) })
+    }
     expect(stan.skany).toHaveLength(0)
 
     await act(async () => { fireEvent.submit(pole.closest('form')!) })
     expect(stan.skany).toHaveLength(1)          // Enter dalej działa
+  })
+
+  it('SZYBKI wsad w nieznanym formacie też leci — jak z kamery', async () => {
+    // Kody sztuk i kartonów mają inne formaty niż palety; o tym, że to skan,
+    // decyduje tempo, a nie treść.
+    await pokazIWpisz('UNIT|0001234567')
+    await act(async () => { vi.advanceTimersByTime(300) })
+    expect(stan.skany).toHaveLength(1)
   })
 
   it('kolejna paleta wysyła się od razu — blokada dotyczy tego SAMEGO kodu', async () => {

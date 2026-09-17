@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Camera, CheckCircle2, AlertTriangle, Factory } from 'lucide-react'
 import { finishedUnitsApi, type ScanProducedResult } from '@/lib/api'
+import { useSkanAutoSubmit } from '@/features/scan/useSkanAutoSubmit'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { beepOk, beepErr } from '@/features/pwa/beep'
 import { useClientNames } from '@/lib/clientNames'
@@ -27,6 +28,12 @@ export function MobileProdukcjaPage() {
   }, [])
 
   useEffect(() => { focusInput() }, [focusInput])
+
+  // Skan ma wpadać SAM, jak z kamery w telefonie (właściciel, 17.09.2026).
+  // Skaner HID wrzuca kod znak po znaku; o tym, że się skończył, decyduje
+  // tempo — człowiek nie wpisze kilkunastu znaków w kilkadziesiąt ms.
+  // Enter, jeśli skaner go dosyła, jest bezczynny (ta sama bramka).
+  const { zatwierdz } = useSkanAutoSubmit(value, handleSubmit)
 
   async function handleSubmit(code: string) {
     const trimmed = code.trim()
@@ -93,7 +100,7 @@ export function MobileProdukcjaPage() {
 
         {/* Skan */}
         <form
-          onSubmit={(e) => { e.preventDefault(); handleSubmit(value) }}
+          onSubmit={(e) => { e.preventDefault(); zatwierdz(value) }}
           className="flex items-stretch gap-2"
         >
           <input

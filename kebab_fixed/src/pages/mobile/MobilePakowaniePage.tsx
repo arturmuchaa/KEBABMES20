@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft, Camera, CheckCircle2, AlertTriangle, Package, PackageOpen, X, ScanLine } from 'lucide-react'
 import { palletsApi, stockCartonsApi, type PalletPackResult, type PalletBatchRow, type StockCartonLine } from '@/lib/api'
 import { useApi } from '@/hooks/useApi'
+import { useSkanAutoSubmit } from '@/features/scan/useSkanAutoSubmit'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { beepOk, beepErr } from '@/features/pwa/beep'
 import { useClientNames } from '@/lib/clientNames'
@@ -196,6 +197,12 @@ export function MobilePakowaniePage() {
   }
 
   // ─── Pakowanie sztuki (gałąź wg rodzaju pojemnika) ───
+  // Skan ma wpadać SAM, jak z kamery w telefonie (właściciel, 17.09.2026).
+  // Skaner HID wrzuca kod znak po znaku; o tym, że się skończył, decyduje
+  // tempo — człowiek nie wpisze kilkunastu znaków w kilkadziesiąt ms.
+  // Enter, jeśli skaner go dosyła, jest bezczynny (ta sama bramka).
+  const { zatwierdz } = useSkanAutoSubmit(value, handleSubmit)
+
   async function handleSubmit(code: string) {
     const trimmed = code.trim()
     if (!trimmed || busy || !pallet) return
@@ -378,7 +385,7 @@ export function MobilePakowaniePage() {
 
             {/* Skan sztuki */}
             <form
-              onSubmit={(e) => { e.preventDefault(); handleSubmit(value) }}
+              onSubmit={(e) => { e.preventDefault(); zatwierdz(value) }}
               className="flex items-stretch gap-2"
             >
               <input

@@ -5,7 +5,8 @@
  * nie działo — paleta zostawała `created`, bo żądanie nie wychodziło.
  */
 import { describe, it, expect } from 'vitest'
-import { czyKompletnyKodPalety, utworzStraznikaWysylki } from './skanKodu'
+import { czyKompletnyKodPalety, czyWpisalSkaner, MAX_MS_SKANU, MIN_ZNAKOW_SKANU,
+         utworzStraznikaWysylki } from './skanKodu'
 
 describe('rozpoznanie kompletnego kodu palety', () => {
   it('token z kartki', () => {
@@ -74,5 +75,27 @@ describe('strażnik podwójnej wysyłki', () => {
     const s = utworzStraznikaWysylki()
     expect(s.wolno('', 1000)).toBe(false)
     expect(s.wolno('   ', 1000)).toBe(false)
+  })
+})
+
+describe('rozpoznanie skanera po tempie', () => {
+  it('skaner: kilkanaście znaków w kilkadziesiąt ms', () => {
+    expect(czyWpisalSkaner(52, 40)).toBe(true)     // adres z QR
+    expect(czyWpisalSkaner(24, 12)).toBe(true)     // token palety
+  })
+
+  it('człowiek piszący z klawiatury NIE odpala auto-wysyłki', () => {
+    expect(czyWpisalSkaner(24, 4800)).toBe(false)  // ~200 ms/znak
+    expect(czyWpisalSkaner(12, 2000)).toBe(false)
+  })
+
+  it('krótki ciąg nigdy — mógł wpaść przypadkiem', () => {
+    expect(czyWpisalSkaner(3, 5)).toBe(false)
+    expect(czyWpisalSkaner(7, 10)).toBe(false)
+  })
+
+  it('granice są jawne, nie magiczne', () => {
+    expect(czyWpisalSkaner(MIN_ZNAKOW_SKANU, MAX_MS_SKANU)).toBe(true)
+    expect(czyWpisalSkaner(MIN_ZNAKOW_SKANU, MAX_MS_SKANU + 1)).toBe(false)
   })
 })
