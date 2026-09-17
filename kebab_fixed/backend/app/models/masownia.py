@@ -9,6 +9,10 @@ class SpiceCartCreate(BaseModel):
     order_id: str = Field(..., alias="orderId", min_length=1)
     cart_no: int = Field(..., alias="cartNo", ge=1, le=6)
     kg_target: float = Field(..., alias="kgTarget", gt=0)
+    #: Komplet odważonych składników. Panel zakłada pojemnik DOPIERO po
+    #: zatwierdzeniu całego ważenia, więc przysyła je naraz; pusta lista to
+    #: stara ścieżka (załóż, potem ważenie po jednym).
+    ingredients: List["SpiceWeighDto"] = Field(default_factory=list)
 
 
 class SpiceWeighDto(BaseModel):
@@ -37,8 +41,14 @@ class ChargeCreate(BaseModel):
     cart_id: Optional[str] = Field(None, alias="cartId")
     water_l: float = Field(0, alias="waterL", ge=0)
     meat: List[ChargeMeatDto] = Field(default_factory=list)
+    #: Przyprawy odważone PRZY MASZYNIE, gdy nie było gotowego pojemnika.
+    #: Należą do wsadu, nie do pojemnika — nikt ich nigdzie nie odstawiał.
+    spices: List[SpiceWeighDto] = Field(default_factory=list)
 
 
 class ChargeFinish(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     kg_output: float = Field(..., alias="kgOutput", gt=0)
+
+
+SpiceCartCreate.model_rebuild()

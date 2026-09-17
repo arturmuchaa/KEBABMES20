@@ -42,10 +42,12 @@ const WOLNY_POJEMNIK = (zajete: number[]) => [1, 2, 3, 4, 5, 6].find(n => !zajet
 
 type Tryb =
   | null
-  | { kind: 'prep'; orderId: string; kg: number; cartNo: number; cartId: string | null }
+  | { kind: 'prep'; orderId: string; kg: number; cartNo: number }
   | { kind: 'prep-size'; orderId: string }
   | { kind: 'load-pick'; machineId: number | null; cartId: string | null; orderId: string | null }
-  | { kind: 'load'; orderId: string; machineId: number; cartId: string | null; step: 'meat' | 'water'; take: MeatTake[] }
+  | { kind: 'load'; orderId: string; machineId: number; cartId: string | null
+      step: 'meat' | 'spices' | 'water'; take: MeatTake[]
+      spices: { seq: number; name: string; unit: string; qty: number; weighed: number; manual: boolean }[] }
 
 export function MasowanieHmiPage() {
   const { zlecenia, pojemniki, wsady, mieso, receptury, error, odswiez } = useMasowniaData()
@@ -120,36 +122,52 @@ export function MasowanieHmiPage() {
     setTryb({ kind: 'prep-size', orderId })
   }
 
-  const wybierzWielkosc = async (orderId: string, kgWsadu: number) => {
+  const wybierzWielkosc = (orderId: string, kgWsadu: number) => {
     const cartNo = WOLNY_POJEMNIK(pojemniki.map(p => p.cart_no))
     if (cartNo === null) {
       setKomunikat('Wszystkie sześć pojemników jest zajętych — wsyp któryś do maszyny.')
       return
     }
+    // Pojemnik POWSTAJE DOPIERO po zatwierdzeniu całego ważenia (`zamknijPojemnik`).
+    // Wcześniej zakładaliśmy go tutaj i wystarczyło wejść na ekran i wyjść, żeby
+    // w „Przygotowanych przyprawach" pojawił się pojemnik, którego nikt nie ważył.
+    setOdwazone({})
+    setTryb({ kind: 'prep', orderId, kg: kgWsadu, cartNo })
+  }
+
+  /** Zatwierdzenie CAŁEGO ważenia: dopiero teraz pojemnik trafia do bazy. */
+  const zamknijPojemnik = async () => {
+    if (tryb?.kind !== 'prep') return
+    const pozycje = scaleIngredients(skladniki(zlecenie(tryb.orderId)?.recipeId ?? ''), tryb.kg)
+    const komplet = pozycje.every(i => odwazone[i.seq] !== undefined)
+    if (!komplet) {
+      setKomunikat('Najpierw odważ wszystkie składniki.')
+      return
+    }
     setZapisuje(true)
     try {
-      const cart = await masowniaApi.createCart({ orderId, cartNo, kgTarget: kgWsadu })
+      await masowniaApi.createCart({
+        orderId: tryb.orderId, cartNo: tryb.cartNo, kgTarget: tryb.kg,
+        ingredients: pozycje.map(i => ({
+          seq: i.seq, name: i.name, unit: i.unit, qty: i.qty,
+          weighed: odwazone[i.seq]?.weighed ?? 0, manual: odwazone[i.seq]?.manual ?? false,
+        })),
+      })
+      setTryb(null)
       setOdwazone({})
-      setTryb({ kind: 'prep', orderId, kg: kgWsadu, cartNo, cartId: cart.id })
       odswiez()
+      setKomunikat(`Pojemnik ${tryb.cartNo} gotowy — odstaw go przy masownicy.`)
     } catch (e: any) {
-      setKomunikat(e?.message ?? 'Nie udało się założyć pojemnika')
+      setKomunikat(e?.message ?? 'Nie udało się zapisać pojemnika')
     } finally {
       setZapisuje(false)
     }
   }
 
-  const zapiszSkladnik = async (item: SpiceItem, kgOdczyt: number, recznie: boolean) => {
-    if (tryb?.kind !== 'prep' || !tryb.cartId) return
+  const zapiszSkladnik = (item: SpiceItem, kgOdczyt: number, recznie: boolean) => {
+    // Odczyty żyją w panelu do czasu zatwierdzenia całości. Wyjście z ekranu
+    // w połowie ważenia ma NIE zostawiać śladu — hala wyraźnie tego chciała.
     setOdwazone(p => ({ ...p, [item.seq]: { weighed: kgOdczyt, manual: recznie } }))
-    try {
-      await masowniaApi.weighIngredient(tryb.cartId, {
-        seq: item.seq, name: item.name, unit: item.unit,
-        qty: item.qty, weighed: kgOdczyt, manual: recznie,
-      })
-    } catch (e: any) {
-      setKomunikat(e?.message ?? 'Nie udało się zapisać składnika')
-    }
   }
 
   // ── Tor 2: załadunek ────────────────────────────────────────────────────
@@ -176,7 +194,7 @@ export function MasowanieHmiPage() {
     try {
       await masowniaApi.load({
         orderId: tryb.orderId, machineId: tryb.machineId, cartId: tryb.cartId,
-        waterL: litry, meat: tryb.take,
+        waterL: litry, meat: tryb.take, spices: tryb.spices,
       })
       setTryb(null)
       odswiez()
@@ -280,7 +298,7 @@ export function MasowanieHmiPage() {
                 if (!tryb.machineId || !tryb.orderId) return
                 setTryb({
                   kind: 'load', orderId: tryb.orderId, machineId: tryb.machineId,
-                  cartId: tryb.cartId, step: 'meat', take: [],
+                  cartId: tryb.cartId, step: 'meat', take: [], spices: [],
                 })
               }} />
           ) : null}
@@ -300,8 +318,8 @@ export function MasowanieHmiPage() {
               weighed={odwazone}
               cartNo={tryb.cartNo}
               onWeigh={zapiszSkladnik}
-              onDone={() => { setTryb(null); odswiez() }}
-              onBack={() => { setTryb(null); odswiez() }} />
+              onDone={zamknijPojemnik}
+              onBack={() => { setTryb(null); setOdwazone({}) }} />
           ) : null}
 
           {tryb?.kind === 'load' && tryb.step === 'meat' ? (
@@ -313,7 +331,32 @@ export function MasowanieHmiPage() {
                 : Math.min(zostaloW(tryb.orderId), maszynaOId(tryb.machineId)?.cap ?? 0)}
               maxKg={maszynaOId(tryb.machineId)?.max ?? 0}
               onBack={() => setTryb(null)}
-              onConfirm={take => setTryb({ ...tryb, step: 'water', take })} />
+              onConfirm={take => setTryb({ ...tryb, step: tryb.cartId ? 'water' : 'spices', take })} />
+          ) : null}
+
+          {tryb?.kind === 'load' && tryb.step === 'spices' ? (
+            <SpiceWeighing
+              items={scaleIngredients(
+                skladniki(zlecenie(tryb.orderId)?.recipeId ?? ''),
+                tryb.take.reduce((s, t) => s + t.kg, 0))}
+              weighed={odwazone}
+              cartNo={0}
+              przyMaszynie
+              onWeigh={zapiszSkladnik}
+              onDone={() => {
+                const pozycje = scaleIngredients(
+                  skladniki(zlecenie(tryb.orderId)?.recipeId ?? ''),
+                  tryb.take.reduce((s, t) => s + t.kg, 0))
+                setTryb({
+                  ...tryb, step: 'water',
+                  spices: pozycje.map(i => ({
+                    seq: i.seq, name: i.name, unit: i.unit, qty: i.qty,
+                    weighed: odwazone[i.seq]?.weighed ?? 0,
+                    manual: odwazone[i.seq]?.manual ?? false,
+                  })),
+                })
+              }}
+              onBack={() => setTryb({ ...tryb, step: 'meat' })} />
           ) : null}
 
           {tryb?.kind === 'load' && tryb.step === 'water' ? (
@@ -462,7 +505,7 @@ function RestScreen({ doOdbioru, wolneMaszyny, pojemnikiGotowe, nastepne, onPrzy
   onOdbierz: () => void
 }) {
   return (
-    <div className="flex-1 min-h-0 flex flex-col gap-4 p-5">
+    <div className="flex-1 min-h-0 flex flex-col gap-4 p-5 justify-center">
       {doOdbioru.length ? (
         <div className="flex flex-col items-center gap-1.5 px-9 py-5 rounded-2xl min-w-[440px]"
           style={{ background: 'var(--successSoft)', border: '1.5px solid var(--successLine)' }}>
@@ -483,7 +526,7 @@ function RestScreen({ doOdbioru, wolneMaszyny, pojemnikiGotowe, nastepne, onPrzy
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-5 w-full flex-1 min-h-0">
+      <div className="grid grid-cols-2 gap-5 w-full shrink-0" style={{ height: '62%' }}>
         <ActionTile
           title="Przygotuj przyprawy"
           lead="Odważ przyprawy na następny wsad do ponumerowanego pojemnika. Masownice mogą przy tym spokojnie chodzić — to robota na te 50 minut."

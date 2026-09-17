@@ -38,12 +38,19 @@ export function fitsMachine(kg: number, machineId: number): boolean {
   return m ? kg <= m.max + 1e-9 : false
 }
 
-/** Okno dozownika DW-1C: dokładność ±3% wg producenta, węższe okno zgłaszałoby
- *  błąd, którego urządzenie i tak nie potrafi uniknąć. Minimum 0,5 L, bo
- *  działka bywa 0,1 albo 1 L. */
+/** Dopuszczalny odchył dawki wody: pół litra, niezależnie od wielkości dawki.
+ *
+ *  Pierwotnie było ±3% „bo tyle wynosi dokładność DW-1C" — przy 112 L dawało
+ *  to widełki 108,6–115,4 i hala słusznie powiedziała, że to nie jest dawka,
+ *  tylko przedział. Woda wpływa na wsad wprost, więc zadane 112 znaczy 112.
+ */
+export const TOL_WODA_L = 0.5
+
 export function waterWindow(targetL: number): { min: number; max: number } {
-  const tol = Math.max(0.5, Math.round(targetL * 0.03 * 10) / 10)
-  return { min: Math.round((targetL - tol) * 10) / 10, max: Math.round((targetL + tol) * 10) / 10 }
+  return {
+    min: Math.round((targetL - TOL_WODA_L) * 10) / 10,
+    max: Math.round((targetL + TOL_WODA_L) * 10) / 10,
+  }
 }
 
 /** Tożsamość partii przyprawionej: jeden wsad surowca → partia nosi jego numer

@@ -173,3 +173,62 @@ def test_trojka_odrzuca_ponad_700_kg():
         svc.load_charge(ChargeCreate(orderId=oid, machineId=3, meat=[
             ChargeMeatDto(lotNo="511", meatStockId=ms, kg=750)]))
     assert "700" in str(e.value.detail)
+
+
+def test_wsad_bez_pojemnika_zapisuje_przyprawy_wazone_przy_maszynie():
+    # Gdy przyprawy nie czekaja w pojemniku, operator wazy je PRZY MASZYNIE —
+    # i te odczyty musza zostac, tak samo jak te z pojemnika. Wczesniej panel
+    # kazal dodac tylko wode i przyprawy nie zostawialy sladu.
+    from app.models.masownia import SpiceWeighDto
+    oid, ms = _zlecenie(), _partia("511")
+    ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, waterL=36, meat=[
+        ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)], spices=[
+        SpiceWeighDto(seq=0, name="BERG SERHAT", unit="kg", qty=3.5, weighed=3.51, manual=False)]))
+    zapis = query_one("SELECT spices FROM mixing_charges WHERE id=%s", (ch["id"],))
+    import json as _json
+    sp = zapis["spices"] if isinstance(zapis["spices"], list) else _json.loads(zapis["spices"])
+    assert [s["name"] for s in sp] == ["BERG SERHAT"]
+    assert sp[0]["weighed"] == 3.51
+
+
+def test_wsad_z_pojemnika_nie_potrzebuje_przypraw_w_zadaniu():
+    oid, ms = _zlecenie(), _partia("511")
+    cart = svc.create_cart(SpiceCartCreate(orderId=oid, cartNo=1, kgTarget=200))
+    ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, cartId=cart["id"], meat=[
+        ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
+    assert ch["id"]
+
+
+def _paleta_z_miesem(pallet_no, kg, lot_no, ms_id):
+    from app.db import execute as _ex
+    pid = cuid()
+    _ex("INSERT INTO meat_pallets (id, pallet_no, target_kg, kg_net, containers, "
+        "production_date, expiry_date) VALUES (%s,%s,%s,%s,0,'2026-09-17','2026-10-01')",
+        (pid, pallet_no, kg, kg))
+    _ex("INSERT INTO meat_pallet_lots (id, pallet_id, lot_no, kg, seq) VALUES (%s,%s,%s,%s,0)",
+        (cuid(), pid, lot_no, kg))
+    return pid
+
+
+def test_paleta_wzieta_w_calosci_znika_po_odbiorze():
+    # „Palety juz wymieszane i przekazane do miesa przyprawionego maja znikac" —
+    # operator ma widziec tylko to, po co pojedzie wozkiem.
+    oid, ms = _zlecenie(), _partia("511")
+    pid = _paleta_z_miesem("PAL/Z/1", 200, "511", ms)
+    ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
+        ChargeMeatDto(palletId=pid, lotNo="511", meatStockId=ms, kg=200)]))
+    assert query_one("SELECT consumed_at FROM meat_pallets WHERE id=%s", (pid,))["consumed_at"] is None
+    svc.finish_charge(ch["id"], ChargeFinish(kgOutput=232))
+    assert query_one("SELECT consumed_at FROM meat_pallets WHERE id=%s", (pid,))["consumed_at"] is not None
+    assert [p["id"] for p in svc.list_meat()["pallets"]] == []
+
+
+def test_paleta_napoczeta_zostaje_na_magazynie():
+    # Z palety 200 kg zeszlo 120 — reszta dalej czeka i musi byc widoczna.
+    oid, ms = _zlecenie(), _partia("511")
+    pid = _paleta_z_miesem("PAL/Z/2", 200, "511", ms)
+    ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
+        ChargeMeatDto(palletId=pid, lotNo="511", meatStockId=ms, kg=120)]))
+    svc.finish_charge(ch["id"], ChargeFinish(kgOutput=140))
+    assert query_one("SELECT consumed_at FROM meat_pallets WHERE id=%s", (pid,))["consumed_at"] is None
+    assert [p["id"] for p in svc.list_meat()["pallets"]] == [pid]

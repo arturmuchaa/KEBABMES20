@@ -37,15 +37,15 @@ export function ActionTile({ title, lead, foot, color, disabled, onClick }: {
 
   return (
     <button type="button" disabled={disabled} onClick={onClick}
-      className="rounded-2xl p-8 text-left flex flex-col gap-4 h-full w-full"
+      className="rounded-2xl p-7 text-left flex flex-col gap-3 h-full w-full"
       style={{
         background: tlo,
         color: tekst,
         border: disabled ? '2px solid var(--line)' : 'none',
         cursor: disabled ? 'not-allowed' : 'pointer',
-        minHeight: 300,
+        minHeight: 240,
       }}>
-      <span className="text-[34px] font-extrabold leading-tight tracking-tight">{title}</span>
+      <span className="text-[30px] font-extrabold leading-tight tracking-tight">{title}</span>
       <span className="text-[17px] leading-relaxed" style={{ color: przygaszony, maxWidth: '36ch' }}>
         {lead}
       </span>

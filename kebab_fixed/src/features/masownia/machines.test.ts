@@ -34,12 +34,14 @@ describe('masownice', () => {
 })
 
 describe('waterWindow', () => {
-  it('okno dozownika to ±3% dawki', () => {
-    expect(waterWindow(100)).toEqual({ min: 97, max: 103 })
+  it('odchył to pół litra, nie procent dawki', () => {
+    // ±3% dawało przy 112 L widełki 108,6–115,4 — to nie dawka, tylko przedział.
+    expect(waterWindow(112)).toEqual({ min: 111.5, max: 112.5 })
   })
 
-  it('przy małej dawce okno nie schodzi poniżej 0,5 L', () => {
+  it('duża dawka ma tak samo wąskie okno jak mała', () => {
     expect(waterWindow(10)).toEqual({ min: 9.5, max: 10.5 })
+    expect(waterWindow(600)).toEqual({ min: 599.5, max: 600.5 })
   })
 })
 

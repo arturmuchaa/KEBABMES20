@@ -19,11 +19,14 @@ const DWELL_MS = 800
 
 const qty = (n: number) => n.toLocaleString('pl-PL', { maximumFractionDigits: 3 })
 
-export function SpiceWeighing({ items, weighed, cartNo, onWeigh, onDone, onBack }: {
+export function SpiceWeighing({ items, weighed, cartNo, przyMaszynie, onWeigh, onDone, onBack }: {
   items: SpiceItem[]
-  /** Co już odważone: seq → kg. */
+  /** Co już odważone: seq → kg. Żyje w panelu do czasu zatwierdzenia całości. */
   weighed: Record<number, { weighed: number; manual: boolean }>
   cartNo: number
+  /** Ważenie PRZY MASZYNIE (brak gotowego pojemnika) — przyprawy idą wprost
+   *  do masownicy, więc nie ma numeru pojemnika ani „odstaw przy maszynie". */
+  przyMaszynie?: boolean
   onWeigh: (item: SpiceItem, kg: number, manual: boolean) => void
   onDone: () => void
   onBack: () => void
@@ -63,7 +66,7 @@ export function SpiceWeighing({ items, weighed, cartNo, onWeigh, onDone, onBack 
         <button type="button" onClick={onBack} className="text-sm font-extrabold" style={{ color: 'var(--accent)' }}>
           ← Wróć
         </button>
-        <span className="text-[22px] font-extrabold tracking-tight">Przyprawy do pojemnika {cartNo}</span>
+<span className="text-[22px] font-extrabold tracking-tight">{przyMaszynie ? 'Przyprawy do masownicy' : `Przyprawy do pojemnika ${cartNo}`}</span>
         <div className="flex-1" />
         <span className="hmi-v10-mono text-[15px] font-bold" style={{ color: 'var(--mut)' }}>
           {Object.keys(weighed).length} / {items.length}
@@ -117,16 +120,22 @@ export function SpiceWeighing({ items, weighed, cartNo, onWeigh, onDone, onBack 
           }}>
           {komplet ? (
             <>
-              <div className="w-20 h-20 rounded-2xl flex items-center justify-center text-4xl font-extrabold"
-                style={{ background: 'var(--success)', color: '#fff' }}>{cartNo}</div>
-              <span className="text-3xl font-extrabold" style={{ color: 'var(--success)' }}>Pojemnik gotowy</span>
+              {przyMaszynie ? null : (
+                <div className="w-20 h-20 rounded-2xl flex items-center justify-center text-4xl font-extrabold"
+                  style={{ background: 'var(--success)', color: '#fff' }}>{cartNo}</div>
+              )}
+              <span className="text-3xl font-extrabold" style={{ color: 'var(--success)' }}>
+                {przyMaszynie ? 'Przyprawy odważone' : 'Pojemnik gotowy'}
+              </span>
               <span className="text-[15px]" style={{ color: 'var(--mut)' }}>
-                Odstaw go przy masownicy — przy maszynie wskażesz jego numer.
+                {przyMaszynie
+                  ? 'Wsyp je do masownicy i przejdź do wody.'
+                  : 'Odstaw go przy masownicy — przy maszynie wskażesz jego numer.'}
               </span>
               <button type="button" onClick={onDone}
                 className="h-[60px] px-7 rounded-[10px] text-lg font-extrabold mt-3"
                 style={{ background: 'var(--success)', color: '#fff' }}>
-                Gotowe
+                {przyMaszynie ? 'Dalej — woda' : 'Zatwierdź pojemnik'}
               </button>
             </>
           ) : !biezacy ? (

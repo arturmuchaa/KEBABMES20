@@ -1708,6 +1708,16 @@ _DDL: list[str] = [
     # nie zostawiałby śladu — a rozjazd teorii z fizyką bywa na 1-3 kg i to
     # biuro musi go uzgodnić (`reconcile_seasoned_batch`).
     "ALTER TABLE mixing_charges ADD COLUMN IF NOT EXISTS kg_output NUMERIC(10,3) NOT NULL DEFAULT 0",
+    # Przyprawy odważone PRZY MASZYNIE (brak gotowego pojemnika). Należą do
+    # wsadu, bo nikt ich nigdzie nie odstawiał — pojemnik ma własną tabelę.
+    "ALTER TABLE mixing_charges ADD COLUMN IF NOT EXISTS spices JSONB NOT NULL DEFAULT '[]'::jsonb",
+    # Paleta ZUŻYTA — mięso z niej zostało wymieszane i przeszło w przyprawione.
+    # Osobna kolumna od `deleted_at`: tamto znaczy „zapisana przez pomyłkę,
+    # zdjęta ręcznie z powodem", a to jest normalny koniec życia palety.
+    "ALTER TABLE meat_pallets ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMPTZ",
+    "ALTER TABLE meat_pallets ADD COLUMN IF NOT EXISTS consumed_charge_id TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_meat_pallets_zywe ON meat_pallets(production_date) "
+    "WHERE deleted_at IS NULL AND consumed_at IS NULL",
 ]
 
 

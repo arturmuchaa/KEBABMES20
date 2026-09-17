@@ -223,3 +223,50 @@ describe('plan dnia i dolny pasek', () => {
     expect(screen.getByTestId('pasek-dnia')).toHaveTextContent('0%')
   })
 })
+
+describe('nic nie powstaje bez zważenia', () => {
+  it('wejście i wyjście z ważenia NIE zakłada pojemnika', async () => {
+    // Hala: „wszedłem i wyszedłem i pojawiło się, że przyprawy przygotowane,
+    // a tak nie było". Pojemnik ma powstać dopiero po zatwierdzeniu całości.
+    const { masowniaApi } = await import('@/lib/api')
+    stan.wsady = []; stan.pojemniki = []
+    stan.zlecenia = [{ id: 'o1', orderNo: 'MAS/17/09/26', recipeId: 'r1', recipeName: 'KIRMIZI',
+                       meatKg: 1000, kgDone: 0, daySeq: 1, status: 'confirmed', meatLots: [] }]
+
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getByText(/Przygotuj przyprawy/i)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Przygotuj przyprawy/i }))
+    await waitFor(() => expect(screen.getByText(/Typowe wsady|Przyprawy ważysz/i)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /^200 kg/ }))
+    await waitFor(() => expect(screen.getByText(/Przyprawy do pojemnika/i)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Wróć/ }))
+
+    expect(masowniaApi.createCart).not.toHaveBeenCalled()
+  })
+
+  it('załadunek bez gotowych przypraw prowadzi przez wagę, nie prosto do wody', async () => {
+    stan.wsady = []; stan.pojemniki = []
+    stan.zlecenia = [{ id: 'o1', orderNo: 'MAS/17/09/26', recipeId: 'r1', recipeName: 'KIRMIZI',
+                       meatKg: 200, kgDone: 0, daySeq: 1, status: 'confirmed', meatLots: [] }]
+    stan.mieso = {
+      pallets: [{ id: 'p1', palletNo: 'PAL/1', kgNet: 200, expiryDate: '2026-10-01',
+                  lots: [{ lotNo: '511', kg: 200 }] }],
+      lots: [{ meatStockId: 'ms-511', lotNo: '511', materialName: 'Mięso z/s',
+               materialTypeId: 'mat-mieso-zs', kgFree: 200, expiryDate: '2026-10-01' }],
+      taken: {},
+    }
+
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getByText(/Załaduj masownicę/i)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Załaduj masownicę/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Masownica 1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Wsad MAS/17/09/26' }))
+    fireEvent.click(screen.getByRole('button', { name: /Dalej — mięso/ }))
+    await waitFor(() => expect(screen.getByText('Mięso do wsadu')).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /PAL\/1/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^Załaduj/ }))
+
+    await waitFor(() => expect(screen.getByText(/Przyprawy do masownicy/i)).toBeInTheDocument())
+    expect(screen.queryByText(/Zadaj dawkę/i)).not.toBeInTheDocument()
+  })
+})

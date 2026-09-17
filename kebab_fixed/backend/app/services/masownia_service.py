@@ -26,12 +26,17 @@ logger = get_logger(__name__)
 
 
 def _pallets() -> List[Dict[str, Any]]:
-    """Palety z ważenia zbiorczego. Paleta ZDJĘTA nie istnieje dla hali."""
+    """Palety z ważenia zbiorczego, które JESZCZE LEŻĄ na magazynie surowca.
+
+    Odpadają dwie grupy: zdjęte ręcznie (pomyłka zapisu) i ZUŻYTE — takie,
+    których mięso zostało wymieszane i przeszło w przyprawione. Operator ma
+    przed sobą to, po co może pojechać wózkiem, a nie historię ważeń.
+    """
     rows = query_all(
         """
         SELECT p.id, p.pallet_no, p.kg_net, p.production_date, p.expiry_date
         FROM meat_pallets p
-        WHERE p.deleted_at IS NULL
+        WHERE p.deleted_at IS NULL AND p.consumed_at IS NULL
         ORDER BY p.production_date, p.pallet_no
         """
     )
@@ -231,14 +236,20 @@ def create_cart(dto: SpiceCartCreate) -> Dict[str, Any]:
         recipe = cx_query_one(
             conn, "SELECT recipe_id FROM mixing_orders WHERE id=%s", (dto.order_id,)
         )
+        skladniki = [{
+            "seq": i.seq, "name": i.name, "unit": i.unit,
+            "qty": i.qty, "weighed": i.weighed, "manual": i.manual,
+        } for i in sorted(dto.ingredients, key=lambda x: x.seq)]
         row = cx_execute_returning(
             conn,
             """
-            INSERT INTO mixing_spice_carts (id, cart_no, order_id, recipe_id, kg_target, status)
-            VALUES (%s,%s,%s,%s,%s,'prepared') RETURNING *
+            INSERT INTO mixing_spice_carts
+                (id, cart_no, order_id, recipe_id, kg_target, status, ingredients)
+            VALUES (%s,%s,%s,%s,%s,'prepared',%s) RETURNING *
             """,
             (cuid(), dto.cart_no, dto.order_id,
-             (recipe or {}).get("recipe_id") or "", dto.kg_target),
+             (recipe or {}).get("recipe_id") or "", dto.kg_target,
+             json.dumps(skladniki, ensure_ascii=False)),
         )
     logger.info("masownia.cart.created", extra={
         "cart_no": dto.cart_no, "order": dto.order_id, "kg": dto.kg_target,
@@ -371,11 +382,16 @@ def load_charge(dto: ChargeCreate) -> Dict[str, Any]:
             conn,
             """
             INSERT INTO mixing_charges
-                (id, order_id, machine_id, cart_id, kg_meat, water_l, batch_no, status, started_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,'mixing',%s) RETURNING *
+                (id, order_id, machine_id, cart_id, kg_meat, water_l, batch_no,
+                 status, started_at, spices)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,'mixing',%s,%s) RETURNING *
             """,
             (cuid(), dto.order_id, dto.machine_id, dto.cart_id, kg_meat,
-             dto.water_l, batch_no, now_iso()),
+             dto.water_l, batch_no, now_iso(),
+             json.dumps([{
+                 "seq": i.seq, "name": i.name, "unit": i.unit,
+                 "qty": i.qty, "weighed": i.weighed, "manual": i.manual,
+             } for i in sorted(dto.spices, key=lambda x: x.seq)], ensure_ascii=False)),
         )
         for m in dto.meat:
             cx_execute(
@@ -455,6 +471,24 @@ def finish_charge(charge_id: str, dto: ChargeFinish) -> Dict[str, Any]:
             (charge_id,),
         )
         raise
+
+    # Paleta, z której zeszło wszystko, kończy życie razem z odbiorem: mięso
+    # jest już przyprawione, więc nie ma po co stać na magazynie surowca.
+    # Paleta napoczęta zostaje — reszta z niej dalej czeka na wózek.
+    execute(
+        """
+        UPDATE meat_pallets p
+        SET consumed_at = %s, consumed_charge_id = %s
+        WHERE p.deleted_at IS NULL AND p.consumed_at IS NULL
+          AND p.id IN (SELECT cp.pallet_id FROM mixing_charge_pallets cp
+                       WHERE cp.charge_id = %s AND cp.pallet_id IS NOT NULL)
+          AND p.kg_net - COALESCE((
+                SELECT SUM(cp2.kg) FROM mixing_charge_pallets cp2
+                JOIN mixing_charges c2 ON c2.id = cp2.charge_id AND c2.status <> 'cancelled'
+                WHERE cp2.pallet_id = p.id), 0) <= 0.05
+        """,
+        (now_iso(), charge_id, charge_id),
+    )
 
     sesja = query_one(
         "SELECT id FROM mixing_sessions WHERE order_id=%s ORDER BY completed_at DESC LIMIT 1",

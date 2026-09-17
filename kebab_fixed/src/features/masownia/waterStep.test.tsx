@@ -20,18 +20,19 @@ describe('WaterStep', () => {
     expect(onDone).toHaveBeenCalledWith(108)
   })
 
-  it('dawka poza oknem ±3% nie przechodzi', () => {
+  it('dawka poza oknem pół litra nie przechodzi', () => {
     const onDone = vi.fn()
     render(<WaterStep targetL={100} onDone={onDone} onBack={vi.fn()} />)
-    wpisz('120')
+    wpisz('102')
     fireEvent.click(screen.getByRole('button', { name: /Zatwierdź/ }))
     expect(onDone).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: /Zatwierdź/ })).toBeDisabled()
   })
 
-  it('pokazuje zadaną dawkę', () => {
+  it('pokazuje zadaną dawkę i wąskie okno wokół niej', () => {
     render(<WaterStep targetL={108} onDone={vi.fn()} onBack={vi.fn()} />)
-    expect(screen.getByText(/108/)).toBeInTheDocument()
+    expect(screen.getAllByText(/108/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/107,5 – 108,5/)).toBeInTheDocument()
   })
 
   it('receptura bez wody przepuszcza dalej bez pytania o litry', () => {

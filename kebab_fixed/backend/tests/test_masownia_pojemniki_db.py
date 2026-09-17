@@ -83,3 +83,24 @@ def test_lista_pokazuje_tylko_stojace_pojemniki():
     b = svc.create_cart(SpiceCartCreate(orderId=oid, cartNo=3, kgTarget=200))
     svc.cancel_cart(b["id"])
     assert [c["id"] for c in svc.list_carts()] == [a["id"]]
+
+
+def test_pojemnik_powstaje_od_razu_z_odwazonymi_skladnikami():
+    # Panel zaklada pojemnik DOPIERO po zatwierdzeniu calego wazenia, wiec
+    # przysyla komplet naraz. Wczesniej pojemnik powstawal przy wyborze
+    # wielkosci wsadu i „przygotowane przyprawy" pojawialy sie po samym
+    # wejsciu i wyjsciu z ekranu — bez zwazenia czegokolwiek.
+    oid = _zlecenie()
+    cart = svc.create_cart(SpiceCartCreate(orderId=oid, cartNo=2, kgTarget=200, ingredients=[
+        SpiceWeighDto(seq=0, name="BERG SERHAT", unit="kg", qty=3.5, weighed=3.5, manual=False),
+        SpiceWeighDto(seq=1, name="SKROBIA", unit="kg", qty=3.0, weighed=3.02, manual=True),
+    ]))
+    assert [i["name"] for i in cart["ingredients"]] == ["BERG SERHAT", "SKROBIA"]
+    assert cart["ingredients"][1]["manual"] is True
+
+
+def test_pojemnik_bez_skladnikow_dalej_wolno_zalozyc():
+    # Zgodnosc wstecz: stara sciezka (zaloz, potem wazenie po jednym) dziala.
+    oid = _zlecenie()
+    cart = svc.create_cart(SpiceCartCreate(orderId=oid, cartNo=1, kgTarget=200))
+    assert cart["ingredients"] == []

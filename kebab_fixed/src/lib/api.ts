@@ -1158,8 +1158,12 @@ export const masowniaApi = {
   meat: () => get<any>('/masownia/mieso').then(mapMasowniaMeat),
 
   carts: () => get<any>('/masownia/pojemniki').then(r => (r?.data ?? []) as any[]),
-  createCart: (dto: { orderId: string; cartNo: number; kgTarget: number }) =>
-    post<any>('/masownia/pojemniki', dto),
+  createCart: (dto: {
+    orderId: string; cartNo: number; kgTarget: number
+    /** Komplet odważonych składników — panel zakłada pojemnik DOPIERO po
+     *  zatwierdzeniu całego ważenia. */
+    ingredients?: { seq: number; name: string; unit: string; qty: number; weighed: number; manual: boolean }[]
+  }) => post<any>('/masownia/pojemniki', dto),
   weighIngredient: (cartId: string, dto: {
     seq: number; name: string; unit: string; qty: number; weighed: number; manual: boolean
   }) => patch<any>(`/masownia/pojemniki/${cartId}`, dto),
@@ -1169,6 +1173,8 @@ export const masowniaApi = {
   load: (dto: {
     orderId: string; machineId: number; cartId?: string | null; waterL: number
     meat: { palletId: string | null; lotNo: string; meatStockId: string; kg: number }[]
+    /** Przyprawy odważone przy maszynie, gdy nie było gotowego pojemnika. */
+    spices?: { seq: number; name: string; unit: string; qty: number; weighed: number; manual: boolean }[]
   }) => post<any>('/masownia/wsady', dto),
   finish: (chargeId: string, kgOutput: number) =>
     patch<any>(`/masownia/wsady/${chargeId}/odbior`, { kgOutput }),

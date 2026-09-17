@@ -349,9 +349,14 @@ def usun_palete(pallet_no: str, reason: str, subject: str = "") -> Dict[str, Any
 
 
 def list_pallets(day: str = "") -> List[Dict[str, Any]]:
-    """Palety dnia produkcyjnego (domyślnie wszystkie, najnowsze pierwsze)."""
+    """Palety, które JESZCZE LEŻĄ na magazynie surowca.
+
+    Odpadają zdjęte ręcznie (pomyłka zapisu) i ZUŻYTE — takie, których mięso
+    poszło do masownicy i wróciło jako przyprawione. Lista ma pokazywać to,
+    po co można pojechać wózkiem, a nie historię wszystkich ważeń.
+    """
     rows = query_all(
-        "SELECT * FROM meat_pallets WHERE deleted_at IS NULL "
+        "SELECT * FROM meat_pallets WHERE deleted_at IS NULL AND consumed_at IS NULL "
         "AND (%s = '' OR production_date = %s::date) "
         "ORDER BY created_at DESC LIMIT 200",
         (day, day or None),

@@ -3,7 +3,11 @@
  *
  * Woda nie idzie przez wagę: dawkę zadaje dozownik DW-1C, który sam zamyka
  * elektrozawór. Dopóki nie ma modułu RS-485, operator przepisuje litry
- * z urządzenia; okno ±3% jest dokładnością dozownika, nie naszym wyborem.
+ * z urządzenia.
+ *
+ * Okno to pół litra na sztywno. Wcześniej było ±3% „bo tyle wynosi dokładność
+ * dozownika" — przy 112 L dawało to 108,6–115,4 i hala słusznie powiedziała,
+ * że to przedział, a nie dawka. Woda wpływa na wsad wprost.
  */
 import { useEffect, useState } from 'react'
 import { waterWindow } from '../machines'
