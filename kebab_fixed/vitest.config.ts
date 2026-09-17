@@ -31,6 +31,7 @@ export default defineConfig({
     __ROZBIOR_V10_VERSION__: JSON.stringify('test'),
     __PRODUKCJA_VERSION__: JSON.stringify('test'),
     __ROZBIOR_V11_VERSION__: JSON.stringify('test'),
+    __MASOWANIE_VERSION__: JSON.stringify('test'),
   },
   test: {
     environment: 'node',

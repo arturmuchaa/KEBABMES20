@@ -18,6 +18,7 @@ from app.models.receptions import ReceptionCreate
 from app.services.app_users_service import create_user
 from app.services.receptions_service import create_reception
 from app.db import execute, query_one
+from app.utils.passwords import hash_secret
 from app.utils.ids import cuid, now_iso
 
 LOGIN = "e2e"
@@ -79,9 +80,75 @@ def dostawa(sup_id: str) -> None:
     print(f"[seed] dostawa {out['reception']['reception_no']} — numery {numery}")
 
 
+def masownia() -> None:
+    """Stanowisko masowni: operator, mięso na paletach i dwa zlecenia.
+
+    Zlecenie A ma partię wskazaną przez biuro, zlecenie B nie ma żadnej —
+    e2e sprawdza właśnie tę różnicę, bo na produkcji występują oba przypadki
+    (8 z 12 ostatnich zleceń było bez partii).
+    """
+    if query_one("SELECT 1 FROM workers WHERE name=%s", ("OPERATOR MASOWNI",)):
+        print("[seed] masownia już jest")
+        return
+
+    execute(
+        "INSERT INTO workers (id, name, role, departments, active, pin_hash, created_at) "
+        "VALUES (%s,%s,'operator',%s,true,%s,%s)",
+        (cuid(), "OPERATOR MASOWNI", '["masowanie"]', hash_secret("1234"), now_iso()))
+
+    rec_id = cuid()
+    execute(
+        "INSERT INTO recipes (id, name, total_output_per_100kg, shelf_life_days, active) "
+        "VALUES (%s,%s,%s,%s,true) ON CONFLICT (id) DO NOTHING",
+        (rec_id, "E2E KIRMIZI", 118, 5))
+    ing_id = cuid()
+    execute(
+        "INSERT INTO ingredients (id, name, unit, active) VALUES (%s,%s,'kg',true) "
+        "ON CONFLICT (id) DO NOTHING", (ing_id, "E2E PRZYPRAWA"))
+    execute(
+        "INSERT INTO recipe_ingredients (id, recipe_id, ingredient_id, qty_per_100kg, unit, seq) "
+        "VALUES (%s,%s,%s,%s,'kg',0)", (cuid(), rec_id, ing_id, 1.5))
+
+    # Dwie partie mięsa, po palecie na każdą — jedna trafi do planu biura,
+    # druga ma zostać na ekranie wygaszona.
+    loty = {}
+    for lot_no, kg in (("E2E-511", 400.0), ("E2E-513", 400.0)):
+        ms_id = cuid()
+        execute(
+            "INSERT INTO meat_stock (id, lot_no, material_type_id, material_name, kg_initial, "
+            "kg_available, kg_reserved, production_date, expiry_date) "
+            "VALUES (%s,%s,'mat-mieso-zs','Mięso z/s',%s,%s,0,%s,%s)",
+            (ms_id, lot_no, kg, kg, DZIEN, DZIEN))
+        loty[lot_no] = ms_id
+        pid = cuid()
+        execute(
+            "INSERT INTO meat_pallets (id, pallet_no, target_kg, kg_net, containers, "
+            "production_date, expiry_date) VALUES (%s,%s,200,200,13,%s,%s)",
+            (pid, f"PAL/E2E/{lot_no[-3:]}", DZIEN, DZIEN))
+        execute(
+            "INSERT INTO meat_pallet_lots (id, pallet_id, lot_no, kg, seq) VALUES (%s,%s,%s,200,0)",
+            (cuid(), pid, lot_no))
+
+    for nr, (order_no, lot) in enumerate((
+        ("MAS/E2E/1", "E2E-511"),   # biuro wskazało partię
+        ("MAS/E2E/2", None),        # biuro nie wskazało nic
+    ), start=1):
+        oid = cuid()
+        execute(
+            "INSERT INTO mixing_orders (id, order_no, recipe_id, recipe_name, meat_kg, kg_done, "
+            "status, day_seq, created_at) VALUES (%s,%s,%s,%s,200,0,'confirmed',%s,%s)",
+            (oid, order_no, rec_id, "E2E KIRMIZI", nr, now_iso()))
+        if lot:
+            execute(
+                "INSERT INTO mixing_order_lots (id, order_id, meat_stock_id, kg_planned) "
+                "VALUES (%s,%s,%s,200)", (cuid(), oid, loty[lot]))
+    print("[seed] masownia: operator (PIN 1234), 2 partie z paletami, 2 zlecenia")
+
+
 def main() -> int:
     konto()
     dostawa(slowniki())
+    masownia()
     print("[seed] gotowe")
     return 0
 

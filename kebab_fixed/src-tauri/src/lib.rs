@@ -5,6 +5,11 @@ use tauri_plugin_updater::UpdaterExt;
 #[cfg(any(feature = "kiosk", test))]
 mod scale;
 
+// Most dozownika wody DW-1C (masownia) — jak waga, tylko kiosk. Do czasu
+// dokupienia modułu RS-485 jest wyłączony w `doser.json` i nic nie emituje.
+#[cfg(any(feature = "kiosk", test))]
+mod doser;
+
 // Most do skanera — dla BIURA (odwrotnie niż waga, która jest kioskowa).
 // Kompilowany zawsze: to tylko uruchomienie programu, bez ciężkich zależności
 // sprzętowych, więc gating dawałby szum w kodzie bez zysku.
@@ -28,6 +33,21 @@ fn scale_tare() {
     #[cfg(feature = "kiosk")]
     {
         scale::request_tare();
+    }
+}
+
+// Zadanie dawki wody dozownikowi DW-1C z panelu masowni. Bez modułu RS-485
+// urządzenie jest nieosiągalne i komenda kończy się błędem — panel przyjmuje
+// wtedy litry z klawiatury.
+#[tauri::command]
+fn doser_dose(_liters: f64) -> Result<(), String> {
+    #[cfg(feature = "kiosk")]
+    {
+        return doser::request_dose(_liters);
+    }
+    #[cfg(not(feature = "kiosk"))]
+    {
+        Err("Dozownik dostępny tylko w kiosku.".into())
     }
 }
 
@@ -115,6 +135,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![windows_logoff, scale_diagnose, scale_tare,
+                                doser_dose,
                                 apply_update_now, scan_document, scanner_diagnose,
                                 open_last_scan, open_document, print_page])
         .on_window_event(|_window, _event| {
@@ -131,6 +152,11 @@ pub fn run() {
                 // najazdową i emituje `scale://weight`. Tylko kiosk — appka
                 // biurowa nie ma prawa dotykać portów szeregowych.
                 scale::spawn_reader(_app.handle().clone());
+
+                // Most dozownika wody (masownia). Wątek kończy się od razu,
+                // dopóki `doser.json` nie zostanie włączony — czyli do czasu
+                // dokupienia modułu RS-485 do DW-1C.
+                doser::spawn_reader(_app.handle().clone());
 
                 // Kiosk: cichy auto-update w tle, BEZ dialogu — nikt nie ma dostępu
                 // do Windowsa żeby kliknąć "zainstaluj". Sprawdzenie od razu przy
