@@ -47,7 +47,7 @@ type Tryb =
 
 export function MasowanieHmiPage() {
   const { zlecenia, pojemniki, wsady, mieso, receptury, error, odswiez } = useMasowniaData()
-  const auth = useAuth() as any
+  const { user } = useAuth()
   const [now, setNow] = useState(() => Date.now())
   const [tryb, setTryb] = useState<Tryb>(null)
   const [odbior, setOdbior] = useState<Charge | null>(null)
@@ -218,7 +218,7 @@ export function MasowanieHmiPage() {
         <Chip label="Plan dnia" value={`${Math.round(zrobioneKg)} / ${Math.round(planKg)} kg`} />
         <Chip label="Zlecenia" value={String(kolejka.length)} />
         <Chip label="Mięso na magazynie" value={`${miesoKg} kg`} />
-        <Chip label="Operator" value={auth?.user?.fullName ?? '—'} accent />
+        <Chip label="Operator" value={(user?.name ?? '—').split(' ')[0]} accent />
         <div className="flex-1" />
         <div className="hmi-v10-mono text-[26px] font-bold tracking-tight">{hhmm(new Date(now))}</div>
       </header>
