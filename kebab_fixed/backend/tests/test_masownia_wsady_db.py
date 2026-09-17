@@ -139,3 +139,37 @@ def test_odbior_zapisuje_kilogramy_z_paleciaka():
     svc.finish_charge(ch["id"], ChargeFinish(kgOutput=232.5))
     zapis = query_one("SELECT kg_output FROM mixing_charges WHERE id=%s", (ch["id"],))
     assert float(zapis["kg_output"]) == 232.5
+
+
+def test_wsad_ponad_maksimum_masownicy_jest_odrzucany():
+    # Dwojka bierze 200 kg standardu i najwyzej 250. Panel blokuje to na
+    # ekranie, ale straznik musi stac TU: ekran jest jednym z klientow API,
+    # a przepelniona masownica nie miesza rowno.
+    oid, ms = _zlecenie(meat_kg=2000), _partia("511", kg=2000)
+    with pytest.raises(HTTPException) as e:
+        svc.load_charge(ChargeCreate(orderId=oid, machineId=2, meat=[
+            ChargeMeatDto(lotNo="511", meatStockId=ms, kg=260)]))
+    assert "250" in str(e.value.detail)
+    assert svc.list_charges() == []
+
+
+def test_wsad_w_granicy_masownicy_przechodzi():
+    oid, ms = _zlecenie(meat_kg=2000), _partia("511", kg=2000)
+    ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=2, meat=[
+        ChargeMeatDto(lotNo="511", meatStockId=ms, kg=250)]))
+    assert float(ch["kg_meat"]) == 250.0
+
+
+def test_trojka_bierze_do_700_kg():
+    oid, ms = _zlecenie(meat_kg=2000), _partia("511", kg=2000)
+    ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=3, meat=[
+        ChargeMeatDto(lotNo="511", meatStockId=ms, kg=700)]))
+    assert float(ch["kg_meat"]) == 700.0
+
+
+def test_trojka_odrzuca_ponad_700_kg():
+    oid, ms = _zlecenie(meat_kg=2000), _partia("511", kg=2000)
+    with pytest.raises(HTTPException) as e:
+        svc.load_charge(ChargeCreate(orderId=oid, machineId=3, meat=[
+            ChargeMeatDto(lotNo="511", meatStockId=ms, kg=750)]))
+    assert "700" in str(e.value.detail)

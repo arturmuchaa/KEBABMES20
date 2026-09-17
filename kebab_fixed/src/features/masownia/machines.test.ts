@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { MACHINES, OVER_KG, T_MIX_MIN, fitsMachine, waterWindow, batchNoFromLots } from './machines'
+import { MACHINES, T_MIX_MIN, maszyna, fitsMachine, waterWindow, batchNoFromLots } from './machines'
 
 describe('masownice', () => {
   it('trzy maszyny: 200, 200, 600 kg', () => {
@@ -10,10 +10,26 @@ describe('masownice', () => {
     expect(T_MIX_MIN).toBe(50)
   })
 
-  it('wsad mieści się do nominału plus cichy zapas', () => {
-    expect(fitsMachine(600, 600)).toBe(true)
-    expect(fitsMachine(630, 600)).toBe(true)
-    expect(fitsMachine(600 + OVER_KG + 0.1, 600)).toBe(false)
+  it('dwójki biorą 200 kg standardu, najwyżej 250', () => {
+    expect(MACHINES.filter(m => m.cap === 200).map(m => m.max)).toEqual([250, 250])
+  })
+
+  it('trójka bierze 600 kg standardu, najwyżej 700', () => {
+    expect(maszyna(3)!.max).toBe(700)
+  })
+
+  it('wsad ponad maksimum maszyny nie przechodzi', () => {
+    // Hala wrzuca czasem więcej niż nominał, ale ponad ten próg masownica
+    // już nie miesza — blokujemy, zamiast pozwolić na przepełnienie.
+    expect(fitsMachine(200, 1)).toBe(true)
+    expect(fitsMachine(250, 1)).toBe(true)
+    expect(fitsMachine(250.1, 1)).toBe(false)
+    expect(fitsMachine(700, 3)).toBe(true)
+    expect(fitsMachine(700.1, 3)).toBe(false)
+  })
+
+  it('nieznana maszyna nic nie przepuszcza', () => {
+    expect(fitsMachine(10, 9)).toBe(false)
   })
 })
 

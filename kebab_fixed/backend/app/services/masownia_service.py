@@ -288,6 +288,13 @@ def cancel_cart(cart_id: str) -> Dict[str, Any]:
     return _cart_out(row)
 
 
+#: Masownice hali: wsad STANDARDOWY → granica, powyżej której maszyna już nie
+#: miesza równo. Panel pilnuje tego na ekranie, ale strażnik musi stać także
+#: tutaj: ekran jest jednym z klientów API, a przepełnienie wychodzi dopiero
+#: po 50 minutach cyklu — wtedy jest za późno.
+MASOWNICE_MAX_KG = {1: 250, 2: 250, 3: 700}
+
+
 # ── Wsad w masownicy ───────────────────────────────────────────────────────
 #
 # Wsad powstaje w chwili ZAŁADOWANIA, nie przy odbiorze: paleta musi zniknąć
@@ -338,6 +345,16 @@ def load_charge(dto: ChargeCreate) -> Dict[str, Any]:
     kg_meat = round(sum(float(m.kg) for m in dto.meat), 3)
     if kg_meat <= 0:
         raise HTTPException(400, "Wsad bez mięsa — wskaż palety albo partię")
+
+    limit = MASOWNICE_MAX_KG.get(int(dto.machine_id))
+    if limit is None:
+        raise HTTPException(400, f"Nie ma masownicy {dto.machine_id}")
+    if kg_meat > limit + 0.001:
+        raise HTTPException(
+            400,
+            f"Masownica {dto.machine_id} nie weźmie {kg_meat:.0f} kg — "
+            f"najwyżej {limit} kg. Zdejmij {kg_meat - limit:.0f} kg.",
+        )
 
     batch_no = _batch_no_of([m.lot_no for m in dto.meat])
 

@@ -25,10 +25,13 @@ export interface MeatTake {
 const kg = (n: number) => `${Math.round(n * 10) / 10}`.replace('.', ',')
 const dPl = (iso: string) => (iso || '').slice(8, 10) + '.' + (iso || '').slice(5, 7)
 
-export function MeatPicker({ meat, orderLots, targetKg, onConfirm, onBack }: {
+export function MeatPicker({ meat, orderLots, targetKg, maxKg, onConfirm, onBack }: {
   meat: MeatTilesInput
   orderLots: OrderLot[]
   targetKg: number
+  /** Ile NAJWIĘCEJ weźmie ta masownica. Ponad to nie miesza równo, a operator
+   *  zauważa to dopiero po 50 minutach — dlatego blokujemy tu, nie później. */
+  maxKg: number
   onConfirm: (take: MeatTake[]) => void
   onBack: () => void
 }) {
@@ -43,6 +46,9 @@ export function MeatPicker({ meat, orderLots, targetKg, onConfirm, onBack }: {
   const wsad = Object.values(wybrane).flat()
   const razem = Math.round(wsad.reduce((s, t) => s + t.kg, 0) * 10) / 10
   const etykietaPlanu = officeChoiceLabel(orderLots)
+  const ponadMaszyne = maxKg > 0 && razem > maxKg + 1e-9
+  const nadmiar = Math.round((razem - maxKg) * 10) / 10
+  const wolnoZaladowac = wsad.length > 0 && !ponadMaszyne
 
   const przelacz = (kafel: (typeof kafelki)[number]) => {
     if (!kafel.allowed) return
@@ -151,14 +157,20 @@ export function MeatPicker({ meat, orderLots, targetKg, onConfirm, onBack }: {
       <div className="shrink-0 flex items-center gap-4 p-3 px-4"
         style={{ borderTop: '1px solid var(--line)', background: 'var(--bg)' }}>
         <span className="text-[15px] font-bold" style={{ color: 'var(--mut)' }}>
-          Wsad <b className="hmi-v10-mono text-[25px] font-bold" style={{ color: 'var(--ink)' }}>{kg(razem)}</b> kg
+          Wsad <b className="hmi-v10-mono text-[25px] font-bold"
+            style={{ color: ponadMaszyne ? 'var(--red)' : 'var(--ink)' }}>{kg(razem)}</b> kg
         </span>
-        <button type="button" disabled={wsad.length === 0} onClick={() => onConfirm(wsad)}
+        {ponadMaszyne ? (
+          <span className="text-[15px] font-extrabold" style={{ color: 'var(--red)' }}>
+            Masownica nie weźmie tyle — zdejmij {kg(nadmiar)} kg
+          </span>
+        ) : null}
+        <button type="button" disabled={!wolnoZaladowac} onClick={() => wolnoZaladowac && onConfirm(wsad)}
           className="h-[60px] px-7 rounded-[10px] text-lg font-extrabold ml-auto"
           style={{
             background: 'var(--accent)', color: '#fff',
-            opacity: wsad.length === 0 ? 0.35 : 1,
-            cursor: wsad.length === 0 ? 'not-allowed' : 'pointer',
+            opacity: wolnoZaladowac ? 1 : 0.35,
+            cursor: wolnoZaladowac ? 'pointer' : 'not-allowed',
           }}>
           Załaduj
         </button>

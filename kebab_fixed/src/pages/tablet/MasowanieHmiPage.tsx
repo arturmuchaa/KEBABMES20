@@ -20,12 +20,13 @@ import { HMI_VARS, HMI_FONT } from '@/features/hmi-theme/vars'
 import '@/features/hmi-theme/hmi-font.css'
 import { useAuth } from '@/features/auth/AuthContext'
 import { masowniaApi } from '@/lib/api'
-import { MACHINES, OVER_KG, fitsMachine } from '@/features/masownia/machines'
+import { MACHINES, fitsMachine, maszyna as maszynaOId, zapasNadNominalem } from '@/features/masownia/machines'
 import { scaleIngredients, waterOf, type SpiceItem } from '@/features/masownia/spiceCheck'
 import { useMasowniaData, type Charge, type SpiceCart } from '@/features/masownia/useMasowniaData'
 import { MachineRail, machineState } from '@/features/masownia/components/MachineRail'
 import { DayQueue, type QueueOrder } from '@/features/masownia/components/DayQueue'
 import { CartList } from '@/features/masownia/components/CartList'
+import { ActionTile, KOLOR_PRZYPRAW, KOLOR_MIESZANIA } from '@/features/masownia/components/ActionTile'
 import { DayBar } from '@/features/masownia/components/DayBar'
 import { SpiceWeighing } from '@/features/masownia/components/SpiceWeighing'
 import { LoadPicker } from '@/features/masownia/components/LoadPicker'
@@ -161,7 +162,7 @@ export function MasowanieHmiPage() {
   }
 
   const zaladujZPojemnika = (cart: SpiceCart) => {
-    const maszyna = wolneMaszyny.find(m => fitsMachine(Number(cart.kg_target), m.cap))
+    const maszyna = wolneMaszyny.find(m => fitsMachine(Number(cart.kg_target), m.id))
     if (!maszyna) {
       setKomunikat('Nie ma wolnej masownicy na ten wsad — poczekaj na koniec cyklu.')
       return
@@ -309,7 +310,8 @@ export function MasowanieHmiPage() {
               orderLots={(zlecenie(tryb.orderId)?.meatLots ?? []) as { meatLotNo: string }[]}
               targetKg={tryb.cartId
                 ? Number(pojemniki.find(p => p.id === tryb.cartId)?.kg_target ?? 0)
-                : Math.min(zostaloW(tryb.orderId), MACHINES.find(m => m.id === tryb.machineId)?.cap ?? 0)}
+                : Math.min(zostaloW(tryb.orderId), maszynaOId(tryb.machineId)?.cap ?? 0)}
+              maxKg={maszynaOId(tryb.machineId)?.max ?? 0}
               onBack={() => setTryb(null)}
               onConfirm={take => setTryb({ ...tryb, step: 'water', take })} />
           ) : null}
@@ -404,7 +406,7 @@ function SizeScreen({ recepturaNazwa, zostalo, busy, onPick, onBack }: {
 }) {
   const rozmiary = [...new Set(MACHINES.map(m => m.cap))]
     .sort((a, b) => b - a)
-    .filter(x => x <= zostalo + OVER_KG)
+    .filter(x => x <= zostalo + zapasNadNominalem(x))
   return (
     <>
       <div className="shrink-0 flex items-center gap-4 p-3 px-4" style={{ borderBottom: '1px solid var(--line)' }}>
@@ -460,7 +462,7 @@ function RestScreen({ doOdbioru, wolneMaszyny, pojemnikiGotowe, nastepne, onPrzy
   onOdbierz: () => void
 }) {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center gap-3 p-5 text-center">
+    <div className="flex-1 min-h-0 flex flex-col gap-4 p-5">
       {doOdbioru.length ? (
         <div className="flex flex-col items-center gap-1.5 px-9 py-5 rounded-2xl min-w-[440px]"
           style={{ background: 'var(--successSoft)', border: '1.5px solid var(--successLine)' }}>
@@ -481,39 +483,27 @@ function RestScreen({ doOdbioru, wolneMaszyny, pojemnikiGotowe, nastepne, onPrzy
         </div>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-4 w-full max-w-[900px]">
-        <Fork title="Przygotuj przyprawy" onClick={onPrzyprawy}
-          desc="Odważ przyprawy na następny wsad do ponumerowanego pojemnika. Maszyny mogą przy tym spokojnie chodzić — to robota na te 50 minut."
-          cta={nastepne ? `Następne: ${nastepne}` : 'Cały plan rozpisany'}
-          disabled={!nastepne} />
-        <Fork title="Załaduj masownicę" onClick={onZaladunek}
-          desc={wolneMaszyny.length
-            ? `Wolne: ${wolneMaszyny.map(m => `${m.id} (${m.cap} kg)`).join(', ')}. ${
-                pojemnikiGotowe
-                  ? 'Przyprawy czekają w pojemniku — zostaje wjechać paletami i zadać wodę.'
-                  : 'Nie ma gotowych przypraw — odważysz je przy maszynie.'}`
-            : 'Wszystkie trzy masownice pracują. Wykorzystaj czas na przyprawy.'}
-          cta={wolneMaszyny.length ? 'Wybierz wsad' : 'Brak wolnej maszyny'}
-          disabled={!wolneMaszyny.length} />
+      <div className="grid grid-cols-2 gap-5 w-full flex-1 min-h-0">
+        <ActionTile
+          title="Przygotuj przyprawy"
+          lead="Odważ przyprawy na następny wsad do ponumerowanego pojemnika. Masownice mogą przy tym spokojnie chodzić — to robota na te 50 minut."
+          foot={nastepne ? `Następne w kolejce: ${nastepne}` : 'Cały plan dnia jest rozpisany'}
+          color={KOLOR_PRZYPRAW}
+          disabled={!nastepne}
+          onClick={onPrzyprawy} />
+        <ActionTile
+          title="Załaduj masownicę"
+          lead={wolneMaszyny.length
+            ? 'Wskaż masownicę i wsad, dołóż mięso i zadaj wodę. Po zatwierdzeniu maszyna rusza na 50 minut.'
+            : 'Wszystkie trzy masownice pracują. Wykorzystaj ten czas na przyprawy do następnych wsadów.'}
+          foot={wolneMaszyny.length
+            ? `Wolne masownice: ${wolneMaszyny.map(m => m.id).join(', ')}${
+                pojemnikiGotowe ? ` · przyprawy czekają w ${pojemnikiGotowe === 1 ? 'pojemniku' : 'pojemnikach'}` : ''}`
+            : ''}
+          color={KOLOR_MIESZANIA}
+          disabled={!wolneMaszyny.length}
+          onClick={onZaladunek} />
       </div>
     </div>
-  )
-}
-
-function Fork({ title, desc, cta, disabled, onClick }: {
-  title: string; desc: string; cta: string; disabled?: boolean; onClick: () => void
-}) {
-  return (
-    <button type="button" disabled={disabled} onClick={onClick}
-      className="rounded-2xl p-6 text-left flex flex-col gap-2 min-h-[220px]"
-      style={{
-        background: 'var(--panel)', border: '2px solid var(--line)',
-        opacity: disabled ? 0.42 : 1, cursor: disabled ? 'not-allowed' : 'pointer',
-      }}>
-      <span className="text-2xl font-extrabold tracking-tight">{title}</span>
-      <span className="text-sm leading-relaxed" style={{ color: 'var(--mut)' }}>{desc}</span>
-      <span className="mt-auto text-sm font-extrabold uppercase tracking-wider"
-        style={{ color: disabled ? 'var(--mut)' : 'var(--accent)' }}>{cta} →</span>
-    </button>
   )
 }

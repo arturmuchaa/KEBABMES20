@@ -74,7 +74,7 @@ export function LoadPicker({ carts, orders, zajeteMaszyny, machineId, cartId, or
             </div>
             <div className="grid grid-cols-3 gap-3">
               {carts.map(c => {
-                const pasuje = !maszyna || fitsMachine(Number(c.kg_target), maszyna.cap)
+                const pasuje = !maszyna || fitsMachine(Number(c.kg_target), maszyna.id)
                 const on = cartId === c.id
                 return (
                   <button key={c.id} type="button" disabled={!pasuje} onClick={() => onCart(c)}
