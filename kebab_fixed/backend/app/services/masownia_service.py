@@ -51,6 +51,30 @@ def _pallets() -> List[Dict[str, Any]]:
     } for r in rows]
 
 
+def _w_masownicach() -> Dict[str, float]:
+    """Kilogramy partii, które STOJĄ w masownicach i jeszcze nie zeszły ze stanu.
+
+    Księgowanie idzie dopiero przy odbiorze (`finish_mixing_session`), więc
+    między załadunkiem a odbiorem — czyli przez 50 minut cyklu — `meat_stock`
+    nadal pokazuje to mięso jako wolne. Bez tego odjęcia panel oferowałby ten
+    sam surowiec drugi raz, a paleta zdjęta z ekranu wracałaby jako „luźne kg
+    partii" na kafelku paleciaka.
+
+    Wsady ODEBRANE są tu świadomie pominięte: ich kilogramy zdjął już odbiór,
+    a odjęcie ich po raz drugi zaniżyłoby magazyn o cały wsad.
+    """
+    rows = query_all(
+        """
+        SELECT cp.meat_stock_id, SUM(cp.kg) AS kg
+        FROM mixing_charge_pallets cp
+        JOIN mixing_charges c ON c.id = cp.charge_id AND c.status = 'mixing'
+        WHERE cp.meat_stock_id IS NOT NULL
+        GROUP BY cp.meat_stock_id
+        """
+    )
+    return {r["meat_stock_id"]: float(r["kg"] or 0) for r in rows}
+
+
 def _lots() -> List[Dict[str, Any]]:
     """Partie magazynu mięsa — niezależnie od tego, skąd przyszły.
 
@@ -61,7 +85,7 @@ def _lots() -> List[Dict[str, Any]]:
     """
     rows = query_all(
         """
-        SELECT id, lot_no, material_name, expiry_date, production_date,
+        SELECT id, lot_no, material_name, material_type_id, expiry_date, production_date,
                kg_available, COALESCE(kg_reserved, 0) AS kg_reserved
         FROM meat_stock
         WHERE COALESCE(status, 'AVAILABLE') <> 'USED'
@@ -69,11 +93,17 @@ def _lots() -> List[Dict[str, Any]]:
         ORDER BY expiry_date, lot_no
         """
     )
+    w_maszynach = _w_masownicach()
     return [{
         "meat_stock_id": r["id"],
         "lot_no": r["lot_no"],
         "material_name": r["material_name"] or "",
-        "kg_free": round(float(r["kg_available"] or 0) - float(r["kg_reserved"] or 0), 3),
+        "material_type_id": r["material_type_id"] or "",
+        "kg_free": max(0.0, round(
+            float(r["kg_available"] or 0)
+            - float(r["kg_reserved"] or 0)
+            - w_maszynach.get(r["id"], 0.0), 3)),
+        "kg_in_machine": w_maszynach.get(r["id"], 0.0),
         "kg_reserved": float(r["kg_reserved"] or 0),
         "expiry_date": str(r["expiry_date"] or "")[:10],
         "production_date": str(r["production_date"] or "")[:10],

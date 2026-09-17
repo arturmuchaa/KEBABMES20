@@ -26,6 +26,7 @@ import { useMasowniaData, type Charge, type SpiceCart } from '@/features/masowni
 import { MachineRail, machineState } from '@/features/masownia/components/MachineRail'
 import { DayQueue, type QueueOrder } from '@/features/masownia/components/DayQueue'
 import { CartList } from '@/features/masownia/components/CartList'
+import { DayBar } from '@/features/masownia/components/DayBar'
 import { SpiceWeighing } from '@/features/masownia/components/SpiceWeighing'
 import { LoadPicker } from '@/features/masownia/components/LoadPicker'
 import { MeatPicker, type MeatTake } from '@/features/masownia/components/MeatPicker'
@@ -324,6 +325,11 @@ export function MasowanieHmiPage() {
           ) : null}
         </section>
       </main>
+
+      <DayBar planKg={planKg} doneKg={zrobioneKg}
+        inMachineKg={wsady.reduce((s, c) => s + Number(c.kg_meat || 0), 0)}
+        preparedKg={pojemniki.reduce((s, p) => s + Number(p.kg_target || 0), 0)}
+        meatKg={miesoKg} now={now} />
 
       {odbior ? (
         <PickupDialog charge={odbior} busy={zapisuje}

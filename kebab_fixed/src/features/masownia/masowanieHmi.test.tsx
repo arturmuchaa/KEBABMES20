@@ -25,7 +25,10 @@ vi.mock('@/lib/api', () => ({
     load: vi.fn(async () => ({})),
     finish: vi.fn(async () => ({})),
   },
-  mixingOrdersApi: { list: vi.fn(async () => stan.zlecenia) },
+  mixingOrdersApi: {
+    list: vi.fn(async () => { throw new Error('panel ma czytac PLAN DNIA, nie wszystkie zlecenia') }),
+    dayPlan: vi.fn(async () => ({ items: stan.zlecenia, rev: 'r1', planDate: '2026-09-17' })),
+  },
   recipesApi: { list: vi.fn(async () => []) },
 }))
 
@@ -171,5 +174,52 @@ describe('ścieżka załadunku — od maszyny do bramki partii', () => {
     await waitFor(() => expect(screen.getByText('Mięso do wsadu')).toBeInTheDocument())
     expect(screen.getByRole('button', { name: /PAL\/17\/09\/26\/1/ })).toBeEnabled()
     expect(screen.getByRole('button', { name: /PAL\/17\/09\/26\/2/ })).toBeEnabled()
+  })
+})
+
+describe('plan dnia i dolny pasek', () => {
+  it('kolejka bierze PLAN DNIA, nie wszystkie zlecenia masowania', async () => {
+    // `list()` w zaslepce rzuca — gdyby panel go uzyl, ekran pokazalby blad.
+    // Hala ma widziec dzisiejszy plan, a nie historie masowan z calego miesiaca.
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getAllByText('KIRMIZI').length).toBeGreaterThan(0))
+    expect(screen.queryByText(/Brak łączności/)).not.toBeInTheDocument()
+  })
+
+  it('dolny pasek pokazuje liczby dnia', async () => {
+    stan.zlecenia = [
+      { id: 'o1', orderNo: 'MAS/17/09/26', recipeId: 'r1', recipeName: 'KIRMIZI',
+        meatKg: 1000, kgDone: 250, daySeq: 1, status: 'in_progress', meatLots: [] },
+    ]
+    stan.wsady = [{
+      id: 'ch1', machine_id: 3, order_id: 'o1', order_no: 'MAS/17/09/26',
+      recipe_name: 'KIRMIZI', kg_meat: 600, water_l: 108, batch_no: '511',
+      started_at: new Date().toISOString(), status: 'mixing', meat: [],
+    }]
+    stan.pojemniki = [{ id: 'c1', cart_no: 2, order_id: 'o1', order_no: 'MAS/17/09/26',
+                        kg_target: 200, ingredients: [], status: 'prepared' }]
+
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getByText('Zaplanowane')).toBeInTheDocument())
+    expect(screen.getByText('Wymieszane')).toBeInTheDocument()
+    expect(screen.getByText('W maszynach')).toBeInTheDocument()
+    expect(screen.getByText('Przyprawy gotowe')).toBeInTheDocument()
+    expect(screen.getByText('Postęp')).toBeInTheDocument()
+
+    const pasek = screen.getByTestId('pasek-dnia')
+    expect(pasek).toHaveTextContent('1000 kg')   // zaplanowane
+    expect(pasek).toHaveTextContent('250 kg')    // wymieszane
+    expect(pasek).toHaveTextContent('25%')       // postep
+    expect(pasek).toHaveTextContent('600 kg')    // w maszynach
+    expect(pasek).toHaveTextContent('200 kg')    // przyprawy gotowe
+  })
+
+  it('pusty dzien nie dzieli przez zero', async () => {
+    stan.zlecenia = []
+    stan.wsady = []
+    stan.pojemniki = []
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getByTestId('pasek-dnia')).toBeInTheDocument())
+    expect(screen.getByTestId('pasek-dnia')).toHaveTextContent('0%')
   })
 })

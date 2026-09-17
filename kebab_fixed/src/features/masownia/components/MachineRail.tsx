@@ -57,7 +57,7 @@ export function MachineRail({ charges, now, pickedMachine, onPick }: {
             style={{
               background: stan === 'free' ? 'transparent' : 'var(--panel)',
               border: `${wybrana ? 3 : stan === 'free' ? 1.5 : 2}px ${stan === 'free' ? 'dashed' : 'solid'} ${wybrana ? 'var(--accent)' : st.line}`,
-              minHeight: 132,
+              minHeight: 144,
             }}>
             <div className="flex items-baseline gap-3">
               <span className="text-[15px] font-extrabold uppercase tracking-wide">Masownica {m.id}</span>

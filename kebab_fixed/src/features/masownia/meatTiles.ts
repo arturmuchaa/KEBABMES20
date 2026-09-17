@@ -20,6 +20,8 @@ export interface TileLot {
   meatStockId: string
   lotNo: string
   materialName: string
+  /** Rodzaj surowca — decyduje, SKĄD biorą się kilogramy poza słupkiem. */
+  materialTypeId?: string
   /** Wolne kilogramy partii. To już `kg_free` z backendu (netto) — NIE
    *  odejmować rezerwacji drugi raz (pułapka powtórzona 3× w tym module). */
   kgFree: number
@@ -35,7 +37,26 @@ export interface MeatTile {
   kgFree: number
   expiryDate: string
   materialName: string
+  materialTypeId: string
   mixed: boolean
+}
+
+/** Surowiec, który hala waży zbiorczo na słupki (100/200/600/800 kg). */
+const NA_SLUPKI = 'mat-mieso-zs'
+
+/**
+ * Skąd operator weźmie kilogramy partii, których nie obejmuje żaden słupek.
+ *
+ * Mięso z/s po rozbiorze idzie NA SŁUPKI — luźne kilogramy znaczą, że ważenie
+ * zbiorcze tej partii jeszcze się nie odbyło, i panel ma to powiedzieć wprost
+ * zamiast udawać gotowy wsad.
+ *
+ * Mostek przychodzi w kartonach bez kalibru: hala tnie go na maszynie na płaty
+ * i waży tyle, ile trzeba na wsad — tu wpisanie kilogramów jest NORMĄ, nie
+ * sygnałem braku.
+ */
+export function zrodloKg(materialTypeId?: string): 'nie na słupku' | 'utnij i zważ' {
+  return (materialTypeId || NA_SLUPKI) === NA_SLUPKI ? 'nie na słupku' : 'utnij i zważ'
 }
 
 export interface MeatTilesInput {
@@ -76,6 +97,7 @@ export function buildMeatTiles({ pallets, lots, taken }: MeatTilesInput): MeatTi
       kgFree: wolne,
       expiryDate: p.expiryDate,
       materialName: byLotNo.get(p.lots[0]?.lotNo ?? '')?.materialName ?? '',
+      materialTypeId: byLotNo.get(p.lots[0]?.lotNo ?? '')?.materialTypeId ?? '',
       mixed: new Set(p.lots.map(l => l.lotNo)).size > 1,
     })
   }
@@ -94,6 +116,7 @@ export function buildMeatTiles({ pallets, lots, taken }: MeatTilesInput): MeatTi
       kgFree: pozaPaletami,
       expiryDate: l.expiryDate,
       materialName: l.materialName,
+      materialTypeId: l.materialTypeId ?? '',
       mixed: false,
     })
   }

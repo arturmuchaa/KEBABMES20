@@ -97,3 +97,56 @@ def test_paleta_zdjeta_nie_istnieje_dla_hali():
     pid = _paleta("PAL/17/09/26/9", 200, [("511", 200)])
     execute("UPDATE meat_pallets SET deleted_at=now() WHERE id=%s", (pid,))
     assert svc.list_meat()["pallets"] == []
+
+
+def test_mieso_w_masownicy_znika_ze_stanu_panelu():
+    # Wsad stoi w maszynie, ale ksiegowanie idzie dopiero przy odbiorze — bez
+    # odjecia tych kilogramow panel oferowalby to samo mieso drugi raz.
+    ms = _partia("511", kg_free=1000.0)
+    ch = cuid()
+    execute(
+        "INSERT INTO mixing_charges (id, order_id, machine_id, kg_meat, status) "
+        "VALUES (%s, NULL, 1, 200, 'mixing')",
+        (ch,),
+    )
+    execute(
+        "INSERT INTO mixing_charge_pallets (id, charge_id, pallet_id, lot_no, meat_stock_id, kg) "
+        "VALUES (%s,%s,NULL,%s,%s,%s)",
+        (cuid(), ch, "511", ms, 200),
+    )
+    lot = svc.list_meat()["lots"][0]
+    assert lot["kg_free"] == 800.0
+
+
+def test_wsad_odebrany_NIE_odejmuje_drugi_raz():
+    # Po odbiorze kilogramy sa juz zdjete z meat_stock — odjecie ich jeszcze raz
+    # zanizyloby magazyn o caly wsad.
+    ms = _partia("511", kg_free=800.0)
+    ch = cuid()
+    execute(
+        "INSERT INTO mixing_charges (id, order_id, machine_id, kg_meat, status) "
+        "VALUES (%s, NULL, 1, 200, 'done')",
+        (ch,),
+    )
+    execute(
+        "INSERT INTO mixing_charge_pallets (id, charge_id, pallet_id, lot_no, meat_stock_id, kg) "
+        "VALUES (%s,%s,NULL,%s,%s,%s)",
+        (cuid(), ch, "511", ms, 200),
+    )
+    assert svc.list_meat()["lots"][0]["kg_free"] == 800.0
+
+
+def test_partia_wzieta_w_calosci_do_masownicy_schodzi_do_zera():
+    ms = _partia("511", kg_free=200.0)
+    ch = cuid()
+    execute(
+        "INSERT INTO mixing_charges (id, order_id, machine_id, kg_meat, status) "
+        "VALUES (%s, NULL, 1, 200, 'mixing')",
+        (ch,),
+    )
+    execute(
+        "INSERT INTO mixing_charge_pallets (id, charge_id, pallet_id, lot_no, meat_stock_id, kg) "
+        "VALUES (%s,%s,NULL,%s,%s,%s)",
+        (cuid(), ch, "511", ms, 200),
+    )
+    assert svc.list_meat()["lots"][0]["kg_free"] == 0.0

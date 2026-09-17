@@ -11,7 +11,7 @@
  * jest, tylko nie to; znikający kafelek kazałby operatorowi szukać.
  */
 import { useMemo, useState } from 'react'
-import { buildMeatTiles, type MeatTilesInput } from '../meatTiles'
+import { buildMeatTiles, zrodloKg, type MeatTilesInput } from '../meatTiles'
 import { gateMeatTiles, officeChoiceLabel, type OrderLot } from '../meatGate'
 import { NumPad, numpadValue } from './NumPad'
 
@@ -122,7 +122,7 @@ export function MeatPicker({ meat, orderLots, targetKg, onConfirm, onBack }: {
                     style={{ color: on ? 'rgba(255,255,255,.8)' : 'var(--mut)' }}>
                     {k.kind === 'pallet'
                       ? `partia ${k.lots.map(l => l.lotNo).join(' + ')} · do ${dPl(k.expiryDate)}`
-                      : `${k.materialName} · paleciak · do ${dPl(k.expiryDate)}`}
+                      : `${k.materialName} · ${zrodloKg(k.materialTypeId)} · do ${dPl(k.expiryDate)}`}
                   </span>
                   {k.mixed ? (
                     <span className="inline-block text-[10px] font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded"

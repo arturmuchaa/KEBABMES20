@@ -42,7 +42,10 @@ export interface Charge {
 const PUSTE_MIESO: MasowniaMeat = { pallets: [], lots: [], taken: {} }
 
 export function useMasowniaData() {
-  const zlecenia  = useApi(() => mixingOrdersApi.list(), [])
+  // PLAN DNIA, nie wszystkie zlecenia: hala ma przed sobą dzisiejszą kolejkę
+  // biura, a nie historię masowań z całego miesiąca. Plan jest też jedynym
+  // miejscem, z którego bierze się kolejność (day_seq).
+  const zlecenia  = useApi(() => mixingOrdersApi.dayPlan().then(p => p.items), [])
   const pojemniki = useApi(() => masowniaApi.carts(), [])
   const wsady     = useApi(() => masowniaApi.charges(), [])
   const mieso     = useApi(() => masowniaApi.meat(), [])

@@ -1123,6 +1123,7 @@ export interface MasowniaTileLot {
   meatStockId: string
   lotNo: string
   materialName: string
+  materialTypeId: string
   kgFree: number
   expiryDate: string
 }
@@ -1143,6 +1144,7 @@ export function mapMasowniaMeat(raw: any): MasowniaMeat {
       meatStockId:  l.meat_stock_id ?? l.meatStockId ?? '',
       lotNo:        l.lot_no        ?? l.lotNo       ?? '',
       materialName: l.material_name ?? l.materialName ?? '',
+      materialTypeId: l.material_type_id ?? l.materialTypeId ?? '',
       kgFree:       Number(l.kg_free ?? l.kgFree ?? 0),
       expiryDate:   String(l.expiry_date ?? l.expiryDate ?? '').slice(0, 10),
     })),

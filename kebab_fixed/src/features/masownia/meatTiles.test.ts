@@ -2,10 +2,10 @@
  * Kafelki mięsa na panelu masowania — czysta logika, bez DOM i bez sieci.
  */
 import { describe, it, expect } from 'vitest'
-import { buildMeatTiles, type TileLot, type TilePallet } from './meatTiles'
+import { buildMeatTiles, zrodloKg, type TileLot, type TilePallet } from './meatTiles'
 
 const lot = (over: Partial<TileLot> = {}): TileLot => ({
-  meatStockId: 'ms-511', lotNo: '511', materialName: 'Mięso z/s',
+  meatStockId: 'ms-511', lotNo: '511', materialName: 'Mięso z/s', materialTypeId: 'mat-mieso-zs',
   kgFree: 1800, expiryDate: '2026-09-03', ...over,
 })
 
@@ -68,5 +68,31 @@ describe('buildMeatTiles', () => {
   it('wiąże paletę z meat_stock po numerze partii', () => {
     const tiles = buildMeatTiles({ pallets: [pallet()], lots: [lot()], taken: {} })
     expect(tiles[0].lots[0].meatStockId).toBe('ms-511')
+  })
+})
+
+describe('skąd się bierze mięso — słupek czy waga pod potrzebę', () => {
+  it('kafelek partii niesie rodzaj materiału', () => {
+    const tiles = buildMeatTiles({
+      pallets: [],
+      lots: [lot({ meatStockId: 'ms-524', lotNo: '524', materialTypeId: 'mat-wolowina-mostek',
+                   materialName: 'Filet z mostka wołowego', kgFree: 600 })],
+      taken: {},
+    })
+    expect(tiles[0].materialTypeId).toBe('mat-wolowina-mostek')
+  })
+
+  it('mostek tnie się i waży pod potrzebę', () => {
+    // Przychodzi w kartonach bez kalibru — hala tnie na płaty i waży tyle,
+    // ile trzeba na wsad.
+    expect(zrodloKg('mat-wolowina-mostek')).toBe('utnij i zważ')
+    expect(zrodloKg('mat-mieso-indyk')).toBe('utnij i zważ')
+  })
+
+  it('z/s POZA słupkiem to mięso jeszcze nie zważone zbiorczo', () => {
+    // Po rozbiorze z/s idzie na słupki 100/200/600/800 kg. Luźne kilogramy
+    // znaczą, że ważenie zbiorcze tej partii jeszcze się nie odbyło — panel
+    // ma to powiedzieć wprost, a nie udawać gotowy wsad.
+    expect(zrodloKg('mat-mieso-zs')).toBe('nie na słupku')
   })
 })

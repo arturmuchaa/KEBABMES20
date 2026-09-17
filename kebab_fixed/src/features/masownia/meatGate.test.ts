@@ -9,7 +9,8 @@ import type { MeatTile } from './meatTiles'
 const tile = (over: Partial<MeatTile> = {}): MeatTile => ({
   key: 'pallet:p1', kind: 'pallet', palletId: 'p1', palletNo: 'PAL/17/09/26/1',
   lots: [{ lotNo: '511', meatStockId: 'ms-511', kg: 200 }],
-  kgFree: 200, expiryDate: '2026-09-03', materialName: 'Mięso z/s', mixed: false, ...over,
+  kgFree: 200, expiryDate: '2026-09-03', materialName: 'Mięso z/s',
+  materialTypeId: 'mat-mieso-zs', mixed: false, ...over,
 })
 
 describe('gateMeatTiles', () => {
