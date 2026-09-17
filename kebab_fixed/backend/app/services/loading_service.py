@@ -318,6 +318,7 @@ def finalize_loading(
             loaded_agg = (aggregate_loaded_units(units_all) if units_all
                           else aggregate_picks(z_rozpisu))
 
+            pozycje_kursu: List[Dict[str, Any]] = []
             if existing:
                 # Tryb „przygotuj wcześniej": rozchód zrobił WZ przy wystawieniu —
                 # tu tylko weryfikacja dokumentu z faktycznym załadunkiem.
@@ -376,38 +377,33 @@ def finalize_loading(
                             f"{fg.get('batch_no')}): jest {avail} szt, załadowano {need}")
                     goods_with_counts.append({"goods": fg, "count": need})
 
-                issued = date.today().isoformat()
-                wz_id = _insert_wz(
-                    conn, source_type="order", source_id=order_id, seller=_seller_block(),
-                    buyer=_order_buyer(conn, order), valued=False,
-                    lines=build_goods_wz_lines(
-                        goods_with_counts,
-                        *naming_context(str(order.get("client_id") or ""),
-                                        order.get("client_name") or "")),
-                    total=0.0,
-                    place=get_company().get("city") or "", issued=issued, released=issued,
-                    notes="Wystawiony przy załadunku.")
-                for g in goods_with_counts:
-                    fg, take = g["goods"], g["count"]
-                    cx_execute(
-                        conn,
-                        "UPDATE finished_goods SET qty_available=qty_available-%s, "
-                        "qty_shipped=qty_shipped+%s WHERE id=%s",
-                        (take, take, fg["id"]))
-                    create_stock_movement(
-                        conn, product_type="finished_goods", batch_id=fg["id"],
-                        qty=take * float(fg.get("kg_per_unit") or 0),
-                        movement_type="OUT", source_type="wz", source_id=wz_id)
-                status, diff = "potwierdzony", []
-                cx_execute(
-                    conn,
-                    """UPDATE wz_documents
-                       SET loading_status=%s, loading_diff='[]'::jsonb,
-                           loaded_at=now(), vehicle_plate=%s
-                       WHERE id=%s""",
-                    (status, effective_plate, wz_id))
-                wz_number = cx_query_one(
-                    conn, "SELECT number FROM wz_documents WHERE id=%s", (wz_id,))["number"]
+                # ── Papiery wystawia BIURO, nie skan ────────────────────
+                #
+                # Właściciel (12.09.2026): „magazynier potwierdza załadunek,
+                # a biuro dostaje informację i drukuje dokument — magazynier
+                # nie ma drukarki ani uprawnień". Do tej pory skan sam
+                # wystawiał zwykły WZ i od razu zdejmował stan, przez co biuro
+                # nie miało już czego dzielić na fakturę i WZ: `wystaw_komplet`
+                # odmawia, gdy na zamówieniu leży gotowy dokument.
+                #
+                # Skan zapisuje więc TYLKO to, co wyjechało; stan schodzi
+                # dopiero przy wystawieniu kompletu przez biuro (decyzja
+                # właściciela — świadomie przyjęte okno, w którym magazyn
+                # pokazuje towar, którego fizycznie nie ma; karta na pulpicie
+                # jest po to, żeby było krótkie i widoczne).
+                #
+                # Kontrola pokrycia ZOSTAJE mimo braku rozchodu: jeśli auto
+                # wywiozło więcej, niż leży na stanie, biuro ma się o tym
+                # dowiedzieć teraz, a nie przy wystawianiu.
+                wz_id, wz_number = None, None
+                status, diff = "do_wystawienia", []
+                pozycje_kursu = [
+                    {"stock_id": g["goods"]["id"],
+                     "batch_no": g["goods"].get("batch_no"),
+                     "szt": int(g["count"]),
+                     "kg_per_unit": float(g["goods"].get("kg_per_unit") or 0)}
+                    for g in goods_with_counts
+                ]
 
             if units:
                 cx_execute(
@@ -430,6 +426,7 @@ def finalize_loading(
                 "wz_number": wz_number,
                 "wz_status": status,
                 "diff": [d for d in diff if d.get("diff")],
+                "pozycje": pozycje_kursu,
             })
 
     # HDI poza transakcją rozchodu (best-effort, własne transakcje).
@@ -474,9 +471,10 @@ def _zapisz_kurs(vehicle_id: str, plate: str, operator: str,
         for r in wzięte:
             cx_execute(
                 conn,
-                "INSERT INTO loading_orders (loading_id, order_id, wz_id, wz_status) "
-                "VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING",
-                (kurs_id, r.get("order_id"), r.get("wz_id"), r.get("wz_status")))
+                "INSERT INTO loading_orders (loading_id, order_id, wz_id, wz_status, "
+                " pozycje) VALUES (%s,%s,%s,%s,%s::jsonb) ON CONFLICT DO NOTHING",
+                (kurs_id, r.get("order_id"), r.get("wz_id"), r.get("wz_status"),
+                 json.dumps(r.get("pozycje") or [])))
     return kurs_id
 
 
@@ -487,7 +485,8 @@ def zaladunki_do_wydruku() -> List[Dict[str, Any]]:
                   ARRAY_REMOVE(ARRAY_AGG(DISTINCT o.client_name), NULL) AS klienci,
                   COUNT(DISTINCT lo.wz_id) FILTER (WHERE lo.wz_id IS NOT NULL)::int
                       AS dokumentow,
-                  BOOL_OR(lo.wz_status = 'rozjazd') AS rozjazd
+                  BOOL_OR(lo.wz_status = 'rozjazd') AS rozjazd,
+                  BOOL_OR(lo.wz_status = 'do_wystawienia') AS do_wystawienia
              FROM loadings l
              JOIN loading_orders lo ON lo.loading_id = l.id
              LEFT JOIN client_orders o ON o.id = lo.order_id
