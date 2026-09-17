@@ -58,7 +58,11 @@ function initials(name: string) {
   return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
 }
 
-const ALL_DEPTS = ['rozbior', 'produkcja', 'pakowanie', 'wydanie'] as const
+// Działy hali = klucze DEPARTMENT_PREFIXES w backend/app/auth/permissions.py.
+// Rozjazd tej listy z backendem znaczy dział, do którego biuro nie umie
+// nikogo przypisać — panel masowni stał tak z pustym ekranem logowania.
+// Pilnuje tego `backend/tests/test_dzialy_spojnosc.py`.
+const ALL_DEPTS = ['rozbior', 'produkcja', 'masowanie', 'pakowanie', 'wydanie'] as const
 
 const BLANK_FORM = { login: '', name: '', fullName: '', role: 'WORKER_DEBONING', ratePerKg: '0.55', ratePerHour: '0', sundayBonusEnabled: false, sundayBonusPerHour: '5', saturdayBonusEnabled: false, saturdayBonusPerHour: '5', payMode: 'hourly', ratePerDay: '150', contractType: 'zlecenie', employerCostAmount: '0', pin: '', departments: [] as string[], crewSize: '1', isWrapper: false, canSignPerformed: false, canSignChecked: false }
 
