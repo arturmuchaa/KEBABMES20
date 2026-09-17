@@ -18,6 +18,10 @@ const rozbiorV11Version = JSON.parse(
 const produkcjaVersion = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, 'src-tauri/tauri.produkcja.conf.json'), 'utf-8')
 ).version as string
+// Masownia — osobny kiosk, osobny kanał aktualizacji.
+const masowanieVersion = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, 'src-tauri/tauri.masowanie.conf.json'), 'utf-8')
+).version as string
 
 export default defineConfig({
   plugins: [react()],
@@ -25,6 +29,7 @@ export default defineConfig({
     __ROZBIOR_V10_VERSION__: JSON.stringify(rozbiorV10Version),
     __ROZBIOR_V11_VERSION__: JSON.stringify(rozbiorV11Version),
     __PRODUKCJA_VERSION__: JSON.stringify(produkcjaVersion),
+    __MASOWANIE_VERSION__: JSON.stringify(masowanieVersion),
   },
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
@@ -44,6 +49,9 @@ export default defineConfig({
         'rozbior-v11': path.resolve(__dirname, 'rozbior-v11.html'),
         // Stanowisko produkcyjne — plan dnia i liczenie sztuk
         'produkcja': path.resolve(__dirname, 'produkcja.html'),
+        // Masownia — dwa tory pracy (przyprawy do pojemnika / załadunek
+        // masownicy) i bramka partii wskazanych przez biuro
+        'masowanie': path.resolve(__dirname, 'masowanie.html'),
       },
       output: {
         // Podział na paczki wg biblioteki.
