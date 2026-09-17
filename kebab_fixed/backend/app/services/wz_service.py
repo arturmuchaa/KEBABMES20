@@ -45,6 +45,55 @@ from app.utils.stock import create_stock_movement
 logger = get_logger(__name__)
 
 
+def kg_zablokowane_dla_masowni(meat_stock_id: str, conn=None) -> float:
+    """Ile kg tej partii jest już przeznaczone do masowania i NIE idzie na WZ.
+
+    Właściciel, 17.09.2026: „nie może być sytuacji, że wsadzone do masownicy
+    600 kg, a biuro nagle wystawia z tego mięsa WZ".
+
+    Blokujemy dwie rzeczy:
+      • mięso ZWAŻONE NA PALETY (ważenie zbiorcze) — hala przygotowała je pod
+        masownię, więc nie jest towarem na sprzedaż;
+      • mięso STOJĄCE W MASOWNICY — fizycznie już go nie ma, ale księgowanie
+        zejdzie z niego dopiero przy odbiorze, więc przez 50 minut cyklu
+        magazyn pokazuje je jako wolne.
+
+    Kilogramy palety, które poszły już do maszyny, liczą się RAZ: paleta
+    zgłasza tylko to, co na niej zostało.
+    """
+    def _pytaj(sql: str, params: tuple) -> float:
+        row = cx_query_one(conn, sql, params) if conn is not None else query_one(sql, params)
+        return float((row or {}).get("kg") or 0)
+
+    na_paletach = _pytaj(
+        """
+        SELECT COALESCE(SUM(GREATEST(0, l.kg - COALESCE(z.zdjete, 0))), 0) AS kg
+        FROM meat_pallet_lots l
+        JOIN meat_pallets p ON p.id = l.pallet_id
+                           AND p.deleted_at IS NULL AND p.consumed_at IS NULL
+        JOIN meat_stock ms ON ms.lot_no = l.lot_no
+        LEFT JOIN (
+            SELECT cp.pallet_id, SUM(cp.kg) AS zdjete
+            FROM mixing_charge_pallets cp
+            JOIN mixing_charges c ON c.id = cp.charge_id AND c.status <> 'cancelled'
+            GROUP BY cp.pallet_id
+        ) z ON z.pallet_id = p.id
+        WHERE ms.id = %s
+        """,
+        (meat_stock_id,),
+    )
+    w_masownicach = _pytaj(
+        """
+        SELECT COALESCE(SUM(cp.kg), 0) AS kg
+        FROM mixing_charge_pallets cp
+        JOIN mixing_charges c ON c.id = cp.charge_id AND c.status = 'mixing'
+        WHERE cp.meat_stock_id = %s
+        """,
+        (meat_stock_id,),
+    )
+    return round(na_paletach + w_masownicach, 3)
+
+
 def format_wz_number(seq: int, year_month: str, series: str = "WZ") -> str:
     # year_month = "RRMM" (np. "2606"); numer = WZ/NN/MM/RR albo WM/NN/MM/RR
     yy, mm = year_month[:2], year_month[2:]
@@ -903,9 +952,18 @@ def create_manual_wz(
                 if not row:
                     raise HTTPException(400, "Pozycja magazynowa nie istnieje")
                 avail = float(row.get("kg_available") or 0)
-                if avail + 1e-6 < qty:
+                # Mięso przygotowane do masowania nie jest towarem: albo leży
+                # zważone na palecie, albo stoi w masownicy. Patrz
+                # `kg_zablokowane_dla_masowni`.
+                zablokowane = kg_zablokowane_dla_masowni(sid, conn)
+                na_sprzedaz = max(0.0, avail - zablokowane)
+                if na_sprzedaz + 1e-6 < qty:
+                    powod = (f" ({zablokowane:.0f} kg jest w masowni — na paletach "
+                             f"albo w masownicy)") if zablokowane > 0 else ""
                     raise HTTPException(
-                        400, f"Za mało mięsa (partia {row.get('lot_no')}): jest {avail} kg, potrzeba {qty}")
+                        400,
+                        f"Za mało mięsa (partia {row.get('lot_no')}): do wydania "
+                        f"{na_sprzedaz:.0f} kg, potrzeba {qty}{powod}")
                 # Ruch PRZED zdjęciem stanu — walidacja OUT w create_stock_movement
                 # czyta kg_available z bazy; po dekremencie widziałaby stan już
                 # pomniejszony i odrzucała wydania > połowy lotu ("przekracza 0.0").

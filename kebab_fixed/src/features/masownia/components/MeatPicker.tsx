@@ -25,8 +25,10 @@ export interface MeatTake {
 const kg = (n: number) => `${Math.round(n * 10) / 10}`.replace('.', ',')
 const dPl = (iso: string) => (iso || '').slice(8, 10) + '.' + (iso || '').slice(5, 7)
 
-export function MeatPicker({ meat, orderLots, targetKg, maxKg, onConfirm, onBack }: {
+export function MeatPicker({ meat, orderId, orderLots, targetKg, maxKg, onConfirm, onBack }: {
   meat: MeatTilesInput
+  /** Ładowane zlecenie — jego własna rezerwacja wraca do puli. */
+  orderId: string
   orderLots: OrderLot[]
   targetKg: number
   /** Ile NAJWIĘCEJ weźmie ta masownica. Ponad to nie miesza równo, a operator
@@ -36,8 +38,8 @@ export function MeatPicker({ meat, orderLots, targetKg, maxKg, onConfirm, onBack
   onBack: () => void
 }) {
   const kafelki = useMemo(
-    () => gateMeatTiles(buildMeatTiles(meat), orderLots),
-    [meat, orderLots],
+    () => gateMeatTiles(buildMeatTiles({ ...meat, orderId }), orderLots),
+    [meat, orderId, orderLots],
   )
   const [wybrane, setWybrane] = useState<Record<string, MeatTake[]>>({})
   const [paleciak, setPaleciak] = useState<{ key: string; lotNo: string; meatStockId: string; max: number } | null>(null)

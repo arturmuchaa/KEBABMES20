@@ -232,3 +232,36 @@ def test_paleta_napoczeta_zostaje_na_magazynie():
     svc.finish_charge(ch["id"], ChargeFinish(kgOutput=140))
     assert query_one("SELECT consumed_at FROM meat_pallets WHERE id=%s", (pid,))["consumed_at"] is None
     assert [p["id"] for p in svc.list_meat()["pallets"]] == [pid]
+
+
+def test_wsad_da_sie_anulowac_gdy_zaladowano_nie_to():
+    # Operator pomylil maszyne albo zlecenie — musi miec jak cofnac zaladunek.
+    # Bez tego wsad stoi w maszynie do konca swiata i trzyma mieso.
+    oid, ms = _zlecenie(), _partia("511", kg=1000)
+    pid = _paleta_z_miesem("PAL/A/1", 200, "511", ms)
+    ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
+        ChargeMeatDto(palletId=pid, lotNo="511", meatStockId=ms, kg=200)]))
+    svc.cancel_charge(ch["id"], "pomylka maszyny")
+    assert svc.list_charges() == []
+    # Mieso i paleta wracaja do puli panelu.
+    assert svc.list_meat()["lots"][0]["kg_free"] == 1000.0
+    assert [p["id"] for p in svc.list_meat()["pallets"]] == [pid]
+
+
+def test_anulowany_wsad_nie_ksieguje_sie_przy_odbiorze():
+    oid, ms = _zlecenie(), _partia("511")
+    ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
+        ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
+    svc.cancel_charge(ch["id"], "pomylka")
+    with pytest.raises(HTTPException):
+        svc.finish_charge(ch["id"], ChargeFinish(kgOutput=232))
+
+
+def test_masownica_zwalnia_sie_po_anulowaniu_wsadu():
+    oid, ms = _zlecenie(), _partia("511", kg=1000)
+    ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
+        ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
+    svc.cancel_charge(ch["id"], "pomylka")
+    drugi = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
+        ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
+    assert drugi["status"] == "mixing"

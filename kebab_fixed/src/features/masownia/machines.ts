@@ -28,8 +28,13 @@ export function zapasNadNominalem(cap: number): number {
 /** Minuty masowania — tyle trzyma blokada maszyny w MES. */
 export const T_MIX_MIN = 50
 
-/** Tolerancja wagi przypraw — działka wagi masowni. */
-export const TOL_SPICE_KG = 0.05
+/** Tolerancja wagi przypraw = DZIAŁKA wagi masowni: 100 g.
+ *
+ *  Prototyp mówił 0,05 kg, ale hala potwierdziła (17.09.2026), że waga
+ *  przypraw ma działkę 100 g. Próg węższy od działki jest nieosiągalny:
+ *  odczyt skacze co 100 g, więc bramka nigdy by nie puściła dalej i operator
+ *  utknąłby na pierwszym składniku. */
+export const TOL_SPICE_KG = 0.1
 
 /** Czy wsad wejdzie do TEJ masownicy. Ponad `max` blokujemy — przepełniona
  *  masownica nie miesza równo, a operator zauważa to dopiero po 50 minutach. */

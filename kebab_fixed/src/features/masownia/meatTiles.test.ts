@@ -155,3 +155,47 @@ describe('paleta zyje tylko tak dlugo, jak jej partia', () => {
     expect(tiles[0].lots.map(l => l.lotNo)).toEqual(['511'])
   })
 })
+
+describe('rezerwacja wlasnego zlecenia nie chowa miesa', () => {
+  it('kilogramy zarezerwowane NA TO zlecenie sa do wziecia', () => {
+    // Biuro planujac zlecenie rezerwuje partie. Gdyby panel odejmowal kazda
+    // rezerwacje, operator nie moglby wziac miesa, ktore biuro mu przypisalo —
+    // partia 563 pokazywala 0 kg przy 858 kg na stanie i 1200 kg rezerwacji.
+    const tiles = buildMeatTiles({
+      pallets: [],
+      lots: [lot({ kgFree: 0, reservedByOrder: { o1: 1200 } })],
+      taken: {},
+      orderId: 'o1',
+    })
+    expect(tiles[0].kgFree).toBe(1200)
+  })
+
+  it('rezerwacja INNEGO zlecenia dalej chowa mieso', () => {
+    const tiles = buildMeatTiles({
+      pallets: [],
+      lots: [lot({ kgFree: 0, reservedByOrder: { inne: 1200 } })],
+      taken: {},
+      orderId: 'o1',
+    })
+    expect(tiles).toEqual([])
+  })
+
+  it('bez wskazanego zlecenia nic sie nie oddaje', () => {
+    const tiles = buildMeatTiles({
+      pallets: [],
+      lots: [lot({ kgFree: 0, reservedByOrder: { o1: 1200 } })],
+      taken: {},
+    })
+    expect(tiles).toEqual([])
+  })
+
+  it('paleta tez korzysta z oddanej rezerwacji', () => {
+    const tiles = buildMeatTiles({
+      pallets: [pallet({ id: 'p1', palletNo: 'PAL/1' })],
+      lots: [lot({ kgFree: 0, reservedByOrder: { o1: 400 } })],
+      taken: {},
+      orderId: 'o1',
+    })
+    expect(tiles.map(t => [t.kind, t.kgFree])).toEqual([['pallet', 200], ['lot', 200]])
+  })
+})

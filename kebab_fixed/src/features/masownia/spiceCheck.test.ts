@@ -2,20 +2,26 @@ import { describe, it, expect } from 'vitest'
 import { spiceVerdict, scaleIngredients, waterOf } from './spiceCheck'
 
 describe('spiceVerdict', () => {
-  it('trafienie w tolerancji 0,05 kg przechodzi', () => {
+  it('trafienie w tolerancji 100 g przechodzi', () => {
+    // Działka wagi przypraw to 100 g — próg węższy byłby nieosiągalny.
     expect(spiceVerdict(3.5, 3.5)).toBe('ok')
-    expect(spiceVerdict(3.5, 3.54)).toBe('ok')
-    expect(spiceVerdict(3.5, 3.46)).toBe('ok')
+    expect(spiceVerdict(3.5, 3.6)).toBe('ok')
+    expect(spiceVerdict(3.5, 3.4)).toBe('ok')
   })
 
   it('za mało i za dużo są rozpoznane osobno', () => {
     expect(spiceVerdict(3.5, 3.2)).toBe('low')
-    expect(spiceVerdict(3.5, 3.7)).toBe('over')
+    expect(spiceVerdict(3.5, 3.8)).toBe('over')
   })
 
   it('granica tolerancji należy do trafienia', () => {
-    expect(spiceVerdict(3.5, 3.55)).toBe('ok')
-    expect(spiceVerdict(3.5, 3.45)).toBe('ok')
+    expect(spiceVerdict(3.5, 3.6)).toBe('ok')
+    expect(spiceVerdict(3.5, 3.4)).toBe('ok')
+  })
+
+  it('poza dzialka juz nie przechodzi', () => {
+    expect(spiceVerdict(3.5, 3.65)).toBe('over')
+    expect(spiceVerdict(3.5, 3.35)).toBe('low')
   })
 })
 

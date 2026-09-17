@@ -25,6 +25,13 @@ export interface TileLot {
   /** Wolne kilogramy partii. To już `kg_free` z backendu (netto) — NIE
    *  odejmować rezerwacji drugi raz (pułapka powtórzona 3× w tym module). */
   kgFree: number
+  /** Ile kg tej partii trzyma KTÓRE zlecenie: orderId → kg.
+   *
+   *  Biuro planując masowanie rezerwuje partie, a `kgFree` jest już o te
+   *  rezerwacje pomniejszone. Bez oddania własnej rezerwacji operator nie
+   *  mógłby wziąć mięsa, które biuro przypisało WŁAŚNIE temu zleceniu —
+   *  partia 563 pokazywała 0 kg przy 858 kg na stanie i 1200 kg rezerwacji. */
+  reservedByOrder?: Record<string, number>
   expiryDate: string
 }
 
@@ -64,11 +71,14 @@ export interface MeatTilesInput {
   lots: TileLot[]
   /** Ile kg zdjęły z palety wsady już załadowane: palletId → kg. */
   taken: Record<string, number>
+  /** Zlecenie, które operator właśnie ładuje — jego własne rezerwacje wracają
+   *  do puli. Bez tego biuro przypisuje partię, a panel jej nie pokazuje. */
+  orderId?: string
 }
 
 const round1 = (n: number) => Math.round(n * 10) / 10
 
-export function buildMeatTiles({ pallets, lots, taken }: MeatTilesInput): MeatTile[] {
+export function buildMeatTiles({ pallets, lots, taken, orderId }: MeatTilesInput): MeatTile[] {
   const byLotNo = new Map(lots.map(l => [l.lotNo, l]))
   const tiles: MeatTile[] = []
 
@@ -81,7 +91,10 @@ export function buildMeatTiles({ pallets, lots, taken }: MeatTilesInput): MeatTi
    * Dlatego palety wydajemy Z BUDŻETU PARTII: kiedy partia się kończy,
    * kolejne palety po prostu nie mają czego nieść.
    */
-  const budzet = new Map(lots.map(l => [l.lotNo, l.kgFree]))
+  const budzet = new Map(lots.map(l => [
+    l.lotNo,
+    round1(l.kgFree + (orderId ? (l.reservedByOrder?.[orderId] ?? 0) : 0)),
+  ]))
 
   // Palety w kolejności, w jakiej przychodzą z backendu (dzień produkcji,
   // potem numer) — czyli najstarsza pierwsza, zgodnie z FEFO.

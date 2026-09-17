@@ -80,6 +80,29 @@ def _w_masownicach() -> Dict[str, float]:
     return {r["meat_stock_id"]: float(r["kg"] or 0) for r in rows}
 
 
+def _rezerwacje_zlecen() -> Dict[str, Dict[str, float]]:
+    """Ile kg której partii trzyma które zlecenie: meat_stock_id → {order_id: kg}.
+
+    Panel oddaje do puli WŁASNĄ rezerwację ładowanego zlecenia. Bez tego biuro
+    przypisuje partię do zlecenia, a operator jej nie widzi — partia 563 miała
+    858 kg na stanie, 1200 kg rezerwacji i pokazywała zero.
+    """
+    rows = query_all(
+        """
+        SELECT l.meat_stock_id, l.order_id, SUM(l.kg_planned) AS kg
+        FROM mixing_order_lots l
+        JOIN mixing_orders o ON o.id = l.order_id
+        WHERE o.status IN ('planned', 'confirmed', 'in_progress')
+          AND l.meat_stock_id IS NOT NULL AND l.kg_planned > 0
+        GROUP BY l.meat_stock_id, l.order_id
+        """
+    )
+    out: Dict[str, Dict[str, float]] = {}
+    for r in rows:
+        out.setdefault(r["meat_stock_id"], {})[r["order_id"]] = float(r["kg"] or 0)
+    return out
+
+
 def _lots() -> List[Dict[str, Any]]:
     """Partie magazynu mięsa — niezależnie od tego, skąd przyszły.
 
@@ -99,6 +122,7 @@ def _lots() -> List[Dict[str, Any]]:
         """
     )
     w_maszynach = _w_masownicach()
+    rezerwacje = _rezerwacje_zlecen()
     return [{
         "meat_stock_id": r["id"],
         "lot_no": r["lot_no"],
@@ -109,6 +133,7 @@ def _lots() -> List[Dict[str, Any]]:
             - float(r["kg_reserved"] or 0)
             - w_maszynach.get(r["id"], 0.0), 3)),
         "kg_in_machine": w_maszynach.get(r["id"], 0.0),
+        "reserved_by_order": rezerwacje.get(r["id"], {}),
         "kg_reserved": float(r["kg_reserved"] or 0),
         "expiry_date": str(r["expiry_date"] or "")[:10],
         "production_date": str(r["production_date"] or "")[:10],
@@ -423,6 +448,38 @@ def load_charge(dto: ChargeCreate) -> Dict[str, Any]:
     out = dict(charge)
     out["kg_meat"] = float(out.get("kg_meat") or 0)
     out["water_l"] = float(out.get("water_l") or 0)
+    return out
+
+
+def cancel_charge(charge_id: str, reason: str = "") -> Dict[str, Any]:
+    """Cofnij ZAŁADUNEK — operator pomylił maszynę albo zlecenie.
+
+    Bez tej ścieżki wsad stoi w masownicy do końca świata: zajmuje maszynę,
+    trzyma paletę zdjętą z ekranu i blokuje kilogramy zlecenia. Nic tu nie
+    księgujemy, bo załadunek niczego nie zaksięgował — księgowanie idzie
+    dopiero przy odbiorze.
+    """
+    with transaction() as conn:
+        row = cx_execute_returning(
+            conn,
+            "UPDATE mixing_charges SET status='cancelled', finished_at=%s "
+            "WHERE id=%s AND status='mixing' RETURNING *",
+            (now_iso(), charge_id),
+        )
+        if not row:
+            raise HTTPException(409, "Ten wsad nie stoi już w masownicy")
+        # Pojemnik wraca na listę gotowych — przyprawy nadal stoją odważone.
+        cx_execute(
+            conn,
+            "UPDATE mixing_spice_carts SET status='prepared', dumped_at=NULL, charge_id=NULL "
+            "WHERE charge_id=%s AND status='dumped'",
+            (charge_id,),
+        )
+    logger.info("masownia.charge.cancelled", extra={
+        "machine": row.get("machine_id"), "powod": reason,
+    })
+    out = dict(row)
+    out["kg_meat"] = float(out.get("kg_meat") or 0)
     return out
 
 

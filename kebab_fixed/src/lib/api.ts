@@ -1124,6 +1124,8 @@ export interface MasowniaTileLot {
   lotNo: string
   materialName: string
   materialTypeId: string
+  /** Ile kg tej partii trzyma które zlecenie — panel oddaje własną rezerwację. */
+  reservedByOrder: Record<string, number>
   kgFree: number
   expiryDate: string
 }
@@ -1146,6 +1148,9 @@ export function mapMasowniaMeat(raw: any): MasowniaMeat {
       materialName: l.material_name ?? l.materialName ?? '',
       materialTypeId: l.material_type_id ?? l.materialTypeId ?? '',
       kgFree:       Number(l.kg_free ?? l.kgFree ?? 0),
+      reservedByOrder: Object.fromEntries(
+        Object.entries(l.reserved_by_order ?? l.reservedByOrder ?? {}).map(([k, v]) => [k, Number(v)]),
+      ),
       expiryDate:   String(l.expiry_date ?? l.expiryDate ?? '').slice(0, 10),
     })),
     taken: Object.fromEntries(
@@ -1178,6 +1183,9 @@ export const masowniaApi = {
   }) => post<any>('/masownia/wsady', dto),
   finish: (chargeId: string, kgOutput: number) =>
     patch<any>(`/masownia/wsady/${chargeId}/odbior`, { kgOutput }),
+  /** Cofnij załadunek — pomyłka maszyny albo zlecenia. */
+  cancelCharge: (chargeId: string, reason: string) =>
+    patch<any>(`/masownia/wsady/${chargeId}/anuluj?reason=${encodeURIComponent(reason)}`, {}),
 }
 
 // ─── Kontrahenci ──────────────────────────────────────────────

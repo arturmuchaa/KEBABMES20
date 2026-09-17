@@ -138,3 +138,42 @@ def test_cofniecie_zlecenia_bez_sesji_jest_odrzucane(db):
         undo_mixing_confirmation("ou-brak")
     assert ei.value.status_code == 400
     assert "nie ma czego cofać" in str(ei.value.detail).lower()
+
+
+def test_anulowanie_zlecenia_w_trakcie_bez_zapisanego_masowania(db):
+    """Zlecenie rozpoczete, ale nic z niego nie wyszlo — musi dac sie anulowac.
+
+    Panel masowni stawia zlecenie w stan `in_progress` juz przy zaladunku
+    pierwszego wsadu. Gdy wsad zostanie anulowany (pomylka maszyny), zlecenie
+    zostaje „w trakcie" z zerem zrobionych kilogramow — a bramka „tylko
+    planned/confirmed" nie pozwalala go zamknac i wisialo, trzymajac
+    rezerwacje miesa.
+    """
+    from app.services.mixing_service import cancel_mixing_order
+
+    _seed_raw_batch("rb-wt2", 612)
+    _seed_stock("ms-wt2", "612", 1000, 300, "rb-wt2")
+    _seed_order("ou-wt2", "r-wt2", "PustyWTrakcie", meat_kg=1000)
+    execute("INSERT INTO mixing_order_lots (id, order_id, meat_stock_id, kg_planned) "
+            "VALUES (%s,%s,%s,%s)", ("mol-wt2", "ou-wt2", "ms-wt2", 300))
+
+    cancel_mixing_order("ou-wt2")
+
+    o = query_one("SELECT status FROM mixing_orders WHERE id=%s", ("ou-wt2",))
+    assert o["status"] == "cancelled"
+    # Rezerwacja wraca do puli.
+    assert float(query_one("SELECT kg_reserved FROM meat_stock WHERE id=%s",
+                           ("ms-wt2",))["kg_reserved"]) == 0.0
+
+
+def test_zlecenie_w_trakcie_Z_SESJA_dalej_nie_da_sie_anulowac(db):
+    # Tu masowanie juz sie odbylo — najpierw trzeba je cofnac, inaczej
+    # anulowanie rozjechaloby stan z wyrobem, ktory powstal.
+    _seed_raw_batch("rb-wt3", 613)
+    _seed_stock("ms-wt3", "613", 1000, 400, "rb-wt3")
+    _seed_order("ou-wt3", "r-wt3", "ZSesja", meat_kg=1000)
+    _finish("ou-wt3", "ms-wt3", 400)
+    from app.services.mixing_service import cancel_mixing_order
+    with pytest.raises(HTTPException) as ei:
+        cancel_mixing_order("ou-wt3")
+    assert ei.value.status_code == 400

@@ -1124,12 +1124,20 @@ def cancel_mixing_order(order_id: str) -> Dict:
         if not order:
             raise HTTPException(404, "Zlecenie nie znalezione")
         if order["status"] == "in_progress":
-            raise HTTPException(
-                400,
-                "Nie można anulować zlecenia w trakcie aktywnej sesji. "
-                "Zakończ sesję na tablecie, a następnie anuluj.",
+            # Panel masowni stawia zlecenie „w trakcie" już przy załadunku
+            # pierwszego wsadu. Gdy wsad zostanie anulowany (pomyłka maszyny),
+            # zlecenie zostaje w tym stanie z zerem zrobionych kilogramów —
+            # i bez tego wyjątku wisiałoby na zawsze, trzymając rezerwacje.
+            ma_masowanie = cx_query_one(
+                conn, "SELECT id FROM mixing_sessions WHERE order_id=%s LIMIT 1", (order_id,)
             )
-        if order["status"] not in ("planned", "confirmed"):
+            if ma_masowanie:
+                raise HTTPException(
+                    400,
+                    "Nie można anulować zlecenia z zapisanym masowaniem. "
+                    "Najpierw cofnij masowanie, potem anuluj.",
+                )
+        if order["status"] not in ("planned", "confirmed", "in_progress"):
             raise HTTPException(
                 400,
                 f"Nie można anulować zlecenia o statusie '{order['status']}'.",

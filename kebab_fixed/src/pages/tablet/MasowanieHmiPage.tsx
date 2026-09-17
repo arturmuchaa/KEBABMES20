@@ -325,6 +325,7 @@ export function MasowanieHmiPage() {
           {tryb?.kind === 'load' && tryb.step === 'meat' ? (
             <MeatPicker
               meat={mieso}
+              orderId={tryb.orderId}
               orderLots={(zlecenie(tryb.orderId)?.meatLots ?? []) as { meatLotNo: string }[]}
               targetKg={tryb.cartId
                 ? Number(pojemniki.find(p => p.id === tryb.cartId)?.kg_target ?? 0)

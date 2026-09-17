@@ -17,12 +17,23 @@ describe('mapMasowniaMeat', () => {
     expect(out.lots[0]).toEqual({
       meatStockId: 'ms1', lotNo: '511', materialName: 'Mięso z/s',
       materialTypeId: 'mat-mieso-zs', kgFree: 1800, expiryDate: '2026-10-01',
+      reservedByOrder: {},
     })
     expect(out.taken).toEqual({ p1: 140 })
   })
 
   it('pusta odpowiedź nie wysypuje ekranu', () => {
     expect(mapMasowniaMeat({})).toEqual({ pallets: [], lots: [], taken: {} })
+  })
+
+  it('oddaje rezerwacje per zlecenie', () => {
+    const out = mapMasowniaMeat({
+      pallets: [], taken: {},
+      lots: [{ meat_stock_id: 'ms1', lot_no: '563', material_name: 'Mięso z/s',
+               material_type_id: 'mat-mieso-zs', kg_free: 0, expiry_date: '2026-10-01',
+               reserved_by_order: { 'o-563': '1200.000' } }],
+    })
+    expect(out.lots[0].reservedByOrder).toEqual({ 'o-563': 1200 })
   })
 
   it('data w formacie ISO z czasem schodzi do samej daty', () => {

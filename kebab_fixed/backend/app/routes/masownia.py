@@ -51,6 +51,12 @@ def load_charge(dto: ChargeCreate):
     return svc.load_charge(dto)
 
 
+@router.patch("/wsady/{charge_id}/anuluj")
+def cancel_charge(charge_id: str, reason: str = ""):
+    """Cofnij załadunek — operator pomylił maszynę albo zlecenie."""
+    return svc.cancel_charge(charge_id, reason)
+
+
 @router.patch("/wsady/{charge_id}/odbior")
 def finish_charge(charge_id: str, dto: ChargeFinish):
     """Odbiór z masownicy — kilogramy zważone paleciakiem."""
