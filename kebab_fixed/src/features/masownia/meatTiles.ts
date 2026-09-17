@@ -71,41 +71,62 @@ const round1 = (n: number) => Math.round(n * 10) / 10
 export function buildMeatTiles({ pallets, lots, taken }: MeatTilesInput): MeatTile[] {
   const byLotNo = new Map(lots.map(l => [l.lotNo, l]))
   const tiles: MeatTile[] = []
-  /** Ile kg partii siedzi na paletach, które jeszcze stoją wolne. */
-  const naPaletach = new Map<string, number>()
 
+  /**
+   * Ile kilogramów każdej partii JESZCZE ISTNIEJE — magazyn, nie papier.
+   *
+   * Paleta z ważenia zbiorczego to opis ułożenia, nie stan: zapis zostaje
+   * w bazie na zawsze, także gdy mięso dawno zeszło. Na produkcji 524 z 693
+   * palet należało do partii z zerowym stanem i zaśmiecało ekran masowni.
+   * Dlatego palety wydajemy Z BUDŻETU PARTII: kiedy partia się kończy,
+   * kolejne palety po prostu nie mają czego nieść.
+   */
+  const budzet = new Map(lots.map(l => [l.lotNo, l.kgFree]))
+
+  // Palety w kolejności, w jakiej przychodzą z backendu (dzień produkcji,
+  // potem numer) — czyli najstarsza pierwsza, zgodnie z FEFO.
   for (const p of pallets) {
     const wolne = round1(p.kgNet - (taken[p.id] ?? 0))
     if (wolne <= 0) continue
     // Paleta pobrana częściowo oddaje resztę proporcjonalnie ze swoich partii —
     // operator zdejmuje z niej pojemniki, nie warstwy jednej partii.
     const udzial = p.kgNet > 0 ? wolne / p.kgNet : 0
-    const skladniki = p.lots.map(l => ({
-      lotNo: l.lotNo,
-      meatStockId: byLotNo.get(l.lotNo)?.meatStockId ?? '',
-      kg: round1(l.kg * udzial),
-    }))
-    for (const s of skladniki) {
-      naPaletach.set(s.lotNo, (naPaletach.get(s.lotNo) ?? 0) + s.kg)
+
+    const skladniki: { lotNo: string; meatStockId: string; kg: number }[] = []
+    for (const l of p.lots) {
+      const chciane = round1(l.kg * udzial)
+      const dostepne = budzet.get(l.lotNo) ?? 0
+      const kg = round1(Math.min(chciane, dostepne))
+      if (kg <= 0) continue
+      budzet.set(l.lotNo, round1(dostepne - kg))
+      skladniki.push({
+        lotNo: l.lotNo,
+        meatStockId: byLotNo.get(l.lotNo)?.meatStockId ?? '',
+        kg,
+      })
     }
+
+    const suma = round1(skladniki.reduce((s, x) => s + x.kg, 0))
+    if (suma <= 0) continue
+
     tiles.push({
       key: `pallet:${p.id}`,
       kind: 'pallet',
       palletId: p.id,
       palletNo: p.palletNo,
       lots: skladniki,
-      kgFree: wolne,
+      kgFree: suma,
       expiryDate: p.expiryDate,
-      materialName: byLotNo.get(p.lots[0]?.lotNo ?? '')?.materialName ?? '',
-      materialTypeId: byLotNo.get(p.lots[0]?.lotNo ?? '')?.materialTypeId ?? '',
-      mixed: new Set(p.lots.map(l => l.lotNo)).size > 1,
+      materialName: byLotNo.get(skladniki[0].lotNo)?.materialName ?? '',
+      materialTypeId: byLotNo.get(skladniki[0].lotNo)?.materialTypeId ?? '',
+      mixed: new Set(skladniki.map(l => l.lotNo)).size > 1,
     })
   }
 
   for (const l of lots) {
-    // Kilogramy partii, których nie obejmuje żadna wolna paleta — tędy idzie
-    // filet z mostka i indyk, których hala nie waży zbiorczo.
-    const pozaPaletami = round1(l.kgFree - (naPaletach.get(l.lotNo) ?? 0))
+    // Co zostało po rozdaniu palet — tędy idzie filet z mostka i indyk,
+    // których hala nie waży zbiorczo, oraz reszta partii poza słupkami.
+    const pozaPaletami = round1(budzet.get(l.lotNo) ?? 0)
     if (pozaPaletami <= 0) continue
     tiles.push({
       key: `lot:${l.meatStockId}`,

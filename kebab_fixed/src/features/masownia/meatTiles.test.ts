@@ -96,3 +96,62 @@ describe('skąd się bierze mięso — słupek czy waga pod potrzebę', () => {
     expect(zrodloKg('mat-mieso-zs')).toBe('nie na słupku')
   })
 })
+
+describe('paleta zyje tylko tak dlugo, jak jej partia', () => {
+  it('paleta partii bez miesa NIE pokazuje sie wcale', () => {
+    // Na produkcji 524 z 693 palet nalezalo do partii z zerowym stanem —
+    // mieso dawno poszlo, a kafelek zostawal i zasmiecal ekran masowni.
+    const tiles = buildMeatTiles({
+      pallets: [pallet({ id: 'stara', palletNo: 'PAL/01/08/26/1' })],
+      lots: [lot({ kgFree: 0 })],
+      taken: {},
+    })
+    expect(tiles).toEqual([])
+  })
+
+  it('partia starcza na czesc palet — reszta znika', () => {
+    // Zostalo 250 kg partii, a na papierze stoja trzy palety po 200 kg.
+    // Fizycznie sa najwyzej pol torej: pokazujemy 200 + 50, trzeciej nie ma.
+    const tiles = buildMeatTiles({
+      pallets: [
+        pallet({ id: 'p1', palletNo: 'PAL/1' }),
+        pallet({ id: 'p2', palletNo: 'PAL/2' }),
+        pallet({ id: 'p3', palletNo: 'PAL/3' }),
+      ],
+      lots: [lot({ kgFree: 250 })],
+      taken: {},
+    })
+    expect(tiles.map(t => [t.palletNo, t.kgFree])).toEqual([['PAL/1', 200], ['PAL/2', 50]])
+  })
+
+  it('palety ida najstarsza pierwsza — FEFO zostaje zachowane', () => {
+    const tiles = buildMeatTiles({
+      pallets: [pallet({ id: 'a', palletNo: 'PAL/A' }), pallet({ id: 'b', palletNo: 'PAL/B' })],
+      lots: [lot({ kgFree: 200 })],
+      taken: {},
+    })
+    expect(tiles.map(t => t.palletNo)).toEqual(['PAL/A'])
+  })
+
+  it('nadwyzka partii ponad palety zostaje na kafelku partii', () => {
+    const tiles = buildMeatTiles({
+      pallets: [pallet({ id: 'p1', palletNo: 'PAL/1' })],
+      lots: [lot({ kgFree: 300 })],
+      taken: {},
+    })
+    expect(tiles.map(t => [t.kind, t.kgFree])).toEqual([['pallet', 200], ['lot', 100]])
+  })
+
+  it('paleta mieszana ograniczona partia, ktorej zabraklo', () => {
+    // 511 ma jeszcze 60 kg, 512 nie ma nic — paleta niesie tylko to, co zostalo.
+    const tiles = buildMeatTiles({
+      pallets: [pallet({ id: 'pm', palletNo: 'PAL/MIX',
+                         lots: [{ lotNo: '511', kg: 60 }, { lotNo: '512', kg: 140 }] })],
+      lots: [lot({ kgFree: 60 }), lot({ meatStockId: 'ms-512', lotNo: '512', kgFree: 0 })],
+      taken: {},
+    })
+    expect(tiles).toHaveLength(1)
+    expect(tiles[0].kgFree).toBe(60)
+    expect(tiles[0].lots.map(l => l.lotNo)).toEqual(['511'])
+  })
+})
