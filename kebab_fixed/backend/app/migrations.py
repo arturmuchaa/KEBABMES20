@@ -1648,6 +1648,61 @@ _DDL: list[str] = [
     # powstały przed podziałem wysyłki, czyli na całość.
     "ALTER TABLE hdi_documents ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'calosc'",
     "UPDATE hdi_documents SET scope='calosc' WHERE scope IS NULL",
+    # ── Panel masowania: pojemniki z przyprawami i wsady w masownicach ──
+    #
+    # Masownica chodzi 50 min, więc operator odważa przyprawy na następne wsady
+    # W TYM CZASIE, do ponumerowanych pojemników (numer przeżyje mycie, papierowa
+    # etykieta na mokrym pojemniku odpadnie). Pojemnik rezerwuje kilogramy
+    # zlecenia — inaczej operator rozpisałby dwa razy to samo.
+    """CREATE TABLE IF NOT EXISTS mixing_spice_carts (
+        id          TEXT PRIMARY KEY,
+        cart_no     INTEGER NOT NULL,
+        order_id    TEXT NOT NULL REFERENCES mixing_orders(id) ON DELETE CASCADE,
+        recipe_id   TEXT NOT NULL DEFAULT '',
+        kg_target   NUMERIC(10,3) NOT NULL DEFAULT 0,
+        status      TEXT NOT NULL DEFAULT 'prepared',
+        ingredients JSONB NOT NULL DEFAULT '[]'::jsonb,
+        created_at  TIMESTAMPTZ DEFAULT now(),
+        dumped_at   TIMESTAMPTZ,
+        charge_id   TEXT,
+        CONSTRAINT mixing_spice_carts_cart_no_ck CHECK (cart_no BETWEEN 1 AND 6)
+    )""",
+    # Jeden numer pojemnika = jedne przyprawy. Pojemnik wsypany albo anulowany
+    # zwalnia numer, więc indeks obejmuje tylko te stojące.
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_spice_cart_no_live "
+    "ON mixing_spice_carts(cart_no) WHERE status = 'prepared'",
+    "CREATE INDEX IF NOT EXISTS idx_spice_cart_order ON mixing_spice_carts(order_id)",
+    # Wsad stojący w masownicy. Istnieje po to, żeby paleta znikała z ekranu
+    # w chwili ZAŁADOWANIA, a nie dopiero po odbiorze — inaczej dwa wsady
+    # wzięłyby tę samą paletę.
+    """CREATE TABLE IF NOT EXISTS mixing_charges (
+        id          TEXT PRIMARY KEY,
+        order_id    TEXT REFERENCES mixing_orders(id) ON DELETE CASCADE,
+        machine_id  INTEGER NOT NULL,
+        cart_id     TEXT,
+        kg_meat     NUMERIC(10,3) NOT NULL DEFAULT 0,
+        water_l     NUMERIC(10,3) NOT NULL DEFAULT 0,
+        batch_no    TEXT NOT NULL DEFAULT '',
+        status      TEXT NOT NULL DEFAULT 'mixing',
+        started_at  TIMESTAMPTZ DEFAULT now(),
+        finished_at TIMESTAMPTZ,
+        session_id  TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_mixing_charges_status ON mixing_charges(status)",
+    "CREATE INDEX IF NOT EXISTS idx_mixing_charges_order ON mixing_charges(order_id)",
+    # Jedna masownica = jeden wsad naraz.
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mixing_charges_machine_live "
+    "ON mixing_charges(machine_id) WHERE status = 'mixing'",
+    """CREATE TABLE IF NOT EXISTS mixing_charge_pallets (
+        id            TEXT PRIMARY KEY,
+        charge_id     TEXT NOT NULL REFERENCES mixing_charges(id) ON DELETE CASCADE,
+        pallet_id     TEXT,
+        lot_no        TEXT NOT NULL DEFAULT '',
+        meat_stock_id TEXT,
+        kg            NUMERIC(12,3) NOT NULL DEFAULT 0
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_charge_pallets_charge ON mixing_charge_pallets(charge_id)",
+    "CREATE INDEX IF NOT EXISTS idx_charge_pallets_pallet ON mixing_charge_pallets(pallet_id)",
 ]
 
 

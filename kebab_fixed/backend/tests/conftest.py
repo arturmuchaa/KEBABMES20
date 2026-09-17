@@ -30,6 +30,9 @@ _TRUNCATE = [
     "deboning_entry_corrections",
     "stock_movements", "stock_cartons", "stock_carton_lines", "finished_units", "finished_goods",
     "production_plan_lines", "production_plans",
+    # Panel masowania: wsady i pojemniki z przyprawami stoją NAD zleceniami
+    # (FK), więc lecą przed nimi — inaczej CASCADE zostawiłby sieroty.
+    "mixing_charge_pallets", "mixing_charges", "mixing_spice_carts",
     "seasoned_meat", "mixing_sessions", "mixing_order_lots", "mixing_orders",
     "byproduct_weighing_corrections",
     "meat_pallet_corrections", "meat_pallet_lots", "meat_pallets",
