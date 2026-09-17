@@ -4,6 +4,7 @@ import {
   ArrowLeft, Camera, CheckCircle2, AlertTriangle, Snowflake, RefreshCw, Undo2,
 } from 'lucide-react'
 import { palletScanApi, type ColdStoragePallet, type PalletScanResult } from '@/lib/api'
+import { useSkanAutoSubmit } from '@/features/scan/useSkanAutoSubmit'
 import { useApi } from '@/hooks/useApi'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { fmtKg } from '@/lib/utils'
@@ -116,6 +117,12 @@ export function MobileMrozniaPage() {
     }
   }
 
+  // Skaner HID bez sufiksu Enter wpisuje kod i nic więcej — formularz się nie
+  // wysyła i wygląda to jak awaria MES (zakład, 17.09.2026, DS2278). Ekran
+  // rozpoznaje więc KOMPLETNY kod palety sam i wysyła go po chwili
+  // bezczynności; Enter, jeśli jednak przyjdzie, jest bezczynny.
+  const { zatwierdz } = useSkanAutoSubmit(value, handleSubmit)
+
   async function handleSubmit(code: string) {
     const trimmed = code.trim()
     if (!trimmed || busy) return
@@ -161,7 +168,7 @@ export function MobileMrozniaPage() {
 
       <main className="flex flex-1 flex-col gap-3 p-3">
         <form
-          onSubmit={(e) => { e.preventDefault(); handleSubmit(value) }}
+          onSubmit={(e) => { e.preventDefault(); zatwierdz(value) }}
           className="flex items-stretch gap-2"
         >
           <input

@@ -13,6 +13,7 @@ import {
   type OrderPallet,
   type Vehicle,
 } from '@/lib/api'
+import { useSkanAutoSubmit } from '@/features/scan/useSkanAutoSubmit'
 import { useApi } from '@/hooks/useApi'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { fmtKg } from '@/lib/utils'
@@ -297,6 +298,12 @@ export function MobileZaladunekPage() {
     if (!confirm('Wyczyścić listę zamówień na ten samochód?')) return
     setSelectedIds([])
   }
+
+  // Skaner HID bez sufiksu Enter wpisuje kod i nic więcej — formularz się nie
+  // wysyła i wygląda to jak awaria MES (zakład, 17.09.2026, DS2278). Ekran
+  // rozpoznaje więc KOMPLETNY kod palety sam i wysyła go po chwili
+  // bezczynności; Enter, jeśli jednak przyjdzie, jest bezczynny.
+  const { zatwierdz } = useSkanAutoSubmit(value, handleSubmit)
 
   async function handleSubmit(code: string) {
     const trimmed = code.trim()
@@ -627,7 +634,7 @@ export function MobileZaladunekPage() {
 
             {/* Skan */}
             <form
-              onSubmit={(e) => { e.preventDefault(); handleSubmit(value) }}
+              onSubmit={(e) => { e.preventDefault(); zatwierdz(value) }}
               className="flex items-stretch gap-2"
             >
               <input
