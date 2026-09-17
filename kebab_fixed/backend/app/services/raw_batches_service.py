@@ -5,7 +5,9 @@ from fastapi import HTTPException
 
 from app.db import cx_execute, cx_execute_returning, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
-from app.models.raw_batches import RawBatchAdjust, RawBatchCreate, RawBatchUpdate
+from app.models.raw_batches import (
+    MeatLotAdjust, RawBatchAdjust, RawBatchCreate, RawBatchUpdate,
+)
 from app.services.container_ledger_service import book_assets
 from app.services.container_partners_service import resolve_partner
 from app.utils.batch_numbers import (
@@ -947,3 +949,56 @@ def list_meat_stock(include_reserved: bool = False) -> Dict[str, Any]:
             """
         )
     }
+
+
+def adjust_meat_lot(lot_id: str, dto: MeatLotAdjust, subject: str = "") -> Dict:
+    """Inwentaryzacja partii mięsa — korekta stanu po przeliczeniu chłodni.
+
+    Bliźniak `adjust_batch_stock` dla ćwiartki, z tą samą zasadą: RUCH PRZED
+    zmianą stanu, żeby księga nigdy nie była „za" stanem partii, i bez tykania
+    `kg_initial`, bo to wydajność rozbioru, a nie stan magazynu.
+
+    Powód jest OBOWIĄZKOWY: korekta bez powodu jest w kartotece partii
+    nieodróżnialna od zmyślenia.
+    """
+    powod = (dto.reason or "").strip()
+    if not powod:
+        raise HTTPException(400, "Podaj powód korekty — bez niego nie wiadomo, skąd nowa liczba")
+
+    delta = round(float(dto.kg or 0), 3)
+    if abs(delta) < 0.001:
+        raise HTTPException(400, "Korekta zerowa")
+
+    with transaction() as conn:
+        lot = cx_query_one(
+            conn,
+            "SELECT id, lot_no, kg_available FROM meat_stock WHERE id=%s FOR UPDATE",
+            (lot_id,),
+        )
+        if not lot:
+            raise HTTPException(404, "Partia mięsa nie znaleziona")
+
+        before = float(lot.get("kg_available") or 0)
+        after = round(before + delta, 3)
+        if after < -0.001:
+            raise HTTPException(
+                400,
+                f"Korekta {delta:+.1f} kg zeszłaby poniżej zera (stan {before:.1f} kg)",
+            )
+
+        # Ruch PRZED zmianą stanu — create_stock_movement waliduje żywy stan lotu.
+        create_stock_movement(
+            conn, product_type="meat", batch_id=lot_id, qty=abs(delta),
+            movement_type="ADJUST", source_type="inventory", source_id=lot_id,
+        )
+        row = cx_execute_returning(
+            conn,
+            "UPDATE meat_stock SET kg_available=%s WHERE id=%s RETURNING *",
+            (after, lot_id),
+        )
+
+    logger.info("meat_stock.adjusted", extra={
+        "lot": lot.get("lot_no"), "delta": delta, "po_korekcie": after,
+        "powod": powod, "kto": subject,
+    })
+    return dict(row)

@@ -105,3 +105,21 @@ class RawBatchUpdate(BaseModel):
             normalized = {mapping.get(k, k): v for k, v in obj.items()}
             return super().model_validate(normalized, **kw)
         return super().model_validate(obj, **kw)
+
+
+class MeatLotAdjust(BaseModel):
+    """POST /api/meat-stock/{id}/adjust — inwentaryzacja partii mięsa.
+
+    Ćwiartka miała korektę stanu od dawna, partia mięsa nie — a przeliczenie
+    chłodni wychodzi tak samo często. Bez tej ścieżki zostawał goły SQL, który
+    zdejmuje kilogramy i zostawia rozjazd stanu z księgą ruchów.
+
+    Rusza WYŁĄCZNIE `kg_available`. `kg_initial` mówi, ile partia dała na
+    rozbiorze — przeliczenie chłodni nie ma prawa przepisać wydajności.
+
+    `kg` to RÓŻNICA (ujemna = ubyło), nie stan docelowy: korekta różnicowa nie
+    przepisze po cichu kilogramów, które ktoś zdjął równolegle.
+    """
+
+    kg: float
+    reason: str = ""
