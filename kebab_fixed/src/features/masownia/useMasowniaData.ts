@@ -9,7 +9,7 @@
 import { useCallback } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { useLiveRefresh } from '@/hooks/useLiveRefresh'
-import { masowniaApi, mixingOrdersApi, type MasowniaMeat } from '@/lib/api'
+import { masowniaApi, mixingOrdersApi, recipesApi, type MasowniaMeat } from '@/lib/api'
 
 /** Pojemnik z przyprawami, tak jak wraca z backendu (snake_case). */
 export interface SpiceCart {
@@ -46,6 +46,8 @@ export function useMasowniaData() {
   const pojemniki = useApi(() => masowniaApi.carts(), [])
   const wsady     = useApi(() => masowniaApi.charges(), [])
   const mieso     = useApi(() => masowniaApi.meat(), [])
+  // Receptury zmieniają się raz na kwartał — nie ma czego odświeżać co 10 s.
+  const receptury = useApi(() => recipesApi.list(), [])
 
   // 10 s: hala pracuje minutami, a nie sekundami — częstsze pytanie tylko
   // obciąża łącze panelu.
@@ -63,6 +65,7 @@ export function useMasowniaData() {
     pojemniki: (pojemniki.data ?? []) as SpiceCart[],
     wsady: (wsady.data ?? []) as Charge[],
     mieso: (mieso.data ?? PUSTE_MIESO) as MasowniaMeat,
+    receptury: (receptury.data ?? []) as any[],
     loading: zlecenia.loading && !zlecenia.data,
     error: zlecenia.error || pojemniki.error || wsady.error || mieso.error || '',
     odswiez,
