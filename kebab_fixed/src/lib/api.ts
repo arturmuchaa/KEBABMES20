@@ -1098,6 +1098,75 @@ export const meatPalletsApi = {
       `/meat-pallets/${encodeURIComponent(palletNo)}?reason=${encodeURIComponent(reason)}`),
 }
 
+// ─── Panel masowania (kiosk masowni) ──────────────────────────
+// Mięso pod kafelki: palety z ważenia zbiorczego i partie bez palet (filet
+// z mostka, indyk, mięso kupione z zewnątrz — tego hala nie waży zbiorczo).
+export interface MasowniaMeat {
+  pallets: MasowniaTilePallet[]
+  lots: MasowniaTileLot[]
+  /** Ile kg zdjęły z palety wsady już załadowane: palletId → kg. */
+  taken: Record<string, number>
+}
+export interface MasowniaTilePallet {
+  id: string
+  palletNo: string
+  kgNet: number
+  expiryDate: string
+  lots: { lotNo: string; kg: number }[]
+}
+export interface MasowniaTileLot {
+  meatStockId: string
+  lotNo: string
+  materialName: string
+  kgFree: number
+  expiryDate: string
+}
+
+export function mapMasowniaMeat(raw: any): MasowniaMeat {
+  return {
+    pallets: (raw?.pallets ?? []).map((p: any) => ({
+      id: p.id,
+      palletNo: p.pallet_no ?? p.palletNo ?? '',
+      kgNet: Number(p.kg_net ?? p.kgNet ?? 0),
+      expiryDate: String(p.expiry_date ?? p.expiryDate ?? '').slice(0, 10),
+      lots: (p.lots ?? []).map((l: any) => ({
+        lotNo: l.lot_no ?? l.lotNo ?? '',
+        kg:    Number(l.kg ?? 0),
+      })),
+    })),
+    lots: (raw?.lots ?? []).map((l: any) => ({
+      meatStockId:  l.meat_stock_id ?? l.meatStockId ?? '',
+      lotNo:        l.lot_no        ?? l.lotNo       ?? '',
+      materialName: l.material_name ?? l.materialName ?? '',
+      kgFree:       Number(l.kg_free ?? l.kgFree ?? 0),
+      expiryDate:   String(l.expiry_date ?? l.expiryDate ?? '').slice(0, 10),
+    })),
+    taken: Object.fromEntries(
+      Object.entries(raw?.taken ?? {}).map(([k, v]) => [k, Number(v)]),
+    ),
+  }
+}
+
+export const masowniaApi = {
+  meat: () => get<any>('/masownia/mieso').then(mapMasowniaMeat),
+
+  carts: () => get<any>('/masownia/pojemniki').then(r => (r?.data ?? []) as any[]),
+  createCart: (dto: { orderId: string; cartNo: number; kgTarget: number }) =>
+    post<any>('/masownia/pojemniki', dto),
+  weighIngredient: (cartId: string, dto: {
+    seq: number; name: string; unit: string; qty: number; weighed: number; manual: boolean
+  }) => patch<any>(`/masownia/pojemniki/${cartId}`, dto),
+  cancelCart: (cartId: string) => del<any>(`/masownia/pojemniki/${cartId}`),
+
+  charges: () => get<any>('/masownia/wsady').then(r => (r?.data ?? []) as any[]),
+  load: (dto: {
+    orderId: string; machineId: number; cartId?: string | null; waterL: number
+    meat: { palletId: string | null; lotNo: string; meatStockId: string; kg: number }[]
+  }) => post<any>('/masownia/wsady', dto),
+  finish: (chargeId: string, kgOutput: number) =>
+    patch<any>(`/masownia/wsady/${chargeId}/odbior`, { kgOutput }),
+}
+
 // ─── Kontrahenci ──────────────────────────────────────────────
 // Backend zwraca snake_case (display_name, contact_name) — mapujemy do camelCase
 function mapClient(raw: any): Client {
