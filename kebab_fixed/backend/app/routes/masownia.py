@@ -1,7 +1,9 @@
 """Panel masowania — mięso, pojemniki z przyprawami, wsady."""
 from fastapi import APIRouter
 
-from app.models.masownia import SpiceCartCreate, SpiceWeighDto
+from app.models.masownia import (
+    ChargeCreate, ChargeFinish, SpiceCartCreate, SpiceWeighDto,
+)
 from app.services import masownia_service as svc
 
 router = APIRouter(prefix="/api/masownia", tags=["masownia"])
@@ -35,3 +37,21 @@ def weigh_ingredient(cart_id: str, dto: SpiceWeighDto):
 def cancel_cart(cart_id: str):
     """Anuluj pojemnik — zwalnia numer i oddaje kilogramy zleceniu."""
     return svc.cancel_cart(cart_id)
+
+
+@router.get("/wsady")
+def list_charges():
+    """Wsady stojące w masownicach."""
+    return {"data": svc.list_charges()}
+
+
+@router.post("/wsady")
+def load_charge(dto: ChargeCreate):
+    """Załaduj masownicę: pojemnik z przyprawami + mięso + woda."""
+    return svc.load_charge(dto)
+
+
+@router.patch("/wsady/{charge_id}/odbior")
+def finish_charge(charge_id: str, dto: ChargeFinish):
+    """Odbiór z masownicy — kilogramy zważone paleciakiem."""
+    return svc.finish_charge(charge_id, dto)

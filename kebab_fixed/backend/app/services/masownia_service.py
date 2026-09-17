@@ -11,11 +11,16 @@ from typing import Any, Dict, List
 from fastapi import HTTPException
 
 from app.db import (
-    cx_execute, cx_execute_returning, cx_query_one, query_all, query_one, transaction,
+    cx_execute, cx_execute_returning, cx_query_one, execute, query_all, query_one,
+    transaction,
 )
 from app.logging_config import get_logger
-from app.models.masownia import SpiceCartCreate, SpiceWeighDto
-from app.utils.ids import cuid
+from app.models.masownia import (
+    ChargeCreate, ChargeFinish, SpiceCartCreate, SpiceWeighDto,
+)
+from app.models.mixing import FinishMixingLotAlloc, FinishMixingSessionDto
+from app.services import mixing_service
+from app.utils.ids import cuid, now_iso
 
 logger = get_logger(__name__)
 
@@ -251,3 +256,171 @@ def cancel_cart(cart_id: str) -> Dict[str, Any]:
     if not row:
         raise HTTPException(404, "Nie ma takiego pojemnika albo już go wsypano")
     return _cart_out(row)
+
+
+# ── Wsad w masownicy ───────────────────────────────────────────────────────
+#
+# Wsad powstaje w chwili ZAŁADOWANIA, nie przy odbiorze: paleta musi zniknąć
+# z ekranu od razu, inaczej dwa wsady wzięłyby tę samą. Księgowanie (ruchy
+# magazynowe, seasoned_meat, kg_done, numer partii przyprawionej) zostaje
+# w `mixing_service.finish_mixing_session` — to najgorętsza ścieżka modułu
+# i nie ma powodu jej przepisywać.
+
+
+def list_charges() -> List[Dict[str, Any]]:
+    """Wsady stojące w masownicach."""
+    rows = query_all(
+        """
+        SELECT c.*, o.order_no, o.recipe_id, o.recipe_name
+        FROM mixing_charges c
+        JOIN mixing_orders o ON o.id = c.order_id
+        WHERE c.status = 'mixing'
+        ORDER BY c.machine_id
+        """
+    )
+    out = []
+    for r in rows:
+        row = dict(r)
+        row["kg_meat"] = float(row.get("kg_meat") or 0)
+        row["water_l"] = float(row.get("water_l") or 0)
+        row["meat"] = query_all(
+            "SELECT pallet_id, lot_no, meat_stock_id, kg FROM mixing_charge_pallets "
+            "WHERE charge_id=%s",
+            (r["id"],),
+        )
+        out.append(row)
+    return out
+
+
+def _batch_no_of(lot_nos: List[str]) -> str:
+    """Numer partii przyprawionej, o ile da się go podać BEZ zgadywania.
+
+    Jeden wsad surowca → partia nosi jego numer (511 zostaje 511). Dwa i więcej
+    → numer PP nadaje backend przy odbiorze (`seasoned_batch_no_from_raw`),
+    bo licznik PP jest wspólny dla całego MES; panel zwraca wtedy pusty numer.
+    """
+    rozne = sorted({l for l in lot_nos if l})
+    return rozne[0] if len(rozne) == 1 else ""
+
+
+def load_charge(dto: ChargeCreate) -> Dict[str, Any]:
+    """Załaduj masownicę: pojemnik z przyprawami + mięso + woda."""
+    kg_meat = round(sum(float(m.kg) for m in dto.meat), 3)
+    if kg_meat <= 0:
+        raise HTTPException(400, "Wsad bez mięsa — wskaż palety albo partię")
+
+    batch_no = _batch_no_of([m.lot_no for m in dto.meat])
+
+    with transaction() as conn:
+        zajeta = cx_query_one(
+            conn,
+            "SELECT machine_id FROM mixing_charges WHERE machine_id=%s AND status='mixing'",
+            (dto.machine_id,),
+        )
+        if zajeta:
+            raise HTTPException(409, f"Masownica {dto.machine_id} jest zajęta")
+
+        charge = cx_execute_returning(
+            conn,
+            """
+            INSERT INTO mixing_charges
+                (id, order_id, machine_id, cart_id, kg_meat, water_l, batch_no, status, started_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,'mixing',%s) RETURNING *
+            """,
+            (cuid(), dto.order_id, dto.machine_id, dto.cart_id, kg_meat,
+             dto.water_l, batch_no, now_iso()),
+        )
+        for m in dto.meat:
+            cx_execute(
+                conn,
+                "INSERT INTO mixing_charge_pallets "
+                "(id, charge_id, pallet_id, lot_no, meat_stock_id, kg) VALUES (%s,%s,%s,%s,%s,%s)",
+                (cuid(), charge["id"], m.pallet_id, m.lot_no, m.meat_stock_id or None, float(m.kg)),
+            )
+        if dto.cart_id:
+            cx_execute(
+                conn,
+                "UPDATE mixing_spice_carts SET status='dumped', dumped_at=%s, charge_id=%s "
+                "WHERE id=%s AND status='prepared'",
+                (now_iso(), charge["id"], dto.cart_id),
+            )
+        # Zlecenie rusza i pamięta, na której maszynie stoi — stąd bierze ją
+        # sesja zapisywana przy odbiorze.
+        cx_execute(
+            conn,
+            "UPDATE mixing_orders SET status='in_progress', machine_id=%s, "
+            "started_at=COALESCE(started_at,%s) WHERE id=%s AND status IN "
+            "('planned','confirmed','in_progress')",
+            (dto.machine_id, now_iso(), dto.order_id),
+        )
+
+    logger.info("masownia.charge.loaded", extra={
+        "machine": dto.machine_id, "kg": kg_meat, "batch": batch_no,
+    })
+    out = dict(charge)
+    out["kg_meat"] = float(out.get("kg_meat") or 0)
+    out["water_l"] = float(out.get("water_l") or 0)
+    return out
+
+
+def finish_charge(charge_id: str, dto: ChargeFinish) -> Dict[str, Any]:
+    """Odbiór z masownicy: kg z paleciaka → księgowanie istniejącą ścieżką.
+
+    Wsad zamykamy PRZED księgowaniem: `UPDATE ... WHERE status='mixing'` jest
+    bramką na dwa równoległe odbiory tego samego wsadu. Gdyby księgowanie szło
+    pierwsze, dwa dotknięcia zdjęłyby mięso ze stanu dwa razy.
+    """
+    charge = query_one("SELECT * FROM mixing_charges WHERE id=%s", (charge_id,))
+    if not charge:
+        raise HTTPException(404, "Nie ma takiego wsadu")
+
+    with transaction() as conn:
+        zamkniety = cx_execute_returning(
+            conn,
+            "UPDATE mixing_charges SET status='done', finished_at=%s "
+            "WHERE id=%s AND status='mixing' RETURNING *",
+            (now_iso(), charge_id),
+        )
+    if not zamkniety:
+        raise HTTPException(409, "Ten wsad jest już odebrany")
+
+    sklad = query_all(
+        "SELECT meat_stock_id, kg FROM mixing_charge_pallets WHERE charge_id=%s", (charge_id,)
+    )
+    try:
+        mixing_service.finish_mixing_session(
+            charge["order_id"],
+            FinishMixingSessionDto(
+                kgActual=float(charge["kg_meat"] or 0),
+                batchNo=charge["batch_no"] or "",
+                lotAllocations=[
+                    FinishMixingLotAlloc(meatLotId=s["meat_stock_id"] or "", kg=float(s["kg"] or 0))
+                    for s in sklad
+                ],
+            ),
+        )
+    except Exception:
+        # Księgowanie padło — wsad wraca na maszynę, żeby operator mógł
+        # spróbować jeszcze raz zamiast zostać z pustym ekranem i mięsem
+        # nieodpisanym ze stanu.
+        execute(
+            "UPDATE mixing_charges SET status='mixing', finished_at=NULL WHERE id=%s",
+            (charge_id,),
+        )
+        raise
+
+    sesja = query_one(
+        "SELECT id FROM mixing_sessions WHERE order_id=%s ORDER BY completed_at DESC LIMIT 1",
+        (charge["order_id"],),
+    )
+    session_id = (sesja or {}).get("id") or ""
+    execute("UPDATE mixing_charges SET session_id=%s WHERE id=%s", (session_id, charge_id))
+
+    logger.info("masownia.charge.finished", extra={
+        "machine": charge["machine_id"], "kg_output": dto.kg_output,
+    })
+    out = dict(zamkniety)
+    out["kg_meat"] = float(out.get("kg_meat") or 0)
+    out["water_l"] = float(out.get("water_l") or 0)
+    out["session_id"] = session_id
+    return out
