@@ -510,9 +510,15 @@ _DDL: list[str] = [
         order_id   TEXT NOT NULL,
         wz_id      TEXT,
         wz_status  TEXT,
+        -- Co FAKTYCZNIE wyjechalo tym kursem: pozycje magazynu ze sztukami.
+        -- Bez tego biuro wystawiajace papiery PO zaladunku musialoby zgadywac
+        -- z planu, a caly sens odwroconej kolejnosci jest taki, ze dokument
+        -- opisuje auto, nie plan (wlasciciel, 12.09.2026).
+        pozycje    JSONB NOT NULL DEFAULT '[]'::jsonb,
         PRIMARY KEY (loading_id, order_id)
     )
     """,
+    "ALTER TABLE loading_orders ADD COLUMN IF NOT EXISTS pozycje JSONB NOT NULL DEFAULT '[]'::jsonb",
     "CREATE INDEX IF NOT EXISTS idx_loadings_do_wydruku ON loadings(printed_at) WHERE printed_at IS NULL",
     # Wlasna nazwa receptury dla odbiorcy — u POLATA „BEYAZ AFIYET" ma schodzic
     # na dokument jako samo „BEYAZ". Rodzaj zostaje wspolny, zmienia sie tylko
