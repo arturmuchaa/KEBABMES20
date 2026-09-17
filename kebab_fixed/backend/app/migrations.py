@@ -1703,6 +1703,11 @@ _DDL: list[str] = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_charge_pallets_charge ON mixing_charge_pallets(charge_id)",
     "CREATE INDEX IF NOT EXISTS idx_charge_pallets_pallet ON mixing_charge_pallets(pallet_id)",
+    # Kilogramy ZWAŻONE paleciakiem przy odbiorze. Księgowanie liczy wyrób
+    # z receptury (`calc_kg_output`), więc bez tej kolumny odczyt operatora
+    # nie zostawiałby śladu — a rozjazd teorii z fizyką bywa na 1-3 kg i to
+    # biuro musi go uzgodnić (`reconcile_seasoned_batch`).
+    "ALTER TABLE mixing_charges ADD COLUMN IF NOT EXISTS kg_output NUMERIC(10,3) NOT NULL DEFAULT 0",
 ]
 
 

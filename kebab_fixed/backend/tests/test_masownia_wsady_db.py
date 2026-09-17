@@ -128,3 +128,14 @@ def test_odbior_drugi_raz_nie_ksieguje_ponownie():
     with pytest.raises(HTTPException):
         svc.finish_charge(ch["id"], ChargeFinish(kgOutput=232.5))
     assert float(query_one("SELECT kg_used FROM meat_stock WHERE id=%s", (ms,))["kg_used"]) == 200.0
+
+
+def test_odbior_zapisuje_kilogramy_z_paleciaka():
+    # Księgowanie liczy wyrób z RECEPTURY; bez tej kolumny odczyt operatora
+    # znikałby, a to on jest fizyką, którą biuro uzgadnia z teorią.
+    oid, ms = _zlecenie(), _partia("511")
+    ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
+        ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
+    svc.finish_charge(ch["id"], ChargeFinish(kgOutput=232.5))
+    zapis = query_one("SELECT kg_output FROM mixing_charges WHERE id=%s", (ch["id"],))
+    assert float(zapis["kg_output"]) == 232.5

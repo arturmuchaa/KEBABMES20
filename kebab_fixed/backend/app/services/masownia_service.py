@@ -414,7 +414,13 @@ def finish_charge(charge_id: str, dto: ChargeFinish) -> Dict[str, Any]:
         (charge["order_id"],),
     )
     session_id = (sesja or {}).get("id") or ""
-    execute("UPDATE mixing_charges SET session_id=%s WHERE id=%s", (session_id, charge_id))
+    # Odczyt z paleciaka zostaje przy wsadzie. Księgowanie liczy wyrób
+    # z receptury, więc to JEDYNE miejsce, w którym zapisuje się, ile
+    # naprawdę wyjechało z masownicy.
+    execute(
+        "UPDATE mixing_charges SET session_id=%s, kg_output=%s WHERE id=%s",
+        (session_id, float(dto.kg_output), charge_id),
+    )
 
     logger.info("masownia.charge.finished", extra={
         "machine": charge["machine_id"], "kg_output": dto.kg_output,
@@ -422,5 +428,6 @@ def finish_charge(charge_id: str, dto: ChargeFinish) -> Dict[str, Any]:
     out = dict(zamkniety)
     out["kg_meat"] = float(out.get("kg_meat") or 0)
     out["water_l"] = float(out.get("water_l") or 0)
+    out["kg_output"] = float(dto.kg_output)
     out["session_id"] = session_id
     return out
