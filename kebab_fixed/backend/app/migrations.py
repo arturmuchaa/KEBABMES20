@@ -1724,6 +1724,16 @@ _DDL: list[str] = [
     # (właściciel 18.09.2026: „żeby się nie puszczały automatycznie").
     # `started_at` zostaje pusty do startu, bo to od niego liczy się 50 minut.
     "ALTER TABLE mixing_charges ADD COLUMN IF NOT EXISTS loaded_at TIMESTAMPTZ",
+    # Paleta mięsa przyprawionego dostaje przy odbiorze WŁASNY numer, ciągiem
+    # od 1 — osobnym torem niż paczki przypraw (decyzja właściciela
+    # 18.09.2026). Numer idzie na etykietę i jest tym, po czym halę pyta się
+    # „która to paleta", gdy dwie partie tej samej receptury stoją obok siebie.
+    "ALTER TABLE mixing_charges ADD COLUMN IF NOT EXISTS out_pallet_no INTEGER",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mixing_charges_out_pallet "
+    "ON mixing_charges(out_pallet_no) WHERE out_pallet_no IS NOT NULL",
+    """INSERT INTO sequences (key, value)
+       SELECT 'seasoned_pallet_seq', COALESCE(MAX(out_pallet_no), 0) FROM mixing_charges
+       ON CONFLICT (key) DO NOTHING""",
     "ALTER TABLE mixing_charges ALTER COLUMN started_at DROP DEFAULT",
     "UPDATE mixing_charges SET loaded_at = started_at WHERE loaded_at IS NULL",
     # Jedna masownica = jeden wsad naraz. Załadowana, choć jeszcze nie puszczona,

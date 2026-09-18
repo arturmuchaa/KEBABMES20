@@ -74,8 +74,14 @@ export function MixedToday({ charges, busyId, onPrint, onClose }: {
                     <span className="hmi-v10-mono text-[15px] font-bold w-[110px] shrink-0" style={{ color: 'var(--mut)' }}>
                       {godzina((c as any).started_at)} → {godzina((c as any).finished_at)}
                     </span>
-                    <span className="hmi-v10-mono text-[22px] font-bold w-[110px] shrink-0">
-                      {c.batch_no || '—'}
+                    <span className="w-[130px] shrink-0">
+                      <b className="block hmi-v10-mono text-[22px] font-bold leading-none">
+                        {c.batch_no || '—'}
+                      </b>
+                      <span className="block hmi-v10-mono text-[11px] font-semibold mt-1"
+                        style={{ color: 'var(--mut)' }}>
+                        paleta nr {(c as any).out_pallet_no ?? '—'}
+                      </span>
                     </span>
                     <span className="flex-1 min-w-0">
                       <span className="block text-[16px] font-extrabold truncate">{c.recipe_name || '—'}</span>

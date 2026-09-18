@@ -84,3 +84,50 @@ def test_anulowany_wsad_nie_wchodzi_do_historii():
         ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
     svc.cancel_charge(ch["id"], "pomyłka")
     assert svc.list_charges_today() == []
+
+
+def test_paleta_wyrobu_dostaje_wlasny_numer_przy_odbiorze():
+    """Paleta mięsa przyprawionego numerowana CIĄGIEM, własnym torem.
+
+    Właściciel 18.09.2026: „palety mięsa przyprawionego mają być numerowane też
+    ciągiem jak ważenie przypraw, tylko swoim torem". Numer idzie na etykietę —
+    po nim hala rozpoznaje paletę, gdy dwie partie tej samej receptury stoją
+    obok siebie.
+    """
+    oid, ms = _zlecenie(), _partia()
+    a = _przerobiony(oid, ms, 1)
+    b = _przerobiony(oid, ms, 2)
+
+    na = query_one("SELECT out_pallet_no FROM mixing_charges WHERE id=%s", (a["id"],))["out_pallet_no"]
+    nb = query_one("SELECT out_pallet_no FROM mixing_charges WHERE id=%s", (b["id"],))["out_pallet_no"]
+    assert na >= 1 and nb == na + 1, "numery palet idą ciągiem"
+
+
+def test_numer_palety_wyrobu_jest_niezalezny_od_numeru_paczki_przypraw():
+    """Dwa tory: paczki przypraw mają swój licznik, palety wyrobu swój."""
+    from app.models.masownia import SpiceCartCreate
+
+    oid, ms = _zlecenie(), _partia()
+    svc.create_cart(SpiceCartCreate(orderId=oid, kgTarget=200, bags=1))
+    svc.create_cart(SpiceCartCreate(orderId=oid, kgTarget=200, bags=1))
+    ch = _przerobiony(oid, ms, 1)
+
+    paleta = query_one("SELECT out_pallet_no FROM mixing_charges WHERE id=%s", (ch["id"],))["out_pallet_no"]
+    assert paleta == 1, "paczki przypraw nie przesuwają licznika palet wyrobu"
+
+
+def test_historia_dnia_niesie_numer_palety():
+    oid, ms = _zlecenie(), _partia()
+    _przerobiony(oid, ms, 3)
+    assert svc.list_charges_today()[0]["out_pallet_no"] >= 1
+
+
+def test_stojacy_wsad_nie_ma_jeszcze_numeru_palety():
+    """Paleta powstaje przy ODBIORZE — wcześniej nie ma czego numerować."""
+    oid, ms = _zlecenie(), _partia()
+    ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
+        ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
+    svc.start_charge(ch["id"])
+    assert query_one(
+        "SELECT out_pallet_no FROM mixing_charges WHERE id=%s", (ch["id"],)
+    )["out_pallet_no"] is None

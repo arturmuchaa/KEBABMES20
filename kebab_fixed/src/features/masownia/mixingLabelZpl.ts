@@ -22,6 +22,23 @@ import { LOGO_DOTS_H, LOGO_DOTS_W, labelLogoZpl } from '@/lib/labelLogo'
 export const LABEL_W_MM = 100
 export const LABEL_H_MM = 150
 
+/** Rozdzielczość drukarki masowni — kiosk pamięta ją między uruchomieniami.
+ *
+ *  Ta sama etykieta wysłana na drukarkę 300 dpi wychodzi w dwóch trzecich
+ *  rozmiaru i „od połowy", bo punkty są fizycznie mniejsze. Modelu nie da się
+ *  zapytać jednostronnym drukiem, więc rozdzielczość ustawia się raz w menu
+ *  serwisowym, zamiast zgadywać ją w kodzie. */
+export const LABEL_DPI_KEY = 'kebab.masownia.labelDpi'
+
+export function labelDpi(): number {
+  try {
+    const zapisane = Number(localStorage.getItem(LABEL_DPI_KEY))
+    return zapisane === 300 || zapisane === 203 ? zapisane : LABEL_DPI
+  } catch {
+    return LABEL_DPI   // prywatne okno / zablokowane dane — działa jak 203
+  }
+}
+
 /** Wysokość wiersza składu w mm. */
 const WIERSZ_MM = 6.5
 /** Ile milimetrów u dołu rezerwujemy na blok „masowanie" (godziny, maszyna).
@@ -57,6 +74,8 @@ export interface MixingLabelInput {
   /** ISO — odbiór. */
   finishedAt?: string | null
   mixMinutes?: number | null
+  /** Numer palety wyrobu — własny ciąg od 1, nadawany przy odbiorze. */
+  palletNo?: number | null
   meat: MixingLabelMeat[]
 }
 
@@ -117,7 +136,7 @@ export function partieSurowca(meat: MixingLabelMeat[]): string[] {
 
 export function mixingLabelZpl(
   input: MixingLabelInput,
-  { dpi = LABEL_DPI, copies = 1 }: MixingLabelOptions = {},
+  { dpi = labelDpi(), copies = 1 }: MixingLabelOptions = {},
 ): string {
   const M = 4                       // margines mm
   const W = LABEL_W_MM - 2 * M      // 92 mm pola zadruku
@@ -141,6 +160,14 @@ export function mixingLabelZpl(
     text(M, 11.5, 3.6, 'PARTIA', dpi),
     text(M, 16, 18, input.batchNo || '—', dpi),
   ]
+
+  // Numer palety wyrobu — drugi identyfikator etykiety, obok numeru partii.
+  // Dwie palety tej samej receptury i tej samej partii stoją obok siebie
+  // nie do odróżnienia; ten numer jest jedynym, po którym hala je rozdziela.
+  if (input.palletNo) {
+    body.push(textRight(M, 11.5, W, 3.6, 'PALETA NR', dpi))
+    body.push(textRight(M, 16, W, 13, String(input.palletNo), dpi))
+  }
 
   let y = 36
   if (partie.length > 1) {
@@ -229,8 +256,48 @@ export function mixingLabelZpl(
     `^PW${mmToDots(LABEL_W_MM, dpi)}`,   // szerokość TAŚMY — za duża ucina wiersze
     `^LL${mmToDots(LABEL_H_MM, dpi)}`,
     '^LH0,0',
+    // `^LT0` kasuje przesunięcie GÓRY etykiety zapisane w pamięci drukarki.
+    // Bez tego wydruk potrafi zjechać o pół etykiety i wyjść poza taśmę —
+    // `^LH` tego ustawienia NIE zeruje (zgłoszenie z hali 18.09.2026).
+    '^LT0',
     '^MNY',                              // etykiety wykrawane — szukaj przerwy
     '^LS0',
+    ...body,
+    '^XZ',
+  ].join('\n')
+}
+
+
+/**
+ * Etykieta TESTOWA — ramka pola zadruku i podziałka co 10 mm.
+ *
+ * Służy do ustawienia drukarki na hali: jeśli ramka nie trafia w krawędzie
+ * etykiety albo podziałka nie zgadza się z linijką, problemem jest drukarka
+ * (rozdzielczość, kalibracja mediów, przesunięcie góry), a nie treść wydruku.
+ */
+export function labelTestZpl({ dpi = labelDpi() }: { dpi?: number } = {}): string {
+  const M = 4
+  const W = LABEL_W_MM - 2 * M
+  const H = LABEL_H_MM - 2 * M
+  const gr = Math.max(1, mmToDots(0.8, dpi))
+  const body: string[] = [
+    `^FO${mmToDots(M, dpi)},${mmToDots(M, dpi)}^GB${mmToDots(W, dpi)},${mmToDots(H, dpi)},${gr}^FS`,
+    text(M + 3, M + 4, 6, `TEST ${LABEL_W_MM} × ${LABEL_H_MM} mm`, dpi),
+    text(M + 3, M + 12, 4.5, `${dpi} dpi`, dpi),
+    text(M + 3, M + 19, 4, 'Ramka ma trafić w krawędzie etykiety.', dpi),
+    text(M + 3, M + 25, 4, 'Podziałka co 10 mm — sprawdź linijką.', dpi),
+  ]
+  // Podziałka wzdłuż lewej krawędzi: co 10 mm kreska, co 50 mm dłuższa z opisem.
+  for (let mm = 10; mm < H; mm += 10) {
+    const dluga = mm % 50 === 0
+    body.push(`^FO${mmToDots(M, dpi)},${mmToDots(M + mm, dpi)}^GB${mmToDots(dluga ? 12 : 6, dpi)},${gr},${gr}^FS`)
+    if (dluga) body.push(text(M + 14, M + mm - 2, 4, `${mm} mm`, dpi))
+  }
+  return [
+    '^XA', '^CI28',
+    `^PW${mmToDots(LABEL_W_MM, dpi)}`,
+    `^LL${mmToDots(LABEL_H_MM, dpi)}`,
+    '^LH0,0', '^LT0', '^MNY', '^LS0',
     ...body,
     '^XZ',
   ].join('\n')

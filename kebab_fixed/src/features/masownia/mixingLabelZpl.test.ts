@@ -21,6 +21,7 @@ const WSAD = {
   startedAt: '2026-09-18T09:56:00Z',
   finishedAt: '2026-09-18T10:47:00Z',
   mixMinutes: 50,
+  palletNo: 7,
   meat: [
     { palletNo: 'PAL/18/09/26/3', lotNo: '563', kg: 200, materialName: 'Mięso z/s', materialTypeId: 'mat-mieso-zs' },
     { palletNo: 'PAL/18/09/26/4', lotNo: '563', kg: 200, materialName: 'Mięso z/s', materialTypeId: 'mat-mieso-zs' },
@@ -123,6 +124,17 @@ describe('etykieta partii przyprawionej', () => {
     expect(out).toContain('KIR MIZI X')
   })
 
+  it('niesie numer palety wyrobu — drugi identyfikator etykiety', () => {
+    const out = zpl()
+    expect(out).toMatch(/PALETA NR/)
+    expect(out).toContain('^FD7^FS')
+  })
+
+  it('bez numeru palety etykieta nie pokazuje pustej rubryki', () => {
+    const out = zpl({ palletNo: null })
+    expect(out).not.toMatch(/PALETA NR/)
+  })
+
   it('brak godziny zakończenia nie wypisuje „Invalid Date"', () => {
     const out = zpl({ finishedAt: '' })
     expect(out).not.toMatch(/Invalid/i)
@@ -196,6 +208,10 @@ describe('układ etykiety się nie zlewa', () => {
                materialName: 'Mięso z/s', materialTypeId: 'mat-mieso-zs' }],
     })
     expect(kolizje(out)).toEqual([])
+  })
+
+  it('numer palety nie wchodzi w numer partii', () => {
+    expect(kolizje(zpl({ batchNo: 'PP26', palletNo: 128 }))).toEqual([])
   })
 
   it('nic nie wychodzi poza szerokość i wysokość taśmy', () => {

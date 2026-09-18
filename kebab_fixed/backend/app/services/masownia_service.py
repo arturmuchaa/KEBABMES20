@@ -626,12 +626,16 @@ def finish_charge(charge_id: str, dto: ChargeFinish) -> Dict[str, Any]:
     if not charge:
         raise HTTPException(404, "Nie ma takiego wsadu")
 
+    # Numer palety wyrobu — WŁASNY ciąg od 1, osobny od numerów paczek
+    # przypraw. Bierzemy go przed transakcją, bo `next_seq` ma własną: numer
+    # spalony przy nieudanym odbiorze jest tańszy niż dziura w księgowaniu.
+    numer_palety = next_seq("seasoned_pallet_seq")
     with transaction() as conn:
         zamkniety = cx_execute_returning(
             conn,
-            "UPDATE mixing_charges SET status='done', finished_at=%s "
+            "UPDATE mixing_charges SET status='done', finished_at=%s, out_pallet_no=%s "
             "WHERE id=%s AND status='mixing' RETURNING *",
-            (now_iso(), charge_id),
+            (now_iso(), numer_palety, charge_id),
         )
     if not zamkniety:
         raise HTTPException(409, "Ten wsad jest już odebrany")

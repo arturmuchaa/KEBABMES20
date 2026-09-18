@@ -12,7 +12,7 @@
  * jedyna droga powrotu do pulpitu / logowania na konto Administrator bez
  * fizycznego dostępu do BIOS-u.
  */
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Delete, History, LogOut, PenLine, Printer, Wrench } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { BASE } from '@/lib/api'
@@ -97,6 +97,7 @@ export function ServiceMenuModal({
   version = __ROZBIOR_V10_VERSION__,
   buildLabel = `HMI v10 · ${version}`,
   sections,
+  extra,
 }: {
   open: boolean
   onClose: () => void
@@ -104,9 +105,12 @@ export function ServiceMenuModal({
   version?: string
   buildLabel?: string
   /** Sekcje osprzętu obecnego tylko przy niektórych stanowiskach. Domyślnie
-   *  wszystkie — masownia wyłącza drukarkę etykiet i wzory podpisów, bo ani
-   *  drukarki, ani księgi HACCP przy masownicach nie ma. */
+   *  wszystkie — masownia wyłącza drukarkę rozbioru i wzory podpisów, bo ani
+   *  tamtej drukarki, ani księgi HACCP przy masownicach nie ma. */
   sections?: { printer?: boolean; signatures?: boolean }
+  /** Panel osprzętu TEGO stanowiska — masownia wstawia tu swoją drukarkę
+   *  100 × 150 mm. Rysuje się pod diagnostyką wagi, przed cofnięciem wersji. */
+  extra?: ReactNode
 }) {
   const pokazDrukarke = sections?.printer ?? true
   const pokazWzory = sections?.signatures ?? true
@@ -283,6 +287,8 @@ export function ServiceMenuModal({
                 {scaleDiag ?? '…'}
               </pre>
             </div>
+            {extra}
+
             {/* Regulacja drukarki etykiet — wprost na ekranie hali, bo tu stoi
                 drukarka i tu widać efekt każdego kroku. */}
             {pokazDrukarke && (

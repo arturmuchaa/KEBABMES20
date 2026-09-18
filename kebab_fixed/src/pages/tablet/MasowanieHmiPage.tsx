@@ -41,6 +41,7 @@ import { WaterStep } from '@/features/masownia/components/WaterStep'
 import { PickupDialog } from '@/features/masownia/components/PickupDialog'
 import { StartDialog } from '@/features/masownia/components/StartDialog'
 import { MixedToday } from '@/features/masownia/components/MixedToday'
+import { PrinterPanel } from '@/features/masownia/components/PrinterPanel'
 import { useServiceHold, ServiceMenuModal, serviceSections } from '@/features/deboning/ServiceMenu'
 import { mixingLabelZpl } from '@/features/masownia/mixingLabelZpl'
 import { getDevices, sendZpl } from '@/lib/zebra'
@@ -328,6 +329,7 @@ export function MasowanieHmiPage() {
       startedAt: wsad.started_at,
       finishedAt: koniec ?? (wsad as any).finished_at ?? new Date().toISOString(),
       mixMinutes: wsad.mix_minutes ?? null,
+      palletNo: (wsad as any).out_pallet_no ?? null,
       meat: (wsad.meat ?? []).map((m: any) => ({
         palletNo: m.pallet_no ?? '',
         lotNo: m.lot_no,
@@ -593,7 +595,17 @@ export function MasowanieHmiPage() {
       <ServiceMenuModal open={menuSerwisowe} onClose={() => setMenuSerwisowe(false)}
         channel="masowanie" version={__MASOWANIE_VERSION__}
         buildLabel={`Masowanie · ${__MASOWANIE_VERSION__}`}
-        sections={serviceSections('masowanie')} />
+        sections={serviceSections('masowanie')}
+        extra={<PrinterPanel onSend={async (zpl, komunikat) => {
+          try {
+            const { default: dom, list } = await getDevices()
+            const dev = dom ?? list[0]
+            if (!dev) throw new Error('Nie znaleziono drukarki etykiet')
+            await sendZpl(dev, zpl)
+          } catch (e: any) {
+            setKomunikat(`${komunikat} — nie poszło: ${e?.message ?? 'brak drukarki'}`)
+          }
+        }} />} />
     </div>
   )
 }
