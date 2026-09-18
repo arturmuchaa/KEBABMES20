@@ -1,31 +1,30 @@
 /**
- * Krok 1 załadunku — wolna masownica i wsad.
+ * Krok 1 załadunku — wolna masownica i zlecenie.
  *
- * Wsadem jest ALBO gotowy pojemnik z przyprawami (wtedy zlecenie i kilogramy
- * są już przesądzone), ALBO zlecenie z kolejki, gdy operator odważa przyprawy
- * przy maszynie. Panel nie wybiera zlecenia za operatora: przy trzech
- * maszynach i kilku zleceniach „pierwsze z brakiem kilogramów" bywa nie tym,
- * które stoi przy nim na palecie.
+ * Gotowych przypraw TU SIĘ NIE WYBIERA: paczkę wskazuje się dopiero po
+ * zważeniu mięsa (`PackPicker`), bo dopiero wtedy wiadomo, na ile kilogramów
+ * muszą być przyprawy (właściciel, 18.09.2026). Wcześniej kolejność była
+ * odwrotna i operator wybierał worki w ciemno, a niezgodny wsad wychodził po
+ * 50 minutach — kiedy nie ma już czego ratować.
+ *
+ * Panel nie wybiera zlecenia za operatora: przy trzech maszynach i kilku
+ * zleceniach „pierwsze z brakiem kilogramów" bywa nie tym, które stoi przy nim
+ * na palecie.
  */
-import { MACHINES, fitsMachine } from '../machines'
-import type { SpiceCart } from '../useMasowniaData'
+import { MACHINES } from '../machines'
 import type { QueueOrder } from './DayQueue'
 
-export function LoadPicker({ carts, orders, zajeteMaszyny, machineId, cartId, orderId, onMachine, onCart, onOrder, onNext, onBack }: {
-  carts: SpiceCart[]
+export function LoadPicker({ orders, zajeteMaszyny, machineId, orderId, onMachine, onOrder, onNext, onBack }: {
   orders: (QueueOrder & { zostalo: number })[]
   zajeteMaszyny: number[]
   machineId: number | null
-  cartId: string | null
   orderId: string | null
   onMachine: (id: number) => void
-  onCart: (cart: SpiceCart) => void
   onOrder: (orderId: string) => void
   onNext: () => void
   onBack: () => void
 }) {
-  const maszyna = MACHINES.find(m => m.id === machineId) ?? null
-  const gotowe = Boolean(machineId && (cartId || orderId))
+  const gotowe = Boolean(machineId && orderId)
 
   return (
     <>
@@ -67,50 +66,12 @@ export function LoadPicker({ carts, orders, zajeteMaszyny, machineId, cartId, or
           })}
         </div>
 
-        {carts.length ? (
-          <>
-            <div className="text-[10px] font-extrabold uppercase tracking-[0.14em] mt-5 mb-2.5" style={{ color: 'var(--mut)' }}>
-              Gotowe przyprawy
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              {carts.map(c => {
-                const pasuje = !maszyna || fitsMachine(Number(c.kg_target), maszyna.id)
-                const on = cartId === c.id
-                return (
-                  <button key={c.id} type="button" disabled={!pasuje} onClick={() => onCart(c)}
-                    aria-label={`Pojemnik ${c.cart_no}`}
-                    className="rounded-xl p-4 text-left flex flex-col gap-1.5 min-h-[128px]"
-                    style={{
-                      background: on ? 'var(--accentSoft)' : 'var(--panel)',
-                      border: `2px solid ${on ? 'var(--accent)' : 'var(--line)'}`,
-                      opacity: pasuje ? 1 : 0.42, cursor: pasuje ? 'pointer' : 'not-allowed',
-                    }}>
-                    <span className="w-10 h-10 rounded-[10px] flex items-center justify-center text-xl font-extrabold"
-                      style={{ background: on ? 'var(--accent)' : 'var(--ink)', color: '#fff' }}>
-                      {c.cart_no}
-                    </span>
-                    <span className="text-base font-extrabold truncate">{c.order_no ?? 'Zlecenie'}</span>
-                    <span className="hmi-v10-mono text-xs font-semibold" style={{ color: 'var(--mut)' }}>
-                      pojemnik {c.cart_no} · {Math.round(Number(c.kg_target))} kg
-                    </span>
-                    {!pasuje ? (
-                      <span className="text-[11px] font-bold" style={{ color: 'var(--mut)' }}>
-                        nie zmieści się w tej masownicy
-                      </span>
-                    ) : null}
-                  </button>
-                )
-              })}
-            </div>
-          </>
-        ) : null}
-
         <div className="text-[10px] font-extrabold uppercase tracking-[0.14em] mt-5 mb-2.5" style={{ color: 'var(--mut)' }}>
-          {carts.length ? 'Albo zlecenie — przyprawy odważysz przy maszynie' : 'Zlecenie'}
+          Zlecenie
         </div>
         <div className="grid grid-cols-3 gap-3">
           {orders.map(o => {
-            const on = orderId === o.id && !cartId
+            const on = orderId === o.id
             return (
               <button key={o.id} type="button" onClick={() => onOrder(o.id)}
                 aria-label={`Wsad ${o.orderNo}`}
@@ -144,7 +105,7 @@ export function LoadPicker({ carts, orders, zajeteMaszyny, machineId, cartId, or
         style={{ borderTop: '1px solid var(--line)', background: 'var(--bg)' }}>
         <span className="text-[15px] font-bold" style={{ color: 'var(--mut)' }}>
           {machineId ? `Masownica ${machineId}` : 'Wskaż masownicę'}
-          {cartId ? ' · pojemnik wskazany' : orderId ? ' · zlecenie wskazane' : ' · wskaż wsad'}
+          {orderId ? ' · zlecenie wskazane' : ' · wskaż zlecenie'}
         </span>
         <button type="button" disabled={!gotowe} onClick={onNext}
           className="h-[60px] px-7 rounded-[10px] text-lg font-extrabold ml-auto"

@@ -31,16 +31,16 @@ const PROG_PUSTEJ_WAGI = 0.02
 
 const qty = (n: number) => n.toLocaleString('pl-PL', { maximumFractionDigits: 3 })
 
-export function SpiceWeighing({ items, weighed, cartNo, przyMaszynie, onWeigh, onDone, onBack }: {
+export function SpiceWeighing({ items, weighed, przyMaszynie, onWeigh, onDone, onBack }: {
   items: SpiceItem[]
   /** Co już odważone: seq → kg. Żyje w panelu do czasu zatwierdzenia całości. */
   weighed: Record<number, { weighed: number; manual: boolean }>
-  cartNo: number
   /** Ważenie PRZY MASZYNIE (brak gotowego pojemnika) — przyprawy idą wprost
    *  do masownicy, więc nie ma numeru pojemnika ani „odstaw przy maszynie". */
   przyMaszynie?: boolean
   onWeigh: (item: SpiceItem, kg: number, manual: boolean) => void
-  onDone: () => void
+  /** Przy odkładaniu paczki dostaje LICZBĘ WORKÓW, w które operator ją zapakował. */
+  onDone: (worki: number) => void
   onBack: () => void
 }) {
   const waga = useScale()
@@ -53,7 +53,9 @@ export function SpiceWeighing({ items, weighed, cartNo, przyMaszynie, onWeigh, o
   const [uzbrojona, setUzbrojona] = useState(false)
 
   const biezacy = items.find(i => weighed[i.seq] === undefined) ?? null
-  const komplet = biezacy === null && items.length > 0
+  // Receptura bez przypraw też jest „kompletna" — inaczej ekran nie miałby
+  // wyjścia i operator utykał przed wodą.
+  const komplet = biezacy === null
   const pusta = Math.abs(waga.gross) <= PROG_PUSTEJ_WAGI
   const werdykt = biezacy ? spiceVerdict(biezacy.qty, waga.gross) : 'low'
 
@@ -96,7 +98,7 @@ export function SpiceWeighing({ items, weighed, cartNo, przyMaszynie, onWeigh, o
         <button type="button" onClick={onBack} className="text-sm font-extrabold" style={{ color: 'var(--accent)' }}>
           ← Wróć
         </button>
-<span className="text-[22px] font-extrabold tracking-tight">{przyMaszynie ? 'Przyprawy do masownicy' : `Przyprawy do pojemnika ${cartNo}`}</span>
+<span className="text-[22px] font-extrabold tracking-tight">{przyMaszynie ? 'Przyprawy do masownicy' : 'Przyprawy do worków'}</span>
         <div className="flex-1" />
         <span className="hmi-v10-mono text-[15px] font-bold" style={{ color: 'var(--mut)' }}>
           {Object.keys(weighed).length} / {items.length}
@@ -150,26 +152,44 @@ export function SpiceWeighing({ items, weighed, cartNo, przyMaszynie, onWeigh, o
           }}>
           {komplet ? (
             <>
-              {przyMaszynie ? null : (
-                <div className="w-20 h-20 rounded-2xl flex items-center justify-center text-4xl font-extrabold"
-                  style={{ background: 'var(--success)', color: '#fff' }}>{cartNo}</div>
-              )}
               <span className="text-3xl font-extrabold" style={{ color: 'var(--success)' }}>
-                {przyMaszynie ? 'Przyprawy odważone' : 'Pojemnik gotowy'}
+                {items.length ? 'Przyprawy odważone' : 'Ta receptura nie ma przypraw'}
               </span>
-              <span className="text-[15px]" style={{ color: 'var(--mut)' }}>
-                {przyMaszynie
-                  ? 'Wsyp je do masownicy i przejdź do wody.'
-                  : 'Odstaw go przy masownicy — przy maszynie wskażesz jego numer.'}
-              </span>
-              <button type="button" onClick={onDone}
-                className="h-[60px] px-7 rounded-[10px] text-lg font-extrabold mt-3"
-                style={{ background: 'var(--success)', color: '#fff' }}>
-                {przyMaszynie ? 'Dalej — woda' : 'Zatwierdź pojemnik'}
-              </button>
+              {przyMaszynie ? (
+                <>
+                  <span className="text-[15px]" style={{ color: 'var(--mut)' }}>
+                    Wsyp je do masownicy i przejdź do wody.
+                  </span>
+                  <button type="button" onClick={() => onDone(1)}
+                    className="h-[60px] px-7 rounded-[10px] text-lg font-extrabold mt-3"
+                    style={{ background: 'var(--success)', color: '#fff' }}>
+                    Dalej — woda
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* Liczba worków to ostatnia rzecz, jaką operator wie NA PEWNO
+                      dopiero teraz — po zapakowaniu. Przy maszynie z niej wynika,
+                      ile sztuk zabrać; wsypanie jednego z trzech widać dopiero
+                      po 50 minutach. */}
+                  <span className="text-[15px]" style={{ color: 'var(--mut)' }}>
+                    W ilu workach je zostawiasz?
+                  </span>
+                  <div className="flex gap-2.5 mt-2 flex-wrap justify-center">
+                    {[1, 2, 3, 4, 5, 6].map(n => (
+                      <button key={n} type="button" onClick={() => onDone(n)}
+                        className="w-[74px] h-[74px] rounded-xl text-[26px] font-extrabold"
+                        style={{ background: 'var(--panel)', border: '2px solid var(--success)', color: 'var(--success)' }}>
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="text-[13px] mt-2" style={{ color: 'var(--mut)' }}>
+                    Odstaw je przy masownicy — przy maszynie wskażesz tę paczkę.
+                  </span>
+                </>
+              )}
             </>
-          ) : !biezacy ? (
-            <span className="text-xl font-bold" style={{ color: 'var(--mut)' }}>Receptura nie ma przypraw do odważenia.</span>
           ) : (
             <>
               <span className="text-[10px] font-extrabold uppercase tracking-[0.16em]" style={{ color: 'var(--mut)' }}>

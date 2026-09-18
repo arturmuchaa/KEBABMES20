@@ -11,8 +11,8 @@ from typing import Any, Dict, List
 from fastapi import HTTPException
 
 from app.db import (
-    cx_execute, cx_execute_returning, cx_query_one, execute, query_all, query_one,
-    transaction,
+    cx_execute, cx_execute_returning, cx_query_all, cx_query_one, execute,
+    query_all, query_one, transaction,
 )
 from app.logging_config import get_logger
 from app.models.masownia import (
@@ -73,7 +73,7 @@ def _w_masownicach() -> Dict[str, float]:
         """
         SELECT cp.meat_stock_id, SUM(cp.kg) AS kg
         FROM mixing_charge_pallets cp
-        JOIN mixing_charges c ON c.id = cp.charge_id AND c.status = 'mixing'
+        JOIN mixing_charges c ON c.id = cp.charge_id AND c.status IN ('loaded','mixing')
         WHERE cp.meat_stock_id IS NOT NULL
         GROUP BY cp.meat_stock_id
         """
@@ -181,12 +181,17 @@ def _cart_out(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def list_carts() -> List[Dict[str, Any]]:
-    """Pojemniki, które stoją odważone i czekają na maszynę."""
+    """Paczki przypraw, które stoją odważone i czekają na maszynę.
+
+    Nazwa receptury leci razem z paczką: przy maszynie operator wybiera worki
+    po recepturze i wielkości wsadu, a nie po numerze zlecenia.
+    """
     rows = query_all(
         """
-        SELECT c.*, o.order_no, o.recipe_id AS order_recipe_id
+        SELECT c.*, o.order_no, o.recipe_id AS order_recipe_id, r.name AS recipe_name
         FROM mixing_spice_carts c
         JOIN mixing_orders o ON o.id = c.order_id
+        LEFT JOIN recipes r ON r.id = o.recipe_id
         WHERE c.status = 'prepared'
         ORDER BY c.cart_no
         """
@@ -217,7 +222,7 @@ def _kg_left_cx(conn, order_id: str) -> float:
     w_maszynach = cx_query_one(
         conn,
         "SELECT COALESCE(SUM(kg_meat),0) AS kg FROM mixing_charges "
-        "WHERE order_id=%s AND status='mixing'",
+        "WHERE order_id=%s AND status IN ('loaded','mixing')",
         (order_id,),
     )
     w_pojemnikach = cx_query_one(
@@ -236,22 +241,18 @@ def _kg_left_cx(conn, order_id: str) -> float:
 
 
 def create_cart(dto: SpiceCartCreate) -> Dict[str, Any]:
-    """Załóż pojemnik: przyprawy odważone z wyprzedzeniem na wskazany wsad.
+    """Odłóż paczkę przypraw odważonych z wyprzedzeniem na wskazany wsad.
 
-    Pojemnik REZERWUJE kilogramy zlecenia — bez tego operator rozpisałby dwa
+    Paczka REZERWUJE kilogramy zlecenia — bez tego operator rozpisałby dwa
     razy to samo, a maszyny stoją 50 minut i pomyłka wychodzi za późno.
-    """
-    with transaction() as conn:
-        zajety = cx_query_one(
-            conn,
-            "SELECT cart_no FROM mixing_spice_carts WHERE cart_no=%s AND status='prepared'",
-            (dto.cart_no,),
-        )
-        if zajety:
-            raise HTTPException(
-                409, f"Pojemnik {dto.cart_no} jest już zajęty — wsyp go albo anuluj"
-            )
 
+    Numer nadaje licznik `spice_pack_seq`: CIĄGŁY OD 1, bez miesiąca i roku
+    (decyzja właściciela 18.09.2026). Stare numery 1–6 opisywały sześć
+    fizycznych pojemników i wracały do puli; przyprawy idą teraz do WORKÓW,
+    więc numer jest jednorazowy i nigdy się nie powtarza.
+    """
+    numer = next_seq("spice_pack_seq")
+    with transaction() as conn:
         zostalo = _kg_left_cx(conn, dto.order_id)
         if dto.kg_target > zostalo + 0.001:
             raise HTTPException(
@@ -270,15 +271,15 @@ def create_cart(dto: SpiceCartCreate) -> Dict[str, Any]:
             conn,
             """
             INSERT INTO mixing_spice_carts
-                (id, cart_no, order_id, recipe_id, kg_target, status, ingredients)
-            VALUES (%s,%s,%s,%s,%s,'prepared',%s) RETURNING *
+                (id, cart_no, order_id, recipe_id, kg_target, bags, status, ingredients)
+            VALUES (%s,%s,%s,%s,%s,%s,'prepared',%s) RETURNING *
             """,
-            (cuid(), dto.cart_no, dto.order_id,
-             (recipe or {}).get("recipe_id") or "", dto.kg_target,
+            (cuid(), numer, dto.order_id,
+             (recipe or {}).get("recipe_id") or "", dto.kg_target, dto.bags,
              json.dumps(skladniki, ensure_ascii=False)),
         )
     logger.info("masownia.cart.created", extra={
-        "cart_no": dto.cart_no, "order": dto.order_id, "kg": dto.kg_target,
+        "cart_no": numer, "order": dto.order_id, "kg": dto.kg_target, "bags": dto.bags,
     })
     return _cart_out(row)
 
@@ -348,7 +349,7 @@ def list_charges() -> List[Dict[str, Any]]:
         SELECT c.*, o.order_no, o.recipe_id, o.recipe_name
         FROM mixing_charges c
         JOIN mixing_orders o ON o.id = c.order_id
-        WHERE c.status = 'mixing'
+        WHERE c.status IN ('loaded','mixing')
         ORDER BY c.machine_id
         """
     )
@@ -440,7 +441,8 @@ def load_charge(dto: ChargeCreate) -> Dict[str, Any]:
     with transaction() as conn:
         zajeta = cx_query_one(
             conn,
-            "SELECT machine_id FROM mixing_charges WHERE machine_id=%s AND status='mixing'",
+            "SELECT machine_id FROM mixing_charges WHERE machine_id=%s "
+            "AND status IN ('loaded','mixing')",
             (dto.machine_id,),
         )
         if zajeta:
@@ -451,8 +453,8 @@ def load_charge(dto: ChargeCreate) -> Dict[str, Any]:
             """
             INSERT INTO mixing_charges
                 (id, order_id, machine_id, cart_id, kg_meat, water_l, batch_no,
-                 mix_minutes, status, started_at, spices)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'mixing',%s,%s) RETURNING *
+                 mix_minutes, status, loaded_at, spices)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'loaded',%s,%s) RETURNING *
             """,
             (cuid(), dto.order_id, dto.machine_id, dto.cart_id, kg_meat,
              dto.water_l, batch_no, _minuty_cyklu(conn, dto.order_id), now_iso(),
@@ -506,7 +508,7 @@ def cancel_charge(charge_id: str, reason: str = "") -> Dict[str, Any]:
         row = cx_execute_returning(
             conn,
             "UPDATE mixing_charges SET status='cancelled', finished_at=%s "
-            "WHERE id=%s AND status='mixing' RETURNING *",
+            "WHERE id=%s AND status IN ('loaded','mixing') RETURNING *",
             (now_iso(), charge_id),
         )
         if not row:
@@ -524,6 +526,45 @@ def cancel_charge(charge_id: str, reason: str = "") -> Dict[str, Any]:
     out = dict(row)
     out["kg_meat"] = float(out.get("kg_meat") or 0)
     return out
+
+
+def start_charge(charge_id: str) -> Dict[str, Any]:
+    """Puść załadowaną masownicę — DOPIERO STĄD liczy się 50 minut.
+
+    Załadunek zostawia maszynę pełną, ale stojącą: operator albo potwierdza
+    start od razu, albo czeka i puszcza wszystkie naraz (`start_all`). Panel
+    nie uruchamia niczego sam — wsad ruszony bez wiedzy operatora kończy się
+    otwartą pokrywą albo wsadem mieszanym o pół cyklu za krótko.
+    """
+    with transaction() as conn:
+        row = cx_execute_returning(
+            conn,
+            "UPDATE mixing_charges SET status='mixing', started_at=%s "
+            "WHERE id=%s AND status='loaded' RETURNING *",
+            (now_iso(), charge_id),
+        )
+    if not row:
+        raise HTTPException(409, "Ten wsad już pracuje albo go nie ma")
+    logger.info("masownia.charge.started", extra={"charge_id": charge_id})
+    return {"id": row["id"], "machine": row["machine_id"], "started_at": row["started_at"]}
+
+
+def start_all_charges() -> Dict[str, Any]:
+    """Puść WSZYSTKIE załadowane masownice na raz, tym samym stemplem czasu.
+
+    Hala ładuje trzy maszyny po kolei i chce je puścić razem — inaczej pierwsza
+    kończy 20 minut przed ostatnią i odbiór rozjeżdża się na cały dzień.
+    """
+    teraz = now_iso()
+    with transaction() as conn:
+        rows = cx_query_all(
+            conn,
+            "UPDATE mixing_charges SET status='mixing', started_at=%s "
+            "WHERE status='loaded' RETURNING id, machine_id",
+            (teraz,),
+        )
+    logger.info("masownia.charges.started_all", extra={"ile": len(rows)})
+    return {"started": len(rows), "machines": sorted(r["machine_id"] for r in rows)}
 
 
 def finish_charge(charge_id: str, dto: ChargeFinish) -> Dict[str, Any]:

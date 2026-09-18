@@ -86,7 +86,10 @@ def kg_zablokowane_dla_masowni(meat_stock_id: str, conn=None) -> float:
         """
         SELECT COALESCE(SUM(cp.kg), 0) AS kg
         FROM mixing_charge_pallets cp
-        JOIN mixing_charges c ON c.id = cp.charge_id AND c.status = 'mixing'
+        -- Załadowana, choć jeszcze niepuszczona masownica trzyma mięso tak samo
+        -- jak pracująca: operator ma je fizycznie w bębnie, a biuro nie może go
+        -- w tym czasie sprzedać (stan 'loaded' doszedł 18.09.2026).
+        JOIN mixing_charges c ON c.id = cp.charge_id AND c.status IN ('loaded','mixing')
         WHERE cp.meat_stock_id = %s
         """,
         (meat_stock_id,),

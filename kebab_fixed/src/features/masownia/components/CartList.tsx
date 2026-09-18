@@ -1,17 +1,21 @@
 /**
- * Przygotowane przyprawy — ponumerowane pojemniki czekające na maszynę.
+ * Przygotowane przyprawy — paczki czekające na maszynę. TABLICA, nie przycisk.
  *
- * Numer pojemnika jest CAŁĄ tożsamością odważonych przypraw: papierowa
- * etykieta na mokrym pojemniku odpada, a dwa pojemniki tej samej receptury
- * o różnym wsadzie są po zamknięciu pokrywy nie do rozróżnienia. Dlatego
- * numer stoi na kaflu wielki i pierwszy.
+ * Wcześniej kliknięcie paczki zaczynało załadunek i była to trzecia droga
+ * w proces obok dwóch kafelków. Paczkę wybiera się teraz w torze załadunku,
+ * PO wskazaniu mięsa (`PackPicker`) — tu operator tylko widzi, co czeka.
+ *
+ * Na wierszu stoi wszystko, czego potrzeba przy maszynie: numer paczki
+ * (ciągły od 1, jednorazowy — worek nie wraca jak umyty pojemnik), receptura,
+ * wielkość wsadu i LICZBA WORKÓW. Bez tej liczby operator nie wie, czy zabrał
+ * komplet, a wsypanie jednego z trzech worków widać dopiero po 50 minutach.
  */
+import { workiOpis } from './PackPicker'
 import type { SpiceCart } from '../useMasowniaData'
 
-export function CartList({ carts, selectedId, onPick }: {
+export function CartList({ carts, selectedId }: {
   carts: SpiceCart[]
   selectedId?: string | null
-  onPick: (cartId: string) => void
 }) {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-2">
@@ -22,7 +26,7 @@ export function CartList({ carts, selectedId, onPick }: {
         </div>
       ) : null}
       {carts.map(c => (
-        <button key={c.id} type="button" onClick={() => onPick(c.id)}
+        <div key={c.id}
           className="flex items-center gap-3 p-3 rounded-[10px] text-left w-full"
           style={{
             background: selectedId === c.id ? 'var(--accentSoft)' : 'var(--panel)',
@@ -33,13 +37,20 @@ export function CartList({ carts, selectedId, onPick }: {
             {c.cart_no}
           </span>
           <span className="flex-1 min-w-0">
-            <span className="block text-base font-extrabold truncate">{c.order_no ?? 'Zlecenie'}</span>
+            <span className="block text-base font-extrabold truncate">
+              {c.recipe_name || c.order_no || 'Przyprawy'}
+            </span>
             <span className="block hmi-v10-mono text-[11px] font-semibold mt-1" style={{ color: 'var(--mut)' }}>
-              pojemnik {c.cart_no} · {(c.ingredients ?? []).length} {(c.ingredients ?? []).length === 1 ? 'składnik' : 'składników'}
+              nr {c.cart_no} · {workiOpis(Number(c.bags || 1))}
             </span>
           </span>
-          <span className="hmi-v10-mono text-xl font-bold shrink-0">{Math.round(c.kg_target)} kg</span>
-        </button>
+          <span className="text-right shrink-0">
+            <b className="block hmi-v10-mono text-xl font-bold leading-none">{Math.round(Number(c.kg_target || 0))} kg</b>
+            <span className="block hmi-v10-mono text-[10px] font-semibold mt-1" style={{ color: 'var(--mut)' }}>
+              wsadu
+            </span>
+          </span>
+        </div>
       ))}
     </div>
   )

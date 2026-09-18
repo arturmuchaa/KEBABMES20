@@ -1679,6 +1679,22 @@ _DDL: list[str] = [
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_spice_cart_no_live "
     "ON mixing_spice_carts(cart_no) WHERE status = 'prepared'",
     "CREATE INDEX IF NOT EXISTS idx_spice_cart_order ON mixing_spice_carts(order_id)",
+    # Hala pakuje przyprawy do WORKÓW, nie do pojemników (18.09.2026): jeden
+    # wsad to jeden albo kilka worków (200 kg → 1, 600 kg → 3). Liczbę worków
+    # wpisuje operator na koniec ważenia — z niej wie, ile sztuk zabrać do
+    # maszyny, żeby nie wsypać połowy przypraw.
+    "ALTER TABLE mixing_spice_carts ADD COLUMN IF NOT EXISTS bags INTEGER",
+    # Numer paczki leci CIĄGLE OD 1 (bez miesiąca i roku), więc stary limit
+    # 1–6 z czasów sześciu fizycznych pojemników musi odpaść razem z unikalnym
+    # indeksem po numerze „stojących" — numery już się nie powtarzają.
+    "ALTER TABLE mixing_spice_carts DROP CONSTRAINT IF EXISTS mixing_spice_carts_cart_no_ck",
+    "DROP INDEX IF EXISTS idx_spice_cart_no_live",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_spice_cart_no ON mixing_spice_carts(cart_no)",
+    # Licznik paczek startuje za najwyższym numerem, jaki już jest w bazie —
+    # inaczej pierwsza paczka po wdrożeniu zderzyłaby się ze starym numerem.
+    """INSERT INTO sequences (key, value)
+       SELECT 'spice_pack_seq', COALESCE(MAX(cart_no), 0) FROM mixing_spice_carts
+       ON CONFLICT (key) DO NOTHING""",
     # Wsad stojący w masownicy. Istnieje po to, żeby paleta znikała z ekranu
     # w chwili ZAŁADOWANIA, a nie dopiero po odbiorze — inaczej dwa wsady
     # wzięłyby tę samą paletę.
@@ -1697,9 +1713,18 @@ _DDL: list[str] = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_mixing_charges_status ON mixing_charges(status)",
     "CREATE INDEX IF NOT EXISTS idx_mixing_charges_order ON mixing_charges(order_id)",
-    # Jedna masownica = jeden wsad naraz.
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mixing_charges_machine_live "
-    "ON mixing_charges(machine_id) WHERE status = 'mixing'",
+    # Wsad ZAŁADOWANY, ale jeszcze nie puszczony: maszyna stoi pełna i czeka,
+    # aż operator ją świadomie uruchomi — sam albo razem z pozostałymi
+    # (właściciel 18.09.2026: „żeby się nie puszczały automatycznie").
+    # `started_at` zostaje pusty do startu, bo to od niego liczy się 50 minut.
+    "ALTER TABLE mixing_charges ADD COLUMN IF NOT EXISTS loaded_at TIMESTAMPTZ",
+    "ALTER TABLE mixing_charges ALTER COLUMN started_at DROP DEFAULT",
+    "UPDATE mixing_charges SET loaded_at = started_at WHERE loaded_at IS NULL",
+    # Jedna masownica = jeden wsad naraz. Załadowana, choć jeszcze nie puszczona,
+    # jest tak samo zajęta jak pracująca.
+    "DROP INDEX IF EXISTS idx_mixing_charges_machine_live",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_mixing_charges_machine_live2 "
+    "ON mixing_charges(machine_id) WHERE status IN ('loaded','mixing')",
     """CREATE TABLE IF NOT EXISTS mixing_charge_pallets (
         id            TEXT PRIMARY KEY,
         charge_id     TEXT NOT NULL REFERENCES mixing_charges(id) ON DELETE CASCADE,

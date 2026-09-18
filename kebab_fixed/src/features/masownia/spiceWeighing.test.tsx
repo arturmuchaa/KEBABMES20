@@ -33,7 +33,7 @@ const ODCZEKAJ = () => act(() => { vi.advanceTimersByTime(1200) })
 function ekran(props: Partial<Parameters<typeof SpiceWeighing>[0]> = {}) {
   const onWeigh = vi.fn()
   const view = render(
-    <SpiceWeighing items={PRZYPRAWY} weighed={{}} cartNo={2}
+    <SpiceWeighing items={PRZYPRAWY} weighed={{}}
       onWeigh={onWeigh} onDone={vi.fn()} onBack={vi.fn()} {...props} />,
   )
   return { onWeigh, view }
@@ -53,7 +53,7 @@ describe('bramka wagi przypraw', () => {
     const { onWeigh, view } = ekran()
     waga.gross = 2
     view.rerender(
-      <SpiceWeighing items={PRZYPRAWY} weighed={{}} cartNo={2}
+      <SpiceWeighing items={PRZYPRAWY} weighed={{}}
         onWeigh={onWeigh} onDone={vi.fn()} onBack={vi.fn()} />,
     )
     ODCZEKAJ()
@@ -67,7 +67,7 @@ describe('bramka wagi przypraw', () => {
     // ma dokładnie tyle samo — bez tary panel „odważyłby" ją sam.
     waga.gross = 2
     render(
-      <SpiceWeighing items={PRZYPRAWY} weighed={{ 0: { weighed: 2, manual: false } }} cartNo={2}
+      <SpiceWeighing items={PRZYPRAWY} weighed={{ 0: { weighed: 2, manual: false } }}
         onWeigh={onWeigh} onDone={vi.fn()} onBack={vi.fn()} />,
     )
     ODCZEKAJ()
@@ -77,7 +77,7 @@ describe('bramka wagi przypraw', () => {
 
   it('po wyzerowaniu wagi bramka znów przyjmuje odczyt', () => {
     const onWeigh = vi.fn()
-    const props = { items: PRZYPRAWY, weighed: { 0: { weighed: 2, manual: false } }, cartNo: 2,
+    const props = { items: PRZYPRAWY, weighed: { 0: { weighed: 2, manual: false } },
       onWeigh, onDone: vi.fn(), onBack: vi.fn() }
     waga.gross = 2
     const view = render(<SpiceWeighing {...props} />)
@@ -99,7 +99,7 @@ describe('bramka wagi przypraw', () => {
     const onWeigh = vi.fn()
     waga.gross = 0
     render(
-      <SpiceWeighing items={[{ seq: 0, name: 'Kmin', unit: 'kg', qty: 0.1 }]} weighed={{}} cartNo={2}
+      <SpiceWeighing items={[{ seq: 0, name: 'Kmin', unit: 'kg', qty: 0.1 }]} weighed={{}}
         onWeigh={onWeigh} onDone={vi.fn()} onBack={vi.fn()} />,
     )
     ODCZEKAJ()

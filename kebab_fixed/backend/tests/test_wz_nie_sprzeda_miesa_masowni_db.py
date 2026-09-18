@@ -85,6 +85,7 @@ def test_paleta_zuzyta_juz_nie_blokuje():
     ch = mas.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
         ChargeMeatDto(palletId=pid, lotNo="511", meatStockId=ms, kg=200)]))
     from app.models.masownia import ChargeFinish
+    mas.start_charge(ch["id"])  # maszyna musi ruszyć, zanim będzie co odbierać
     mas.finish_charge(ch["id"], ChargeFinish(kgOutput=232))
     assert kg_zablokowane_dla_masowni(ms) == 0.0
 

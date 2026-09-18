@@ -57,6 +57,18 @@ def load_charge(dto: ChargeCreate):
     return svc.load_charge(dto)
 
 
+@router.patch("/wsady/{charge_id}/start")
+def start_charge(charge_id: str):
+    """Puść tę masownicę — stąd liczy się cykl masowania."""
+    return svc.start_charge(charge_id)
+
+
+@router.post("/wsady/start-wszystkie")
+def start_all_charges():
+    """Puść wszystkie załadowane masownice naraz, jednym stemplem czasu."""
+    return svc.start_all_charges()
+
+
 @router.patch("/wsady/{charge_id}/anuluj")
 def cancel_charge(charge_id: str, reason: str = ""):
     """Cofnij załadunek — operator pomylił maszynę albo zlecenie."""

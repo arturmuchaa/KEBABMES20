@@ -1168,7 +1168,8 @@ export const masowniaApi = {
 
   carts: () => get<any>('/masownia/pojemniki').then(r => (r?.data ?? []) as any[]),
   createCart: (dto: {
-    orderId: string; cartNo: number; kgTarget: number
+    /** Numer paczki nadaje backend (licznik ciągły od 1) — panel go nie podaje. */
+    orderId: string; kgTarget: number; bags: number
     /** Komplet odważonych składników — panel zakłada pojemnik DOPIERO po
      *  zatwierdzeniu całego ważenia. */
     ingredients?: { seq: number; name: string; unit: string; qty: number; weighed: number; manual: boolean }[]
@@ -1185,6 +1186,11 @@ export const masowniaApi = {
     /** Przyprawy odważone przy maszynie, gdy nie było gotowego pojemnika. */
     spices?: { seq: number; name: string; unit: string; qty: number; weighed: number; manual: boolean }[]
   }) => post<any>('/masownia/wsady', dto),
+  /** Puść tę masownicę — cykl liczy się DOPIERO od startu, nie od załadunku. */
+  start: (chargeId: string) => patch<any>(`/masownia/wsady/${chargeId}/start`, {}),
+  /** Puść wszystkie załadowane masownice naraz, jednym stemplem czasu. */
+  startAll: () => post<{ started: number; machines: number[] }>('/masownia/wsady/start-wszystkie', {}),
+
   finish: (chargeId: string, kgOutput: number) =>
     patch<any>(`/masownia/wsady/${chargeId}/odbior`, { kgOutput }),
   /** Cofnij załadunek — pomyłka maszyny albo zlecenia. */

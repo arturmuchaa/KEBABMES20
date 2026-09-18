@@ -30,12 +30,25 @@ def test_sklad_wsadu_ma_komplet_kolumn():
     assert {"id", "charge_id", "pallet_id", "lot_no", "meat_stock_id", "kg"} <= _kolumny("mixing_charge_pallets")
 
 
-def test_numer_pojemnika_jest_z_zakresu_1_6():
-    # Numer pojemnika to CAŁA tożsamość odważonych przypraw — etykieta z mokrego
-    # pojemnika odpada, więc numer musi być jednym z sześciu istniejących.
-    check = query_one(
+def test_numer_paczki_przypraw_jest_jednorazowy():
+    """Przyprawy idą do WORKÓW (18.09.2026), numer leci ciągle od 1.
+
+    Stary strażnik trzymał numer w zakresie 1–6, bo tyle było fizycznych
+    pojemników wracających po umyciu. Worek nie wraca, więc numer nie może się
+    powtórzyć — tego pilnuje unikalny indeks, a limit 1–6 musiał odpaść.
+    """
+    assert query_one(
         "SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint "
         "WHERE conname='mixing_spice_carts_cart_no_ck'"
-    )
-    assert check is not None, "brak strażnika numeru pojemnika"
-    assert "1" in check["def"] and "6" in check["def"]
+    ) is None, "limit 1–6 opisywał pojemniki, nie worki"
+
+    assert query_one(
+        "SELECT indexname FROM pg_indexes WHERE indexname='idx_spice_cart_no'"
+    ) is not None, "numer paczki musi być unikalny na zawsze"
+
+
+def test_paczka_zapisuje_liczbe_workow():
+    assert query_one(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name='mixing_spice_carts' AND column_name='bags'"
+    ) is not None

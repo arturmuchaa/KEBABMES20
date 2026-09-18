@@ -35,7 +35,9 @@ def test_zaladunek_tworzy_wsad_i_zajmuje_maszyne():
     ch = svc.load_charge(ChargeCreate(
         orderId=oid, machineId=3, waterL=108,
         meat=[ChargeMeatDto(palletId=None, lotNo="511", meatStockId=ms, kg=600)]))
-    assert ch["status"] == "mixing" and float(ch["kg_meat"]) == 600.0
+    # Załadunek zostawia maszynę PEŁNĄ, ale stojącą — start jest osobną decyzją
+    # operatora (patrz test_masownia_start_db.py).
+    assert ch["status"] == "loaded" and float(ch["kg_meat"]) == 600.0
     assert [c["machine_id"] for c in svc.list_charges()] == [3]
 
 
@@ -128,6 +130,7 @@ def test_odbior_zamyka_wsad_i_zwalnia_maszyne():
     oid, ms = _zlecenie(), _partia("511")
     ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
         ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
+    svc.start_charge(ch["id"])  # maszyna musi ruszyć, zanim będzie co odbierać
     out = svc.finish_charge(ch["id"], ChargeFinish(kgOutput=232.5))
     assert out["status"] == "done" and out["session_id"]
     assert svc.list_charges() == []
@@ -137,6 +140,7 @@ def test_odbior_ksieguje_zuzycie_miesa_przez_istniejaca_sciezke():
     oid, ms = _zlecenie(), _partia("511", kg=1000)
     ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
         ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
+    svc.start_charge(ch["id"])
     svc.finish_charge(ch["id"], ChargeFinish(kgOutput=232.5))
     stan = query_one("SELECT kg_available, kg_used FROM meat_stock WHERE id=%s", (ms,))
     assert float(stan["kg_used"]) == 200.0
@@ -147,6 +151,7 @@ def test_odbior_zapisuje_sesje_na_wlasciwej_masownicy():
     oid, ms = _zlecenie(), _partia("511")
     ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=3, meat=[
         ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
+    svc.start_charge(ch["id"])  # maszyna musi ruszyć, zanim będzie co odbierać
     out = svc.finish_charge(ch["id"], ChargeFinish(kgOutput=232.5))
     sesja = query_one("SELECT machine_id FROM mixing_sessions WHERE id=%s", (out["session_id"],))
     assert sesja["machine_id"] == 3
@@ -156,6 +161,7 @@ def test_odbior_drugi_raz_nie_ksieguje_ponownie():
     oid, ms = _zlecenie(), _partia("511", kg=1000)
     ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
         ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
+    svc.start_charge(ch["id"])
     svc.finish_charge(ch["id"], ChargeFinish(kgOutput=232.5))
     with pytest.raises(HTTPException):
         svc.finish_charge(ch["id"], ChargeFinish(kgOutput=232.5))
@@ -168,6 +174,7 @@ def test_odbior_zapisuje_kilogramy_z_paleciaka():
     oid, ms = _zlecenie(), _partia("511")
     ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
         ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
+    svc.start_charge(ch["id"])
     svc.finish_charge(ch["id"], ChargeFinish(kgOutput=232.5))
     zapis = query_one("SELECT kg_output FROM mixing_charges WHERE id=%s", (ch["id"],))
     assert float(zapis["kg_output"]) == 232.5
@@ -250,6 +257,7 @@ def test_paleta_wzieta_w_calosci_znika_po_odbiorze():
     ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
         ChargeMeatDto(palletId=pid, lotNo="511", meatStockId=ms, kg=200)]))
     assert query_one("SELECT consumed_at FROM meat_pallets WHERE id=%s", (pid,))["consumed_at"] is None
+    svc.start_charge(ch["id"])  # maszyna musi ruszyć, zanim będzie co odbierać
     svc.finish_charge(ch["id"], ChargeFinish(kgOutput=232))
     assert query_one("SELECT consumed_at FROM meat_pallets WHERE id=%s", (pid,))["consumed_at"] is not None
     assert [p["id"] for p in svc.list_meat()["pallets"]] == []
@@ -261,6 +269,7 @@ def test_paleta_napoczeta_zostaje_na_magazynie():
     pid = _paleta_z_miesem("PAL/Z/2", 200, "511", ms)
     ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
         ChargeMeatDto(palletId=pid, lotNo="511", meatStockId=ms, kg=120)]))
+    svc.start_charge(ch["id"])
     svc.finish_charge(ch["id"], ChargeFinish(kgOutput=140))
     assert query_one("SELECT consumed_at FROM meat_pallets WHERE id=%s", (pid,))["consumed_at"] is None
     assert [p["id"] for p in svc.list_meat()["pallets"]] == [pid]
@@ -286,6 +295,7 @@ def test_anulowany_wsad_nie_ksieguje_sie_przy_odbiorze():
         ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
     svc.cancel_charge(ch["id"], "pomylka")
     with pytest.raises(HTTPException):
+        svc.start_charge(ch["id"])  # maszyna musi ruszyć, zanim będzie co odbierać
         svc.finish_charge(ch["id"], ChargeFinish(kgOutput=232))
 
 
@@ -296,7 +306,7 @@ def test_masownica_zwalnia_sie_po_anulowaniu_wsadu():
     svc.cancel_charge(ch["id"], "pomylka")
     drugi = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
         ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
-    assert drugi["status"] == "mixing"
+    assert drugi["status"] == "loaded"
 
 
 

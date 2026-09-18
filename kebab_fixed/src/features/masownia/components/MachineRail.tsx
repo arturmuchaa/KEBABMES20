@@ -14,6 +14,7 @@ import type { Charge } from '../useMasowniaData'
 
 const STANY = {
   free:   { label: 'Wolna',            bg: 'transparent',       fg: 'var(--mut)',     line: 'var(--line)' },
+  loaded: { label: 'Czeka na start',   bg: 'var(--ambSoft)',    fg: 'var(--amb)',     line: 'var(--amb)' },
   mixing: { label: 'Masuje',           bg: 'var(--accentSoft)', fg: 'var(--accent)',  line: 'var(--accent)' },
   ready:  { label: 'Gotowe — odbierz', bg: 'var(--success)',    fg: '#fff',           line: 'var(--success)' },
 } as const
@@ -32,6 +33,10 @@ export function minutesLeft(startedAt: string, now: number, minuty = minutyWsadu
 
 export function machineState(charge: Charge | undefined, now: number): MachineState {
   if (!charge) return 'free'
+  // Załadowana, ale NIE puszczona: maszyna stoi pełna, dopóki operator jej
+  // świadomie nie uruchomi. Odliczanie startuje od `started_at`, nie od
+  // załadunku (właściciel 18.09.2026).
+  if (charge.status === 'loaded' || !charge.started_at) return 'loaded'
   return minutesLeft(charge.started_at, now, minutyWsadu(charge)) > 0 ? 'mixing' : 'ready'
 }
 
@@ -106,7 +111,16 @@ export function MachineRail({ charges, now, pickedMachine, wyjscieKg, onPick }: 
                   + (wyjscieKg ? ` → wyjdzie ok. ${Math.round(wyjscieKg(charge))} kg` : '')
                 : 'dotknij, żeby załadować'}
             </div>
-            {stan === 'mixing' ? (
+            {stan === 'loaded' ? (
+              <div className="flex items-end gap-3 mt-auto">
+                <span className="text-[22px] font-extrabold leading-none" style={{ color: 'var(--amb)' }}>
+                  Załadowana
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-widest pb-1" style={{ color: 'var(--mut)' }}>
+                  czeka na start
+                </span>
+              </div>
+            ) : stan === 'mixing' ? (
               <div className="flex items-end gap-3 mt-auto">
                 <Beben />
                 <span className="hmi-v10-mono text-[30px] font-bold leading-none">{mmss(left)}</span>

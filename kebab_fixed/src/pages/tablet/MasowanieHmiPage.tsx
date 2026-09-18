@@ -34,10 +34,12 @@ import { ActionTile, KOLOR_PRZYPRAW, KOLOR_MIESZANIA } from '@/features/masownia
 import { DayBar } from '@/features/masownia/components/DayBar'
 import { SpiceWeighing } from '@/features/masownia/components/SpiceWeighing'
 import { LoadPicker } from '@/features/masownia/components/LoadPicker'
+import { PackPicker } from '@/features/masownia/components/PackPicker'
 import { MeatPicker, type MeatTake } from '@/features/masownia/components/MeatPicker'
 import { plakietkaSurowca } from '@/features/masownia/meatTiles'
 import { WaterStep } from '@/features/masownia/components/WaterStep'
 import { PickupDialog } from '@/features/masownia/components/PickupDialog'
+import { StartDialog } from '@/features/masownia/components/StartDialog'
 import { useServiceHold, ServiceMenuModal, serviceSections } from '@/features/deboning/ServiceMenu'
 
 // Wersja kiosku masowni — wstrzykiwana przez Vite (define w vite.config.ts).
@@ -46,17 +48,14 @@ declare const __MASOWANIE_VERSION__: string
 const hhmm = (d: Date) =>
   `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 
-/** Numery pojemników są na stałe 1–6; wolny to taki, który nigdzie nie stoi. */
-const WOLNY_POJEMNIK = (zajete: number[]) => [1, 2, 3, 4, 5, 6].find(n => !zajete.includes(n)) ?? null
-
 type Tryb =
   | null
-  | { kind: 'prep'; orderId: string; kg: number; cartNo: number }
+  | { kind: 'prep'; orderId: string; kg: number }
   | { kind: 'prep-size'; orderId: string }
   | { kind: 'prep-order' }
   | { kind: 'load-pick'; machineId: number | null; cartId: string | null; orderId: string | null }
   | { kind: 'load'; orderId: string; machineId: number; cartId: string | null
-      step: 'meat' | 'spices' | 'water'; take: MeatTake[]
+      step: 'meat' | 'paczka' | 'spices' | 'water'; take: MeatTake[]
       spices: { seq: number; name: string; unit: string; qty: number; weighed: number; manual: boolean }[] }
 
 export function MasowanieHmiPage() {
@@ -70,6 +69,8 @@ export function MasowanieHmiPage() {
   // Wejście serwisowe (przytrzymanie tytułu 3 s → kod 0099). Masownia to
   // ODDZIELNY komputer od kiosku rozbioru, a serwisant podpina wagę przy
   // zalogowanym operatorze — samo wejście z ekranu logowania by tu nie pomogło.
+  // Wsad świeżo załadowany, czekający na decyzję „start teraz czy później".
+  const [doStartu, setDoStartu] = useState<{ id: string; machineId: number } | null>(null)
   const [menuSerwisowe, setMenuSerwisowe] = useState(false)
   const { holdProps: serviceHoldProps } = useServiceHold(() => setMenuSerwisowe(true))
   const [odwazone, setOdwazone] = useState<Record<number, { weighed: number; manual: boolean }>>({})
@@ -133,6 +134,7 @@ export function MasowanieHmiPage() {
   }
 
   const doOdbioru = wsady.filter(c => machineState(c, now) === 'ready')
+  const zaladowane = wsady.filter(c => machineState(c, now) === 'loaded')
   const wolneMaszyny = MACHINES.filter(m => !wsady.some(c => c.machine_id === m.id))
   const nastepne = kolejka.find(o => zostaloW(o.id) > 0)
 
@@ -165,20 +167,16 @@ export function MasowanieHmiPage() {
   }
 
   const wybierzWielkosc = (orderId: string, kgWsadu: number) => {
-    const cartNo = WOLNY_POJEMNIK(pojemniki.map(p => p.cart_no))
-    if (cartNo === null) {
-      setKomunikat('Wszystkie sześć pojemników jest zajętych — wsyp któryś do maszyny.')
-      return
-    }
-    // Pojemnik POWSTAJE DOPIERO po zatwierdzeniu całego ważenia (`zamknijPojemnik`).
-    // Wcześniej zakładaliśmy go tutaj i wystarczyło wejść na ekran i wyjść, żeby
-    // w „Przygotowanych przyprawach" pojawił się pojemnik, którego nikt nie ważył.
+    // Paczka POWSTAJE DOPIERO po zatwierdzeniu całego ważenia (`zamknijPaczke`),
+    // a numer nadaje jej backend z licznika ciągłego od 1. Wcześniej zakładaliśmy
+    // ją tutaj i wystarczyło wejść na ekran i wyjść, żeby w „Przygotowanych
+    // przyprawach" pojawiła się paczka, której nikt nie ważył.
     setOdwazone({})
-    setTryb({ kind: 'prep', orderId, kg: kgWsadu, cartNo })
+    setTryb({ kind: 'prep', orderId, kg: kgWsadu })
   }
 
-  /** Zatwierdzenie CAŁEGO ważenia: dopiero teraz pojemnik trafia do bazy. */
-  const zamknijPojemnik = async () => {
+  /** Zatwierdzenie CAŁEGO ważenia: dopiero teraz paczka trafia do bazy. */
+  const zamknijPaczke = async (worki: number) => {
     if (tryb?.kind !== 'prep') return
     const pozycje = scaleIngredients(skladniki(zlecenie(tryb.orderId)?.recipeId ?? ''), tryb.kg)
     const komplet = pozycje.every(i => odwazone[i.seq] !== undefined)
@@ -188,8 +186,8 @@ export function MasowanieHmiPage() {
     }
     setZapisuje(true)
     try {
-      await masowniaApi.createCart({
-        orderId: tryb.orderId, cartNo: tryb.cartNo, kgTarget: tryb.kg,
+      const paczka = await masowniaApi.createCart({
+        orderId: tryb.orderId, kgTarget: tryb.kg, bags: worki,
         ingredients: pozycje.map(i => ({
           seq: i.seq, name: i.name, unit: i.unit, qty: i.qty,
           weighed: odwazone[i.seq]?.weighed ?? 0, manual: odwazone[i.seq]?.manual ?? false,
@@ -198,9 +196,12 @@ export function MasowanieHmiPage() {
       setTryb(null)
       setOdwazone({})
       odswiez()
-      setKomunikat(`Pojemnik ${tryb.cartNo} gotowy — odstaw go przy masownicy.`)
+      const nr = (paczka as any)?.cart_no
+      setKomunikat(
+        `Przyprawy nr ${nr ?? '?'} gotowe — ${worki === 1 ? '1 worek' : `${worki} worki`}, odstaw przy masownicy.`,
+      )
     } catch (e: any) {
-      setKomunikat(e?.message ?? 'Nie udało się zapisać pojemnika')
+      setKomunikat(e?.message ?? 'Nie udało się zapisać przypraw')
     } finally {
       setZapisuje(false)
     }
@@ -234,15 +235,48 @@ export function MasowanieHmiPage() {
     if (tryb?.kind !== 'load') return
     setZapisuje(true)
     try {
-      await masowniaApi.load({
+      const wsad = await masowniaApi.load({
         orderId: tryb.orderId, machineId: tryb.machineId, cartId: tryb.cartId,
         waterL: litry, meat: tryb.take, spices: tryb.spices,
       })
       setTryb(null)
       odswiez()
-      setKomunikat(`Masownica ${tryb.machineId} ruszyła.`)
+      // Maszyna stoi ZAŁADOWANA i czeka na świadomą decyzję operatora: puścić
+      // teraz czy poczekać na pozostałe i puścić wszystkie razem.
+      setDoStartu({ id: String((wsad as any)?.id ?? ''), machineId: tryb.machineId })
     } catch (e: any) {
       setKomunikat(e?.message ?? 'Nie udało się załadować masownicy')
+    } finally {
+      setZapisuje(false)
+    }
+  }
+
+  const puscMaszyne = async (chargeId: string, machineId: number) => {
+    setZapisuje(true)
+    try {
+      await masowniaApi.start(chargeId)
+      setDoStartu(null)
+      odswiez()
+      setKomunikat(`Masownica ${machineId} ruszyła.`)
+    } catch (e: any) {
+      setKomunikat(e?.message ?? 'Nie udało się uruchomić masownicy')
+    } finally {
+      setZapisuje(false)
+    }
+  }
+
+  const puscWszystkie = async () => {
+    setZapisuje(true)
+    try {
+      const wynik = await masowniaApi.startAll()
+      setDoStartu(null)
+      odswiez()
+      const ile = Number(wynik?.started ?? 0)
+      setKomunikat(ile
+        ? `Ruszyły masownice ${(wynik?.machines ?? []).join(', ')}.`
+        : 'Nie ma załadowanych masownic do puszczenia.')
+    } catch (e: any) {
+      setKomunikat(e?.message ?? 'Nie udało się uruchomić masownic')
     } finally {
       setZapisuje(false)
     }
@@ -296,10 +330,7 @@ export function MasowanieHmiPage() {
               : 'brak'}>
             <CartList carts={pojemniki}
               selectedId={tryb?.kind === 'load' ? tryb.cartId : null}
-              onPick={id => {
-                const c = pojemniki.find(p => p.id === id)
-                if (c) zaladujZPojemnika(c)
-              }} />
+              />
           </Card>
           <Card title="Kolejka dnia" className="flex-1"
             right={`${Math.round(zrobioneKg)} / ${Math.round(planKg)} kg`}>
@@ -314,6 +345,8 @@ export function MasowanieHmiPage() {
           {tryb === null ? (
             <RestScreen doOdbioru={doOdbioru} wolneMaszyny={wolneMaszyny}
               pojemnikiGotowe={pojemniki.length} nastepne={nastepne?.recipeName ?? ''}
+              zaladowane={zaladowane.map(c => c.machine_id)}
+              onStartAll={puscWszystkie}
               onPrzyprawy={() => setTryb({ kind: 'prep-order' })}
               onZaladunek={() => setTryb({
                 kind: 'load-pick',
@@ -325,14 +358,11 @@ export function MasowanieHmiPage() {
 
           {tryb?.kind === 'load-pick' ? (
             <LoadPicker
-              carts={pojemniki}
               orders={kolejka.filter(o => zostaloW(o.id) > 0).map(o => ({ ...o, zostalo: zostaloW(o.id) }))}
               zajeteMaszyny={wsady.map(c => c.machine_id)}
               machineId={tryb.machineId}
-              cartId={tryb.cartId}
               orderId={tryb.orderId}
               onMachine={id => setTryb({ ...tryb, machineId: id })}
-              onCart={c => setTryb({ ...tryb, cartId: c.id, orderId: c.order_id })}
               onOrder={id => setTryb({ ...tryb, cartId: null, orderId: id })}
               onBack={() => setTryb(null)}
               onNext={() => {
@@ -364,9 +394,8 @@ export function MasowanieHmiPage() {
             <SpiceWeighing
               items={scaleIngredients(skladniki(zlecenie(tryb.orderId)?.recipeId ?? ''), tryb.kg)}
               weighed={odwazone}
-              cartNo={tryb.cartNo}
               onWeigh={zapiszSkladnik}
-              onDone={zamknijPojemnik}
+              onDone={zamknijPaczke}
               onBack={() => { setTryb(null); setOdwazone({}) }} />
           ) : null}
 
@@ -382,7 +411,17 @@ export function MasowanieHmiPage() {
               receptura={skladniki(zlecenie(tryb.orderId)?.recipeId ?? '')}
               nastepnePp={nastepnePp}
               onBack={() => setTryb(null)}
-              onConfirm={take => setTryb({ ...tryb, step: tryb.cartId ? 'water' : 'spices', take })} />
+              onConfirm={take => setTryb({ ...tryb, step: 'paczka', take })} />
+          ) : null}
+
+          {tryb?.kind === 'load' && tryb.step === 'paczka' ? (
+            <PackPicker
+              carts={pojemniki}
+              kgMeat={tryb.take.reduce((s, x) => s + x.kg, 0)}
+              recipeName={zlecenie(tryb.orderId)?.recipeName}
+              onBack={() => setTryb({ ...tryb, step: 'meat' })}
+              onPick={c => setTryb({ ...tryb, cartId: c.id, step: 'water' })}
+              onWeighNow={() => { setOdwazone({}); setTryb({ ...tryb, cartId: null, step: 'spices' }) }} />
           ) : null}
 
           {tryb?.kind === 'load' && tryb.step === 'spices' ? (
@@ -391,7 +430,6 @@ export function MasowanieHmiPage() {
                 skladniki(zlecenie(tryb.orderId)?.recipeId ?? ''),
                 tryb.take.reduce((s, t) => s + t.kg, 0))}
               weighed={odwazone}
-              cartNo={0}
               przyMaszynie
               onWeigh={zapiszSkladnik}
               onDone={() => {
@@ -432,6 +470,15 @@ export function MasowanieHmiPage() {
           expectedKg={oczekiwaneKg(odbior, receptury)}
           onConfirm={zatwierdzOdbior}
           onClose={() => setOdbior(null)} />
+      ) : null}
+
+      {doStartu ? (
+        <StartDialog
+          machineId={doStartu.machineId}
+          czekaINnych={zaladowane.filter(c => c.id !== doStartu.id).length}
+          busy={zapisuje}
+          onStart={() => puscMaszyne(doStartu.id, doStartu.machineId)}
+          onLater={() => { setDoStartu(null); setKomunikat('Masownica czeka — puścisz ją razem z pozostałymi.') }} />
       ) : null}
 
       {komunikat ? (
@@ -651,14 +698,17 @@ function SizeScreen({ recepturaNazwa, zostalo, busy, onPick, onBack }: {
 }
 
 /** Spoczynek — co teraz zrobić. Dwa tory pracy i wołanie o odbiór. */
-function RestScreen({ doOdbioru, wolneMaszyny, pojemnikiGotowe, nastepne, onPrzyprawy, onZaladunek, onOdbierz }: {
+function RestScreen({ doOdbioru, wolneMaszyny, pojemnikiGotowe, nastepne, zaladowane, onPrzyprawy, onZaladunek, onOdbierz, onStartAll }: {
   doOdbioru: Charge[]
   wolneMaszyny: { id: number; cap: number }[]
   pojemnikiGotowe: number
   nastepne: string
+  /** Numery masownic, które stoją załadowane i czekają na wspólny start. */
+  zaladowane: number[]
   onPrzyprawy: () => void
   onZaladunek: () => void
   onOdbierz: () => void
+  onStartAll: () => void
 }) {
   return (
     <div className="flex-1 min-h-0 flex flex-col gap-4 p-5 justify-center">
@@ -678,6 +728,28 @@ function RestScreen({ doOdbioru, wolneMaszyny, pojemnikiGotowe, nastepne, onPrzy
             className="h-[60px] px-7 rounded-[10px] text-lg font-extrabold mt-3"
             style={{ background: 'var(--success)', color: '#fff' }}>
             Odbierz z masownicy {doOdbioru[0].machine_id}
+          </button>
+        </div>
+      ) : null}
+
+      {/* Masownice załadowane, ale jeszcze nie puszczone. Hala ładuje je po
+          kolei i puszcza razem, więc wołanie o wspólny start stoi tu, nad
+          kaflami — to jedyne miejsce, w które operator patrzy między wsadami. */}
+      {zaladowane.length ? (
+        <div className="flex flex-col items-center gap-1.5 px-9 py-5 rounded-2xl min-w-[440px]"
+          style={{ background: 'var(--ambSoft)', border: '1.5px solid var(--amb)' }}>
+          <span className="text-[10px] font-extrabold uppercase tracking-[0.14em]" style={{ color: 'var(--amb)' }}>
+            Czeka na start
+          </span>
+          <span className="text-[23px] font-extrabold" style={{ color: 'var(--amb)' }}>
+            {zaladowane.length === 1
+              ? `Masownica ${zaladowane[0]} jest załadowana`
+              : `Masownice ${zaladowane.join(', ')} są załadowane`}
+          </span>
+          <button type="button" onClick={onStartAll}
+            className="h-[60px] px-7 rounded-[10px] text-lg font-extrabold mt-3"
+            style={{ background: 'var(--amb)', color: '#fff' }}>
+            {zaladowane.length === 1 ? 'Rozpocznij masowanie' : `Rozpocznij wszystkie (${zaladowane.length})`}
           </button>
         </div>
       ) : null}

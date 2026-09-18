@@ -19,6 +19,9 @@ export interface SpiceCart {
   order_no?: string
   recipe_id?: string
   kg_target: number
+  /** W ilu workach leżą te przyprawy (200 kg → 1, 600 kg → 3). */
+  bags?: number | null
+  recipe_name?: string
   status: string
   ingredients: { seq: number; name: string; unit: string; qty: number; weighed: number; manual: boolean }[]
 }
@@ -37,7 +40,9 @@ export interface Charge {
   /** Minuty cyklu skopiowane z receptury przy załadunku (null = standard 50). */
   mix_minutes?: number | null
   status: string
-  started_at: string
+  /** Pusty, dopóki operator nie puści maszyny — cykl liczy się od startu. */
+  started_at: string | null
+  loaded_at?: string | null
   meat: { pallet_id: string | null; lot_no: string; meat_stock_id: string | null; kg: number }[]
 }
 
