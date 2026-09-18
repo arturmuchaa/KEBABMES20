@@ -70,3 +70,11 @@
 @media print {
   html, body, #root { background: #fff !important; height: auto !important; }
 }
+
+
+/* Bęben masownicy (panel masowania) — zapas na wypadek braku Web Animations
+   API. Keyframes MUSZĄ być w arkuszu, nie w inline <style>: CSP kiosku puszcza
+   style tylko z 'self'. Bez reguły prefers-reduced-motion — obrót bębna to
+   informacja „maszyna pracuje", a panel hali ma wyłączone efekty systemowe. */
+@keyframes beben-obrot-kl { to { transform: rotate(360deg) } }
+.beben-obrot { animation: beben-obrot-kl 3s linear infinite; transform-origin: 50% 50% }

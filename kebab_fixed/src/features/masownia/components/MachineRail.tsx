@@ -9,6 +9,7 @@
  * system przepuszcza, nie pojawia się na ekranie: wypisany stałby się normą.
  */
 import { MACHINES, minutyWsadu, batchNoFromLots } from '../machines'
+import { Beben } from './Beben'
 import type { Charge } from '../useMasowniaData'
 
 const STANY = {
@@ -32,37 +33,6 @@ export function minutesLeft(startedAt: string, now: number, minuty = minutyWsadu
 export function machineState(charge: Charge | undefined, now: number): MachineState {
   if (!charge) return 'free'
   return minutesLeft(charge.started_at, now, minutyWsadu(charge)) > 0 ? 'mixing' : 'ready'
-}
-
-/**
- * Bęben masownicy — jedyna rzecz na ekranie, która się rusza.
- *
- * Hala patrzy na panel z kilku metrów i z tej odległości odliczanie sekund
- * zlewa się w jedną plamę: obracający się bęben mówi „maszyna PRACUJE" bez
- * czytania. Pełny obrót w 3 s, czyli mniej więcej tempo prawdziwej masownicy;
- * szybciej wygląda jak alarm. Systemowe „ogranicz ruch" wyłącza obrót —
- * kafelek nadal czytelny, bo cały stan niesie napis i pasek.
- */
-function Beben() {
-  return (
-    <>
-      <style>{`
-        @keyframes masownica-obrot { to { transform: rotate(360deg) } }
-        @media (prefers-reduced-motion: reduce) {
-          [data-testid="beben-masownicy"] { animation: none !important }
-        }
-      `}</style>
-      <svg data-testid="beben-masownicy" width="34" height="34" viewBox="0 0 34 34"
-        aria-hidden="true"
-        style={{ animation: 'masownica-obrot 3s linear infinite', flexShrink: 0, marginBottom: 2 }}>
-        <circle cx="17" cy="17" r="14.5" fill="none" stroke="var(--accent)" strokeWidth="2.5" opacity="0.35" />
-        {/* Łopatki — bez nich obracające się koło wygląda na nieruchome. */}
-        <path d="M17 4.5 L17 12 M29.5 17 L22 17 M17 29.5 L17 22 M4.5 17 L12 17"
-          stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" />
-        <circle cx="17" cy="17" r="3.2" fill="var(--accent)" />
-      </svg>
-    </>
-  )
 }
 
 const mmss = (min: number) => {
