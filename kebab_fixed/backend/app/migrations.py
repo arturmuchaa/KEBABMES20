@@ -1689,7 +1689,13 @@ _DDL: list[str] = [
     # indeksem po numerze „stojących" — numery już się nie powtarzają.
     "ALTER TABLE mixing_spice_carts DROP CONSTRAINT IF EXISTS mixing_spice_carts_cart_no_ck",
     "DROP INDEX IF EXISTS idx_spice_cart_no_live",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_spice_cart_no ON mixing_spice_carts(cart_no)",
+    # Unikalność TYLKO dla paczek z nowej numeracji (`bags` wypełnione).
+    # Stare pojemniki mają numery zdublowane, bo 1–6 wracały do puli po umyciu:
+    # indeks na całej tabeli nie ma prawa powstać i na produkcji padł po cichu
+    # (18.09.2026), zostawiając numer bez żadnego strażnika.
+    "DROP INDEX IF EXISTS idx_spice_cart_no",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_spice_cart_no_nowe "
+    "ON mixing_spice_carts(cart_no) WHERE bags IS NOT NULL",
     # Licznik paczek startuje za najwyższym numerem, jaki już jest w bazie —
     # inaczej pierwsza paczka po wdrożeniu zderzyłaby się ze starym numerem.
     """INSERT INTO sequences (key, value)

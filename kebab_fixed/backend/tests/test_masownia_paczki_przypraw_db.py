@@ -69,3 +69,33 @@ def test_bez_workow_zostaje_jeden():
     oid = _zlecenie()
     p = svc.create_cart(SpiceCartCreate(orderId=oid, kgTarget=200))
     assert p["bags"] == 1
+
+
+def test_numer_nowej_paczki_ma_straznika_mimo_starych_duplikatow():
+    """Stare pojemniki mają numery zdublowane (1–6 wracały po umyciu).
+
+    Indeks unikalności na CAŁEJ tabeli przez to nie powstaje — na produkcji
+    padł po cichu i numer został bez ochrony (18.09.2026). Strażnik obejmuje
+    więc tylko paczki z nowej numeracji, rozpoznawane po wypełnionym `bags`.
+    """
+    oid = _zlecenie()
+    # Dwa stare pojemniki o tym samym numerze — tak wygląda historia na produkcji.
+    for _ in range(2):
+        execute(
+            "INSERT INTO mixing_spice_carts (id, cart_no, order_id, kg_target, status) "
+            "VALUES (%s, 1, %s, 200, 'cancelled')",
+            (cuid(), oid),
+        )
+
+    nowa = svc.create_cart(SpiceCartCreate(orderId=oid, kgTarget=200, bags=1))
+    assert nowa["bags"] == 1
+
+    import pytest as _pytest
+    from psycopg2.errors import UniqueViolation
+    with _pytest.raises(Exception) as e:
+        execute(
+            "INSERT INTO mixing_spice_carts (id, cart_no, order_id, kg_target, bags, status) "
+            "VALUES (%s, %s, %s, 200, 1, 'prepared')",
+            (cuid(), nowa["cart_no"], oid),
+        )
+    assert isinstance(e.value, UniqueViolation) or "unique" in str(e.value).lower()

@@ -43,8 +43,8 @@ def test_numer_paczki_przypraw_jest_jednorazowy():
     ) is None, "limit 1–6 opisywał pojemniki, nie worki"
 
     assert query_one(
-        "SELECT indexname FROM pg_indexes WHERE indexname='idx_spice_cart_no'"
-    ) is not None, "numer paczki musi być unikalny na zawsze"
+        "SELECT indexname FROM pg_indexes WHERE indexname='idx_spice_cart_no_nowe'"
+    ) is not None, "numer nowej paczki musi być unikalny"
 
 
 def test_paczka_zapisuje_liczbe_workow():
