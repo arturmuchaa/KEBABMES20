@@ -88,4 +88,15 @@ describe('kgNaWyjsciu', () => {
   it('zaokrągla do dziesiątej części kilograma', () => {
     expect(kgNaWyjsciu(507, receptura)).toBe(628.7)
   })
+
+  it('gramy NIE podbijają wyjścia — backend też ich nie liczy', () => {
+    // 200 g dodatku na 100 kg to 0,2 kg, nie 200 kg. Sumowanie wprost dałoby
+    // z 600 kg mięsa ponad 1,9 tony „wyjścia".
+    const zGramami = [...receptura, { ingredientName: 'Barwnik', qtyPer100kg: 200, unit: 'g' }]
+    expect(kgNaWyjsciu(600, zGramami)).toBe(kgNaWyjsciu(600, receptura))
+  })
+
+  it('litry liczą się jak kilogramy — woda zostaje we wsadzie', () => {
+    expect(kgNaWyjsciu(100, [{ ingredientName: 'Woda', qtyPer100kg: 18, unit: 'L' }])).toBe(118)
+  })
 })

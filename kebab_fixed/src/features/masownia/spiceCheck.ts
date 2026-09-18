@@ -51,7 +51,14 @@ export function scaleIngredients(recipe: RecipeIngredient[], kgBatch: number): S
  * z dawką albo z ważeniem (patrz [[kebab-przyprawione-uzgadnianie-teoria-fizyka]]).
  */
 export function kgNaWyjsciu(kgMiesa: number, recipe: RecipeIngredient[]): number {
-  const przyrost = (recipe ?? []).reduce((s, i) => s + Number(i.qtyPer100kg || 0), 0)
+  // Liczą się TYLKO kilogramy i litry — reguła 1:1 z backendem
+  // (`recipes_service.calc_kg_output`), który tak właśnie zapisuje `kg_output`.
+  // Dodatek w gramach ważyłby tu tyle, co w kilogramach: 200 g transglutaminazy
+  // urosłoby do 200 kg na 100 kg mięsa. Dziś żadna receptura nie ma gramów,
+  // ale panel ma pokazywać tę samą liczbę co księgowanie, a nie podobną.
+  const przyrost = (recipe ?? [])
+    .filter(i => ['kg', 'l'].includes(String(i.unit || '').toLowerCase()))
+    .reduce((s, i) => s + Number(i.qtyPer100kg || 0), 0)
   return Math.round(kgMiesa * (1 + przyrost / 100) * 10) / 10
 }
 
