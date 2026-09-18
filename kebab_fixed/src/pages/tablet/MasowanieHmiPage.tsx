@@ -41,6 +41,8 @@ import { WaterStep } from '@/features/masownia/components/WaterStep'
 import { PickupDialog } from '@/features/masownia/components/PickupDialog'
 import { StartDialog } from '@/features/masownia/components/StartDialog'
 import { useServiceHold, ServiceMenuModal, serviceSections } from '@/features/deboning/ServiceMenu'
+import { mixingLabelZpl } from '@/features/masownia/mixingLabelZpl'
+import { getDevices, sendZpl } from '@/lib/zebra'
 
 // Wersja kiosku masowni — wstrzykiwana przez Vite (define w vite.config.ts).
 declare const __MASOWANIE_VERSION__: string
@@ -71,6 +73,10 @@ export function MasowanieHmiPage() {
   // zalogowanym operatorze — samo wejście z ekranu logowania by tu nie pomogło.
   // Wsad świeżo załadowany, czekający na decyzję „start teraz czy później".
   const [doStartu, setDoStartu] = useState<{ id: string; machineId: number } | null>(null)
+  // Etykieta, której nie udało się wydrukować — zostaje pod ręką z przyciskiem
+  // ponowienia. Odbiór jest już zaksięgowany, więc brak etykiety nie może
+  // kosztować operatora niczego poza jednym dotknięciem.
+  const [etykietaDoDruku, setEtykietaDoDruku] = useState<{ zpl: string; partia: string } | null>(null)
   const [menuSerwisowe, setMenuSerwisowe] = useState(false)
   const { holdProps: serviceHoldProps } = useServiceHold(() => setMenuSerwisowe(true))
   const [odwazone, setOdwazone] = useState<Record<number, { weighed: number; manual: boolean }>>({})
@@ -282,14 +288,57 @@ export function MasowanieHmiPage() {
     }
   }
 
+  /** Wydruk etykiety partii — osobno od księgowania.
+   *
+   *  Odbiór jest już w bazie, więc padnięta drukarka NIE może go cofnąć ani
+   *  zablokować ekranu: etykieta ląduje wtedy w `etykietaDoDruku` z przyciskiem
+   *  ponowienia. */
+  const drukujEtykiete = useCallback(async (zpl: string, partia: string) => {
+    try {
+      const { default: dom, list } = await getDevices()
+      const dev = dom ?? list[0]
+      if (!dev) throw new Error('Nie znaleziono drukarki etykiet')
+      await sendZpl(dev, zpl)
+      setEtykietaDoDruku(null)
+      setKomunikat(`Etykieta partii ${partia} wydrukowana.`)
+      return true
+    } catch (e: any) {
+      setEtykietaDoDruku({ zpl, partia })
+      setKomunikat(`Odbiór zapisany, ale etykieta nie wyszła: ${e?.message ?? 'brak drukarki'}`)
+      return false
+    }
+  }, [])
+
   const zatwierdzOdbior = async (kgOutput: number) => {
     if (!odbior) return
+    const wsad = odbior
     setZapisuje(true)
     try {
-      await masowniaApi.finish(odbior.id, kgOutput)
+      await masowniaApi.finish(wsad.id, kgOutput)
       setOdbior(null)
       odswiez()
       setKomunikat('Wsad odebrany i zapisany.')
+
+      const zpl = mixingLabelZpl({
+        batchNo: wsad.batch_no || '',
+        recipeName: wsad.recipe_name,
+        orderNo: wsad.order_no,
+        machineId: wsad.machine_id,
+        kgMeat: Number(wsad.kg_meat || 0),
+        kgExpected: oczekiwaneKg(wsad, receptury),
+        kgWeighed: kgOutput,
+        startedAt: wsad.started_at,
+        finishedAt: new Date().toISOString(),
+        mixMinutes: wsad.mix_minutes ?? null,
+        meat: (wsad.meat ?? []).map((m: any) => ({
+          palletNo: m.pallet_no ?? '',
+          lotNo: m.lot_no,
+          kg: Number(m.kg || 0),
+          materialName: m.material_name ?? '',
+          materialTypeId: m.material_type_id ?? '',
+        })),
+      })
+      void drukujEtykiete(zpl, wsad.batch_no || '')
     } catch (e: any) {
       setKomunikat(e?.message ?? 'Nie udało się zapisać odbioru')
     } finally {
@@ -479,6 +528,25 @@ export function MasowanieHmiPage() {
           busy={zapisuje}
           onStart={() => puscMaszyne(doStartu.id, doStartu.machineId)}
           onLater={() => { setDoStartu(null); setKomunikat('Masownica czeka — puścisz ją razem z pozostałymi.') }} />
+      ) : null}
+
+      {etykietaDoDruku ? (
+        <div className="absolute left-1/2 -translate-x-1/2 bottom-24 z-[60] flex items-center gap-4 rounded-[10px] py-3 px-5"
+          style={{ background: 'var(--ambSoft)', border: '1.5px solid var(--amb)' }}>
+          <span className="text-[15px] font-extrabold" style={{ color: 'var(--amb)' }}>
+            Etykieta partii {etykietaDoDruku.partia} czeka na drukarkę
+          </span>
+          <button type="button" onClick={() => void drukujEtykiete(etykietaDoDruku.zpl, etykietaDoDruku.partia)}
+            className="h-[46px] px-5 rounded-[9px] text-base font-extrabold"
+            style={{ background: 'var(--amb)', color: '#fff' }}>
+            Drukuj ponownie
+          </button>
+          <button type="button" onClick={() => setEtykietaDoDruku(null)}
+            className="h-[46px] px-4 rounded-[9px] text-base font-bold"
+            style={{ background: 'transparent', color: 'var(--mut)' }}>
+            Odłóż
+          </button>
+        </div>
       ) : null}
 
       {komunikat ? (

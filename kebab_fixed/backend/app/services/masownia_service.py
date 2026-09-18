@@ -358,9 +358,20 @@ def list_charges() -> List[Dict[str, Any]]:
         row = dict(r)
         row["kg_meat"] = float(row.get("kg_meat") or 0)
         row["water_l"] = float(row.get("water_l") or 0)
+        # Numer palety i rodzaj surowca jadą razem ze wsadem — etykieta po
+        # odbiorze wypisuje SKŁAD partii, a samo `pallet_id` nikomu na hali
+        # nic nie mówi. Paleta bywa już zużyta (`consumed_at`), więc łączymy
+        # po kluczu, nie przez żywą listę palet.
         row["meat"] = query_all(
-            "SELECT pallet_id, lot_no, meat_stock_id, kg FROM mixing_charge_pallets "
-            "WHERE charge_id=%s",
+            """
+            SELECT cp.pallet_id, cp.lot_no, cp.meat_stock_id, cp.kg,
+                   p.pallet_no, ms.material_name, ms.material_type_id
+            FROM mixing_charge_pallets cp
+            LEFT JOIN meat_pallets p ON p.id = cp.pallet_id
+            LEFT JOIN meat_stock ms ON ms.id = cp.meat_stock_id
+            WHERE cp.charge_id=%s
+            ORDER BY p.pallet_no NULLS LAST, cp.lot_no
+            """,
             (r["id"],),
         )
         out.append(row)

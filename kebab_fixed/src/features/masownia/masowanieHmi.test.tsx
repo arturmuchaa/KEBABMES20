@@ -35,6 +35,15 @@ vi.mock('@/lib/api', () => ({
   recipesApi: { list: vi.fn(async () => stan.receptury) },
 }))
 
+const zebra = vi.hoisted(() => ({
+  sendZpl: vi.fn(async () => {}),
+  getDevices: vi.fn(async () => ({ default: { name: 'ZD421', uid: '1' }, list: [] })),
+}))
+vi.mock('@/lib/zebra', () => ({
+  getDevices: zebra.getDevices,
+  sendZpl: zebra.sendZpl,
+}))
+
 vi.mock('@/features/auth/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'u1', fullName: 'Mehmet' } }),
 }))
@@ -673,5 +682,71 @@ describe('start masownicy', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Rozpocznij wszystkie \(3\)/i })).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /Rozpocznij wszystkie \(3\)/i }))
     await waitFor(() => expect(masowniaApi.startAll).toHaveBeenCalled())
+  })
+})
+
+
+/**
+ * Etykieta partii po odbiorze (właściciel 18.09.2026): „po wpisaniu, ile kg
+ * zważono, ma się drukować etykieta z Zebry".
+ */
+describe('etykieta po odbiorze z masownicy', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stan.pojemniki = []
+    stan.zlecenia = [{ id: 'o1', orderNo: 'MAS/18/09/26', recipeId: 'r1', recipeName: 'KIRMIZI',
+                       meatKg: 2000, kgDone: 0, daySeq: 1, status: 'confirmed', meatLots: [] }]
+    stan.wsady = [{
+      id: 'ch1', machine_id: 3, order_id: 'o1', order_no: 'MAS/18/09/26', recipe_id: 'r1',
+      recipe_name: 'KIRMIZI', kg_meat: 600, water_l: 108, batch_no: '563', mix_minutes: 50,
+      status: 'mixing', started_at: new Date(Date.now() - 55 * 60_000).toISOString(),
+      meat: [
+        { pallet_id: 'p1', pallet_no: 'PAL/18/09/26/3', lot_no: '563', meat_stock_id: 'ms1', kg: 200,
+          material_name: 'Mięso z/s', material_type_id: 'mat-mieso-zs' },
+        { pallet_id: 'p2', pallet_no: 'PAL/18/09/26/4', lot_no: '563', meat_stock_id: 'ms1', kg: 200,
+          material_name: 'Mięso z/s', material_type_id: 'mat-mieso-zs' },
+        { pallet_id: 'p3', pallet_no: 'PAL/18/09/26/5', lot_no: '563', meat_stock_id: 'ms1', kg: 200,
+          material_name: 'Mięso z/s', material_type_id: 'mat-mieso-zs' },
+      ],
+    }]
+  })
+
+  const odbierz = async (kg: string) => {
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getAllByText(/Gotowe — odbierz/i).length).toBeGreaterThan(0))
+    fireEvent.click(screen.getByRole('button', { name: /Odbierz z masownicy/i }))
+    await waitFor(() => expect(screen.getByText(/ile wyszło|Odbiór/i)).toBeInTheDocument())
+    for (const c of kg) fireEvent.click(screen.getByRole('button', { name: c }))
+    fireEvent.click(screen.getByRole('button', { name: /Zatwierdź|Zapisz/ }))
+  }
+
+  it('drukuje etykietę z numerem partii i składem palet', async () => {
+    await odbierz('745')
+    await waitFor(() => expect(zebra.sendZpl).toHaveBeenCalled())
+    const zpl = (zebra.sendZpl as any).mock.calls[0][1] as string
+    expect(zpl).toContain('563')
+    expect(zpl).toContain('PAL/18/09/26/3')
+    expect(zpl).toContain('PAL/18/09/26/5')
+    expect(zpl).toContain('745 kg')
+    expect(zpl).toContain('^PW799')
+  })
+
+  it('padnięta drukarka nie cofa odbioru — etykieta czeka na ponowienie', async () => {
+    const { masowniaApi } = await import('@/lib/api')
+    zebra.sendZpl.mockRejectedValueOnce(new Error('drukarka offline'))
+    await odbierz('745')
+    await waitFor(() => expect(masowniaApi.finish).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByRole('button', { name: /Drukuj ponownie/i })).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: /Drukuj ponownie/i }))
+    await waitFor(() => expect(zebra.sendZpl).toHaveBeenCalledTimes(2))
+  })
+
+  it('brak drukarki w ogóle też nie gubi odbioru', async () => {
+    const { masowniaApi } = await import('@/lib/api')
+    zebra.getDevices.mockResolvedValueOnce({ default: null, list: [] } as any)
+    await odbierz('745')
+    await waitFor(() => expect(masowniaApi.finish).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getAllByText(/nie wyszła|drukark/i).length).toBeGreaterThan(0))
   })
 })
