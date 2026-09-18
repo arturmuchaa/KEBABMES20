@@ -15,6 +15,12 @@ def list_meat():
     return svc.list_meat()
 
 
+@router.get("/nastepny-pp")
+def nastepny_pp():
+    """Podgląd kolejnego numeru partii łączonej — panel pokazuje go przed startem."""
+    return {"batchNo": svc.nastepny_pp()}
+
+
 @router.get("/pojemniki")
 def list_carts():
     """Pojemniki z odważonymi przyprawami, które czekają na maszynę."""

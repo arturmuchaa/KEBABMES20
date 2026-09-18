@@ -1162,6 +1162,10 @@ export function mapMasowniaMeat(raw: any): MasowniaMeat {
 export const masowniaApi = {
   meat: () => get<any>('/masownia/mieso').then(mapMasowniaMeat),
 
+  /** Podgląd kolejnego numeru partii łączonej — pokazywany PRZED startem.
+   *  Numer obowiązujący nadaje backend przy załadunku i wraca z `load`. */
+  nextPp: () => get<{ batchNo?: string }>('/masownia/nastepny-pp').then(r => String(r?.batchNo ?? '')),
+
   carts: () => get<any>('/masownia/pojemniki').then(r => (r?.data ?? []) as any[]),
   createCart: (dto: {
     orderId: string; cartNo: number; kgTarget: number

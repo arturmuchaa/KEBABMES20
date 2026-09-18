@@ -9,6 +9,10 @@
  *     ponumerowanego pojemnika. Bez maszyny, bez palet, bez wody.
  *   • ZAŁADUNEK — wolna maszyna + pojemnik + mięso + woda → start.
  *
+ * W proces wchodzi się WYŁĄCZNIE dwoma kafelkami; zlecenie wskazuje się już
+ * w środku. Kolejka dnia po lewej jest tablicą informacyjną — kiedy dało się
+ * przez nią wejść w ważenie przypraw, operator gubił się, czym zaczyna robotę.
+ *
  * Bramka partii siedzi w `MeatPicker`: gdy biuro wskazało partie w planie
  * masowania, operator widzi całe mięso, ale dotknąć może tylko wskazanego.
  *
@@ -49,13 +53,14 @@ type Tryb =
   | null
   | { kind: 'prep'; orderId: string; kg: number; cartNo: number }
   | { kind: 'prep-size'; orderId: string }
+  | { kind: 'prep-order' }
   | { kind: 'load-pick'; machineId: number | null; cartId: string | null; orderId: string | null }
   | { kind: 'load'; orderId: string; machineId: number; cartId: string | null
       step: 'meat' | 'spices' | 'water'; take: MeatTake[]
       spices: { seq: number; name: string; unit: string; qty: number; weighed: number; manual: boolean }[] }
 
 export function MasowanieHmiPage() {
-  const { zlecenia, pojemniki, wsady, mieso, receptury, error, odswiez } = useMasowniaData()
+  const { zlecenia, pojemniki, wsady, mieso, receptury, nastepnePp, error, odswiez } = useMasowniaData()
   const { user } = useAuth()
   const [now, setNow] = useState(() => Date.now())
   const [tryb, setTryb] = useState<Tryb>(null)
@@ -284,8 +289,7 @@ export function MasowanieHmiPage() {
           <Card title="Kolejka dnia" className="flex-1"
             right={`${Math.round(zrobioneKg)} / ${Math.round(planKg)} kg`}>
             <DayQueue orders={kolejka} kgInMachine={kgInMachine} kgPrepared={kgPrepared}
-              selectedId={tryb && 'orderId' in tryb ? tryb.orderId : null}
-              onPick={zacznijPrzyprawy} />
+              selectedId={tryb && 'orderId' in tryb ? tryb.orderId : null} />
           </Card>
         </aside>
 
@@ -295,7 +299,7 @@ export function MasowanieHmiPage() {
           {tryb === null ? (
             <RestScreen doOdbioru={doOdbioru} wolneMaszyny={wolneMaszyny}
               pojemnikiGotowe={pojemniki.length} nastepne={nastepne?.recipeName ?? ''}
-              onPrzyprawy={() => nastepne && zacznijPrzyprawy(nastepne.id)}
+              onPrzyprawy={() => setTryb({ kind: 'prep-order' })}
               onZaladunek={() => setTryb({
                 kind: 'load-pick',
                 machineId: wolneMaszyny.length === 1 ? wolneMaszyny[0].id : null,
@@ -323,6 +327,13 @@ export function MasowanieHmiPage() {
                   cartId: tryb.cartId, step: 'meat', take: [], spices: [],
                 })
               }} />
+          ) : null}
+
+          {tryb?.kind === 'prep-order' ? (
+            <OrderScreen
+              orders={kolejka.map(o => ({ ...o, zostalo: zostaloW(o.id) }))}
+              onBack={() => setTryb(null)}
+              onPick={zacznijPrzyprawy} />
           ) : null}
 
           {tryb?.kind === 'prep-size' ? (
@@ -354,6 +365,7 @@ export function MasowanieHmiPage() {
                 : Math.min(zostaloW(tryb.orderId), maszynaOId(tryb.machineId)?.cap ?? 0)}
               maxKg={maszynaOId(tryb.machineId)?.max ?? 0}
               receptura={skladniki(zlecenie(tryb.orderId)?.recipeId ?? '')}
+              nastepnePp={nastepnePp}
               onBack={() => setTryb(null)}
               onConfirm={take => setTryb({ ...tryb, step: tryb.cartId ? 'water' : 'spices', take })} />
           ) : null}
@@ -466,6 +478,76 @@ function Card({ title, right, className, children }: {
       </div>
       {children}
     </div>
+  )
+}
+
+/**
+ * Wybór zlecenia dla toru przypraw.
+ *
+ * Wcześniej kafelek „Przygotuj przyprawy" brał PIERWSZE zlecenie z kolejki, a
+ * inne wybierało się klikając wiersz po lewej — i to było drugie wejście
+ * w proces, które myliło halę (właściciel, 18.09.2026). Teraz zlecenie wskazuje
+ * się tutaj, dokładnie tak jak przy załadunku masownicy.
+ */
+function OrderScreen({ orders, onPick, onBack }: {
+  orders: (QueueOrder & { zostalo: number })[]
+  onPick: (orderId: string) => void
+  onBack: () => void
+}) {
+  return (
+    <>
+      <div className="shrink-0 flex items-center gap-4 p-3 px-4" style={{ borderBottom: '1px solid var(--line)' }}>
+        <button type="button" onClick={onBack} className="text-sm font-extrabold" style={{ color: 'var(--accent)' }}>
+          ← Wróć
+        </button>
+        <span className="text-[22px] font-extrabold tracking-tight">Na które zlecenie ważysz przyprawy?</span>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto p-4">
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+          {orders.map(o => {
+            const wolne = o.zostalo > 0
+            return (
+              <button key={o.id} type="button" disabled={!wolne} onClick={() => onPick(o.id)}
+                className="rounded-xl p-4 text-left flex flex-col gap-2 min-h-[132px]"
+                style={{
+                  background: 'var(--panel)',
+                  border: `2px solid ${wolne ? 'var(--line)' : 'var(--lineSoft)'}`,
+                  opacity: wolne ? 1 : 0.45,
+                  cursor: wolne ? 'pointer' : 'not-allowed',
+                }}>
+                <span className="flex items-center gap-2">
+                  <span className="text-[19px] font-extrabold leading-none truncate">{o.recipeName}</span>
+                  {o.rodzaj ? (
+                    <span className="shrink-0 text-[10px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                      style={{ background: 'var(--accentSoft)', color: 'var(--accent)', border: '1px solid var(--accent)' }}>
+                      {o.rodzaj}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="hmi-v10-mono text-[11px] font-semibold" style={{ color: 'var(--mut)' }}>
+                  {o.orderNo}
+                </span>
+                <span className="mt-auto hmi-v10-mono text-[26px] font-bold leading-none">
+                  {Math.round(o.zostalo)}
+                  <small className="text-xs font-semibold ml-1.5" style={{ color: 'var(--mut)' }}>kg do rozpisania</small>
+                </span>
+                {!wolne ? (
+                  <span className="text-xs font-extrabold uppercase tracking-wider" style={{ color: 'var(--success)' }}>
+                    Całe rozpisane
+                  </span>
+                ) : null}
+              </button>
+            )
+          })}
+          {orders.length === 0 ? (
+            <div className="p-4 text-center text-[13px] font-semibold rounded-[10px] col-span-full"
+              style={{ color: 'var(--mut)', border: '1.5px dashed var(--line)' }}>
+              Biuro nie zaplanowało masowania na dziś.
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </>
   )
 }
 

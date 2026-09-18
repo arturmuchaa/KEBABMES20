@@ -204,12 +204,12 @@ describe('podgląd wyjścia wsadu', () => {
     expect(screen.getByText(/248/)).toBeInTheDocument()   // 200 kg + 24 %
   })
 
-  it('dwie partie — partia mieszana, numer nada system przy odbiorze', () => {
+  it('dwie partie — numer partii łączonej i wyliczone kilogramy', () => {
     render(<MeatPicker meat={meat} orderId="o1" orderLots={[]} targetKg={400} maxKg={700}
-      receptura={receptura} onConfirm={vi.fn()} onBack={vi.fn()} />)
+      receptura={receptura} nastepnePp="PP23" onConfirm={vi.fn()} onBack={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /PAL\/17\/09\/26\/1/ }))
     fireEvent.click(screen.getByRole('button', { name: /PAL\/17\/09\/26\/2/ }))
-    expect(screen.getByText(/mieszana/i)).toBeInTheDocument()
+    expect(screen.getByText('PP23')).toBeInTheDocument()
     expect(screen.getByText(/511 \+ 513/)).toBeInTheDocument()
     expect(screen.getByText(/496/)).toBeInTheDocument()   // 400 kg + 24 %
   })
@@ -218,5 +218,24 @@ describe('podgląd wyjścia wsadu', () => {
     render(<MeatPicker meat={meat} orderId="o1" orderLots={[]} targetKg={200} maxKg={700}
       receptura={receptura} onConfirm={vi.fn()} onBack={vi.fn()} />)
     expect(screen.queryByText(/partia na wyjściu/i)).toBeNull()
+  })
+})
+
+describe('numer partii łączonej nadawany na wejściu', () => {
+  it('dwie partie dostają numer PP pokazany przed startem', () => {
+    render(<MeatPicker meat={meat} orderId="o1" orderLots={[]} targetKg={400} maxKg={700}
+      nastepnePp="PP23" onConfirm={vi.fn()} onBack={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /PAL\/17\/09\/26\/1/ }))
+    fireEvent.click(screen.getByRole('button', { name: /PAL\/17\/09\/26\/2/ }))
+    expect(screen.getByText('PP23')).toBeInTheDocument()
+    expect(screen.getByText(/511 \+ 513/)).toBeInTheDocument()
+  })
+
+  it('jedna partia nie sięga po PP — zostaje sobą', () => {
+    render(<MeatPicker meat={meat} orderId="o1" orderLots={[]} targetKg={200} maxKg={700}
+      nastepnePp="PP23" onConfirm={vi.fn()} onBack={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /PAL\/17\/09\/26\/1/ }))
+    expect(screen.getByText('511')).toBeInTheDocument()
+    expect(screen.queryByText('PP23')).toBeNull()
   })
 })

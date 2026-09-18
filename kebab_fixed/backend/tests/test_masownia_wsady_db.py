@@ -81,15 +81,47 @@ def test_wsad_z_jednej_partii_nosi_jej_numer():
     assert ch["batch_no"] == "511"
 
 
-def test_wsad_z_dwoch_partii_nie_zgaduje_numeru_partii():
-    # Numer PP nadaje backend przy odbiorze (seasoned_batch_no_from_raw) —
-    # panel nie może go wymyślić, bo licznik PP jest wspólny dla całego MES.
+def test_wsad_z_dwoch_partii_dostaje_numer_pp_juz_przy_zaladunku():
+    """Partia łączona ma numer OD STARTU maszyny, nie dopiero po 50 minutach.
+
+    Decyzja właściciela 18.09.2026: „chcę, żeby system nadawał partię łączoną
+    na wejściu". Wcześniej wsad stał w masownicy bez tożsamości — operator nie
+    miał czego zapisać na kartce ani czym opisać palety po odbiorze.
+    """
     oid = _zlecenie()
     a, b = _partia("511"), _partia("512")
+    podglad = svc.nastepny_pp()
     ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
         ChargeMeatDto(lotNo="511", meatStockId=a, kg=100),
         ChargeMeatDto(lotNo="512", meatStockId=b, kg=100)]))
-    assert ch["batch_no"] == ""
+
+    assert ch["batch_no"].startswith("PP")
+    assert ch["batch_no"] == podglad, "podgląd panelu i nadany numer mają się zgadzać"
+    assert query_one(
+        "SELECT batch_no FROM mixing_charges WHERE id=%s", (ch["id"],)
+    )["batch_no"] == ch["batch_no"]
+
+
+def test_kolejny_wsad_laczony_bierze_kolejny_numer_pp():
+    """Licznik idzie do przodu — dwa wsady nie mogą nosić tego samego numeru."""
+    oid = _zlecenie()
+    a, b = _partia("511"), _partia("512")
+    pierwszy = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
+        ChargeMeatDto(lotNo="511", meatStockId=a, kg=100),
+        ChargeMeatDto(lotNo="512", meatStockId=b, kg=100)]))
+    drugi = svc.load_charge(ChargeCreate(orderId=oid, machineId=2, meat=[
+        ChargeMeatDto(lotNo="511", meatStockId=a, kg=100),
+        ChargeMeatDto(lotNo="512", meatStockId=b, kg=100)]))
+
+    assert int(drugi["batch_no"][2:]) == int(pierwszy["batch_no"][2:]) + 1
+
+
+def test_podglad_pp_nie_zuzywa_licznika():
+    """Sam podgląd numeru niczego nie nadaje — inaczej wejście na ekran mięsa
+    zjadałoby numery PP bez jednego wsadu."""
+    przed = svc.nastepny_pp()
+    assert svc.nastepny_pp() == przed
+    assert svc.nastepny_pp() == przed
 
 
 def test_odbior_zamyka_wsad_i_zwalnia_maszyne():
@@ -265,3 +297,4 @@ def test_masownica_zwalnia_sie_po_anulowaniu_wsadu():
     drugi = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
         ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
     assert drugi["status"] == "mixing"
+

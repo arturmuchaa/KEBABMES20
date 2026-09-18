@@ -27,7 +27,7 @@ export interface MeatTake {
 const kg = (n: number) => `${Math.round(n * 10) / 10}`.replace('.', ',')
 const dPl = (iso: string) => (iso || '').slice(8, 10) + '.' + (iso || '').slice(5, 7)
 
-export function MeatPicker({ meat, orderId, orderLots, targetKg, maxKg, receptura, onConfirm, onBack }: {
+export function MeatPicker({ meat, orderId, orderLots, targetKg, maxKg, receptura, nastepnePp, onConfirm, onBack }: {
   meat: MeatTilesInput
   /** Ładowane zlecenie — jego własna rezerwacja wraca do puli. */
   orderId: string
@@ -38,6 +38,9 @@ export function MeatPicker({ meat, orderId, orderLots, targetKg, maxKg, receptur
   maxKg: number
   /** Receptura wsadu — z niej liczymy, ile mięsa wyjdzie z masownicy. */
   receptura?: RecipeIngredient[]
+  /** Kolejny wolny numer partii łączonej (PP). Wsad z dwóch partii dostaje go
+   *  PRZY ZAŁADUNKU, więc operator ma go zobaczyć, zanim wciśnie „Załaduj". */
+  nastepnePp?: string
   onConfirm: (take: MeatTake[]) => void
   onBack: () => void
 }) {
@@ -188,8 +191,13 @@ export function MeatPicker({ meat, orderId, orderLots, targetKg, maxKg, receptur
                 Partia na wyjściu
               </span>
               {partia.mixed ? (
-                <span className="text-[15px] font-extrabold" style={{ color: 'var(--amb)' }}>
-                  mieszana ({partia.lots.join(' + ')}) — numer nada system przy odbiorze
+                <span className="flex items-baseline gap-2">
+                  <span className="hmi-v10-mono text-[22px] font-bold leading-none" style={{ color: 'var(--amb)' }}>
+                    {nastepnePp || 'PP'}
+                  </span>
+                  <span className="text-[12px] font-bold" style={{ color: 'var(--mut)' }}>
+                    łączona z {partia.lots.join(' + ')}
+                  </span>
                 </span>
               ) : (
                 <span className="hmi-v10-mono text-[22px] font-bold leading-none">{partia.no}</span>

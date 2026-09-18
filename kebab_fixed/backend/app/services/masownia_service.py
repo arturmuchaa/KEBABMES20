@@ -20,7 +20,8 @@ from app.models.masownia import (
 )
 from app.models.mixing import FinishMixingLotAlloc, FinishMixingSessionDto
 from app.services import mixing_service
-from app.utils.ids import cuid, now_iso
+from app.utils.batch_numbers import combined_batch_no
+from app.utils.ids import cuid, next_seq, now_iso
 
 logger = get_logger(__name__)
 
@@ -365,15 +366,40 @@ def list_charges() -> List[Dict[str, Any]]:
     return out
 
 
+def nastepny_pp() -> str:
+    """PODGLĄD kolejnego numeru partii łączonej — BEZ zużywania licznika.
+
+    Panel pokazuje go operatorowi, zanim ten wciśnie „Załaduj". Gdyby w tym
+    czasie ktoś nadał PP gdzie indziej (biuro, seasoned_meat_service), wsad
+    dostanie następny wolny — dlatego to podgląd, a numer obowiązujący wraca
+    z `load_charge`.
+    """
+    row = query_one("SELECT value FROM sequences WHERE key='pp_seq'")
+    return combined_batch_no(int(row["value"]) + 1 if row else 1)
+
+
 def _batch_no_of(lot_nos: List[str]) -> str:
-    """Numer partii przyprawionej, o ile da się go podać BEZ zgadywania.
+    """Numer partii przyprawionej NADAWANY PRZY ZAŁADUNKU.
 
     Jeden wsad surowca → partia nosi jego numer (511 zostaje 511). Dwa i więcej
-    → numer PP nadaje backend przy odbiorze (`seasoned_batch_no_from_raw`),
-    bo licznik PP jest wspólny dla całego MES; panel zwraca wtedy pusty numer.
+    → wsad dostaje kolejny numer PP z licznika `pp_seq` — wspólnego dla całego
+    MES — i nosi go od startu maszyny (decyzja właściciela 18.09.2026: „chcę,
+    żeby system nadawał partię łączoną NA WEJŚCIU").
+
+    Wcześniej numer powstawał dopiero przy odbiorze, więc przez 50 minut wsad
+    stał w masownicy bez tożsamości: operator nie miał czego zapisać na kartce
+    ani czym nazwać palety. `finish_mixing_session` bierze numer z wsadu, jeśli
+    ten go ma (`if not batch_no`), więc przy odbiorze nic już się nie nadaje.
+
+    Anulowanie wsadu numer SPALA — tak jak numer partii spalony przez anulowane
+    przyjęcie. Odwracanie licznika byłoby groźniejsze niż dziura w numeracji.
     """
     rozne = sorted({l for l in lot_nos if l})
-    return rozne[0] if len(rozne) == 1 else ""
+    if len(rozne) == 1:
+        return rozne[0]
+    if len(rozne) > 1:
+        return combined_batch_no(next_seq("pp_seq"))
+    return ""
 
 
 def load_charge(dto: ChargeCreate) -> Dict[str, Any]:

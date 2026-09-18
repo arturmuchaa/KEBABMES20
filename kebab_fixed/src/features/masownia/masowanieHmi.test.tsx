@@ -320,6 +320,8 @@ describe('nic nie powstaje bez zważenia', () => {
     render(<MasowanieHmiPage />)
     await waitFor(() => expect(screen.getByText(/Przygotuj przyprawy/i)).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /Przygotuj przyprawy/i }))
+    await waitFor(() => expect(screen.getByText(/Na które zlecenie/i)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /MAS\/17\/09\/26/ }))
     await waitFor(() => expect(screen.getByText(/Typowe wsady|Przyprawy ważysz/i)).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /^200 kg/ }))
     await waitFor(() => expect(screen.getByText(/Przyprawy do pojemnika/i)).toBeInTheDocument())
@@ -368,6 +370,9 @@ describe('wielkość wsadu przy przygotowaniu przypraw', () => {
     render(<MasowanieHmiPage />)
     await waitFor(() => expect(screen.getByText(/Przygotuj przyprawy/i)).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /Przygotuj przyprawy/i }))
+    // Zlecenie wskazuje się w środku toru, nie na ekranie głównym.
+    await waitFor(() => expect(screen.getByText(/Na które zlecenie/i)).toBeInTheDocument())
+    fireEvent.click(screen.getAllByRole('button', { name: /MAS\// })[0])
   }
 
   beforeEach(() => {
@@ -411,5 +416,55 @@ describe('wielkość wsadu przy przygotowaniu przypraw', () => {
                        meatKg: 600, kgDone: 0, daySeq: 1, status: 'confirmed', meatLots: [] }]
     await przygotujPrzyprawy()
     await waitFor(() => expect(screen.getAllByRole('button', { name: /^600 kg/ })).toHaveLength(1))
+  })
+})
+
+/**
+ * Jedno wejście w proces (właściciel, 18.09.2026: „z lewej strony przez
+ * zlecenie mogę wejść do procesu" — i to się myliło z kafelkami).
+ *
+ * Kolejka dnia jest TABLICĄ, nie przyciskiem: mówi, co i na ile zrobione.
+ * Robotę zaczyna się wyłącznie kafelkami, a zlecenie wybiera się w środku.
+ */
+describe('jedno wejście w proces', () => {
+  beforeEach(() => {
+    stan.wsady = []
+    stan.pojemniki = []
+    stan.mieso = { pallets: [], lots: [], taken: {} }
+    stan.zlecenia = [
+      { id: 'o1', orderNo: 'MAS/18/09/26', recipeId: 'r1', recipeName: 'KIRMIZI',
+        meatKg: 1000, kgDone: 250, daySeq: 1, status: 'confirmed', meatLots: [] },
+      { id: 'o2', orderNo: 'MAS/18/09/26/2', recipeId: 'r1', recipeName: 'BEYAZ',
+        meatKg: 600, kgDone: 600, daySeq: 2, status: 'confirmed', meatLots: [] },
+    ]
+  })
+
+  it('kliknięcie zlecenia w kolejce NIE wchodzi w przyprawy', async () => {
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getAllByText('KIRMIZI').length).toBeGreaterThan(0))
+    const wiersz = screen.getAllByText('KIRMIZI')[0]
+    fireEvent.click(wiersz)
+    expect(screen.queryByText(/Przyprawy do pojemnika/i)).toBeNull()
+    expect(screen.queryByText(/Wielkość wsadu|Odważ teraz/i)).toBeNull()
+  })
+
+  it('kafelek przypraw pyta o zlecenie, zamiast brać pierwsze z brzegu', async () => {
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getByText(/Przygotuj przyprawy/i)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Przygotuj przyprawy/i }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /MAS\/18\/09\/26 /i })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /MAS\/18\/09\/26 /i }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /^600 kg/ })).toBeInTheDocument())
+  })
+
+  it('kolejka pokazuje procent ukończenia zlecenia', async () => {
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getByText('25%')).toBeInTheDocument())
+  })
+
+  it('zrobione zlecenie jest zielone i na 100%', async () => {
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getByText('100%')).toBeInTheDocument())
+    expect(screen.getAllByText(/Gotowe/i).length).toBeGreaterThan(0)
   })
 })

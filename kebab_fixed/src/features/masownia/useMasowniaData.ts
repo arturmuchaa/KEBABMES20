@@ -51,17 +51,21 @@ export function useMasowniaData() {
   const mieso     = useApi(() => masowniaApi.meat(), [])
   // Receptury zmieniają się raz na kwartał — nie ma czego odświeżać co 10 s.
   const receptury = useApi(() => recipesApi.list(), [])
+  // Podgląd kolejnego numeru partii łączonej. Odświeżany z resztą, bo licznik
+  // PP jest wspólny z biurem — numer mógł w międzyczasie pójść do przodu.
+  const nastepnePp = useApi(() => masowniaApi.nextPp(), [])
 
   // 10 s: hala pracuje minutami, a nie sekundami — częstsze pytanie tylko
   // obciąża łącze panelu.
-  useLiveRefresh({ zlecenia, pojemniki, wsady, mieso }, 10_000)
+  useLiveRefresh({ zlecenia, pojemniki, wsady, mieso, nastepnePp }, 10_000)
 
   const odswiez = useCallback(() => {
     zlecenia.refetch()
     pojemniki.refetch()
     wsady.refetch()
     mieso.refetch()
-  }, [zlecenia.refetch, pojemniki.refetch, wsady.refetch, mieso.refetch]) // eslint-disable-line
+    nastepnePp.refetch()
+  }, [zlecenia.refetch, pojemniki.refetch, wsady.refetch, mieso.refetch, nastepnePp.refetch]) // eslint-disable-line
 
   return {
     zlecenia: (zlecenia.data ?? []) as any[],
@@ -69,6 +73,7 @@ export function useMasowniaData() {
     wsady: (wsady.data ?? []) as Charge[],
     mieso: (mieso.data ?? PUSTE_MIESO) as MasowniaMeat,
     receptury: (receptury.data ?? []) as any[],
+    nastepnePp: (nastepnePp.data ?? '') as string,
     loading: zlecenia.loading && !zlecenia.data,
     error: zlecenia.error || pojemniki.error || wsady.error || mieso.error || '',
     odswiez,

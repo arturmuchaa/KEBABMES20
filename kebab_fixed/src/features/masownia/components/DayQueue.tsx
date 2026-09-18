@@ -1,10 +1,12 @@
 /**
  * Kolejka dnia — zlecenia masowania w kolejności planu biura.
  *
- * Operator widzi na wierszu to, co mu potrzebne do decyzji: recepturę, ile
- * z tego zrobione, i gdzie stoją kilogramy — w maszynie czy w pojemniku
- * z przyprawami. Zlecenie, które ma partie wskazane przez biuro, niesie to
- * na wierszu: przy załadunku i tak zobaczy tylko te partie.
+ * To TABLICA, nie przycisk. Wcześniej kliknięcie wiersza wchodziło wprost
+ * w ważenie przypraw i robiła się druga droga obok kafelków — operator gubił
+ * się, czym właściwie zaczyna robotę (właściciel, 18.09.2026: „z lewej strony
+ * przez zlecenie mogę wejść do procesu"). Teraz kolejka tylko MÓWI: co, ile
+ * zrobione i gdzie stoją kilogramy — w maszynie czy w pojemniku z przyprawami.
+ * Robotę zaczyna się kafelkami, a zlecenie wybiera się w środku.
  */
 export interface QueueOrder {
   id: string
@@ -28,14 +30,13 @@ const ETYKIETA = {
   queued:   { text: 'W kolejce',         bg: 'var(--bg)',          fg: 'var(--mut)',     line: 'var(--line)' },
 } as const
 
-export function DayQueue({ orders, kgInMachine, kgPrepared, selectedId, onPick }: {
+export function DayQueue({ orders, kgInMachine, kgPrepared, selectedId }: {
   orders: QueueOrder[]
   /** Kilogramy zlecenia stojące w maszynach: orderId → kg. */
   kgInMachine: Record<string, number>
   /** Kilogramy zlecenia czekające w pojemnikach: orderId → kg. */
   kgPrepared: Record<string, number>
   selectedId?: string | null
-  onPick: (orderId: string) => void
 }) {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-3 flex flex-col gap-2">
@@ -60,8 +61,15 @@ export function DayQueue({ orders, kgInMachine, kgPrepared, selectedId, onPick }
           : zostalo > 0 ? `${o.orderNo} · zostało ${Math.round(zostalo)} kg`
           : o.orderNo
         const partie = (o.meatLots ?? []).map(l => l.meatLotNo).filter(Boolean)
+        const procent = Math.min(100, Math.round((o.kgDone / Math.max(1, o.meatKg)) * 100))
+        // Kolor paska = stan zlecenia, ten sam język co znacznik po prawej:
+        // zielony dopiero wtedy, gdy CAŁE zlecenie jest zrobione.
+        const kolorPaska = gotowe ? 'var(--success)'
+          : wMaszynie > 0 ? 'var(--amb)'
+          : procent > 0 || wPojemniku > 0 ? 'var(--accent)'
+          : 'var(--line)'
         return (
-          <button key={o.id} type="button" onClick={() => onPick(o.id)}
+          <div key={o.id}
             className="flex items-center gap-3 p-3 rounded-[10px] text-left w-full"
             style={{
               background: gotowe ? 'var(--successSoft)' : 'var(--panel)',
@@ -93,13 +101,17 @@ export function DayQueue({ orders, kgInMachine, kgPrepared, selectedId, onPick }
                   partie od biura: {partie.join(', ')}
                 </span>
               ) : null}
-              <span className="h-2 rounded-md overflow-hidden" style={{ background: 'var(--lineSoft)' }}>
-                <span className="block h-full"
-                  style={{
-                    width: `${Math.min(100, (o.kgDone / Math.max(1, o.meatKg)) * 100)}%`,
-                    background: gotowe ? 'var(--successSoft)' : 'var(--barBg)',
-                    borderRight: `2px solid ${gotowe ? 'var(--success)' : 'var(--accent)'}`,
-                  }} />
+              {/* Pasek postępu z procentem — operator ma widzieć z daleka, ile
+                  zlecenia zostało, bez liczenia kilogramów w pamięci. */}
+              <span className="flex items-center gap-2">
+                <span className="flex-1 h-3 rounded-md overflow-hidden" style={{ background: 'var(--lineSoft)' }}>
+                  <span className="block h-full rounded-md transition-[width] duration-500"
+                    style={{ width: `${procent}%`, background: kolorPaska }} />
+                </span>
+                <b className="hmi-v10-mono text-[13px] font-bold shrink-0 w-10 text-right"
+                  style={{ color: gotowe ? 'var(--success)' : 'var(--mut)' }}>
+                  {procent}%
+                </b>
               </span>
             </span>
             <span className="text-right shrink-0">
@@ -111,7 +123,7 @@ export function DayQueue({ orders, kgInMachine, kgPrepared, selectedId, onPick }
                 {stan.text}
               </span>
             </span>
-          </button>
+          </div>
         )
       })}
     </div>
