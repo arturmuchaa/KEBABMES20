@@ -12,6 +12,7 @@ const stan = vi.hoisted(() => ({
   pojemniki: [] as any[],
   wsady: [] as any[],
   mieso: { pallets: [] as any[], lots: [] as any[], taken: {} as Record<string, number> },
+  receptury: [] as any[],
 }))
 
 vi.mock('@/lib/api', () => ({
@@ -29,7 +30,7 @@ vi.mock('@/lib/api', () => ({
     list: vi.fn(async () => { throw new Error('panel ma czytac PLAN DNIA, nie wszystkie zlecenia') }),
     dayPlan: vi.fn(async () => ({ items: stan.zlecenia, rev: 'r1', planDate: '2026-09-17' })),
   },
-  recipesApi: { list: vi.fn(async () => []) },
+  recipesApi: { list: vi.fn(async () => stan.receptury) },
 }))
 
 vi.mock('@/features/auth/AuthContext', () => ({
@@ -53,6 +54,13 @@ beforeEach(() => {
     started_at: new Date().toISOString(), status: 'mixing', meat: [],
   }]
   stan.mieso = { pallets: [], lots: [], taken: {} }
+  stan.receptury = [{
+    id: 'r1', name: 'KIRMIZI',
+    ingredients: [
+      { ingredientName: 'Przyprawa', qtyPer100kg: 6, unit: 'kg' },
+      { ingredientName: 'Woda', qtyPer100kg: 18, unit: 'L' },
+    ],
+  }]
 })
 
 afterEach(() => cleanup())
@@ -139,6 +147,28 @@ describe('MasowanieHmiPage', () => {
     render(<MasowanieHmiPage />)
     await waitFor(() => expect(screen.getAllByText('KIRMIZI').length).toBeGreaterThan(0))
     expect(screen.queryByText(/MIĘSO Z\/S/)).toBeNull()
+  })
+
+  it('pracująca masownica mówi, ile mięsa z niej wyjdzie', async () => {
+    // 600 kg mięsa + 6 % przypraw + 18 % wody = 744 kg na wyjściu.
+    stan.wsady[0].recipe_id = 'r1'
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getByText(/do końca masowania/i)).toBeInTheDocument())
+    expect(screen.getByText(/744/)).toBeInTheDocument()
+  })
+
+  it('wsad z dwóch partii jest podpisany jako mieszany, bez zmyślonego numeru', async () => {
+    stan.wsady[0].recipe_id = 'r1'
+    stan.wsady[0].batch_no = ''
+    stan.wsady[0].meat = [
+      { pallet_id: 'p1', lot_no: '511', meat_stock_id: 'ms-511', kg: 300 },
+      { pallet_id: 'p2', lot_no: '513', meat_stock_id: 'ms-513', kg: 300 },
+    ]
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getByText(/do końca masowania/i)).toBeInTheDocument())
+    expect(screen.getByText(/partia mieszana/i)).toBeInTheDocument()
+    expect(screen.getByText(/511 \+ 513/)).toBeInTheDocument()
+    expect(screen.queryByText(/PP\d/)).toBeNull()
   })
 
   it('przytrzymanie nagłówka otwiera menu serwisowe', async () => {
@@ -322,5 +352,64 @@ describe('nic nie powstaje bez zważenia', () => {
 
     await waitFor(() => expect(screen.getByText(/Przyprawy do masownicy/i)).toBeInTheDocument())
     expect(screen.queryByText(/Zadaj dawkę/i)).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * Wsad niestandardowy przy PRZYGOTOWANIU PRZYPRAW (właściciel, 18.09.2026:
+ * „nie mogę przygotować przypraw dla fileta 507 kg, mamy tylko 200 i 600").
+ *
+ * Standardy zostają, bo na nich stoi codzienna robota, ale reszta zlecenia
+ * dostaje własny kafelek — inaczej niestandardowej ilości nie da się odważyć
+ * w ogóle, a operator nie ma jak dopiąć zlecenia.
+ */
+describe('wielkość wsadu przy przygotowaniu przypraw', () => {
+  const przygotujPrzyprawy = async () => {
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getByText(/Przygotuj przyprawy/i)).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /Przygotuj przyprawy/i }))
+  }
+
+  beforeEach(() => {
+    stan.wsady = []
+    stan.pojemniki = []
+    stan.mieso = { pallets: [], lots: [], taken: {} }
+  })
+
+  it('507 kg fileta dostaje własny kafelek obok standardów', async () => {
+    stan.zlecenia = [{ id: 'o1', orderNo: 'MAS/18/09/26', recipeId: 'r1', recipeName: 'KIRMIZI',
+                       meatKg: 507, kgDone: 0, daySeq: 1, status: 'confirmed', meatLots: [] }]
+    await przygotujPrzyprawy()
+    await waitFor(() => expect(screen.getByRole('button', { name: /^600 kg/ })).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /^200 kg/ })).toBeInTheDocument()
+    const reszta = screen.getByRole('button', { name: /^507 kg/ })
+    expect(reszta).toBeEnabled()
+    expect(reszta).toHaveTextContent(/masownica 3/i)
+  })
+
+  it('kafelek reszty prowadzi do ważenia dokładnie na tyle kilogramów', async () => {
+    stan.zlecenia = [{ id: 'o1', orderNo: 'MAS/18/09/26', recipeId: 'r1', recipeName: 'KIRMIZI',
+                       meatKg: 440, kgDone: 0, daySeq: 1, status: 'confirmed', meatLots: [] }]
+    await przygotujPrzyprawy()
+    await waitFor(() => expect(screen.getByRole('button', { name: /^440 kg/ })).toBeInTheDocument())
+    fireEvent.click(screen.getByRole('button', { name: /^440 kg/ }))
+    await waitFor(() => expect(screen.getByText(/Przyprawy do pojemnika/i)).toBeInTheDocument())
+  })
+
+  it('zlecenie ponad jeden wsad nie dostaje kafelka reszty', async () => {
+    // 2400 kg to nie jest jeden wsad — żadna masownica tego nie weźmie.
+    stan.zlecenia = [{ id: 'o1', orderNo: 'MAS/18/09/26/2', recipeId: 'r1', recipeName: 'BEYAZ',
+                       meatKg: 2400, kgDone: 0, daySeq: 1, status: 'confirmed', meatLots: [] }]
+    await przygotujPrzyprawy()
+    await waitFor(() => expect(screen.getByRole('button', { name: /^600 kg/ })).toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /^2400 kg/ })).toBeNull()
+    expect(screen.queryByText(/Reszta zlecenia/i)).toBeNull()
+  })
+
+  it('reszta równa standardowi nie dubluje kafelka', async () => {
+    stan.zlecenia = [{ id: 'o1', orderNo: 'MAS/18/09/26/3', recipeId: 'r1', recipeName: 'KIRMIZI',
+                       meatKg: 600, kgDone: 0, daySeq: 1, status: 'confirmed', meatLots: [] }]
+    await przygotujPrzyprawy()
+    await waitFor(() => expect(screen.getAllByRole('button', { name: /^600 kg/ })).toHaveLength(1))
   })
 })

@@ -42,6 +42,19 @@ export function scaleIngredients(recipe: RecipeIngredient[], kgBatch: number): S
     }))
 }
 
+/**
+ * Ile mięsa wyjdzie z masownicy — mięso plus WSZYSTKO, co do niego wchodzi
+ * (przyprawy i woda; litr wody to kilogram wsadu).
+ *
+ * Operator widzi tę liczbę przed startem, a przy odbiorze stoi obok tego, co
+ * pokaże paleciak — rozjazd ponad kilogram znaczy, że coś poszło nie tak
+ * z dawką albo z ważeniem (patrz [[kebab-przyprawione-uzgadnianie-teoria-fizyka]]).
+ */
+export function kgNaWyjsciu(kgMiesa: number, recipe: RecipeIngredient[]): number {
+  const przyrost = (recipe ?? []).reduce((s, i) => s + Number(i.qtyPer100kg || 0), 0)
+  return Math.round(kgMiesa * (1 + przyrost / 100) * 10) / 10
+}
+
 /** Litry wody na wskazany wsad — zadawane dozownikiem przy maszynie. */
 export function waterOf(recipe: RecipeIngredient[], kgBatch: number): number {
   const woda = recipe.filter(i => i.unit === 'L')

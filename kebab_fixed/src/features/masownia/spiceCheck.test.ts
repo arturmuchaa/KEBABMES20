@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { spiceVerdict, scaleIngredients, waterOf } from './spiceCheck'
+import { spiceVerdict, scaleIngredients, waterOf, kgNaWyjsciu } from './spiceCheck'
 
 describe('spiceVerdict', () => {
   it('trafienie w tolerancji 100 g przechodzi', () => {
@@ -62,5 +62,30 @@ describe('waterOf', () => {
 
   it('receptura bez wody daje zero', () => {
     expect(waterOf([{ ingredientName: 'JOGURT NATURALNY', qtyPer100kg: 5, unit: 'kg' }], 600)).toBe(0)
+  })
+})
+
+
+/**
+ * Ile mięsa wyjdzie z masownicy — operator widzi to PRZED startem, a ta sama
+ * liczba czeka na niego przy odbiorze (właściciel 18.09.2026: „chciałbym, aby
+ * operator widział, ile wyjdzie mięsa według receptury z mieszania").
+ */
+describe('kgNaWyjsciu', () => {
+  const receptura = [
+    { ingredientName: 'Przyprawa', qtyPer100kg: 6, unit: 'kg' },
+    { ingredientName: 'Woda', qtyPer100kg: 18, unit: 'L' },
+  ]
+
+  it('dolicza przyprawy I wodę — to wszystko wchodzi do masownicy', () => {
+    expect(kgNaWyjsciu(600, receptura)).toBe(744)
+  })
+
+  it('bez receptury zwraca samo mięso, zamiast zmyślać przyrost', () => {
+    expect(kgNaWyjsciu(600, [])).toBe(600)
+  })
+
+  it('zaokrągla do dziesiątej części kilograma', () => {
+    expect(kgNaWyjsciu(507, receptura)).toBe(628.7)
   })
 })

@@ -20,8 +20,8 @@ import { HMI_VARS, HMI_FONT } from '@/features/hmi-theme/vars'
 import '@/features/hmi-theme/hmi-font.css'
 import { useAuth } from '@/features/auth/AuthContext'
 import { masowniaApi } from '@/lib/api'
-import { MACHINES, fitsMachine, maszyna as maszynaOId, zapasNadNominalem } from '@/features/masownia/machines'
-import { scaleIngredients, waterOf, type SpiceItem } from '@/features/masownia/spiceCheck'
+import { MACHINES, fitsMachine, maszyna as maszynaOId, maszynyDla, zapasNadNominalem } from '@/features/masownia/machines'
+import { scaleIngredients, waterOf, kgNaWyjsciu, type SpiceItem } from '@/features/masownia/spiceCheck'
 import { useMasowniaData, type Charge, type SpiceCart } from '@/features/masownia/useMasowniaData'
 import { MachineRail, machineState } from '@/features/masownia/components/MachineRail'
 import { DayQueue, type QueueOrder } from '@/features/masownia/components/DayQueue'
@@ -265,7 +265,7 @@ export function MasowanieHmiPage() {
         <div className="hmi-v10-mono text-[26px] font-bold tracking-tight">{hhmm(new Date(now))}</div>
       </header>
 
-      <MachineRail charges={wsady} now={now} onPick={wybierzMaszyne}
+      <MachineRail charges={wsady} now={now} wyjscieKg={c => oczekiwaneKg(c, receptury)} onPick={wybierzMaszyne}
         pickedMachine={tryb?.kind === 'load' ? tryb.machineId : null} />
 
       <main className="flex-1 min-h-0 flex gap-3 p-3 px-6">
@@ -353,6 +353,7 @@ export function MasowanieHmiPage() {
                 ? Number(pojemniki.find(p => p.id === tryb.cartId)?.kg_target ?? 0)
                 : Math.min(zostaloW(tryb.orderId), maszynaOId(tryb.machineId)?.cap ?? 0)}
               maxKg={maszynaOId(tryb.machineId)?.max ?? 0}
+              receptura={skladniki(zlecenie(tryb.orderId)?.recipeId ?? '')}
               onBack={() => setTryb(null)}
               onConfirm={take => setTryb({ ...tryb, step: tryb.cartId ? 'water' : 'spices', take })} />
           ) : null}
@@ -434,8 +435,7 @@ export function MasowanieHmiPage() {
 /** Ile wyrobu POWINNO wyjść z wsadu wg receptury — punkt odniesienia przy odbiorze. */
 function oczekiwaneKg(charge: Charge, receptury: any[]): number {
   const r = receptury.find((x: any) => x.id === charge.recipe_id)
-  const przyrost = (r?.ingredients ?? []).reduce((s: number, i: any) => s + Number(i.qtyPer100kg || 0), 0)
-  return Math.round(Number(charge.kg_meat || 0) * (1 + przyrost / 100) * 10) / 10
+  return kgNaWyjsciu(Number(charge.kg_meat || 0), r?.ingredients ?? [])
 }
 
 function Chip({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
@@ -481,6 +481,17 @@ function SizeScreen({ recepturaNazwa, zostalo, busy, onPick, onBack }: {
   const rozmiary = [...new Set(MACHINES.map(m => m.cap))]
     .sort((a, b) => b - a)
     .filter(x => x <= zostalo + zapasNadNominalem(x))
+
+  // Reszta zlecenia jako OSOBNY kafelek. Biuro planuje ilości, których nie ma
+  // w żadnym nominale (507 kg fileta, 440 kg z/s) — bez tego kafelka takiego
+  // wsadu nie da się odważyć w ogóle, bo przyprawy liczy się na konkretne kg
+  // (właściciel, 18.09.2026). Pokazujemy tylko wtedy, gdy to JEDEN wsad:
+  // ponad granicę największej masownicy zlecenie trzeba i tak rozbić.
+  const reszta = Math.round(zostalo * 10) / 10
+  const maszynyReszty = maszynyDla(reszta)
+  const pokazReszte = reszta > 0 && maszynyReszty.length > 0 && !rozmiary.includes(reszta)
+  const kgTekst = (n: number) => `${Math.round(n * 10) / 10}`.replace('.', ',')
+
   return (
     <>
       <div className="shrink-0 flex items-center gap-4 p-3 px-4" style={{ borderBottom: '1px solid var(--line)' }}>
@@ -513,7 +524,24 @@ function SizeScreen({ recepturaNazwa, zostalo, busy, onPick, onBack }: {
               </span>
             </button>
           ))}
-          {rozmiary.length === 0 ? (
+          {pokazReszte ? (
+            <button type="button" disabled={busy} onClick={() => onPick(reszta)}
+              className="rounded-xl p-4 text-left flex flex-col gap-1.5 min-h-[128px]"
+              style={{ background: 'var(--accentSoft)', border: '2px solid var(--accent)' }}>
+              <span className="hmi-v10-mono text-[38px] font-bold leading-none tracking-tighter"
+                style={{ color: 'var(--accent)' }}>
+                {kgTekst(reszta)} kg
+              </span>
+              <span className="hmi-v10-mono text-xs font-semibold" style={{ color: 'var(--mut)' }}>
+                masownica {maszynyReszty.join(' lub ')}
+              </span>
+              <span className="mt-auto text-xs font-extrabold uppercase tracking-wider"
+                style={{ color: 'var(--accent)' }}>
+                Reszta zlecenia
+              </span>
+            </button>
+          ) : null}
+          {rozmiary.length === 0 && !pokazReszte ? (
             <div className="p-4 text-center text-[13px] font-semibold rounded-[10px] col-span-full"
               style={{ color: 'var(--mut)', border: '1.5px dashed var(--line)' }}>
               To zlecenie jest już całe rozpisane.

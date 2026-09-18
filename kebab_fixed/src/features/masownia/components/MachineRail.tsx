@@ -8,7 +8,7 @@
  * Wielkość wsadu pokazujemy NOMINALNĄ (200 / 600 kg). Cichy zapas, który
  * system przepuszcza, nie pojawia się na ekranie: wypisany stałby się normą.
  */
-import { MACHINES, T_MIX_MIN } from '../machines'
+import { MACHINES, T_MIX_MIN, batchNoFromLots } from '../machines'
 import type { Charge } from '../useMasowniaData'
 
 const STANY = {
@@ -36,10 +36,13 @@ const mmss = (min: number) => {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 }
 
-export function MachineRail({ charges, now, pickedMachine, onPick }: {
+export function MachineRail({ charges, now, pickedMachine, wyjscieKg, onPick }: {
   charges: Charge[]
   now: number
   pickedMachine?: number | null
+  /** Ile mięsa wyjdzie z tego wsadu wg receptury — liczy strona, bo tylko ona
+   *  ma receptury. Bez tego operator poznaje wynik dopiero przy odbiorze. */
+  wyjscieKg?: (charge: Charge) => number
   onPick: (machineId: number, charge: Charge | undefined) => void
 }) {
   return (
@@ -71,16 +74,31 @@ export function MachineRail({ charges, now, pickedMachine, onPick }: {
             </div>
             <div className="text-[19px] font-extrabold leading-tight truncate">
               {charge ? (charge.recipe_name || 'Masowanie') : wybrana ? 'Wybrana do wsadu' : 'Wolna — czeka na wsad'}
-              {charge && charge.batch_no ? (
-                <span className="hmi-v10-mono text-[11px] font-bold ml-2 px-1.5 py-0.5 rounded"
-                  style={{ background: 'var(--bg)', border: '1px solid var(--line)' }}>
-                  partia {charge.batch_no}
-                </span>
-              ) : null}
+              {/* Numer partii na wyjściu. Wsad z kilku partii numeru jeszcze NIE
+                  MA — PP{n} nadaje backend przy odbiorze — więc piszemy
+                  „mieszana" i wymieniamy wsady, zamiast zmyślać numer. */}
+              {charge ? (() => {
+                const p = batchNoFromLots((charge.meat ?? []).map(m => m.lot_no))
+                const numer = charge.batch_no || p.no
+                if (numer) return (
+                  <span className="hmi-v10-mono text-[11px] font-bold ml-2 px-1.5 py-0.5 rounded"
+                    style={{ background: 'var(--bg)', border: '1px solid var(--line)' }}>
+                    partia {numer}
+                  </span>
+                )
+                if (p.mixed) return (
+                  <span className="hmi-v10-mono text-[11px] font-bold ml-2 px-1.5 py-0.5 rounded"
+                    style={{ background: 'var(--ambSoft)', color: 'var(--amb)', border: '1px solid var(--ambLine)' }}>
+                    partia mieszana · {p.lots.join(' + ')}
+                  </span>
+                )
+                return null
+              })() : null}
             </div>
             <div className="hmi-v10-mono text-[12px] font-semibold" style={{ color: 'var(--mut)' }}>
               {charge
                 ? `${charge.order_no ?? ''} · ${Math.round(charge.kg_meat)} kg`
+                  + (wyjscieKg ? ` → wyjdzie ok. ${Math.round(wyjscieKg(charge))} kg` : '')
                 : 'dotknij, żeby załadować'}
             </div>
             {stan === 'mixing' ? (

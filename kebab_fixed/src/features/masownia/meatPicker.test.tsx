@@ -183,3 +183,40 @@ describe('rodzaj surowca widoczny na kafelku', () => {
     expect(zs.textContent ?? '').not.toMatch(/MIĘSO Z\/S/)
   })
 })
+
+/**
+ * Co wyjdzie z tego wsadu — numer partii i kilogramy — POKAZANE PRZED STARTEM
+ * (właściciel 18.09.2026: „na artefakcie było fajnie pokazane, jaka partia
+ * będzie na wyjściu i ile wyjdzie mięsa według receptury").
+ */
+describe('podgląd wyjścia wsadu', () => {
+  const receptura = [
+    { ingredientName: 'Przyprawa', qtyPer100kg: 6, unit: 'kg' },
+    { ingredientName: 'Woda', qtyPer100kg: 18, unit: 'L' },
+  ]
+
+  it('jedna partia — wyjście nosi jej numer i wyliczone kilogramy', () => {
+    render(<MeatPicker meat={meat} orderId="o1" orderLots={[]} targetKg={200} maxKg={700}
+      receptura={receptura} onConfirm={vi.fn()} onBack={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /PAL\/17\/09\/26\/1/ }))
+    expect(screen.getByText(/partia na wyjściu/i)).toBeInTheDocument()
+    expect(screen.getByText('511')).toBeInTheDocument()
+    expect(screen.getByText(/248/)).toBeInTheDocument()   // 200 kg + 24 %
+  })
+
+  it('dwie partie — partia mieszana, numer nada system przy odbiorze', () => {
+    render(<MeatPicker meat={meat} orderId="o1" orderLots={[]} targetKg={400} maxKg={700}
+      receptura={receptura} onConfirm={vi.fn()} onBack={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /PAL\/17\/09\/26\/1/ }))
+    fireEvent.click(screen.getByRole('button', { name: /PAL\/17\/09\/26\/2/ }))
+    expect(screen.getByText(/mieszana/i)).toBeInTheDocument()
+    expect(screen.getByText(/511 \+ 513/)).toBeInTheDocument()
+    expect(screen.getByText(/496/)).toBeInTheDocument()   // 400 kg + 24 %
+  })
+
+  it('przed wyborem mięsa nie ma czego zapowiadać', () => {
+    render(<MeatPicker meat={meat} orderId="o1" orderLots={[]} targetKg={200} maxKg={700}
+      receptura={receptura} onConfirm={vi.fn()} onBack={vi.fn()} />)
+    expect(screen.queryByText(/partia na wyjściu/i)).toBeNull()
+  })
+})

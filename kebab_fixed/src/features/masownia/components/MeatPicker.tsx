@@ -13,6 +13,8 @@
 import { useMemo, useState } from 'react'
 import { buildMeatTiles, zrodloKg, plakietkaSurowca, type MeatTilesInput } from '../meatTiles'
 import { gateMeatTiles, officeChoiceLabel, type OrderLot } from '../meatGate'
+import { batchNoFromLots } from '../machines'
+import { kgNaWyjsciu, type RecipeIngredient } from '../spiceCheck'
 import { NumPad, numpadValue } from './NumPad'
 
 export interface MeatTake {
@@ -25,7 +27,7 @@ export interface MeatTake {
 const kg = (n: number) => `${Math.round(n * 10) / 10}`.replace('.', ',')
 const dPl = (iso: string) => (iso || '').slice(8, 10) + '.' + (iso || '').slice(5, 7)
 
-export function MeatPicker({ meat, orderId, orderLots, targetKg, maxKg, onConfirm, onBack }: {
+export function MeatPicker({ meat, orderId, orderLots, targetKg, maxKg, receptura, onConfirm, onBack }: {
   meat: MeatTilesInput
   /** Ładowane zlecenie — jego własna rezerwacja wraca do puli. */
   orderId: string
@@ -34,6 +36,8 @@ export function MeatPicker({ meat, orderId, orderLots, targetKg, maxKg, onConfir
   /** Ile NAJWIĘCEJ weźmie ta masownica. Ponad to nie miesza równo, a operator
    *  zauważa to dopiero po 50 minutach — dlatego blokujemy tu, nie później. */
   maxKg: number
+  /** Receptura wsadu — z niej liczymy, ile mięsa wyjdzie z masownicy. */
+  receptura?: RecipeIngredient[]
   onConfirm: (take: MeatTake[]) => void
   onBack: () => void
 }) {
@@ -51,6 +55,8 @@ export function MeatPicker({ meat, orderId, orderLots, targetKg, maxKg, onConfir
   const ponadMaszyne = maxKg > 0 && razem > maxKg + 1e-9
   const nadmiar = Math.round((razem - maxKg) * 10) / 10
   const wolnoZaladowac = wsad.length > 0 && !ponadMaszyne
+  const partia = batchNoFromLots(wsad.map(t => t.lotNo))
+  const wyjscie = kgNaWyjsciu(razem, receptura ?? [])
 
   const przelacz = (kafel: (typeof kafelki)[number]) => {
     if (!kafel.allowed) return
@@ -172,6 +178,33 @@ export function MeatPicker({ meat, orderId, orderLots, targetKg, maxKg, onConfir
           Wsad <b className="hmi-v10-mono text-[25px] font-bold"
             style={{ color: ponadMaszyne ? 'var(--red)' : 'var(--ink)' }}>{kg(razem)}</b> kg
         </span>
+
+        {/* Co z tego wyjdzie — numer partii i kilogramy — POKAZANE PRZED
+            startem maszyny, nie dopiero przy odbiorze. */}
+        {wsad.length ? (
+          <span className="flex items-center gap-4 pl-4" style={{ borderLeft: '1px solid var(--line)' }}>
+            <span className="flex flex-col leading-none gap-1">
+              <span className="text-[10px] font-extrabold uppercase tracking-[0.14em]" style={{ color: 'var(--mut)' }}>
+                Partia na wyjściu
+              </span>
+              {partia.mixed ? (
+                <span className="text-[15px] font-extrabold" style={{ color: 'var(--amb)' }}>
+                  mieszana ({partia.lots.join(' + ')}) — numer nada system przy odbiorze
+                </span>
+              ) : (
+                <span className="hmi-v10-mono text-[22px] font-bold leading-none">{partia.no}</span>
+              )}
+            </span>
+            <span className="flex flex-col leading-none gap-1">
+              <span className="text-[10px] font-extrabold uppercase tracking-[0.14em]" style={{ color: 'var(--mut)' }}>
+                Wyjdzie z receptury
+              </span>
+              <span className="hmi-v10-mono text-[22px] font-bold leading-none" style={{ color: 'var(--accent)' }}>
+                {kg(wyjscie)} kg
+              </span>
+            </span>
+          </span>
+        ) : null}
         {ponadMaszyne ? (
           <span className="text-[15px] font-extrabold" style={{ color: 'var(--red)' }}>
             Masownica nie weźmie tyle — zdejmij {kg(nadmiar)} kg

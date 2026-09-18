@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { MACHINES, T_MIX_MIN, maszyna, fitsMachine, waterWindow, batchNoFromLots } from './machines'
+import { MACHINES, T_MIX_MIN, maszyna, fitsMachine, maszynyDla, waterWindow, batchNoFromLots } from './machines'
 
 describe('masownice', () => {
   it('trzy maszyny: 200, 200, 600 kg', () => {
@@ -45,20 +45,48 @@ describe('waterWindow', () => {
   })
 })
 
+/**
+ * Numer partii na wyjściu — REGUŁA MUSI BYĆ TA SAMA CO W BACKENDZIE
+ * (`masownia_service._batch_no_of`), bo panel pokazuje go operatorowi przed
+ * startem maszyny, a zapisuje backend. Panel NIE wymyśla numeru PP: licznik
+ * PP jest wspólny dla całego MES i nadaje go backend przy odbiorze.
+ */
 describe('batchNoFromLots', () => {
   it('jeden wsad surowca → partia nosi jego numer', () => {
-    expect(batchNoFromLots(['511'], 22)).toEqual({ no: '511', mixed: false })
+    expect(batchNoFromLots(['511'])).toEqual({ no: '511', mixed: false, lots: ['511'] })
   })
 
-  it('dwa wsady → wspólny numer PP', () => {
-    expect(batchNoFromLots(['511', '512'], 22)).toEqual({ no: 'PP23', mixed: true })
+  it('dwa wsady → partia mieszana, numeru jeszcze NIE ma', () => {
+    expect(batchNoFromLots(['512', '511'])).toEqual({ no: '', mixed: true, lots: ['511', '512'] })
   })
 
   it('ta sama partia dwa razy to wciąż jeden wsad', () => {
-    expect(batchNoFromLots(['511', '511'], 22)).toEqual({ no: '511', mixed: false })
+    expect(batchNoFromLots(['511', '511'])).toEqual({ no: '511', mixed: false, lots: ['511'] })
   })
 
   it('bez partii nie zgaduje numeru', () => {
-    expect(batchNoFromLots([], 22)).toEqual({ no: '', mixed: false })
+    expect(batchNoFromLots([])).toEqual({ no: '', mixed: false, lots: [] })
+  })
+})
+
+/**
+ * Wsad niestandardowy — biuro planuje 507 kg fileta albo 440 kg z/s, a hala
+ * musi wiedzieć, do której masownicy to w ogóle wejdzie (właściciel 18.09.2026).
+ */
+describe('maszyny dla niestandardowego wsadu', () => {
+  it('507 kg zmieści tylko masownica 3', () => {
+    expect(maszynyDla(507)).toEqual([3])
+  })
+
+  it('440 kg też tylko trójka — dwusetki mają granicę 250', () => {
+    expect(maszynyDla(440)).toEqual([3])
+  })
+
+  it('180 kg wejdzie do każdej', () => {
+    expect(maszynyDla(180)).toEqual([1, 2, 3])
+  })
+
+  it('ponad 700 kg nie wejdzie nigdzie — to nie jest jeden wsad', () => {
+    expect(maszynyDla(800)).toEqual([])
   })
 })
