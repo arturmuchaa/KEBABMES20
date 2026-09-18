@@ -133,11 +133,16 @@ export function mixingLabelZpl(
     line(M, 3 + (LOGO_DOTS_H * 25.4) / LABEL_DPI + 2, W, dpi),
 
     // ── Numer partii: największy napis na etykiecie ────────────────────────
-    text(M, 12, 3.6, 'PARTIA', dpi),
-    text(M, 14, 18, input.batchNo || '—', dpi),
+    //
+    // ^FO podaje GÓRNĄ krawędź napisu, więc każdy wiersz zajmuje pas o
+    // wysokości fontu w dół. Podpis „PARTIA" (3,6 mm) startował na 12 i sięgał
+    // 15,6, a numer zaczynał się na 14 — i na wydruku z hali cyfry wchodziły
+    // w podpis (18.09.2026). Odstępy muszą być większe od fontu, nie „na oko".
+    text(M, 11.5, 3.6, 'PARTIA', dpi),
+    text(M, 16, 18, input.batchNo || '—', dpi),
   ]
 
-  let y = 35
+  let y = 36
   if (partie.length > 1) {
     body.push(text(M, y, 4.4, `łączona z partii: ${partie.join(' + ')}`, dpi))
     y += 6.5

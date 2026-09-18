@@ -40,6 +40,7 @@ import { plakietkaSurowca } from '@/features/masownia/meatTiles'
 import { WaterStep } from '@/features/masownia/components/WaterStep'
 import { PickupDialog } from '@/features/masownia/components/PickupDialog'
 import { StartDialog } from '@/features/masownia/components/StartDialog'
+import { MixedToday } from '@/features/masownia/components/MixedToday'
 import { useServiceHold, ServiceMenuModal, serviceSections } from '@/features/deboning/ServiceMenu'
 import { mixingLabelZpl } from '@/features/masownia/mixingLabelZpl'
 import { getDevices, sendZpl } from '@/lib/zebra'
@@ -61,7 +62,7 @@ type Tryb =
       spices: { seq: number; name: string; unit: string; qty: number; weighed: number; manual: boolean }[] }
 
 export function MasowanieHmiPage() {
-  const { zlecenia, pojemniki, wsady, mieso, receptury, nastepnePp, error, odswiez } = useMasowniaData()
+  const { zlecenia, pojemniki, wsady, mieso, receptury, nastepnePp, dzisiaj, error, odswiez } = useMasowniaData()
   const { user } = useAuth()
   const [now, setNow] = useState(() => Date.now())
   const [tryb, setTryb] = useState<Tryb>(null)
@@ -77,6 +78,9 @@ export function MasowanieHmiPage() {
   // ponowienia. Odbiór jest już zaksięgowany, więc brak etykiety nie może
   // kosztować operatora niczego poza jednym dotknięciem.
   const [etykietaDoDruku, setEtykietaDoDruku] = useState<{ zpl: string; partia: string } | null>(null)
+  // Historia dnia (kafelek „Wymieszane") — stąd idzie dodruk etykiet.
+  const [historia, setHistoria] = useState(false)
+  const [drukujeId, setDrukujeId] = useState<string | null>(null)
   const [menuSerwisowe, setMenuSerwisowe] = useState(false)
   const { holdProps: serviceHoldProps } = useServiceHold(() => setMenuSerwisowe(true))
   const [odwazone, setOdwazone] = useState<Record<number, { weighed: number; manual: boolean }>>({})
@@ -309,6 +313,39 @@ export function MasowanieHmiPage() {
     }
   }, [])
 
+  /** Etykieta wsadu — JEDNO źródło dla odbioru i dla dodruku z historii dnia.
+   *  Rozjazd tych dwóch wydruków byłby nie do wykrycia: na obu widniałby ten
+   *  sam numer partii. */
+  const zplWsadu = useCallback((wsad: Charge, kgOutput: number, koniec?: string | null) =>
+    mixingLabelZpl({
+      batchNo: wsad.batch_no || '',
+      recipeName: wsad.recipe_name,
+      orderNo: wsad.order_no,
+      machineId: wsad.machine_id,
+      kgMeat: Number(wsad.kg_meat || 0),
+      kgExpected: oczekiwaneKg(wsad, receptury),
+      kgWeighed: kgOutput,
+      startedAt: wsad.started_at,
+      finishedAt: koniec ?? (wsad as any).finished_at ?? new Date().toISOString(),
+      mixMinutes: wsad.mix_minutes ?? null,
+      meat: (wsad.meat ?? []).map((m: any) => ({
+        palletNo: m.pallet_no ?? '',
+        lotNo: m.lot_no,
+        kg: Number(m.kg || 0),
+        materialName: m.material_name ?? '',
+        materialTypeId: m.material_type_id ?? '',
+      })),
+    }), [receptury])
+
+  const dodrukuj = async (wsad: Charge) => {
+    setDrukujeId(wsad.id)
+    try {
+      await drukujEtykiete(zplWsadu(wsad, Number((wsad as any).kg_output || 0)), wsad.batch_no || '')
+    } finally {
+      setDrukujeId(null)
+    }
+  }
+
   const zatwierdzOdbior = async (kgOutput: number) => {
     if (!odbior) return
     const wsad = odbior
@@ -319,26 +356,7 @@ export function MasowanieHmiPage() {
       odswiez()
       setKomunikat('Wsad odebrany i zapisany.')
 
-      const zpl = mixingLabelZpl({
-        batchNo: wsad.batch_no || '',
-        recipeName: wsad.recipe_name,
-        orderNo: wsad.order_no,
-        machineId: wsad.machine_id,
-        kgMeat: Number(wsad.kg_meat || 0),
-        kgExpected: oczekiwaneKg(wsad, receptury),
-        kgWeighed: kgOutput,
-        startedAt: wsad.started_at,
-        finishedAt: new Date().toISOString(),
-        mixMinutes: wsad.mix_minutes ?? null,
-        meat: (wsad.meat ?? []).map((m: any) => ({
-          palletNo: m.pallet_no ?? '',
-          lotNo: m.lot_no,
-          kg: Number(m.kg || 0),
-          materialName: m.material_name ?? '',
-          materialTypeId: m.material_type_id ?? '',
-        })),
-      })
-      void drukujEtykiete(zpl, wsad.batch_no || '')
+      void drukujEtykiete(zplWsadu(wsad, kgOutput, new Date().toISOString()), wsad.batch_no || '')
     } catch (e: any) {
       setKomunikat(e?.message ?? 'Nie udało się zapisać odbioru')
     } finally {
@@ -512,13 +530,19 @@ export function MasowanieHmiPage() {
       <DayBar planKg={planKg} doneKg={zrobioneKg}
         inMachineKg={wsady.reduce((s, c) => s + Number(c.kg_meat || 0), 0)}
         preparedKg={pojemniki.reduce((s, p) => s + Number(p.kg_target || 0), 0)}
-        meatKg={miesoKg} now={now} minutyCyklu={sredniCykl} />
+        meatKg={miesoKg} now={now} minutyCyklu={sredniCykl}
+        onWymieszane={() => setHistoria(true)} />
 
       {odbior ? (
         <PickupDialog charge={odbior} busy={zapisuje}
           expectedKg={oczekiwaneKg(odbior, receptury)}
           onConfirm={zatwierdzOdbior}
           onClose={() => setOdbior(null)} />
+      ) : null}
+
+      {historia ? (
+        <MixedToday charges={dzisiaj} busyId={drukujeId}
+          onPrint={c => void dodrukuj(c)} onClose={() => setHistoria(false)} />
       ) : null}
 
       {doStartu ? (

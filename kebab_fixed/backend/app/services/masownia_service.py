@@ -378,6 +378,43 @@ def list_charges() -> List[Dict[str, Any]]:
     return out
 
 
+def list_charges_today() -> List[Dict[str, Any]]:
+    """Wsady ODEBRANE dzisiaj — historia zmiany, z podziałem na masownice.
+
+    Panel pokazuje ją pod kafelkiem „Wymieszane" i stąd bierze dane do
+    ponownego wydruku etykiety: na hali etykieta potrafi się zaciąć, rozmazać
+    albo odkleić od mokrej palety, a odbiór jest wtedy już dawno zaksięgowany.
+    """
+    rows = query_all(
+        """
+        SELECT c.*, o.order_no, o.recipe_id, o.recipe_name
+        FROM mixing_charges c
+        JOIN mixing_orders o ON o.id = c.order_id
+        WHERE c.status = 'done' AND c.finished_at::date = CURRENT_DATE
+        ORDER BY c.machine_id, c.finished_at
+        """
+    )
+    out = []
+    for r in rows:
+        row = dict(r)
+        row["kg_meat"] = float(row.get("kg_meat") or 0)
+        row["kg_output"] = float(row.get("kg_output") or 0)
+        row["meat"] = query_all(
+            """
+            SELECT cp.pallet_id, cp.lot_no, cp.meat_stock_id, cp.kg,
+                   p.pallet_no, ms.material_name, ms.material_type_id
+            FROM mixing_charge_pallets cp
+            LEFT JOIN meat_pallets p ON p.id = cp.pallet_id
+            LEFT JOIN meat_stock ms ON ms.id = cp.meat_stock_id
+            WHERE cp.charge_id=%s
+            ORDER BY p.pallet_no NULLS LAST, cp.lot_no
+            """,
+            (r["id"],),
+        )
+        out.append(row)
+    return out
+
+
 def nastepny_pp() -> str:
     """PODGLĄD kolejnego numeru partii łączonej — BEZ zużywania licznika.
 

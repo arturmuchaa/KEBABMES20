@@ -61,10 +61,12 @@ export function useMasowniaData() {
   // Podgląd kolejnego numeru partii łączonej. Odświeżany z resztą, bo licznik
   // PP jest wspólny z biurem — numer mógł w międzyczasie pójść do przodu.
   const nastepnePp = useApi(() => masowniaApi.nextPp(), [])
+  // Historia dnia pod kafelkiem „Wymieszane" — także źródło dodruku etykiet.
+  const dzisiaj = useApi(() => masowniaApi.chargesToday(), [])
 
   // 10 s: hala pracuje minutami, a nie sekundami — częstsze pytanie tylko
   // obciąża łącze panelu.
-  useLiveRefresh({ zlecenia, pojemniki, wsady, mieso, nastepnePp }, 10_000)
+  useLiveRefresh({ zlecenia, pojemniki, wsady, mieso, nastepnePp, dzisiaj }, 10_000)
 
   const odswiez = useCallback(() => {
     zlecenia.refetch()
@@ -72,7 +74,8 @@ export function useMasowniaData() {
     wsady.refetch()
     mieso.refetch()
     nastepnePp.refetch()
-  }, [zlecenia.refetch, pojemniki.refetch, wsady.refetch, mieso.refetch, nastepnePp.refetch]) // eslint-disable-line
+    dzisiaj.refetch()
+  }, [zlecenia.refetch, pojemniki.refetch, wsady.refetch, mieso.refetch, nastepnePp.refetch, dzisiaj.refetch]) // eslint-disable-line
 
   return {
     zlecenia: (zlecenia.data ?? []) as any[],
@@ -81,6 +84,7 @@ export function useMasowniaData() {
     mieso: (mieso.data ?? PUSTE_MIESO) as MasowniaMeat,
     receptury: (receptury.data ?? []) as any[],
     nastepnePp: (nastepnePp.data ?? '') as string,
+    dzisiaj: (dzisiaj.data ?? []) as Charge[],
     loading: zlecenia.loading && !zlecenia.data,
     error: zlecenia.error || pojemniki.error || wsady.error || mieso.error || '',
     odswiez,

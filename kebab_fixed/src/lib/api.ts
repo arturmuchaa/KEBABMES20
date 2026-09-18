@@ -1186,6 +1186,8 @@ export const masowniaApi = {
     /** Przyprawy odważone przy maszynie, gdy nie było gotowego pojemnika. */
     spices?: { seq: number; name: string; unit: string; qty: number; weighed: number; manual: boolean }[]
   }) => post<any>('/masownia/wsady', dto),
+  /** Wsady odebrane DZIŚ — historia zmiany i źródło dodruku etykiet. */
+  chargesToday: () => get<any>('/masownia/wsady/dzis').then(r => (r?.data ?? []) as any[]),
   /** Puść tę masownicę — cykl liczy się DOPIERO od startu, nie od załadunku. */
   start: (chargeId: string) => patch<any>(`/masownia/wsady/${chargeId}/start`, {}),
   /** Puść wszystkie załadowane masownice naraz, jednym stemplem czasu. */

@@ -13,6 +13,7 @@ const stan = vi.hoisted(() => ({
   wsady: [] as any[],
   mieso: { pallets: [] as any[], lots: [] as any[], taken: {} as Record<string, number> },
   receptury: [] as any[],
+  dzisiaj: [] as any[],
 }))
 
 vi.mock('@/lib/api', () => ({
@@ -20,6 +21,7 @@ vi.mock('@/lib/api', () => ({
     meat: vi.fn(async () => stan.mieso),
     carts: vi.fn(async () => stan.pojemniki),
     charges: vi.fn(async () => stan.wsady),
+    chargesToday: vi.fn(async () => stan.dzisiaj),
     createCart: vi.fn(async () => ({})),
     weighIngredient: vi.fn(async () => ({})),
     cancelCart: vi.fn(async () => ({})),
@@ -65,6 +67,7 @@ beforeEach(() => {
     started_at: new Date().toISOString(), status: 'mixing', meat: [],
   }]
   stan.mieso = { pallets: [], lots: [], taken: {} }
+  stan.dzisiaj = []
   stan.receptury = [{
     id: 'r1', name: 'KIRMIZI',
     ingredients: [
@@ -297,7 +300,7 @@ describe('plan dnia i dolny pasek', () => {
 
     render(<MasowanieHmiPage />)
     await waitFor(() => expect(screen.getByText('Zaplanowane')).toBeInTheDocument())
-    expect(screen.getByText('Wymieszane')).toBeInTheDocument()
+    expect(screen.getByText(/Wymieszane/)).toBeInTheDocument()
     expect(screen.getByText('W maszynach')).toBeInTheDocument()
     expect(screen.getByText('Przyprawy gotowe')).toBeInTheDocument()
     expect(screen.getByText('Postęp')).toBeInTheDocument()
@@ -748,5 +751,72 @@ describe('etykieta po odbiorze z masownicy', () => {
     await odbierz('745')
     await waitFor(() => expect(masowniaApi.finish).toHaveBeenCalled())
     await waitFor(() => expect(screen.getAllByText(/nie wyszła|drukark/i).length).toBeGreaterThan(0))
+  })
+})
+
+
+/**
+ * Historia dnia pod kafelkiem „Wymieszane" (właściciel 18.09.2026): lista
+ * dzisiejszych mieszań z podziałem na maszyny i dodrukiem etykiet.
+ */
+describe('dziś wymieszane — historia i dodruk', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    stan.wsady = []
+    stan.pojemniki = []
+    stan.dzisiaj = [
+      { id: 'd1', machine_id: 1, order_id: 'o1', order_no: 'MAS/18/09/26', recipe_id: 'r1',
+        recipe_name: 'KIRMIZI', kg_meat: 200, kg_output: 248, batch_no: '563', mix_minutes: 50,
+        status: 'done', started_at: '2026-09-18T07:10:00', finished_at: '2026-09-18T08:00:00',
+        meat: [{ pallet_no: 'PAL/18/09/26/1', lot_no: '563', kg: 200,
+                 material_name: 'Mięso z/s', material_type_id: 'mat-mieso-zs' }] },
+      { id: 'd2', machine_id: 3, order_id: 'o1', order_no: 'MAS/18/09/26/2', recipe_id: 'r1',
+        recipe_name: 'BEYAZ AFIYET', kg_meat: 600, kg_output: 744, batch_no: 'PP26', mix_minutes: 50,
+        status: 'done', started_at: '2026-09-18T09:56:00', finished_at: '2026-09-18T10:47:00',
+        meat: [
+          { pallet_no: 'PAL/18/09/26/3', lot_no: '563', kg: 300, material_name: 'Mięso z/s', material_type_id: 'mat-mieso-zs' },
+          { pallet_no: 'PAL/18/09/26/4', lot_no: '569', kg: 300, material_name: 'Filet z kurczaka', material_type_id: 'mat-filet-kurczak' },
+        ] },
+    ]
+  })
+
+  const otworz = async () => {
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getByText(/Wymieszane/)).toBeInTheDocument())
+    fireEvent.click(screen.getByText(/Wymieszane/))
+    await waitFor(() => expect(screen.getByText(/Dziś wymieszane/i)).toBeInTheDocument())
+  }
+
+  it('kafelek „Wymieszane" otwiera listę z podziałem na maszyny', async () => {
+    await otworz()
+    // Nazwa maszyny występuje też na szynie u góry — liczy się ta w historii.
+    const historia = screen.getByText(/Dziś wymieszane/i).closest('div')!.parentElement!
+    expect(historia.textContent).toContain('Masownica 1')
+    expect(historia.textContent).toContain('Masownica 3')
+    expect(screen.getByText('563')).toBeInTheDocument()
+    expect(screen.getByText('PP26')).toBeInTheDocument()
+  })
+
+  it('pokazuje skład i kilogramy każdego wsadu', async () => {
+    await otworz()
+    expect(screen.getByText(/PAL\/18\/09\/26\/3 · PAL\/18\/09\/26\/4/)).toBeInTheDocument()
+    expect(screen.getByText('744 kg')).toBeInTheDocument()
+  })
+
+  it('dodrukowuje etykietę tego samego wsadu', async () => {
+    await otworz()
+    fireEvent.click(screen.getAllByRole('button', { name: /Drukuj etykietę/i })[1])
+    await waitFor(() => expect(zebra.sendZpl).toHaveBeenCalled())
+    const zpl = (zebra.sendZpl as any).mock.calls[0][1] as string
+    expect(zpl).toContain('PP26')
+    expect(zpl).toContain('PAL/18/09/26/3')
+    expect(zpl).toContain('744 kg')
+    expect(zpl).toContain('FILET Z KURCZAKA')
+  })
+
+  it('pusty dzień mówi wprost, że nic nie zeszło', async () => {
+    stan.dzisiaj = []
+    await otworz()
+    expect(screen.getByText(/nic jeszcze nie zeszło/i)).toBeInTheDocument()
   })
 })

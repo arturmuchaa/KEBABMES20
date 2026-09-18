@@ -32,7 +32,7 @@ export function etaDnia(zostaloKg: number, now: number, minutyCyklu?: number): s
   return hhmm(now + rund * minuty * 60_000)
 }
 
-export function DayBar({ planKg, doneKg, inMachineKg, preparedKg, meatKg, now, minutyCyklu }: {
+export function DayBar({ planKg, doneKg, inMachineKg, preparedKg, meatKg, now, minutyCyklu, onWymieszane }: {
   planKg: number
   doneKg: number
   inMachineKg: number
@@ -41,13 +41,18 @@ export function DayBar({ planKg, doneKg, inMachineKg, preparedKg, meatKg, now, m
   now: number
   /** Średni cykl receptur, które zostały do zrobienia (ważony kilogramami). */
   minutyCyklu?: number
+  /** Kliknięcie „Wymieszane" otwiera historię dnia z dodrukiem etykiet. */
+  onWymieszane?: () => void
 }) {
   const postep = planKg > 0 ? Math.round((doneKg / planKg) * 100) : 0
   const zostalo = Math.max(0, planKg - doneKg - inMachineKg - preparedKg)
 
-  const komorki: { label: string; value: string; color?: string }[] = [
+  const komorki: { label: string; value: string; color?: string; onClick?: () => void }[] = [
     { label: 'Zaplanowane',        value: kg(planKg) },
-    { label: 'Wymieszane',         value: kg(doneKg) },
+    // Jedyna klikalna liczba na pasku: otwiera historię dnia z dodrukiem
+    // etykiet. Operator i tak patrzy tu przez cały dzień, więc nie trzeba go
+    // uczyć nowego miejsca.
+    { label: 'Wymieszane ›',       value: kg(doneKg), onClick: onWymieszane },
     { label: 'Postęp',             value: `${postep}%`, color: 'var(--accent)' },
     { label: 'W maszynach',        value: kg(inMachineKg), color: inMachineKg > 0 ? 'var(--amb)' : undefined },
     { label: 'Przyprawy gotowe',   value: preparedKg > 0 ? kg(preparedKg) : '—',
@@ -61,20 +66,27 @@ export function DayBar({ planKg, doneKg, inMachineKg, preparedKg, meatKg, now, m
     <footer data-testid="pasek-dnia"
       className="shrink-0 h-[76px] grid grid-cols-8"
       style={{ background: 'var(--barBg)', borderTop: '1px solid var(--line)' }}>
-      {komorki.map((k, i) => (
-        <div key={k.label}
+      {komorki.map((k, i) => {
+        const Element = k.onClick ? 'button' : 'div'
+        return (
+        <Element key={k.label} type={k.onClick ? 'button' : undefined} onClick={k.onClick}
           className="flex flex-col items-center justify-center gap-1.5 text-center px-1"
-          style={{ borderRight: i < komorki.length - 1 ? '1px solid var(--lineSoft)' : undefined }}>
+          style={{
+            borderRight: i < komorki.length - 1 ? '1px solid var(--lineSoft)' : undefined,
+            background: k.onClick ? 'var(--panel)' : undefined,
+            cursor: k.onClick ? 'pointer' : undefined,
+          }}>
           <span className="hmi-v10-mono text-[21px] font-bold leading-none"
             style={k.color ? { color: k.color } : undefined}>
             {k.value}
           </span>
           <span className="text-[10px] font-extrabold uppercase tracking-wider leading-tight"
-            style={{ color: 'var(--mut)' }}>
+            style={{ color: k.onClick ? 'var(--accent)' : 'var(--mut)' }}>
             {k.label}
           </span>
-        </div>
-      ))}
+        </Element>
+        )
+      })}
     </footer>
   )
 }

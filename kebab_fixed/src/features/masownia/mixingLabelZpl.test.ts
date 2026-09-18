@@ -138,44 +138,38 @@ describe('etykieta partii przyprawionej', () => {
  * font A0 Zebry jest węższy), więc test jest pesymistyczny — i dobrze.
  */
 describe('układ etykiety się nie zlewa', () => {
-  const DOTS_NA_MM = 203 / 25.4
-  const SZER_LITERY = 0.55
+  const SZER_LITERY = 0.55   // font A0 Zebry jest węższy — model pesymistyczny
 
-  interface Pole { x: number; y: number; h: number; szer: number; prawa: boolean; tekst: string }
+  interface Pole { x: number; y: number; w: number; h: number; tekst: string }
 
+  /** Prostokąty WSZYSTKICH napisów etykiety — z uwzględnieniem pól dosuniętych
+   *  do prawej (^FB ...,R), które zaczynają się tam, gdzie kończy się tekst. */
   const pola = (out: string): Pole[] =>
     [...out.matchAll(/\^FO(\d+),(\d+)\^A0N,(\d+),\d+(?:\^FB(\d+),\d+,\d+,(\w))?\^FD([^^]*)/g)]
-      .map(m => ({
-        x: Number(m[1]), y: Number(m[2]), h: Number(m[3]),
-        szer: Number(m[6].length) * Number(m[3]) * SZER_LITERY,
-        prawa: m[5] === 'R',
-        tekst: m[6],
-      }))
+      .map(m => {
+        const x = Number(m[1]), y = Number(m[2]), h = Number(m[3])
+        const tekst = m[6]
+        const w = tekst.length * h * SZER_LITERY
+        const doPrawej = m[5] === 'R'
+        return { x: doPrawej ? x + Number(m[4]) - w : x, y, w, h, tekst }
+      })
+      .filter(p => p.tekst.trim().length > 0)
 
-  const kolizje = (out: string) => {
+  const nachodzi = (a: Pole, b: Pole) =>
+    a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+
+  const kolizje = (out: string): string[] => {
+    const lista = pola(out)
     const zle: string[] = []
-    const wg = new Map<number, Pole[]>()
-    for (const p of pola(out)) {
-      // Wiersze z tym samym FO-Y są kolumnami tej samej linii.
-      const klucz = Math.round(p.y / 10)
-      wg.set(klucz, [...(wg.get(klucz) ?? []), p])
-    }
-    for (const linia of wg.values()) {
-      if (linia.length < 2) continue
-      const zakresy = linia.map(p => p.prawa
-        ? { od: p.x + Number(mmW) - p.szer, do: p.x + Number(mmW), t: p.tekst }
-        : { od: p.x, do: p.x + p.szer, t: p.tekst })
-        .sort((a, b) => a.od - b.od)
-      for (let i = 1; i < zakresy.length; i++) {
-        if (zakresy[i].od < zakresy[i - 1].do) {
-          zle.push(`„${zakresy[i - 1].t}" nachodzi na „${zakresy[i].t}"`)
+    for (let i = 0; i < lista.length; i++) {
+      for (let j = i + 1; j < lista.length; j++) {
+        if (nachodzi(lista[i], lista[j])) {
+          zle.push(`„${lista[i].tekst}" nachodzi na „${lista[j].tekst}"`)
         }
       }
     }
     return zle
   }
-
-  const mmW = Math.round(92 * DOTS_NA_MM)   // pole zadruku: 100 mm minus marginesy
 
   it('typowy wsad 600 kg z trzech palet', () => {
     expect(kolizje(zpl())).toEqual([])
@@ -192,9 +186,21 @@ describe('układ etykiety się nie zlewa', () => {
     expect(kolizje(out)).toEqual([])
   })
 
+  it('partia mieszana z dodatkową linijką nie psuje układu', () => {
+    expect(kolizje(zpl({ batchNo: 'PP26' }))).toEqual([])
+  })
+
+  it('jedna paleta — etykieta też trzyma się kupy', () => {
+    const out = zpl({
+      meat: [{ palletNo: 'PAL/17/09/26/18', lotNo: '563', kg: 200,
+               materialName: 'Mięso z/s', materialTypeId: 'mat-mieso-zs' }],
+    })
+    expect(kolizje(out)).toEqual([])
+  })
+
   it('nic nie wychodzi poza szerokość i wysokość taśmy', () => {
     for (const p of pola(zpl())) {
-      expect(p.x + (p.prawa ? 0 : p.szer)).toBeLessThanOrEqual(799)
+      expect(p.x + p.w).toBeLessThanOrEqual(799)
       expect(p.y + p.h).toBeLessThanOrEqual(1199)
     }
   })

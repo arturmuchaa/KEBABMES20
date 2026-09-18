@@ -51,6 +51,12 @@ def list_charges():
     return {"data": svc.list_charges()}
 
 
+@router.get("/wsady/dzis")
+def list_charges_today():
+    """Dzisiejsze odbiory z masownic — historia zmiany i źródło dodruku etykiet."""
+    return {"data": svc.list_charges_today()}
+
+
 @router.post("/wsady")
 def load_charge(dto: ChargeCreate):
     """Załaduj masownicę: pojemnik z przyprawami + mięso + woda."""
