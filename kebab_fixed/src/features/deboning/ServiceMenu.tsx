@@ -26,6 +26,14 @@ import { SignatureSamplesScreen } from '@/features/signatures/SignatureSamplesSc
 export const SERVICE_CODE = '0099'
 export const SERVICE_HOLD_MS = 3000
 
+/** Osprzęt stanowiska — które sekcje menu mają przy nim sens. Masownia nie ma
+ *  ani drukarki etykiet, ani księgi HACCP do podpisów; przycisk donikąd przy
+ *  maszynie jest gorszy niż jego brak. */
+export function serviceSections(department: string): { printer: boolean; signatures: boolean } {
+  const masownia = department === 'masowanie'
+  return { printer: !masownia, signatures: !masownia }
+}
+
 declare const __ROZBIOR_V10_VERSION__: string
 
 async function triggerServiceLogoff() {
@@ -88,13 +96,20 @@ export function ServiceMenuModal({
   channel = 'rozbior-v10',
   version = __ROZBIOR_V10_VERSION__,
   buildLabel = `HMI v10 · ${version}`,
+  sections,
 }: {
   open: boolean
   onClose: () => void
   channel?: string
   version?: string
   buildLabel?: string
+  /** Sekcje osprzętu obecnego tylko przy niektórych stanowiskach. Domyślnie
+   *  wszystkie — masownia wyłącza drukarkę etykiet i wzory podpisów, bo ani
+   *  drukarki, ani księgi HACCP przy masownicach nie ma. */
+  sections?: { printer?: boolean; signatures?: boolean }
 }) {
+  const pokazDrukarke = sections?.printer ?? true
+  const pokazWzory = sections?.signatures ?? true
   const [code, setCode] = useState('')
   const [ok,   setOk]   = useState(false)
   const [err,  setErr]  = useState(false)
@@ -270,6 +285,7 @@ export function ServiceMenuModal({
             </div>
             {/* Regulacja drukarki etykiet — wprost na ekranie hali, bo tu stoi
                 drukarka i tu widać efekt każdego kroku. */}
+            {pokazDrukarke && (
             <div className="flex flex-col gap-2">
               <span className="text-xs font-bold uppercase flex items-center gap-2"
                 style={{ color: 'var(--svcMut)', letterSpacing: '.1em' }}>
@@ -314,17 +330,20 @@ export function ServiceMenuModal({
                 </div>
               )}
             </div>
+            )}
 
             {/* Wzory podpisów — to JEDYNY dotykowy ekran w zakładzie, więc
                 wzór podpisu HACCP musi powstawać właśnie tutaj. Ekran
                 otwiera się na pełną szerokość: w panelu 380 px nikt nie
                 złoży czytelnego podpisu. */}
+            {pokazWzory && (
             <button type="button" onClick={() => setWzoryOtwarte(true)}
               className="h-14 text-base font-bold flex items-center justify-center gap-3"
               style={{ borderRadius: 10, border: '1px solid var(--svcLine)', background: 'var(--svcBg)' }}>
               <PenLine size={20} />
               Wzory podpisów
             </button>
+            )}
 
             <button type="button" onClick={() => void doRollback()} disabled={!prevVersion || rollbackBusy}
               className="h-14 text-base font-bold flex items-center justify-center gap-3"

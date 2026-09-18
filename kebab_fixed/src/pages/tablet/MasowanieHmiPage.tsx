@@ -31,8 +31,13 @@ import { DayBar } from '@/features/masownia/components/DayBar'
 import { SpiceWeighing } from '@/features/masownia/components/SpiceWeighing'
 import { LoadPicker } from '@/features/masownia/components/LoadPicker'
 import { MeatPicker, type MeatTake } from '@/features/masownia/components/MeatPicker'
+import { plakietkaSurowca } from '@/features/masownia/meatTiles'
 import { WaterStep } from '@/features/masownia/components/WaterStep'
 import { PickupDialog } from '@/features/masownia/components/PickupDialog'
+import { useServiceHold, ServiceMenuModal, serviceSections } from '@/features/deboning/ServiceMenu'
+
+// Wersja kiosku masowni — wstrzykiwana przez Vite (define w vite.config.ts).
+declare const __MASOWANIE_VERSION__: string
 
 const hhmm = (d: Date) =>
   `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
@@ -57,6 +62,11 @@ export function MasowanieHmiPage() {
   const [odbior, setOdbior] = useState<Charge | null>(null)
   const [zapisuje, setZapisuje] = useState(false)
   const [komunikat, setKomunikat] = useState('')
+  // Wejście serwisowe (przytrzymanie tytułu 3 s → kod 0099). Masownia to
+  // ODDZIELNY komputer od kiosku rozbioru, a serwisant podpina wagę przy
+  // zalogowanym operatorze — samo wejście z ekranu logowania by tu nie pomogło.
+  const [menuSerwisowe, setMenuSerwisowe] = useState(false)
+  const { holdProps: serviceHoldProps } = useServiceHold(() => setMenuSerwisowe(true))
   const [odwazone, setOdwazone] = useState<Record<number, { weighed: number; manual: boolean }>>({})
 
   useEffect(() => {
@@ -82,6 +92,17 @@ export function MasowanieHmiPage() {
     return out
   }, [pojemniki])
 
+  /** Rodzaj surowca partii wskazanych przez biuro — null dla codziennego z/s. */
+  const rodzajZlecenia = useCallback((meatLots: { meatLotNo?: string }[] | undefined) => {
+    const nazwy = new Set<string>()
+    for (const l of meatLots ?? []) {
+      const lot = mieso.lots.find((x: any) => String(x.lotNo) === String(l.meatLotNo))
+      const p = lot ? plakietkaSurowca(lot.materialName, lot.materialTypeId) : null
+      if (p) nazwy.add(p)
+    }
+    return nazwy.size ? [...nazwy].join(' + ') : null
+  }, [mieso.lots])
+
   const kolejka: QueueOrder[] = useMemo(
     () => zlecenia
       .filter((o: any) => o.status !== 'cancelled')
@@ -89,8 +110,9 @@ export function MasowanieHmiPage() {
         id: o.id, orderNo: o.orderNo, recipeName: o.recipeName,
         meatKg: Number(o.meatKg || 0), kgDone: Number(o.kgDone || 0),
         daySeq: o.daySeq, meatLots: o.meatLots ?? [],
+        rodzaj: rodzajZlecenia(o.meatLots),
       })),
-    [zlecenia],
+    [zlecenia, rodzajZlecenia],
   )
 
   const zlecenie = (id: string | null | undefined) => zlecenia.find((o: any) => o.id === id)
@@ -228,7 +250,7 @@ export function MasowanieHmiPage() {
 
       <header className="shrink-0 h-[76px] flex items-center gap-5 px-6"
         style={{ background: 'var(--barBg)', borderBottom: '1px solid var(--line)' }}>
-        <div>
+        <div {...serviceHoldProps} style={{ touchAction: 'manipulation' }}>
           <div className="text-xl font-extrabold uppercase leading-none tracking-tight">Masowanie</div>
           <div className="hmi-v10-mono text-[10px] font-bold uppercase tracking-[0.14em] mt-1.5"
             style={{ color: 'var(--mut)' }}>
@@ -397,6 +419,14 @@ export function MasowanieHmiPage() {
           Brak łączności z serwerem MES — dane mogą być nieaktualne.
         </div>
       ) : null}
+
+      {/* Bez drukarki etykiet i wzorów podpisów — przy masownicach nie ma ani
+          drukarki, ani księgi HACCP; zostaje diagnostyka wagi, cofnięcie
+          wersji i wyjście do Windows. */}
+      <ServiceMenuModal open={menuSerwisowe} onClose={() => setMenuSerwisowe(false)}
+        channel="masowanie" version={__MASOWANIE_VERSION__}
+        buildLabel={`Masowanie · ${__MASOWANIE_VERSION__}`}
+        sections={serviceSections('masowanie')} />
     </div>
   )
 }

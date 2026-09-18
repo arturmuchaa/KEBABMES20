@@ -21,6 +21,7 @@ vi.mock('@/features/auth/AuthContext', () => ({
 vi.mock('@/features/deboning/ServiceMenu', () => ({
   useServiceHold: () => ({ holdProps: {} }),
   ServiceMenuModal: () => null,
+  serviceSections: () => ({ printer: true, signatures: true }),
 }))
 vi.mock('@/lib/api', () => ({ BASE: '/api' }))
 

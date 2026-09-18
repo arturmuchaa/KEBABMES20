@@ -12,7 +12,7 @@ import { Spinner } from '@/components/ui/widgets'
 import { useAuth } from '@/features/auth/AuthContext'
 import { BASE } from '@/lib/api'
 import { HMI_VARS, HMI_FONT } from '@/features/hmi-theme/vars'
-import { useServiceHold, ServiceMenuModal } from '@/features/deboning/ServiceMenu'
+import { useServiceHold, ServiceMenuModal, serviceSections } from '@/features/deboning/ServiceMenu'
 
 /** Blokady operatorskie: brak menu kontekstowego, brak F5/F11/F12/Alt+F4. */
 export function KioskGuards() {
@@ -205,7 +205,7 @@ export function KioskLoginScreen({ department, label, channel, version }: KioskI
           </button>
         </div>
       )}
-      <ServiceMenuModal open={serviceModal} onClose={() => setServiceModal(false)} channel={channel} version={version} />
+      <ServiceMenuModal open={serviceModal} onClose={() => setServiceModal(false)} channel={channel} version={version} sections={serviceSections(department)} />
     </div>
   )
 }

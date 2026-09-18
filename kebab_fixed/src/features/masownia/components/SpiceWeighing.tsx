@@ -2,8 +2,15 @@
  * Tor 1 — przyprawy odważone do ponumerowanego pojemnika.
  *
  * Bramka wagi stoi TUTAJ i puszcza dalej sama: gdy odczyt trafi w okno
- * ±0,05 kg i ustoi się przez chwilę, pozycja zapisuje się bez dotykania
- * ekranu. Operator ma ręce w przyprawach, nie na szybie.
+ * ±0,1 kg (działka wagi przypraw to 100 g) i ustoi się przez chwilę, pozycja
+ * zapisuje się bez dotykania ekranu. Operator ma ręce w przyprawach, nie na
+ * szybie.
+ *
+ * Pojemnik stoi na wadze przez całe ważenie, więc między składnikami wagę się
+ * TARUJE — stąd przycisk zerowania. Bramka zapisuje pozycję tylko RAZ na
+ * postawienie: po zapisie rozbraja się i wraca do gry dopiero, gdy waga zejdzie
+ * do zera. Bez tego odczyt poprzedniej przyprawy trafiałby w okno następnej
+ * (dwie po 2 kg!) i zapisywał ją bez dosypania choćby grama.
  *
  * Waga odłączona → ręczne potwierdzenie ze śladem „ręcznie" na pozycji.
  * Przy sprawnej wadze tego przycisku NIE MA: inaczej bramka byłaby ozdobą.
@@ -16,6 +23,11 @@ import { NumPad, numpadValue } from './NumPad'
 
 /** Ile odczyt musi ustać w oknie, zanim panel zapisze pozycję sam. */
 const DWELL_MS = 800
+
+/** Poniżej tylu kilogramów waga jest „pusta" (wytarowana albo zdjęty pojemnik).
+ *  Mniej niż działka miernika (100 g), więc wytarowana waga zawsze się łapie,
+ *  a najdrobniejsza realna przyprawa już nie. */
+const PROG_PUSTEJ_WAGI = 0.02
 
 const qty = (n: number) => n.toLocaleString('pl-PL', { maximumFractionDigits: 3 })
 
@@ -34,24 +46,42 @@ export function SpiceWeighing({ items, weighed, cartNo, przyMaszynie, onWeigh, o
   const waga = useScale()
   const [reczne, setReczne] = useState('')
   const dwellRef = useRef<number | null>(null)
+  // Bramka uzbrojona = wolno zapisać pozycję. Rozbraja ją każdy zapis, uzbraja
+  // powrót wagi do zera (tara albo zdjęcie pojemnika). Startuje ROZBROJONA:
+  // pojemnik trafia na wagę przed pierwszą przyprawą, więc pierwsza tara i tak
+  // musi paść — inaczej do soli doliczyłaby się waga samego pojemnika.
+  const [uzbrojona, setUzbrojona] = useState(false)
 
   const biezacy = items.find(i => weighed[i.seq] === undefined) ?? null
   const komplet = biezacy === null && items.length > 0
+  const pusta = Math.abs(waga.gross) <= PROG_PUSTEJ_WAGI
   const werdykt = biezacy ? spiceVerdict(biezacy.qty, waga.gross) : 'low'
+
+  useEffect(() => {
+    if (waga.connected && pusta) setUzbrojona(true)
+  }, [waga.connected, pusta])
 
   // Auto-zapis: odczyt w oknie i stabilny przez DWELL_MS zamyka pozycję.
   useEffect(() => {
     if (!biezacy || !waga.connected) { dwellRef.current = null; return }
+    // Pusta waga nigdy nie jest odważoną przyprawą — nawet gdy pozycja jest tak
+    // drobna, że zero mieści się w jej oknie tolerancji.
+    if (!uzbrojona || pusta) { dwellRef.current = null; return }
     if (werdykt !== 'ok' || !waga.stable) { dwellRef.current = null; return }
     if (dwellRef.current === null) dwellRef.current = Date.now()
     const t = setTimeout(() => {
       if (dwellRef.current !== null && Date.now() - dwellRef.current >= DWELL_MS) {
         onWeigh(biezacy, waga.gross, false)
         dwellRef.current = null
+        setUzbrojona(false)
       }
     }, DWELL_MS)
     return () => clearTimeout(t)
-  }, [biezacy, werdykt, waga.stable, waga.gross, waga.connected, onWeigh])
+  }, [biezacy, werdykt, waga.stable, waga.gross, waga.connected, uzbrojona, pusta, onWeigh])
+
+  // Werdykt pokazywany operatorowi: rozbrojona bramka nie ma prawa świecić na
+  // zielono, bo na wadze leży poprzednia przyprawa, a nie bieżąca.
+  const pokaz = waga.connected && uzbrojona && !pusta ? werdykt : null
 
   const zapiszRecznie = () => {
     const kg = numpadValue(reczne)
@@ -112,11 +142,11 @@ export function SpiceWeighing({ items, weighed, cartNo, przyMaszynie, onWeigh, o
         <div className="flex-1 min-w-0 rounded-xl flex flex-col items-center justify-center gap-1.5 p-5 text-center"
           style={{
             background: komplet ? 'var(--successSoft)'
-              : werdykt === 'ok' && waga.connected ? 'var(--successSoft)'
-              : werdykt === 'over' && waga.connected ? 'var(--redSoft)' : 'var(--bg)',
+              : pokaz === 'ok' ? 'var(--successSoft)'
+              : pokaz === 'over' ? 'var(--redSoft)' : 'var(--bg)',
             border: `1.5px solid ${komplet ? 'var(--success)'
-              : werdykt === 'ok' && waga.connected ? 'var(--success)'
-              : werdykt === 'over' && waga.connected ? 'var(--red)' : 'var(--line)'}`,
+              : pokaz === 'ok' ? 'var(--success)'
+              : pokaz === 'over' ? 'var(--red)' : 'var(--line)'}`,
           }}>
           {komplet ? (
             <>
@@ -154,20 +184,33 @@ export function SpiceWeighing({ items, weighed, cartNo, przyMaszynie, onWeigh, o
                 <>
                   <span className="hmi-v10-mono text-[88px] font-bold leading-none tracking-tighter my-1"
                     style={{
-                      color: werdykt === 'ok' ? 'var(--success)' : werdykt === 'over' ? 'var(--red)' : undefined,
+                      color: pokaz === 'ok' ? 'var(--success)' : pokaz === 'over' ? 'var(--red)' : undefined,
                     }}>
                     {qty(Math.round(waga.gross * 1000) / 1000)}
                     <i className="not-italic text-[30px] font-bold ml-2" style={{ color: 'var(--mut)' }}>{biezacy.unit}</i>
                   </span>
                   <span className="text-[21px] font-extrabold"
                     style={{
-                      color: werdykt === 'ok' ? 'var(--success)' : werdykt === 'over' ? 'var(--red)' : 'var(--amb)',
+                      color: pokaz === 'ok' ? 'var(--success)' : pokaz === 'over' ? 'var(--red)' : 'var(--amb)',
                     }}>
-                    {!waga.stable ? 'Ważenie…'
+                    {!uzbrojona ? 'Wyzeruj wagę pod kolejną przyprawę'
+                      : !waga.stable ? 'Ważenie…'
+                      : pusta ? 'Postaw pojemnik i dosyp'
                       : werdykt === 'ok' ? 'Zgadza się'
                       : werdykt === 'over' ? 'Za dużo — zdejmij'
                       : 'Dosyp'}
                   </span>
+                  {/* Pojemnik zostaje na wadze — zerowanie idzie do miernika po
+                      RS232 (komenda z scale.json), tak jak w rozbiorze. */}
+                  <button type="button" onClick={waga.tare}
+                    className="h-[60px] px-8 rounded-[10px] text-lg font-extrabold mt-3"
+                    style={{
+                      background: uzbrojona ? 'var(--panel)' : 'var(--amb)',
+                      color: uzbrojona ? 'var(--ink)' : '#fff',
+                      border: `2px solid ${uzbrojona ? 'var(--line)' : 'var(--amb)'}`,
+                    }}>
+                    Wyzeruj wagę
+                  </button>
                 </>
               ) : (
                 <div className="flex items-center gap-6 mt-2">

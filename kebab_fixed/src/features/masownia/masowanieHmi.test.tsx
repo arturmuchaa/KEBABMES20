@@ -5,7 +5,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import '@testing-library/jest-dom/vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react'
 
 const stan = vi.hoisted(() => ({
   zlecenia: [] as any[],
@@ -101,6 +101,60 @@ describe('MasowanieHmiPage', () => {
     render(<MasowanieHmiPage />)
     await waitFor(() => expect(screen.getByText(/Przygotuj przyprawy/i)).toBeInTheDocument())
     expect(screen.getByText(/Załaduj masownicę/i)).toBeInTheDocument()
+  })
+
+  it('zlecenie na filet krzyczy o tym już w kolejce dnia', async () => {
+    // Właściciel wrzucił filet do planu na dziś i pyta, czy operator to widzi.
+    // Kolejka to PIERWSZY ekran, na którym da się to powiedzieć — przyprawy
+    // waży się do zlecenia, zanim ktokolwiek dotknie mięsa.
+    stan.zlecenia = [{
+      id: 'o1', orderNo: 'MAS/18/09/26', recipeId: 'r1', recipeName: 'KIRMIZI',
+      meatKg: 507, kgDone: 0, daySeq: 1, status: 'confirmed',
+      meatLots: [{ meatLotNo: '569', meatLotId: 'ms-569', kgPlanned: 507 }],
+    }]
+    stan.mieso = {
+      pallets: [],
+      lots: [{ meatStockId: 'ms-569', lotNo: '569', materialName: 'Filet z kurczaka',
+               materialTypeId: 'mat-filet-kurczak', kgFree: 0, expiryDate: '2026-10-05',
+               reservedByOrder: { o1: 507 } }],
+      taken: {},
+    }
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getAllByText('KIRMIZI').length).toBeGreaterThan(0))
+    expect(screen.getByText('FILET Z KURCZAKA')).toBeInTheDocument()
+  })
+
+  it('zlecenie na zwykłe z/s nie dostaje plakietki', async () => {
+    stan.zlecenia = [{
+      id: 'o1', orderNo: 'MAS/18/09/26', recipeId: 'r1', recipeName: 'KIRMIZI',
+      meatKg: 200, kgDone: 0, daySeq: 1, status: 'confirmed',
+      meatLots: [{ meatLotNo: '563', meatLotId: 'ms-563', kgPlanned: 200 }],
+    }]
+    stan.mieso = {
+      pallets: [],
+      lots: [{ meatStockId: 'ms-563', lotNo: '563', materialName: 'Mięso z/s',
+               materialTypeId: 'mat-mieso-zs', kgFree: 800, expiryDate: '2026-10-01' }],
+      taken: {},
+    }
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getAllByText('KIRMIZI').length).toBeGreaterThan(0))
+    expect(screen.queryByText(/MIĘSO Z\/S/)).toBeNull()
+  })
+
+  it('przytrzymanie nagłówka otwiera menu serwisowe', async () => {
+    // Masownia to osobny komputer od kiosku rozbioru: serwisant podpinający
+    // wagę stoi przy nim ZALOGOWANY, więc wejście z ekranu logowania nie
+    // wystarczy (uwaga właściciela 17.09.2026).
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getByText('Masownica 1')).toBeInTheDocument())
+    vi.useFakeTimers()
+    try {
+      fireEvent.pointerDown(screen.getByText('Masowanie'))
+      await act(async () => { vi.advanceTimersByTime(3200) })
+      expect(screen.getByText('Menu serwisowe')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

@@ -138,3 +138,48 @@ describe('limit masownicy', () => {
     expect(onConfirm).toHaveBeenCalled()
   })
 })
+
+/**
+ * Rodzaj surowca na kafelku (właściciel, 18.09.2026: „dałem filet do planu na
+ * dzisiaj — czy operator wyraźnie widzi, że to filet?").
+ *
+ * Domyślny surowiec masowni to mięso z/s; wszystko inne — filet z kurczaka,
+ * indyk, filet z mostka — MUSI krzyczeć z kafelka, bo na palecie i w kartonie
+ * wygląda podobnie, a do maszyny idzie co innego.
+ */
+describe('rodzaj surowca widoczny na kafelku', () => {
+  const filet = {
+    pallets: [
+      { id: 'p9', palletNo: 'PAL/18/09/26/9', kgNet: 200, expiryDate: '2026-10-05',
+        lots: [{ lotNo: '569', kg: 200 }] },
+    ],
+    lots: [
+      { meatStockId: 'ms-569', lotNo: '569', materialName: 'Filet z kurczaka',
+        materialTypeId: 'mat-filet-kurczak', kgFree: 507, expiryDate: '2026-10-05' },
+      { meatStockId: 'ms-563', lotNo: '563', materialName: 'Mięso z/s',
+        materialTypeId: 'mat-mieso-zs', kgFree: 300, expiryDate: '2026-10-01' },
+    ],
+    taken: {},
+  }
+
+  it('partia fileta ma plakietkę z nazwą surowca', () => {
+    render(<MeatPicker meat={filet} orderId="o1" orderLots={[]} targetKg={200} maxKg={700}
+      onConfirm={vi.fn()} onBack={vi.fn()} />)
+    const kafel = screen.getByRole('button', { name: /^partia 569/i })
+    // Wielkimi literami, nie w szarym drobnym druku pod kilogramami.
+    expect(kafel).toHaveTextContent('FILET Z KURCZAKA')
+  })
+
+  it('paleta też mówi, co na niej leży — nie samą partię', () => {
+    render(<MeatPicker meat={filet} orderId="o1" orderLots={[]} targetKg={200} maxKg={700}
+      onConfirm={vi.fn()} onBack={vi.fn()} />)
+    expect(screen.getByRole('button', { name: /PAL\/18\/09\/26\/9/ })).toHaveTextContent('FILET Z KURCZAKA')
+  })
+
+  it('mięso z/s zostaje bez plakietki — to codzienność masowni', () => {
+    render(<MeatPicker meat={filet} orderId="o1" orderLots={[]} targetKg={200} maxKg={700}
+      onConfirm={vi.fn()} onBack={vi.fn()} />)
+    const zs = screen.getByRole('button', { name: /^partia 563/i })
+    expect(zs.textContent ?? '').not.toMatch(/MIĘSO Z\/S/)
+  })
+})

@@ -66,6 +66,19 @@ export function zrodloKg(materialTypeId?: string): 'nie na słupku' | 'utnij i z
   return (materialTypeId || NA_SLUPKI) === NA_SLUPKI ? 'nie na słupku' : 'utnij i zważ'
 }
 
+/**
+ * Plakietka rodzaju surowca na kafelku — albo `null`, gdy to codzienne z/s.
+ *
+ * Masownia miesza głównie mięso z/s, więc podpisywanie go nic nie wnosi, a
+ * zaszumia ekran. Za to filet z kurczaka, indyk czy filet z mostka MUSZĄ być
+ * widoczne z drugiego końca hali: na palecie i w kartonie wyglądają podobnie,
+ * a do maszyny idzie co innego (właściciel, 18.09.2026).
+ */
+export function plakietkaSurowca(materialName: string, materialTypeId?: string): string | null {
+  if ((materialTypeId || NA_SLUPKI) === NA_SLUPKI) return null
+  return (materialName || '').trim().toUpperCase() || null
+}
+
 export interface MeatTilesInput {
   pallets: TilePallet[]
   lots: TileLot[]

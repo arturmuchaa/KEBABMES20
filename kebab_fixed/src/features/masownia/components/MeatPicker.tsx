@@ -11,7 +11,7 @@
  * jest, tylko nie to; znikający kafelek kazałby operatorowi szukać.
  */
 import { useMemo, useState } from 'react'
-import { buildMeatTiles, zrodloKg, type MeatTilesInput } from '../meatTiles'
+import { buildMeatTiles, zrodloKg, plakietkaSurowca, type MeatTilesInput } from '../meatTiles'
 import { gateMeatTiles, officeChoiceLabel, type OrderLot } from '../meatGate'
 import { NumPad, numpadValue } from './NumPad'
 
@@ -132,6 +132,16 @@ export function MeatPicker({ meat, orderId, orderLots, targetKg, maxKg, onConfir
                       ? `partia ${k.lots.map(l => l.lotNo).join(' + ')} · do ${dPl(k.expiryDate)}`
                       : `${k.materialName} · ${zrodloKg(k.materialTypeId)} · do ${dPl(k.expiryDate)}`}
                   </span>
+                  {/* Wszystko poza mięsem z/s podpisane wprost na kafelku —
+                      operator ma wiedzieć, że bierze filet, a nie z/s. */}
+                  {plakietkaSurowca(k.materialName, k.materialTypeId) ? (
+                    <span className="inline-block text-[12px] font-extrabold uppercase tracking-wide px-2 py-1 rounded"
+                      style={on
+                        ? { background: 'rgba(255,255,255,.18)', color: '#fff', border: '1px solid rgba(255,255,255,.4)' }
+                        : { background: 'var(--accentSoft)', color: 'var(--accent)', border: '1.5px solid var(--accent)' }}>
+                      {plakietkaSurowca(k.materialName, k.materialTypeId)}
+                    </span>
+                  ) : null}
                   {k.mixed ? (
                     <span className="inline-block text-[10px] font-extrabold uppercase tracking-wide px-1.5 py-0.5 rounded"
                       style={on

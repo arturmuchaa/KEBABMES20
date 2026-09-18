@@ -14,6 +14,10 @@ export interface QueueOrder {
   kgDone: number
   daySeq?: number
   meatLots?: { meatLotNo: string }[]
+  /** Rodzaj surowca, gdy to NIE jest codzienne mięso z/s (filet z kurczaka,
+   *  indyk, filet z mostka). Kolejka to pierwszy ekran, na którym da się to
+   *  powiedzieć — przyprawy waży się, zanim ktoś dotknie mięsa. */
+  rodzaj?: string | null
 }
 
 const ETYKIETA = {
@@ -71,7 +75,15 @@ export function DayQueue({ orders, kgInMachine, kgPrepared, selectedId, onPick }
               {gotowe ? '✓' : (o.daySeq || '–')}
             </span>
             <span className="flex-1 min-w-0 flex flex-col gap-1.5">
-              <span className="text-base font-extrabold leading-none truncate">{o.recipeName}</span>
+              <span className="flex items-center gap-2 min-w-0">
+                <span className="text-base font-extrabold leading-none truncate">{o.recipeName}</span>
+                {o.rodzaj ? (
+                  <span className="shrink-0 text-[10px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                    style={{ background: 'var(--accentSoft)', color: 'var(--accent)', border: '1px solid var(--accent)' }}>
+                    {o.rodzaj}
+                  </span>
+                ) : null}
+              </span>
               <span className="hmi-v10-mono text-[11px] font-semibold leading-none" style={{ color: 'var(--mut)' }}>
                 {podpis}
               </span>
