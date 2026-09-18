@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { MACHINES, T_MIX_MIN, maszyna, fitsMachine, maszynyDla, waterWindow, batchNoFromLots } from './machines'
+import { MACHINES, T_MIX_MIN, maszyna, fitsMachine, maszynyDla, minutyWsadu, waterWindow, batchNoFromLots } from './machines'
 
 describe('masownice', () => {
   it('trzy maszyny: 200, 200, 600 kg', () => {
@@ -88,5 +88,29 @@ describe('maszyny dla niestandardowego wsadu', () => {
 
   it('ponad 700 kg nie wejdzie nigdzie — to nie jest jeden wsad', () => {
     expect(maszynyDla(800)).toEqual([])
+  })
+})
+
+/**
+ * Czas masowania per receptura (właściciel, 18.09.2026: „standard to 50 min,
+ * ale YAPRAK masuje się pół godziny — chcę definiować czas w recepturze").
+ *
+ * Wsad NIESIE swój czas: receptura zmieniona w biurze w trakcie cyklu nie ma
+ * prawa przesunąć maszyny, która już chodzi.
+ */
+describe('minutyWsadu', () => {
+  it('bierze czas zapisany na wsadzie', () => {
+    expect(minutyWsadu({ mix_minutes: 30 })).toBe(30)
+  })
+
+  it('bez zapisanego czasu wraca do standardowych 50 minut', () => {
+    expect(minutyWsadu({})).toBe(T_MIX_MIN)
+    expect(minutyWsadu(undefined)).toBe(T_MIX_MIN)
+    expect(minutyWsadu({ mix_minutes: null })).toBe(T_MIX_MIN)
+  })
+
+  it('zero i wartości ujemne to błąd danych — zostaje standard', () => {
+    expect(minutyWsadu({ mix_minutes: 0 })).toBe(T_MIX_MIN)
+    expect(minutyWsadu({ mix_minutes: -5 })).toBe(T_MIX_MIN)
   })
 })

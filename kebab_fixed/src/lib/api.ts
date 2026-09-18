@@ -1506,6 +1506,8 @@ function mapRecipe(raw: any): Recipe {
     productTypeName:      raw.product_type_name     ?? raw.productTypeName,
     totalOutputPer100kg:  Number(raw.total_output_per_100kg ?? raw.totalOutputPer100kg ?? 100),
     shelfLifeDays:        Number(raw.shelf_life_days ?? raw.shelfLifeDays ?? 5),
+    // null = receptura nie ma własnego czasu → masownia liczy standardowe 50 min
+    mixingMinutes:        raw.mixing_minutes ?? raw.mixingMinutes ?? null,
     notes:                raw.notes,
     active:               raw.active               ?? true,
     createdAt:            raw.created_at            ?? raw.createdAt ?? '',
@@ -1525,6 +1527,7 @@ function toSnakeRecipeDto(dto: CreateRecipeDto | UpdateRecipeDto) {
   return {
     ...toSnake(dto),
     shelf_life_days: dto.shelfLifeDays ?? 5,
+    mixing_minutes:  dto.mixingMinutes ?? null,
     ingredients: (dto.ingredients ?? []).map((ri: any) => ({
       ingredient_id:  ri.ingredientId  ?? ri.ingredient_id  ?? '',
       qty_per_100kg:  ri.qtyPer100kg   ?? ri.qty_per_100kg  ?? 0,

@@ -298,3 +298,46 @@ def test_masownica_zwalnia_sie_po_anulowaniu_wsadu():
         ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
     assert drugi["status"] == "mixing"
 
+
+
+def test_wsad_bierze_czas_masowania_z_receptury():
+    """YAPRAK masuje się 30 minut, standard 50 — czas zna receptura.
+
+    Wsad dostaje WŁASNĄ kopię, żeby receptura poprawiona w biurze w trakcie
+    cyklu nie przesunęła maszyny, która już chodzi (właściciel 18.09.2026).
+    """
+    rid = cuid()
+    execute(
+        "INSERT INTO recipes (id, name, total_output_per_100kg, shelf_life_days, "
+        "mixing_minutes, active) VALUES (%s,'YAPRAK',124,5,30,true)",
+        (rid,),
+    )
+    oid = cuid()
+    execute(
+        "INSERT INTO mixing_orders (id, order_no, recipe_id, meat_kg, kg_done, status) "
+        "VALUES (%s,'MAS/18/09/26',%s,600,0,'confirmed')",
+        (oid, rid),
+    )
+    ms = _partia("571")
+
+    ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=3, meat=[
+        ChargeMeatDto(lotNo="571", meatStockId=ms, kg=600)]))
+
+    assert ch["mix_minutes"] == 30
+    # Zmiana receptury PO załadunku nie rusza stojącego wsadu.
+    execute("UPDATE recipes SET mixing_minutes=45 WHERE id=%s", (rid,))
+    assert query_one(
+        "SELECT mix_minutes FROM mixing_charges WHERE id=%s", (ch["id"],)
+    )["mix_minutes"] == 30
+
+
+def test_receptura_bez_czasu_zostawia_standard():
+    """Brak czasu w recepturze = NULL, a panel liczy standardowe 50 minut.
+
+    Zapisanie tu 50 „na wszelki wypadek" skasowałoby różnicę między
+    „ustawione świadomie" a „nigdy nie ruszane".
+    """
+    oid, ms = _zlecenie(), _partia("511")
+    ch = svc.load_charge(ChargeCreate(orderId=oid, machineId=1, meat=[
+        ChargeMeatDto(lotNo="511", meatStockId=ms, kg=200)]))
+    assert ch["mix_minutes"] is None

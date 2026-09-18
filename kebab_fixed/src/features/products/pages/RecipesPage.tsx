@@ -47,6 +47,7 @@ export function RecipesPage() {
     form.setProductTypeId(r.productTypeId ?? '')
     form.setNotes(r.notes ?? '')
     form.setShelfLifeDays(r.shelfLifeDays ?? 5)
+    form.setMixingMinutes(r.mixingMinutes ? String(r.mixingMinutes) : '')
     form.setRows(
       r.ingredients.length > 0
         ? r.ingredients.map(ri => ({ ingredientId: ri.ingredientId, qtyPer100kg: String(ri.qtyPer100kg) }))
@@ -225,6 +226,17 @@ export function RecipesPage() {
                   value={form.shelfLifeDays}
                   onChange={e => form.setShelfLifeDays(Math.max(1, parseInt(e.target.value) || 5))}
                   className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"/>
+              </div>
+              {/* Czas masowania — panel masowni odlicza go od startu maszyny.
+                  Puste = standardowe 50 minut, żeby nie trzeba było wpisywać
+                  tej samej liczby przy każdej zwykłej recepturze. */}
+              <div>
+                <Label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide mb-1 block">Czas masowania (min)</Label>
+                <Input type="number" min="1" step="1" placeholder="50 (standard)"
+                  value={form.mixingMinutes}
+                  onChange={e => form.setMixingMinutes(e.target.value.replace(/[^0-9]/g, ''))}
+                  className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"/>
+                <p className="text-[10px] text-muted-foreground mt-1">Puste = 50 min. YAPRAK i podobne wpisz 30.</p>
               </div>
             </div>
 

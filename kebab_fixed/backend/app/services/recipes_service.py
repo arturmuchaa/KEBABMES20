@@ -91,9 +91,9 @@ def create_recipe(dto: RecipeCreate) -> Dict:
             """
             INSERT INTO recipes
                 (id, name, product_type_id, product_type_name,
-                 total_output_per_100kg, shelf_life_days, active, notes,
+                 total_output_per_100kg, shelf_life_days, mixing_minutes, active, notes,
                  components, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,true,%s,%s,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,true,%s,%s,%s)
             RETURNING *
             """,
             (
@@ -103,6 +103,7 @@ def create_recipe(dto: RecipeCreate) -> Dict:
                 dto.product_type_name,
                 auto_output,
                 dto.shelf_life_days,
+                _minuty_masowania(dto),
                 dto.notes or None,
                 components_json,
                 now_iso(),
@@ -124,6 +125,16 @@ def create_recipe(dto: RecipeCreate) -> Dict:
         return row
 
 
+def _minuty_masowania(dto: RecipeCreate) -> Optional[int]:
+    """Czas masowania receptury albo None (= standardowe 50 minut w masowni).
+
+    Zero i wartości ujemne odrzucamy do None: „0 minut" znaczyłoby dla panelu
+    wsad gotowy do odbioru w chwili załadunku.
+    """
+    m = dto.mixing_minutes
+    return int(m) if m is not None and int(m) > 0 else None
+
+
 def update_recipe(recipe_id: str, dto: RecipeCreate) -> Dict:
     auto_output = round(
         100.0 + sum(float(ing.qty_per_100kg) for ing in dto.ingredients), 3
@@ -135,7 +146,7 @@ def update_recipe(recipe_id: str, dto: RecipeCreate) -> Dict:
             """
             UPDATE recipes
             SET name=%s, product_type_id=%s, product_type_name=%s,
-                total_output_per_100kg=%s, shelf_life_days=%s, notes=%s,
+                total_output_per_100kg=%s, shelf_life_days=%s, mixing_minutes=%s, notes=%s,
                 components=%s, updated_at=%s
             WHERE id=%s
             """,
@@ -145,6 +156,7 @@ def update_recipe(recipe_id: str, dto: RecipeCreate) -> Dict:
                 dto.product_type_name,
                 auto_output,
                 dto.shelf_life_days,
+                _minuty_masowania(dto),
                 dto.notes or None,
                 components_json,
                 now_iso(),

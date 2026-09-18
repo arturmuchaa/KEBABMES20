@@ -468,3 +468,44 @@ describe('jedno wejście w proces', () => {
     expect(screen.getAllByText(/Gotowe/i).length).toBeGreaterThan(0)
   })
 })
+
+/**
+ * Czas masowania z receptury + widoczny ruch maszyny (właściciel 18.09.2026).
+ */
+describe('czas masowania i animacja', () => {
+  it('wsad na 30 minut kończy się po 30, nie po 50', async () => {
+    stan.wsady = [{
+      id: 'ch1', machine_id: 3, order_id: 'o1', order_no: 'MAS/18/09/26',
+      recipe_name: 'YAPRAK', recipe_id: 'r1', kg_meat: 600, water_l: 108, batch_no: '511',
+      mix_minutes: 30, status: 'mixing', meat: [],
+      started_at: new Date(Date.now() - 31 * 60_000).toISOString(),
+    }]
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getAllByText(/Gotowe — odbierz/i).length).toBeGreaterThan(0))
+  })
+
+  it('ten sam wsad na standardowych 50 minut jeszcze pracuje', async () => {
+    stan.wsady = [{
+      id: 'ch1', machine_id: 3, order_id: 'o1', order_no: 'MAS/18/09/26',
+      recipe_name: 'KIRMIZI', recipe_id: 'r1', kg_meat: 600, water_l: 108, batch_no: '511',
+      status: 'mixing', meat: [],
+      started_at: new Date(Date.now() - 31 * 60_000).toISOString(),
+    }]
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getByText(/do końca masowania/i)).toBeInTheDocument())
+    expect(screen.queryByText(/Gotowe — odbierz/i)).toBeNull()
+  })
+
+  it('pracująca masownica się kręci — widać, że robota idzie', async () => {
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getByText(/do końca masowania/i)).toBeInTheDocument())
+    expect(document.querySelector('[data-testid="beben-masownicy"]')).toBeTruthy()
+  })
+
+  it('wolna masownica nie kręci niczym', async () => {
+    stan.wsady = []
+    render(<MasowanieHmiPage />)
+    await waitFor(() => expect(screen.getAllByText(/Wolna/i).length).toBeGreaterThan(0))
+    expect(document.querySelector('[data-testid="beben-masownicy"]')).toBeNull()
+  })
+})

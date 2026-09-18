@@ -24,7 +24,7 @@ import { HMI_VARS, HMI_FONT } from '@/features/hmi-theme/vars'
 import '@/features/hmi-theme/hmi-font.css'
 import { useAuth } from '@/features/auth/AuthContext'
 import { masowniaApi } from '@/lib/api'
-import { MACHINES, fitsMachine, maszyna as maszynaOId, maszynyDla, zapasNadNominalem } from '@/features/masownia/machines'
+import { MACHINES, fitsMachine, maszyna as maszynaOId, maszynyDla, minutyWsadu, zapasNadNominalem } from '@/features/masownia/machines'
 import { scaleIngredients, waterOf, kgNaWyjsciu, type SpiceItem } from '@/features/masownia/spiceCheck'
 import { useMasowniaData, type Charge, type SpiceCart } from '@/features/masownia/useMasowniaData'
 import { MachineRail, machineState } from '@/features/masownia/components/MachineRail'
@@ -135,6 +135,21 @@ export function MasowanieHmiPage() {
   const doOdbioru = wsady.filter(c => machineState(c, now) === 'ready')
   const wolneMaszyny = MACHINES.filter(m => !wsady.some(c => c.machine_id === m.id))
   const nastepne = kolejka.find(o => zostaloW(o.id) > 0)
+
+  // Średni cykl receptur, które ZOSTAŁY do zrobienia — ważony kilogramami.
+  // Dzień na samych „yaprakach" kończy się realnie wcześniej niż dzień na
+  // standardzie i prognoza ma to widzieć.
+  const sredniCykl = useMemo(() => {
+    let kg = 0, minuty = 0
+    for (const o of kolejka) {
+      const zostalo = Math.max(0, o.meatKg - o.kgDone)
+      if (zostalo <= 0) continue
+      const r = receptury.find((x: any) => x.id === (zlecenia.find((z: any) => z.id === o.id)?.recipeId))
+      kg += zostalo
+      minuty += zostalo * minutyWsadu({ mix_minutes: r?.mixingMinutes })
+    }
+    return kg > 0 ? minuty / kg : undefined
+  }, [kolejka, receptury, zlecenia])
 
   const planKg = kolejka.reduce((s, o) => s + o.meatKg, 0)
   const zrobioneKg = kolejka.reduce((s, o) => s + o.kgDone, 0)
@@ -410,7 +425,7 @@ export function MasowanieHmiPage() {
       <DayBar planKg={planKg} doneKg={zrobioneKg}
         inMachineKg={wsady.reduce((s, c) => s + Number(c.kg_meat || 0), 0)}
         preparedKg={pojemniki.reduce((s, p) => s + Number(p.kg_target || 0), 0)}
-        meatKg={miesoKg} now={now} />
+        meatKg={miesoKg} now={now} minutyCyklu={sredniCykl} />
 
       {odbior ? (
         <PickupDialog charge={odbior} busy={zapisuje}

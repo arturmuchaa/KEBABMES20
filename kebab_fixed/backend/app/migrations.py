@@ -642,6 +642,13 @@ _DDL: list[str] = [
 
     # ── QR per sztuka — Faza 2: termin przydatności w recepturze ──
     "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS shelf_life_days INTEGER NOT NULL DEFAULT 5",
+    # Czas masowania jest cechą receptury: standard 50 min, ale np. YAPRAK
+    # masuje się pół godziny. NULL = standard, żeby stare receptury nie
+    # udawały, że ktoś świadomie ustawił im czas.
+    "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS mixing_minutes INTEGER",
+    # Wsad niesie WŁASNĄ kopię czasu — receptura poprawiona w biurze nie może
+    # przesunąć maszyny, która już chodzi.
+    "ALTER TABLE mixing_charges ADD COLUMN IF NOT EXISTS mix_minutes INTEGER",
 
     # ── QR per sztuka — Faza 3: szablony etykiet (per klient+receptura) ──
     """CREATE TABLE IF NOT EXISTS label_templates (

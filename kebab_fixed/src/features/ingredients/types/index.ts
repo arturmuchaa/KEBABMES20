@@ -120,6 +120,8 @@ export interface Recipe {
   /** Łączna masa gotowego produktu na 100 kg mięsa (wyliczana) */
   readonly totalOutputPer100kg: number
   readonly shelfLifeDays: number          // dni przydatności do spożycia
+  /** Minuty masowania; null = standardowe 50, które liczy panel masowni. */
+  readonly mixingMinutes?: number | null
   readonly notes?:        string
   readonly active:        boolean
   readonly createdAt:     string
@@ -132,6 +134,7 @@ export interface CreateRecipeDto {
   ingredients:    Omit<RecipeIngredient, 'id' | 'ingredientName' | 'unit' | 'isUnlimited'>[]
   components?:    RecipeComponent[]
   shelfLifeDays?: number
+  mixingMinutes?: number | null
   notes?:         string
 }
 
@@ -141,6 +144,7 @@ export interface UpdateRecipeDto {
   ingredients?:   Omit<RecipeIngredient, 'id' | 'ingredientName' | 'unit' | 'isUnlimited'>[]
   components?:    RecipeComponent[]
   shelfLifeDays?: number
+  mixingMinutes?: number | null
   notes?:         string
   active?:        boolean
 }

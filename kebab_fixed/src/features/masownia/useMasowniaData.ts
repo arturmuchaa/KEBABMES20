@@ -34,6 +34,8 @@ export interface Charge {
   kg_meat: number
   water_l: number
   batch_no: string
+  /** Minuty cyklu skopiowane z receptury przy załadunku (null = standard 50). */
+  mix_minutes?: number | null
   status: string
   started_at: string
   meat: { pallet_id: string | null; lot_no: string; meat_stock_id: string | null; kg: number }[]

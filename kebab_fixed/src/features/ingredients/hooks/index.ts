@@ -121,6 +121,10 @@ export function useRecipeForm(initial?: Recipe) {
   const [productTypeId, setProductTypeId] = useState(initial?.productTypeId ?? '')
   const [notes,         setNotes]         = useState(initial?.notes ?? '')
   const [shelfLifeDays, setShelfLifeDays] = useState(initial?.shelfLifeDays ?? 5)
+  // Pusty = receptura bez własnego czasu; masownia liczy wtedy standardowe 50 min.
+  const [mixingMinutes, setMixingMinutes] = useState<string>(
+    initial?.mixingMinutes ? String(initial.mixingMinutes) : '',
+  )
   const [rows, setRows] = useState<{ ingredientId: string; qtyPer100kg: string }[]>(
     initial?.ingredients.map(r => ({
       ingredientId: r.ingredientId,
@@ -153,16 +157,17 @@ export function useRecipeForm(initial?: Recipe) {
     productTypeId: productTypeId || undefined,
     notes:         notes || undefined,
     shelfLifeDays,
+    mixingMinutes: parseInt(mixingMinutes) > 0 ? parseInt(mixingMinutes) : null,
     ingredients:   rows
       .filter(r => r.ingredientId && parseFloat(r.qtyPer100kg) > 0)
       .map(r => ({ ingredientId: r.ingredientId, qtyPer100kg: parseFloat(r.qtyPer100kg) })),
     components:    compRows
       .filter(c => c.materialTypeId && parseFloat(c.pct) > 0)
       .map(c => ({ materialTypeId: c.materialTypeId, materialName: c.materialName, pct: parseFloat(c.pct) })),
-  }), [name, productTypeId, notes, shelfLifeDays, rows, compRows])
+  }), [name, productTypeId, notes, shelfLifeDays, mixingMinutes, rows, compRows])
 
   const reset = useCallback(() => {
-    setName(''); setProductTypeId(''); setNotes(''); setShelfLifeDays(5)
+    setName(''); setProductTypeId(''); setNotes(''); setShelfLifeDays(5); setMixingMinutes('')
     setRows([{ ingredientId: '', qtyPer100kg: '' }])
     setCompRows([])
   }, [])
@@ -170,6 +175,7 @@ export function useRecipeForm(initial?: Recipe) {
   return {
     name, setName, productTypeId, setProductTypeId, notes, setNotes,
     shelfLifeDays, setShelfLifeDays,
+    mixingMinutes, setMixingMinutes,
     rows, setRows, addRow, removeRow, updateRow,
     compRows, setCompRows, compPctSum: Math.round(compPctSum * 100) / 100,
     sumPer100kg: Math.round(sumPer100kg * 1000) / 1000,

@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,6 +28,8 @@ class RecipeCreate(BaseModel):
     product_type_name: str = Field("", alias="productTypeName")
     total_output_per_100kg: float = Field(100, alias="totalOutputPer100kg")
     shelf_life_days: int = Field(5, alias="shelfLifeDays")
+    # Minuty masowania; None = standardowe 50 z panelu masowni.
+    mixing_minutes: Optional[int] = Field(None, alias="mixingMinutes")
     notes: str = ""
     ingredients: List[RecipeIngredientDto] = Field(default_factory=list)
     components: List[RecipeComponentDto] = Field(default_factory=list)

@@ -25,8 +25,26 @@ export function zapasNadNominalem(cap: number): number {
   return m ? m.max - m.cap : 0
 }
 
-/** Minuty masowania — tyle trzyma blokada maszyny w MES. */
+/** STANDARDOWE minuty masowania — tyle trwa cykl, jeśli receptura nie mówi
+ *  inaczej. Blokada maszyny w MES liczy się od tego czasu. */
 export const T_MIX_MIN = 50
+
+/**
+ * Ile minut masuje się TEN wsad.
+ *
+ * Czas mieszania jest cechą RECEPTURY (właściciel 18.09.2026: „standard to
+ * 50 minut, ale YAPRAK masuje się pół godziny"), ale wsad niesie własną kopię
+ * (`mix_minutes` zapisane przy załadunku). Dzięki temu receptura poprawiona
+ * w biurze w trakcie cyklu nie przesuwa maszyny, która już chodzi — tak samo
+ * jak zamrożony numer partii i wielkość wsadu.
+ *
+ * Zero albo wartość ujemna to błąd danych, nie „natychmiastowy odbiór":
+ * wracamy wtedy do standardu, żeby panel nie wołał o odbiór pustej maszyny.
+ */
+export function minutyWsadu(charge?: { mix_minutes?: number | null } | null): number {
+  const m = Number(charge?.mix_minutes ?? 0)
+  return Number.isFinite(m) && m > 0 ? m : T_MIX_MIN
+}
 
 /** Tolerancja wagi przypraw = DZIAŁKA wagi masowni: 100 g.
  *

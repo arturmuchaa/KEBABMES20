@@ -402,6 +402,23 @@ def _batch_no_of(lot_nos: List[str]) -> str:
     return ""
 
 
+def _minuty_cyklu(conn, order_id: str) -> Any:
+    """Minuty masowania z receptury zlecenia — KOPIOWANE na wsad.
+
+    Czas jest cechą receptury (YAPRAK 30 min, standard 50), ale wsad niesie
+    własną kopię: receptura poprawiona w biurze w trakcie cyklu nie ma prawa
+    przesunąć maszyny, która już chodzi. None = panel liczy standardowe 50.
+    """
+    row = cx_query_one(
+        conn,
+        "SELECT r.mixing_minutes FROM mixing_orders o "
+        "LEFT JOIN recipes r ON r.id = o.recipe_id WHERE o.id=%s",
+        (order_id,),
+    )
+    m = (row or {}).get("mixing_minutes")
+    return int(m) if m is not None and int(m) > 0 else None
+
+
 def load_charge(dto: ChargeCreate) -> Dict[str, Any]:
     """Załaduj masownicę: pojemnik z przyprawami + mięso + woda."""
     kg_meat = round(sum(float(m.kg) for m in dto.meat), 3)
@@ -434,11 +451,11 @@ def load_charge(dto: ChargeCreate) -> Dict[str, Any]:
             """
             INSERT INTO mixing_charges
                 (id, order_id, machine_id, cart_id, kg_meat, water_l, batch_no,
-                 status, started_at, spices)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,'mixing',%s,%s) RETURNING *
+                 mix_minutes, status, started_at, spices)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'mixing',%s,%s) RETURNING *
             """,
             (cuid(), dto.order_id, dto.machine_id, dto.cart_id, kg_meat,
-             dto.water_l, batch_no, now_iso(),
+             dto.water_l, batch_no, _minuty_cyklu(conn, dto.order_id), now_iso(),
              json.dumps([{
                  "seq": i.seq, "name": i.name, "unit": i.unit,
                  "qty": i.qty, "weighed": i.weighed, "manual": i.manual,
