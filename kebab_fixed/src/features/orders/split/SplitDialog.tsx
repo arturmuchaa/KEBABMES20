@@ -53,6 +53,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { cn, fmtKgTrim } from '@/lib/utils'
+import { CmrDaneTransportu, DOMYSLNE_DANE_TRANSPORTU, brakujeDanychPrzewoznika,
+         type DaneTransportu } from '@/components/cmr/CmrDaneTransportu'
 import { errStatus, orderSplitApi, palletScanApi, type SplitPreview, type SplitSaved,
          type SplitDocuments } from '@/lib/api'
 
@@ -182,6 +184,10 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
   const [issuing, setIssuing] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [hdiFv, setHdiFv] = useState(false)
+  // Dane transportu na OBA listy przewozowe. Do 19.09.2026 okno ich nie
+  // pytało i komplet wychodził z pustym CMR — bez przewoźnika, auta i numeru
+  // faktury. Kierowca z takim papierem nie ruszy.
+  const [transport, setTransport] = useState<DaneTransportu>(DOMYSLNE_DANE_TRANSPORTU)
   const [err, setErr] = useState('')
   const [needsCancel, setNeedsCancel] = useState(false)
   const [info, setInfo] = useState('')
@@ -377,12 +383,17 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
       ? 'WZ wewnętrzny (WM), WZ dla klienta, 2× CMR, HDI na całość i HDI do faktury'
       : 'WZ wewnętrzny (WM), WZ dla klienta, 2× CMR i HDI na całość'
     const przedZaladunkiem = !!zaladowane && zaladowane.loaded === 0
+    const bezPrzewoznika = brakujeDanychPrzewoznika(transport)
     const ok = window.confirm(
       `Wystawić komplet dokumentów?\n\nPowstaną: ${listaDokumentow}.\n\n` +
       (przedZaladunkiem
         ? 'UWAGA: auto nie jest jeszcze załadowane. Papiery opiszą PLAN, nie zawartość '
           + 'auta — jeśli czegoś zabraknie, skan pokaże rozjazd i dokumenty trzeba '
           + 'będzie poprawić.\n\n'
+        : '') +
+      (bezPrzewoznika
+        ? 'UWAGA: CMR-y pojadą BEZ danych przewoźnika i numeru auta. Kierowca z takim '
+          + 'listem przewozowym nie ruszy — uzupełnisz je potem w Dokumentach CMR.\n\n'
         : '') +
       'WZ wewnętrzny ZDEJMIE towar ze stanu magazynu wyrobów gotowych — cofniesz to ' +
       'TYLKO anulując cały komplet.')
@@ -415,7 +426,7 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
                'jest teraz to, co naprawdę leży w bazie — sprawdź go i wystaw jeszcze raz.')
         return
       }
-      const r = await orderSplitApi.documents(orderId, hdiFv)
+      const r = await orderSplitApi.documents(orderId, hdiFv, { ...transport })
       setDocuments(r)
     } catch (e: any) {
       const msg = e?.message || 'Nie udało się wystawić dokumentów'
@@ -684,6 +695,13 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
               {documents.hdi_fv && <DocRow label="HDI — do faktury" doc={documents.hdi_fv} typ="hdi" />}
             </div>
           )}
+        </div>
+
+        <div className="border-t border-surface-3 px-5 py-3">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-3">
+            Dane na listy przewozowe (CMR)
+          </div>
+          <CmrDaneTransportu wartosc={transport} onChange={setTransport} disabled={issuing} />
         </div>
 
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-surface-3 px-5 py-3">

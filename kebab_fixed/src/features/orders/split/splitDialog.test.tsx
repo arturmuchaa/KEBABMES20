@@ -8,6 +8,9 @@ const dokumenty = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve({})) }))
 const anuluj    = vi.hoisted(() => ({ fn: vi.fn(() => Promise.resolve({})) }))
 const wczytaj   = vi.hoisted(() => ({ fn: vi.fn() }))
 const zaladunek = vi.hoisted(() => ({ stan: { totals: { totalPallets: 2, loadedPallets: 0 } } as any }))
+const przewoznicy = vi.hoisted(() => ({
+  lista: [{ id: 'p1', name: 'TRANS-KOWALSKI', city: 'Kraków', defaultPlate: 'KR 12345' }] as any[],
+}))
 
 vi.mock('@/lib/api', () => ({
   // Ten sam odczyt kodu HTTP co w prawdziwym module — okno odróżnia po nim
@@ -23,6 +26,8 @@ vi.mock('@/lib/api', () => ({
   // Okno pyta, czy auto już wyjechało — od tego zależy ostrzeżenie, że
   // papiery opiszą PLAN, a nie zawartość auta.
   palletScanApi: { loadingStatus: () => Promise.resolve(zaladunek.stan) },
+  // Pola transportu na CMR pytają o kartotekę przewoźników.
+  carriersApi: { list: () => Promise.resolve(przewoznicy.lista) },
 }))
 
 import { SplitDialog } from './SplitDialog'
@@ -179,7 +184,8 @@ describe('SplitDialog', () => {
     wczytaj.fn.mockResolvedValue(zapisanyJak(8000))     // baza zgodna z ekranem
     fireEvent.click(screen.getByLabelText(/także HDI do faktury/i))
     fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
-    await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith('o1', true))
+    await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith(
+      'o1', true, expect.objectContaining({ instructions: expect.any(String) })))
     expect(screen.getByText('WM/1/09/2026')).toBeTruthy()
     // Important 2: akcja wycofania stoi obok numerów od razu — bez żadnej
     // wcześniejszej odmowy, bo tu WIADOMO na pewno, że dokumenty istnieją.
@@ -337,7 +343,8 @@ describe('SplitDialog', () => {
     await waitFor(() => expect(zapisz.fn).toHaveBeenLastCalledWith('o1', 9000, { l1: 9, l2: 25 }))
     wczytaj.fn.mockResolvedValue(zapisanyJak(9000))     // baza zgodna z ekranem
     fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
-    await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith('o1', false))
+    await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith(
+        'o1', false, expect.objectContaining({ instructions: expect.any(String) })))
   })
 
   it('spozniona odpowiedz podgladu nie wskrzesza tabeli po wyczyszczeniu pola', async () => {
@@ -375,7 +382,8 @@ describe('SplitDialog', () => {
     const przycisk = screen.getByRole('button', { name: /wystaw komplet dokumentów/i }) as HTMLButtonElement
     expect(przycisk.disabled).toBe(false)
     fireEvent.click(przycisk)
-    await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith('o1', false))
+    await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith(
+        'o1', false, expect.objectContaining({ instructions: expect.any(String) })))
     // Po drodze NIE było żadnego zapisu — czyli nie było czego nadpisać.
     expect(zapisz.fn).not.toHaveBeenCalled()
   })
@@ -462,7 +470,8 @@ describe('SplitDialog', () => {
     await waitFor(() => expect(screen.getByDisplayValue('8')).toBeTruthy())
     wczytaj.fn.mockResolvedValue(ZAPISANY)
     fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
-    await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith('o1', false))
+    await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith(
+        'o1', false, expect.objectContaining({ instructions: expect.any(String) })))
     expect(zapisz.fn).not.toHaveBeenCalled()
   })
 
@@ -697,5 +706,78 @@ describe('ostrzeżenie o wystawianiu przed załadunkiem', () => {
     render(<SplitDialog orderId="o1" onClose={() => {}} />)
     await waitFor(() => expect(wczytaj.fn).toHaveBeenCalled())
     expect(screen.queryByTestId('ostrzezenie-przed-zaladunkiem')).toBeNull()
+  })
+})
+
+// ── Dane transportu na CMR ───────────────────────────────────────────
+//
+// Biuro (19.09.2026): „jak wystawiam CMR pod fakturę lub na całość, nie mogę
+// wpisać nr faktury oraz danych przewoźnika — to duży problem". Okno wysyłało
+// do wystawienia SAMO `{hdi_fv}`, więc oba listy przewozowe powstawały
+// z pustego formularza. Backend te pola miał od początku — nie miał ich kto
+// podać.
+describe('dane transportu na listy przewozowe', () => {
+  async function doWystawienia() {
+    podglad.fn.mockResolvedValue(ODPOWIEDZ)
+    zapisz.fn.mockResolvedValue(ODPOWIEDZ)
+    dokumenty.fn.mockResolvedValue({
+      order_id: 'o1', wm: { id: 'wm1', number: 'WM/1' }, wz: { id: 'wz1', number: 'WZ/2' },
+      cmr: [{ id: 'c1', number: 'CMR/1' }, { id: 'c2', number: 'CMR/2' }],
+      hdi_calosc: { id: 'h1', number: 'HDI/1' }, hdi_fv: null,
+    })
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    fireEvent.change(screen.getByLabelText(/na fakturę/i), { target: { value: '8000' } })
+    await waitFor(() => expect(screen.getByText('KIRMIZI')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /zapisz podział/i }))
+    await waitFor(() => expect(zapisz.fn).toHaveBeenCalled())
+    wczytaj.fn.mockResolvedValue(zapisanyJak(8000))
+  }
+
+  it('okno pyta o przewoźnika, auto i numer faktury', async () => {
+    podglad.fn.mockResolvedValue(ODPOWIEDZ)
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    expect(await screen.findByTestId('cmr-przewoznik')).toBeTruthy()
+    expect(screen.getByTestId('cmr-auto')).toBeTruthy()
+    expect(screen.getByTestId('cmr-faktura')).toBeTruthy()
+  })
+
+  it('wybór przewoźnika podpowiada jego numer rejestracyjny', async () => {
+    podglad.fn.mockResolvedValue(ODPOWIEDZ)
+    render(<SplitDialog orderId="o1" onClose={() => {}} />)
+    const wybor = await screen.findByTestId('cmr-przewoznik')
+    await waitFor(() => expect((wybor as HTMLSelectElement).options.length).toBeGreaterThan(1))
+
+    fireEvent.change(wybor, { target: { value: 'p1' } })
+
+    await waitFor(() =>
+      expect((screen.getByTestId('cmr-auto') as HTMLInputElement).value).toBe('KR 12345'))
+  })
+
+  it('wpisane dane LECĄ do wystawienia kompletu', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await doWystawienia()
+
+    fireEvent.change(screen.getByTestId('cmr-przewoznik'), { target: { value: 'p1' } })
+    fireEvent.change(screen.getByTestId('cmr-faktura'), { target: { value: 'FV 11/09/2026' } })
+    fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
+
+    await waitFor(() => expect(dokumenty.fn).toHaveBeenCalledWith('o1', false,
+      expect.objectContaining({
+        carrier_id: 'p1',
+        plate: 'KR 12345',
+        invoice_no: 'FV 11/09/2026',
+      })))
+  })
+
+  it('brak przewoźnika OSTRZEGA przed wystawieniem, ale nie blokuje', async () => {
+    const pytanie = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    await doWystawienia()
+
+    fireEvent.click(screen.getByRole('button', { name: /wystaw komplet dokumentów/i }))
+
+    await waitFor(() => expect(dokumenty.fn).toHaveBeenCalled())
+    const wywolania = pytanie.mock.calls
+    const tresc = wywolania[wywolania.length - 1]?.[0] as string
+    expect(tresc).toMatch(/BEZ danych przewoźnika/i)
   })
 })

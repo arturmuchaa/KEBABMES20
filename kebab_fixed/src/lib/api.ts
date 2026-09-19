@@ -1902,8 +1902,13 @@ export const orderSplitApi = {
       cel_kg: celKg,
       ...(perLine && Object.keys(perLine).length ? { per_line: perLine } : {}),
     }),
-  documents: (orderId: string, hdiFv: boolean) =>
-    post<SplitDocuments>(`/client-orders/${orderId}/split/documents`, { hdi_fv: hdiFv }),
+  /** `cmr` — dane transportu na OBA listy przewozowe. Bez nich komplet
+   *  wychodził bez przewoźnika, auta i numeru faktury: backend przyjmował te
+   *  pola od początku (`CmrForm`), tylko nie miał ich kto podać
+   *  (biuro, 19.09.2026). */
+  documents: (orderId: string, hdiFv: boolean, cmr?: Record<string, unknown>) =>
+    post<SplitDocuments>(`/client-orders/${orderId}/split/documents`,
+      cmr ? { hdi_fv: hdiFv, cmr } : { hdi_fv: hdiFv }),
   // Wyjście ze ślepego zaułka: zwraca towar na stan i zwalnia podział do
   // ponownej edycji (patrz komentarz w `split_documents_service.anuluj_dokumenty_podzialu`).
   cancelDocuments: (orderId: string) =>

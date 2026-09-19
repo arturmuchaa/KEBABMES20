@@ -7,6 +7,8 @@ Funkcje routera wołamy WPROST, nie przez `TestClient`: `auth_middleware`
 zwykły kod, a fixture `db` dokłada prawdziwą bazę tam, gdzie trasa realnie
 zapisuje dokumenty.
 """
+
+import json
 import pytest
 from fastapi import HTTPException
 
@@ -635,3 +637,39 @@ def test_podzial_DALEJ_dostaje_wz_klienta(db):
     dane = route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=False))
 
     assert dane["wm"] and dane["wz"], dane
+
+
+# ── Dane transportu na OBU listach przewozowych ──────────────────────
+#
+# Biuro (19.09.2026): „jak wystawiam CMR pod fakturę lub na całość, nie mogę
+# wpisać nr faktury oraz danych przewoźnika — to duży problem". Backend te pola
+# przyjmował od początku (`CmrForm`), ale okno podziału wysyłało samo
+# `{hdi_fv}`, więc komplet wychodził z pustym formularzem. Ten test pilnuje
+# DRUGIEJ strony umowy: że podane dane naprawdę lądują na dokumentach.
+def _przewoznik(cid="p1", name="TRANS-KOWALSKI", plate="KR 12345"):
+    execute(
+        "INSERT INTO carriers (id, name, city, default_plate) VALUES (%s,%s,'Kraków',%s) "
+        "ON CONFLICT (id) DO NOTHING", (cid, name, plate))
+    return cid
+
+
+def test_dane_przewoznika_i_faktury_ladują_na_OBU_cmr(db):
+    _przewoznik()
+    _przygotuj_z_podzialem(cel_kg=300.0)
+
+    route.wystaw_komplet("o1", route.KompletDokumentow(
+        hdi_fv=False,
+        cmr={"carrier_id": "p1", "plate": "KR 99999",
+             "invoice_no": "FV 11/09/2026", "instructions": "TRANSPORT MROŻNICZY -22"},
+    ))
+
+    wiersze = query_all(
+        "SELECT scope, carrier_id, payload FROM cmr_documents WHERE order_id='o1'")
+    assert len(wiersze) == 2, wiersze
+    for r in wiersze:
+        assert r["carrier_id"] == "p1", (r["scope"], r["carrier_id"])
+        payload = r["payload"]
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        assert payload["carrier"]["plate"] == "KR 99999", r["scope"]
+        assert "FV 11/09/2026" in json.dumps(payload, ensure_ascii=False), r["scope"]
