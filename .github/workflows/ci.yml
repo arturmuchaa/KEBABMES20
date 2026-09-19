@@ -69,6 +69,12 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements_dev.txt
+      # Skan HDI prostuje się przez `tesseract` (OSD) i `poppler` (pdftoppm,
+      # pdfimages). Bez nich `prepare_scan` łapie wyjątek i ODDAJE ORYGINAŁ —
+      # kod się nie wywraca, tylko cicho nie robi swojego, a test archiwum
+      # słusznie to wyłapuje. Produkcja te narzędzia ma; runner nie miał.
+      - name: Narzędzia skanu HDI (tesseract, poppler)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq tesseract-ocr poppler-utils
       # Schemat zakładamy DOKŁADNIE tak, jak opisuje `tests/conftest.py`:
       # najpierw `init_db.SCHEMA`, potem migracje — czyli to samo, co robi
       # backend przy starcie. Dzięki temu CI sprawdza także migracje.
