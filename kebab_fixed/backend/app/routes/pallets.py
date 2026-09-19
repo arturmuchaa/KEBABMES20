@@ -59,6 +59,21 @@ def zaladunek(loading_id: str):
     return loading_service.zaladunek(loading_id)
 
 
+@router.post("/zaladunki/{loading_id}/wystaw")
+def zaladunek_wystaw(loading_id: str, body: dict):
+    """Biuro wystawia komplet dla kursu — decyzja per odbiorca.
+
+    `orders`: [{"order_id", "cel_kg"}] — `cel_kg` to kilogramy NA FAKTURĘ;
+    „całość na fakturę" to `cel_kg` równe całemu zamówieniu.
+    """
+    return loading_service.wystaw_z_kursu(
+        loading_id,
+        (body or {}).get("orders") or [],
+        (body or {}).get("cmr") or {},
+        bool((body or {}).get("hdi_fv")),
+    )
+
+
 @router.post("/zaladunki/{loading_id}/wydrukowano")
 def zaladunek_wydrukowano(loading_id: str, body: dict | None = None):
     return loading_service.oznacz_wydrukowany(

@@ -2249,6 +2249,8 @@ export interface ZaladunekDoWydruku {
   klienci: string[]
   dokumentow: number
   rozjazd: boolean
+  /** Kurs czeka na BIURO — skan papieru nie wystawia. */
+  doWystawienia: boolean
 }
 export const zaladunkiApi = {
   doWydruku: () =>
@@ -2260,8 +2262,15 @@ export const zaladunkiApi = {
         klienci: Array.isArray(r.klienci) ? r.klienci.filter(Boolean) : [],
         dokumentow: Number(r.dokumentow ?? 0),
         rozjazd: !!r.rozjazd,
+        doWystawienia: !!r.do_wystawienia,
       }))),
   get: (id: string) => get<any>(`/pallets/zaladunki/${encodeURIComponent(id)}`),
+  /** Biuro wystawia komplet dla kursu. `celKg` to kilogramy NA FAKTURĘ;
+   *  „całość na fakturę" to `celKg` równe całemu zamówieniu. */
+  wystaw: (id: string, orders: Array<{ order_id: string; cel_kg: number }>,
+           cmr: Record<string, unknown>, hdiFv = false) =>
+    post<any>(`/pallets/zaladunki/${encodeURIComponent(id)}/wystaw`,
+      { orders, cmr, hdi_fv: hdiFv }),
   wydrukowano: (id: string, operator = '') =>
     post<{ ok: boolean }>(`/pallets/zaladunki/${encodeURIComponent(id)}/wydrukowano`,
       { operator }),

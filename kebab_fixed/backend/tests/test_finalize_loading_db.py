@@ -126,8 +126,15 @@ def _przygotuj(qty=10, kg=30):
 
 
 # ── Ścieżka 1: dokumenty powstają PRZY załadunku ──────────────────────────
-def test_zaladunek_bez_wz_wystawia_dokument(db):
-    """Nie ma WZ — załadunek go tworzy z faktycznej zawartości auta."""
+def test_zaladunek_bez_dokumentu_NIE_wystawia_papieru(db):
+    """Skan ZAPISUJE kurs; papiery wystawia biuro.
+
+    Właściciel (12.09.2026): „magazynier potwierdza załadunek, a biuro dostaje
+    informację i drukuje dokument — magazynier nie ma drukarki ani uprawnień".
+    Do tej pory skan sam wystawiał zwykły WZ, przez co biuro nie miało już
+    czego dzielić na fakturę i WZ: `wystaw_komplet` odmawia, gdy na zamówieniu
+    leży gotowy dokument.
+    """
     _przygotuj()
 
     wynik = finalize_loading("v1", ["o1"], plate="KR 99999")
@@ -135,17 +142,37 @@ def test_zaladunek_bez_wz_wystawia_dokument(db):
     assert wynik["ok"] is True
     zam = wynik["orders"][0]
     assert zam.get("skipped") is None, zam
-    assert zam["wz_number"], "załadunek nie wystawił WZ"
-    assert zam["wz_status"] == "potwierdzony"
+    assert zam["wz_number"] is None, "skan nie ma prawa wystawić papieru"
+    assert zam["wz_status"] == "do_wystawienia"
     assert zam["units"] == 10
+    assert query_all("SELECT id FROM wz_documents") == []
 
 
-def test_zaladunek_zdejmuje_stan_magazynu(db):
+def test_zaladunek_bez_dokumentu_NIE_zdejmuje_stanu(db):
+    """Stan schodzi dopiero przy wystawieniu kompletu przez biuro.
+
+    Świadomie przyjęte okno: między odjazdem auta a wystawieniem papierów
+    magazyn pokazuje towar, którego fizycznie nie ma. Karta na pulpicie jest
+    po to, żeby było krótkie i widoczne.
+    """
     _przygotuj()
     finalize_loading("v1", ["o1"], plate="KR 99999")
 
     fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
-    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10)
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (10, 0)
+
+
+def test_zaladunek_zapisuje_CO_wyjechalo(db):
+    """Bez tego biuro wystawiałoby papiery z planu, a nie z auta."""
+    _przygotuj()
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    poz = query_one(
+        "SELECT pozycje FROM loading_orders lo JOIN loadings l ON l.id=lo.loading_id "
+        "WHERE lo.order_id='o1'")["pozycje"]
+    if isinstance(poz, str):
+        poz = json.loads(poz)
+    assert [(p["stock_id"], p["szt"]) for p in poz] == [("f1", 10)], poz
 
 
 def test_zaladunek_zamyka_palety_i_sztuki(db):
@@ -158,27 +185,33 @@ def test_zaladunek_zamyka_palety_i_sztuki(db):
     assert statusy == {"shipped"}
 
 
-def test_wz_z_zaladunku_ma_slad_auta(db):
-    """Kontrola musi widzieć, czym towar pojechał i kiedy."""
+def test_kurs_niesie_slad_auta(db):
+    """Kontrola musi widzieć, czym towar pojechał i kiedy.
+
+    Ślad przeniósł się z dokumentu na KURS: skan nie wystawia już papieru,
+    więc nie ma czego stemplować numerem auta. Kurs jest teraz jedynym
+    zapisem tego, że coś wyjechało, zanim biuro wystawi komplet.
+    """
     _przygotuj()
     finalize_loading("v1", ["o1"], plate="KR 99999")
 
-    wz = query_one("SELECT vehicle_plate, loaded_at, loading_status FROM wz_documents "
-                   "WHERE source_id='o1'")
-    assert wz["vehicle_plate"] == "KR 99999"
-    assert wz["loaded_at"] is not None
-    assert wz["loading_status"] == "potwierdzony"
+    kurs = query_one("SELECT plate, finished_at FROM loadings")
+    assert kurs["plate"] == "KR 99999"
+    assert kurs["finished_at"] is not None
 
 
-def test_zaladunek_jest_idempotentny(db):
-    """Drugie kliknięcie nie może wystawić drugiego WZ ani zdjąć stanu dwa razy."""
+def test_powtorne_potwierdzenie_nie_dubluje_wydania(db):
+    """Drugie kliknięcie nie wystawia papieru ani nie rusza stanu.
+
+    Palety są już `shipped`, więc drugi przebieg nie ma czego załadować.
+    """
     _przygotuj()
     finalize_loading("v1", ["o1"], plate="KR 99999")
     finalize_loading("v1", ["o1"], plate="KR 99999")
 
-    assert len(query_all("SELECT id FROM wz_documents WHERE source_id='o1'")) == 1
+    assert query_all("SELECT id FROM wz_documents") == []
     fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
-    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10)
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (10, 0)
 
 
 # ── Ścieżka 2: WZ przygotowany wcześniej, załadunek go WERYFIKUJE ─────────
@@ -289,9 +322,8 @@ def _wyrob_z_data(gid, qty, produced, kg=30, order_no=None):
         (gid, f"{produced} 500", qty, kg, qty * kg, qty, order_no, produced))
 
 
-def test_paleta_bez_sztuk_wystawia_wz_z_rozpisu(db):
-    """Rozpisana paleta + skan = dokument. Bez tego jutrzejszy załadunek
-    kończy się „brak załadowanych sztuk" i biuro nie ma papieru."""
+def test_paleta_bez_sztuk_zapisuje_rozpis_na_kursie(db):
+    """Rozpisana paleta + skan = ZAPIS na kursie. Papier wystawia biuro."""
     _firma(); _pojazd(); _klient(); _receptura()
     _zamowienie(qty=10, kg=30)
     _wyrob(qty=10, kg=30)
@@ -301,23 +333,29 @@ def test_paleta_bez_sztuk_wystawia_wz_z_rozpisu(db):
     zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
 
     assert zam.get("skipped") is None, zam
-    assert zam["wz_number"], "paleta z rozpisu nie wystawiła dokumentu"
-    assert zam["wz_status"] == "potwierdzony"
+    assert zam["wz_number"] is None, "skan nie wystawia papieru"
+    assert zam["wz_status"] == "do_wystawienia"
+    assert zam["pozycje"], "rozpis miał zostać zapisany na kursie"
 
 
-def test_wz_z_rozpisu_zdejmuje_stan_i_zamyka_palete(db):
+def test_rozpis_zamyka_palete_ale_NIE_zdejmuje_stanu(db):
+    """Paleta FIZYCZNIE wyjechała, więc zamyka się od razu. Stan schodzi
+    dopiero przy wystawieniu kompletu przez biuro."""
     _firma(); _pojazd(); _klient(); _receptura()
     _zamowienie(qty=10, kg=30); _wyrob(qty=10, kg=30); _paleta(); _pozycja_palety(qty=10)
 
     finalize_loading("v1", ["o1"], plate="KR 99999")
 
     fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
-    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10)
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (10, 0)
     assert query_one("SELECT status FROM order_pallets WHERE id='p1'")["status"] == "shipped"
 
 
-def test_partie_schodza_od_NAJSTARSZEJ(db):
-    """„Partie brać od najstarszych z magazynu" — wprost z polecenia biura."""
+def test_partie_brane_od_NAJSTARSZEJ(db):
+    """„Partie brać od najstarszych z magazynu" — wprost z polecenia biura.
+
+    Stanu skan już nie rusza, więc reguła jest widoczna w TYM, co kurs
+    zapisał jako wyjeżdżające — i to z tego powstanie papier."""
     _firma(); _pojazd(); _klient(); _receptura()
     _zamowienie(qty=10, kg=30)
     _wyrob_z_data("f-nowa", qty=10, produced="2026-09-08")
@@ -326,14 +364,12 @@ def test_partie_schodza_od_NAJSTARSZEJ(db):
 
     finalize_loading("v1", ["o1"], plate="KR 99999")
 
-    stara = query_one("SELECT qty_available FROM finished_goods WHERE id='f-stara'")
-    nowa = query_one("SELECT qty_available FROM finished_goods WHERE id='f-nowa'")
-    assert int(stara["qty_available"]) == 0, "najstarsza partia miała zejść pierwsza"
-    assert int(nowa["qty_available"]) == 10, "nowsza partia miała zostać na stanie"
+    poz = _pozycje_kursu("o1")
+    assert [(x["stock_id"], x["szt"]) for x in poz] == [("f-stara", 10)], poz
 
 
 def test_jada_TYLKO_zeskanowane_palety(db):
-    """Paleta bez skanu zostaje w magazynie — dokument jej nie obejmuje."""
+    """Paleta bez skanu zostaje w magazynie — kurs jej nie obejmuje."""
     _firma(); _pojazd(); _klient(); _receptura()
     _zamowienie(qty=20, kg=30); _wyrob(qty=20, kg=30)
     _paleta("p1", nr=1, status="loaded"); _pozycja_palety("p1", qty=10, iid="pi1")
@@ -341,11 +377,12 @@ def test_jada_TYLKO_zeskanowane_palety(db):
 
     finalize_loading("v1", ["o1"], plate="KR 99999")
 
+    assert sum(x["szt"] for x in _pozycje_kursu("o1")) == 10
     fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
-    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (10, 10)
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (20, 0)
 
 
-def test_kilka_palet_sumuje_sie_w_jeden_dokument(db):
+def test_kilka_palet_sumuje_sie_w_JEDEN_kurs(db):
     _firma(); _pojazd(); _klient(); _receptura()
     _zamowienie(qty=20, kg=30); _wyrob(qty=20, kg=30)
     _paleta("p1", nr=1); _pozycja_palety("p1", qty=12, iid="pi1")
@@ -354,9 +391,8 @@ def test_kilka_palet_sumuje_sie_w_jeden_dokument(db):
     zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
 
     assert zam["pallets"] == 2
-    assert len(query_all("SELECT id FROM wz_documents WHERE source_id='o1'")) == 1
-    fg = query_one("SELECT qty_shipped FROM finished_goods WHERE id='f1'")
-    assert int(fg["qty_shipped"]) == 20
+    assert len(query_all("SELECT id FROM loadings")) == 1, "dwie palety = JEDEN kurs"
+    assert sum(x["szt"] for x in _pozycje_kursu("o1")) == 20
 
 
 def test_za_malo_na_stanie_zatrzymuje_zaladunek_z_rozpisu(db):
@@ -370,15 +406,17 @@ def test_za_malo_na_stanie_zatrzymuje_zaladunek_z_rozpisu(db):
 
 
 def test_rozpis_jest_idempotentny(db):
+    """Drugi skan tego samego rozpisu nie dubluje wydania."""
     _firma(); _pojazd(); _klient(); _receptura()
     _zamowienie(qty=10, kg=30); _wyrob(qty=10, kg=30); _paleta(); _pozycja_palety(qty=10)
 
     finalize_loading("v1", ["o1"], plate="KR 99999")
     finalize_loading("v1", ["o1"], plate="KR 99999")
 
-    assert len(query_all("SELECT id FROM wz_documents WHERE source_id='o1'")) == 1
+    assert query_all("SELECT id FROM wz_documents") == []
+    assert sum(x["szt"] for x in _pozycje_kursu("o1")) == 10
     fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
-    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10)
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (10, 0)
 
 
 def test_sztuki_qr_maja_pierwszenstwo_nad_rozpisem(db):
@@ -388,8 +426,8 @@ def test_sztuki_qr_maja_pierwszenstwo_nad_rozpisem(db):
 
     finalize_loading("v1", ["o1"], plate="KR 99999")
 
-    fg = query_one("SELECT qty_shipped FROM finished_goods WHERE id='f1'")
-    assert int(fg["qty_shipped"]) == 10, "policzono dwa razy: sztuki i rozpis"
+    assert sum(x["szt"] for x in _pozycje_kursu("o1")) == 10, \
+        "policzono dwa razy: sztuki i rozpis"
 
 
 # ── Ścieżka 3: zamówienie z PODZIAŁEM na fakturę ──────────────────────────
@@ -443,6 +481,19 @@ def _przygotuj_podzial(qty=10, kg=30, cel_kg=180.0, na_stanie=20):
             "WHERE source_id='o1' AND split_scope='wz_klienta'")
     execute("UPDATE wz_documents SET created_at = now() - interval '10 minutes' "
             "WHERE source_id='o1' AND split_scope='calosc'")
+
+
+def _pozycje_kursu(oid="o1"):
+    """Co kurs zapisał jako wyjeżdżające z tego zamówienia.
+
+    Od 12.09.2026 to JEDYNY zapis zawartości auta do chwili, aż biuro wystawi
+    komplet — skan papieru już nie tworzy.
+    """
+    row = query_one(
+        "SELECT lo.pozycje FROM loading_orders lo JOIN loadings l ON l.id = lo.loading_id "
+        "WHERE lo.order_id=%s ORDER BY l.finished_at DESC LIMIT 1", (oid,))
+    poz = (row or {}).get("pozycje") or []
+    return json.loads(poz) if isinstance(poz, str) else poz
 
 
 def _wm(oid="o1"):
@@ -534,8 +585,9 @@ def test_anulowanie_kompletu_PRZED_zaladunkiem_dziala(db):
 
 
 def test_ANULOWANY_wz_nie_jest_kandydatem_przy_zaladunku(db):
-    """Anulowanie zwróciło towar na stan — załadunek musi wystawić dokument
-    na nowo, a nie podpiąć się pod papier, który już nic nie wydaje."""
+    """Anulowanie zwróciło towar na stan — załadunek nie może podpiąć się pod
+    papier, który już nic nie wydaje. Trafia więc do ścieżki ZAPISU kursu,
+    z której biuro wystawi komplet na nowo."""
     _przygotuj(qty=10, kg=30)
     _wz_zamowienia(linie=[_linia_wz(qty=10, kg=30)])
     execute("UPDATE wz_documents SET status='anulowany' WHERE id='w1'")
@@ -543,8 +595,10 @@ def test_ANULOWANY_wz_nie_jest_kandydatem_przy_zaladunku(db):
     zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
 
     assert zam["wz_id"] != "w1", "podpięto załadunek pod anulowany dokument"
+    assert zam["wz_status"] == "do_wystawienia"
+    assert sum(x["szt"] for x in _pozycje_kursu("o1")) == 10
     fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
-    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10)
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (10, 0)
 
 
 # ── WM zdejmuje stan DO SZTUKI, a załadunek liczy zawartość auta drugi raz ─
@@ -651,7 +705,10 @@ def test_niedobor_po_WM_nie_blokuje_CALEGO_auta(db):
 
     wg_zam = {z["order_id"]: z for z in wynik["orders"]}
     assert wg_zam["o2"].get("skipped") is None, "zamówienie bez podziału nie pojechało"
-    assert wg_zam["o2"]["wz_number"], "drugie zamówienie na aucie zostało bez papieru"
+    # Zamówienie BEZ dokumentu nie dostaje już papieru przy skanie — trafia do
+    # ścieżki zapisu kursu, z której komplet wystawi biuro.
+    assert wg_zam["o2"]["wz_status"] == "do_wystawienia", wg_zam["o2"]
+    assert wg_zam["o2"]["pozycje"], "kurs nie zapisał, co wyjechało"
     assert wg_zam["o1"].get("skipped") is None, wg_zam["o1"]
 
 
@@ -767,13 +824,13 @@ def test_BEZ_podzialu_nowa_sciezka_w_ogole_sie_nie_odpala(db, monkeypatch):
     # (1) bez żadnego dokumentu, załadunek z rozpisu palet
     _firma(); _pojazd(); _klient(); _receptura()
     _zamowienie(qty=10, kg=30); _wyrob(qty=10, kg=30); _paleta(); _pozycja_palety(qty=10)
-    assert finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]["wz_number"]
+    assert finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]["pozycje"]
 
     # (2) sztuki QR na palecie, bez dokumentu
     _zamowienie(oid="o2", order_no="YALCIN/Z/6/09/26", qty=5, kg=25)
     _wyrob_z_data("f2", qty=5, produced="2026-09-05", kg=25)
     _paleta("p2", "o2", nr=2); _sztuki("p2", "f2", ile=5, kg=25, oid="o2", od=100)
-    assert finalize_loading("v1", ["o2"], plate="KR 99999")["orders"][0]["wz_number"]
+    assert finalize_loading("v1", ["o2"], plate="KR 99999")["orders"][0]["pozycje"]
 
     # (3) zwykły WZ przygotowany WCZEŚNIEJ + sztuki QR
     _zamowienie(oid="o3", order_no="YALCIN/Z/7/09/26", qty=3, kg=20)
@@ -931,7 +988,9 @@ def test_potwierdzenie_zaladunku_zostawia_slad_dla_biura(db):
     assert len(do_druku) == 1, do_druku
     assert do_druku[0]["plate"] == "KR 99999"
     assert do_druku[0]["klienci"] == ["YBM Gastro GmbH"]
-    assert do_druku[0]["dokumentow"] >= 1
+    # Skan papieru nie wystawia, więc kurs czeka na BIURO, nie na drukarkę.
+    assert do_druku[0]["dokumentow"] == 0
+    assert do_druku[0]["do_wystawienia"] is True
 
 
 def test_wydrukowany_zaladunek_znika_z_pulpitu(db):
@@ -1013,3 +1072,100 @@ def test_pominiete_zamowienie_nie_robi_pustej_karty(db):
     finalize_loading("v1", ["o1"], plate="KR 99999")
 
     assert zaladunki_do_wydruku() == []
+
+
+# ── BIURO wystawia komplet z kursu ───────────────────────────────────
+#
+# Druga połowa odwróconej kolejności: skan zapisał, co wyjechało, a teraz
+# biuro decyduje PER ODBIORCA — „całość na fakturę" albo „podziel X kg" —
+# i dopiero to zdejmuje stan magazynu.
+#
+# Dokumenty buduje ISTNIEJĄCY, przejrzany potok (`zapisz_podzial` →
+# `wystaw_komplet`), a nie druga, równoległa ścieżka: dwa potoki na te same
+# papiery rozjechałyby się prędzej czy później. Zapis kursu służy do
+# rozliczenia ich z tym, co naprawdę wyjechało.
+_FORMA_CMR = {"carrier_id": "", "plate": "KR 99999", "invoice_no": "FV 1/09/2026",
+              "instructions": "TRANSPORT MROŻNICZY -22"}
+
+
+def _kurs_do_wystawienia(qty=10, kg=30):
+    _przygotuj(qty=qty, kg=kg)
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+    from app.services.loading_service import zaladunki_do_wydruku
+    return zaladunki_do_wydruku()[0]["id"]
+
+
+def test_biuro_wystawia_komplet_z_kursu_calosc_na_fakture(db):
+    from app.services.loading_service import wystaw_z_kursu
+    kurs = _kurs_do_wystawienia()
+
+    wynik = wystaw_z_kursu(kurs, [{"order_id": "o1", "cel_kg": 300.0}], _FORMA_CMR)
+
+    assert wynik["orders"][0]["wm"]["number"].startswith("WM/"), wynik
+    # Całość na fakturę: WZ dla klienta nie powstaje (nie ma części
+    # niefakturowanej), ale WM zdejmuje stan na całe zamówienie.
+    assert wynik["orders"][0]["wz"] is None
+    fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10)
+
+
+def test_biuro_dzieli_na_fakture_i_WZ(db):
+    from app.services.loading_service import wystaw_z_kursu
+    kurs = _kurs_do_wystawienia()
+
+    wynik = wystaw_z_kursu(kurs, [{"order_id": "o1", "cel_kg": 180.0}], _FORMA_CMR)
+
+    poz = wynik["orders"][0]
+    assert poz["wm"]["number"].startswith("WM/")
+    assert poz["wz"]["number"].startswith("WZ/"), "część niefakturowana bez WZ"
+
+
+def test_po_wystawieniu_kurs_przestaje_czekac_na_biuro(db):
+    from app.services.loading_service import wystaw_z_kursu, zaladunki_do_wydruku
+    kurs = _kurs_do_wystawienia()
+
+    wystaw_z_kursu(kurs, [{"order_id": "o1", "cel_kg": 300.0}], _FORMA_CMR)
+
+    karta = zaladunki_do_wydruku()[0]
+    assert karta["do_wystawienia"] is False, "karta dalej prosi o wystawienie"
+    assert karta["dokumentow"] >= 1, "kurs nie pokazuje wystawionych papierów"
+
+
+def test_powtorne_wystawienie_nie_dubluje_dokumentow(db):
+    """Drugie kliknięcie oddaje TE SAME papiery i nie zdejmuje stanu dwa razy."""
+    from app.services.loading_service import wystaw_z_kursu
+    kurs = _kurs_do_wystawienia()
+
+    a = wystaw_z_kursu(kurs, [{"order_id": "o1", "cel_kg": 300.0}], _FORMA_CMR)
+    b = wystaw_z_kursu(kurs, [{"order_id": "o1", "cel_kg": 300.0}], _FORMA_CMR)
+
+    assert a["orders"][0]["wm"]["number"] == b["orders"][0]["wm"]["number"]
+    fg = query_one("SELECT qty_available, qty_shipped FROM finished_goods WHERE id='f1'")
+    assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10)
+
+
+def test_zamowienie_spoza_kursu_odmawia(db):
+    """Biuro nie może wystawić z kursu papierów na zamówienie, które nim nie
+    jechało — to jest cała wartość zapisu kursu."""
+    from fastapi import HTTPException
+    from app.services.loading_service import wystaw_z_kursu
+    kurs = _kurs_do_wystawienia()
+    _zamowienie(oid="o9", order_no="YALCIN/Z/9/09/26", qty=5, kg=30)
+
+    with pytest.raises(HTTPException) as e:
+        wystaw_z_kursu(kurs, [{"order_id": "o9", "cel_kg": 150.0}], _FORMA_CMR)
+    assert e.value.status_code == 400
+
+
+def test_widok_kursu_pokazuje_ile_WYJECHALO(db):
+    """Biuro musi zobaczyć zawartość auta, zanim zdecyduje o podziale —
+    inaczej „całość na fakturę" byłoby wpisywaniem liczby w ciemno."""
+    from app.services.loading_service import zaladunek, zaladunki_do_wydruku
+    _przygotuj(qty=10, kg=30)
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    poz = zaladunek(zaladunki_do_wydruku()[0]["id"])["pozycje"][0]
+
+    assert poz["wz_status"] == "do_wystawienia"
+    assert poz["kg_zaladowane"] == 300.0, poz
+    assert [(x["stock_id"], x["szt"]) for x in poz["zaladowano"]] == [("f1", 10)]

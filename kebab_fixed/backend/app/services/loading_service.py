@@ -509,15 +509,24 @@ def zaladunek(loading_id: str) -> Dict[str, Any]:
         raise HTTPException(404, "Kurs nie znaleziony")
     pozycje = []
     for r in query_all(
-            "SELECT lo.order_id, lo.wz_status, o.order_no, o.client_name "
+            "SELECT lo.order_id, lo.wz_status, lo.pozycje, o.order_no, o.client_name "
             "FROM loading_orders lo LEFT JOIN client_orders o ON o.id = lo.order_id "
             "WHERE lo.loading_id=%s ORDER BY o.client_name", (loading_id,)):
         oid = r["order_id"]
+        # Co FAKTYCZNIE wyjechało — z tego biuro widzi, ile jest „całością",
+        # gdy wybiera „wszystko na fakturę", i z czym rozliczyć papier.
+        zapisane = r.get("pozycje") or []
+        if isinstance(zapisane, str):
+            zapisane = json.loads(zapisane)
+        kg_kursu = round(sum(
+            int(x.get("szt") or 0) * float(x.get("kg_per_unit") or 0) for x in zapisane), 3)
         pozycje.append({
             "order_id": oid,
             "order_no": r.get("order_no"),
             "client_name": r.get("client_name"),
             "wz_status": r.get("wz_status"),
+            "zaladowano": zapisane,
+            "kg_zaladowane": kg_kursu,
             "wz": query_all(
                 "SELECT id, number, doc_series, split_scope FROM wz_documents "
                 "WHERE source_type='order' AND source_id=%s "
@@ -530,6 +539,72 @@ def zaladunek(loading_id: str) -> Dict[str, Any]:
                 "ORDER BY created_at", (oid,)),
         })
     return {**kurs, "pozycje": pozycje}
+
+
+def wystaw_z_kursu(loading_id: str, decyzje: List[Dict[str, Any]],
+                   forma_cmr: Dict[str, Any],
+                   hdi_fv: bool = False) -> Dict[str, Any]:
+    """Biuro wystawia komplet dokumentów dla kursu — decyzja PER ODBIORCA.
+
+    Druga połowa odwróconej kolejności (właściciel, 12.09.2026): magazynier
+    potwierdza załadunek i skan tylko ZAPISUJE, co wyjechało; papiery wystawia
+    biuro, bo magazynier nie ma ani drukarki, ani uprawnień. Dopiero to
+    zdejmuje stan magazynu.
+
+    `decyzje`: `[{"order_id": ..., "cel_kg": ...}]`, gdzie `cel_kg` to
+    kilogramy NA FAKTURĘ. „Całość na fakturę" (odbiorca pokroju NAZARA) to po
+    prostu `cel_kg` równe całemu zamówieniu — powstaje wtedy WM na całość
+    i HDI z CMR, bez WZ dla klienta.
+
+    Dokumenty buduje ISTNIEJĄCY potok (`zapisz_podzial` → `wystaw_komplet`),
+    a nie druga, równoległa ścieżka. Dwa potoki na te same papiery rozjechałyby
+    się prędzej czy później — tak jak rozjechały się nazwy pozycji na WZ i HDI.
+    Zapis kursu (`loading_orders.pozycje`) służy do ROZLICZENIA papieru z tym,
+    co naprawdę wyjechało; `wystaw_komplet` oddaje na to `pokrycie`.
+
+    Idempotentne: każdy krok składowy jest idempotentny per zamówienie, więc
+    powtórne kliknięcie oddaje TE SAME dokumenty i nie zdejmuje stanu drugi raz.
+    """
+    from app.services.order_split_service import zapisz_podzial
+    from app.services.split_documents_service import wystaw_komplet
+
+    kurs = query_one("SELECT id FROM loadings WHERE id=%s", (loading_id,))
+    if not kurs:
+        raise HTTPException(404, "Kurs nie znaleziony")
+
+    w_kursie = {r["order_id"] for r in query_all(
+        "SELECT order_id FROM loading_orders WHERE loading_id=%s", (loading_id,))}
+
+    wyniki: List[Dict[str, Any]] = []
+    for d in decyzje or []:
+        oid = str(d.get("order_id") or "")
+        # Zamówienie spoza kursu odrzucamy — inaczej zapis kursu nie znaczyłby
+        # nic, a biuro mogłoby wystawić papier na towar, który nie wyjechał.
+        if oid not in w_kursie:
+            raise HTTPException(
+                400, f"Zamówienie {oid} nie jechało tym kursem — nie ma z czego wystawić")
+
+        # Podział zapisujemy TYLKO, gdy papierów jeszcze nie ma. Po wystawieniu
+        # `zapisz_podzial` słusznie odmawia (zmiana podziału rozjechałaby
+        # wystawiony WZ klienta z przeliczonymi na nowo papierami pod fakturę),
+        # a powtórne kliknięcie ma po prostu oddać TE SAME dokumenty.
+        juz_wystawiony = query_one(
+            "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s "
+            "AND doc_series='WM' AND COALESCE(status,'')<>'anulowany'", (oid,))
+        if not juz_wystawiony:
+            zapisz_podzial(oid, float(d.get("cel_kg") or 0))
+        komplet = wystaw_komplet(oid, forma_cmr, hdi_fv)
+
+        wm = komplet.get("wm") or {}
+        execute(
+            "UPDATE loading_orders SET wz_id=%s, wz_status='wystawiony' "
+            "WHERE loading_id=%s AND order_id=%s",
+            (wm.get("id"), loading_id, oid))
+        wyniki.append({"order_id": oid, **komplet})
+
+    logger.info("loading.documents.issued", extra={
+        "loading_id": loading_id, "orders": len(wyniki)})
+    return {"ok": True, "loading_id": loading_id, "orders": wyniki}
 
 
 def oznacz_wydrukowany(loading_id: str, operator: str = "") -> Dict[str, Any]:

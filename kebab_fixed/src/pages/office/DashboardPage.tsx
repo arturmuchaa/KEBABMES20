@@ -640,7 +640,7 @@ export function DashboardPage() {
             <div className="flex items-center gap-2 mb-3">
               <Truck size={15} className="text-emerald-700" />
               <span className="text-sm font-bold text-emerald-900">
-                Załadunek zakończony — do wydruku · {(kursyRes.data ?? []).length}
+                Załadunek zakończony · {(kursyRes.data ?? []).length}
               </span>
             </div>
             <div className="space-y-2">
@@ -660,13 +660,20 @@ export function DashboardPage() {
                   </span>
                   {/* Biuro ma widzieć TAKŻE stan pozytywny — inaczej brak alarmu
                       jest nie do odróżnienia od tego, że nikt nie sprawdził. */}
+                  {/* Trzy różne stany, trzy różne komunikaty. „Brak alarmu"
+                      nie może znaczyć jednocześnie „zgodne" i „nikt jeszcze
+                      nie wystawił papierów". */}
                   <Badge
                     variant="outline"
-                    className={k.rozjazd
-                      ? 'border-amber-400 text-amber-700 flex-shrink-0'
-                      : 'border-emerald-400 text-emerald-700 flex-shrink-0'}
+                    className={k.doWystawienia
+                      ? 'border-sky-400 text-sky-700 flex-shrink-0'
+                      : k.rozjazd
+                        ? 'border-amber-400 text-amber-700 flex-shrink-0'
+                        : 'border-emerald-400 text-emerald-700 flex-shrink-0'}
                   >
-                    {k.rozjazd ? 'rozjazd — popraw papiery' : 'zgodne'}
+                    {k.doWystawienia
+                      ? 'do wystawienia'
+                      : k.rozjazd ? 'rozjazd — popraw papiery' : 'zgodne'}
                   </Badge>
                   <Badge className="ml-auto flex-shrink-0">Wydrukuj</Badge>
                 </Link>
