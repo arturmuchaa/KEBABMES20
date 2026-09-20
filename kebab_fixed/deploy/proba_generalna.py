@@ -27,7 +27,7 @@ from pathlib import Path
 from app.db import execute, query_all, query_one
 from app.models.masownia import ChargeCreate, ChargeFinish, ChargeMeatDto
 from app.models.receptions import ReceptionCreate, ReceptionUpdate
-from app.services.masownia_service import finish_charge, load_charge
+from app.services.masownia_service import finish_charge, load_charge, start_charge
 from app.services.receptions_service import create_reception, get_reception, update_reception
 from app.utils.ids import cuid, now_iso
 
@@ -313,13 +313,19 @@ def masowanie() -> None:
     wsad = load_charge(ChargeCreate(
         orderId=oid, machineId=1, waterL=36,
         meat=[ChargeMeatDto(lotNo=lot["lot_no"], meatStockId=lot["id"], kg=200)]))
-    sprawdz(wsad["status"] == "mixing", "załadunek zajmuje masownicę")
+    # Wsad po załadowaniu CZEKA — bęben rusza osobnym krokiem. Scenariusz
+    # pochodził sprzed tej zmiany i próbował odebrać wsad, którego nikt nie
+    # uruchomił: `finish_charge` odmawiał, a próba generalna przerywała się
+    # PRZED kontrolą księgi całej bazy, czyli przed swoją najważniejszą
+    # częścią. Blokowało to bramkę przed każdym wdrożeniem (19.09.2026).
+    sprawdz(wsad["status"] == "loaded", "załadunek zajmuje masownicę")
 
     zajete = query_one(
         "SELECT COALESCE(SUM(kg),0) AS kg FROM mixing_charge_pallets WHERE charge_id=%s",
         (wsad["id"],))
     sprawdz(abs(float(zajete["kg"]) - 200) < 0.01, "wsad pamięta, z czego jest zrobiony")
 
+    start_charge(wsad["id"])          # bęben rusza
     finish_charge(wsad["id"], ChargeFinish(kgOutput=236))
     po = query_one("SELECT kg_available, kg_used FROM meat_stock WHERE id=%s", (lot["id"],))
     sprawdz(

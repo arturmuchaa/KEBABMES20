@@ -638,6 +638,18 @@ def finish_charge(charge_id: str, dto: ChargeFinish) -> Dict[str, Any]:
             (now_iso(), numer_palety, charge_id),
         )
     if not zamkniety:
+        # Dwie różne sytuacje, dwa różne komunikaty. Wsad NIEURUCHOMIONY
+        # kwitowany słowami „już odebrany" mówił operatorowi nieprawdę
+        # i wprost przeczył temu, co widzi: maszyna stoi pełna, a system
+        # twierdzi, że towar zszedł. Na tym samym komunikacie przewrócił się
+        # scenariusz próby generalnej i przerwał ją przed kontrolą księgi
+        # całej bazy (19.09.2026).
+        stan = query_one("SELECT status FROM mixing_charges WHERE id=%s", (charge_id,))
+        if not stan:
+            raise HTTPException(404, "Nie ma takiego wsadu")
+        if (stan.get("status") or "") == "loaded":
+            raise HTTPException(
+                409, "Ten wsad nie został uruchomiony — najpierw włącz masownicę")
         raise HTTPException(409, "Ten wsad jest już odebrany")
 
     sklad = query_all(

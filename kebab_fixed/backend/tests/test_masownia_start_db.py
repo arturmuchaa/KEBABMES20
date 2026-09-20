@@ -126,3 +126,36 @@ def test_odbior_stojacego_wsadu_jest_odrzucany():
     ch = _zaladuj(oid, ms, 1)
     with pytest.raises(HTTPException):
         svc.finish_charge(ch["id"], ChargeFinish(kgOutput=230))
+
+
+# ── Odmowa odbioru ma mówić PRAWDĘ ───────────────────────────────────
+#
+# Wsad nieuruchomiony i wsad już odebrany to dwie różne sytuacje, a obie
+# kwitowano komunikatem „Ten wsad jest już odebrany". Operator na hali
+# dostawał więc informację nieprawdziwą i sprzeczną z tym, co widzi: maszyna
+# stoi pełna, a system twierdzi, że towar odebrano. Na tym samym komunikacie
+# przewrócił się scenariusz próby generalnej (19.09.2026) i przerwał ją PRZED
+# kontrolą księgi całej bazy — czyli zepsuł bramkę przed wdrożeniem.
+def test_odbior_NIEURUCHOMIONEGO_wsadu_mowi_co_jest_nie_tak():
+    oid, ms = _zlecenie(), _partia("511")
+    ch = _zaladuj(oid, ms, 1)
+
+    with pytest.raises(HTTPException) as e:
+        svc.finish_charge(ch["id"], ChargeFinish(kgOutput=236))
+
+    assert e.value.status_code == 409
+    assert "uruchomion" in e.value.detail.lower(), e.value.detail
+    assert "odebran" not in e.value.detail.lower(), "komunikat kłamie o odbiorze"
+
+
+def test_odbior_JUZ_ODEBRANEGO_wsadu_dalej_tak_mowi():
+    oid, ms = _zlecenie(), _partia("511")
+    ch = _zaladuj(oid, ms, 1)
+    svc.start_charge(ch["id"])
+    svc.finish_charge(ch["id"], ChargeFinish(kgOutput=236))
+
+    with pytest.raises(HTTPException) as e:
+        svc.finish_charge(ch["id"], ChargeFinish(kgOutput=236))
+
+    assert e.value.status_code == 409
+    assert "odebran" in e.value.detail.lower(), e.value.detail
