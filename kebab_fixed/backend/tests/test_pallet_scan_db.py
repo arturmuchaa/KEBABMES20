@@ -23,6 +23,8 @@ from __future__ import annotations
 import pytest
 
 from app.db import execute, query_one
+from fastapi import HTTPException
+
 from app.services import pallets_service
 
 
@@ -41,9 +43,21 @@ def _paleta(pid="p1", oid="o1", nr=1, status="created"):
     return pid
 
 
-def _pojazd(vid="v1"):
+def _pojazd(vid="v1", oid="o1"):
+    """Auto gotowe do przyjęcia TEGO zamówienia.
+
+    Od 20.09.2026 samo istnienie pojazdu nie wystarcza: paleta wchodzi na auto
+    tylko wtedy, gdy stoi na nim jej zamówienie (`vehicle_loading_orders`),
+    inaczej backend odmawia kodem WRONG_ORDER. Wcześniej pilnował tego
+    wyłącznie front po swojej liście z `localStorage`, więc drugi skaner —
+    z inną listą u siebie — przepuszczał paletę obcego zamówienia.
+    """
     execute("INSERT INTO vehicles (id, name, plate, active) "
             "VALUES (%s,'Chłodnia 1','KR 12345',true) ON CONFLICT (id) DO NOTHING", (vid,))
+    if oid:
+        execute("INSERT INTO vehicle_loading_orders (id, vehicle_id, order_id, position) "
+                "VALUES (%s,%s,%s,0) ON CONFLICT (vehicle_id, order_id) DO NOTHING",
+                (f"vlo-{vid}-{oid}", vid, oid))
     return vid
 
 
@@ -83,9 +97,11 @@ class TestRozpisanaPaletaJedzie:
 class TestCoNadalJestZabronione:
     def test_wyslanej_palety_nie_laduje_sie_drugi_raz(self, db):
         _zamowienie(); _paleta(status="shipped"); _pojazd()
-        with pytest.raises(Exception) as e:
+        with pytest.raises(HTTPException) as e:
             pallets_service.scan(KOD, "loaded", vehicle_id="v1")
-        assert "shipped" in str(e.value)
+        # Kod, nie słowo w zdaniu — front rozpoznaje sytuację po `code`,
+        # żeby zmiana treści komunikatu nie psuła obsługi błędu na hali.
+        assert e.value.detail["code"] == "ALREADY_COMPLETED"
 
     def test_zaladowanej_palety_nie_cofa_sie_do_mrozni(self, db):
         """Cofnięcie statusu to korekta dla biura, nie skan na hali."""

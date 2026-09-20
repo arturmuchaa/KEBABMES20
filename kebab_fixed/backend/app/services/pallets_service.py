@@ -266,113 +266,188 @@ def _cofnij_skan(code: str, operator: str = "") -> Dict[str, Any]:
 
     Palety WYSŁANEJ nie cofamy: po wystawieniu dokumentu towar zszedł ze stanu
     i cofnięcie skanem rozjechałoby magazyn z papierem. To robota dla biura.
+
+    Cofnięcie też idzie `FOR UPDATE` w jednej transakcji z zapisem — inaczej
+    cofnięcie na jednym stanowisku i skan na drugim mogły się rozminąć:
+    oba czytały „loaded", oba pisały, a wynik zależał od kolejności zapisu.
     """
     order_id, pallet_no = parse_code(code)
-    paleta = query_one(
-        "SELECT id, status, cold_storage_at FROM order_pallets "
-        "WHERE order_id=%s AND pallet_no=%s", (order_id, pallet_no))
-    if not paleta:
-        raise HTTPException(404, f"Paleta P{pallet_no} nie istnieje dla tego zamówienia")
 
-    stan = paleta.get("status") or "created"
-    if stan == "shipped":
-        raise HTTPException(
-            409,
-            f"Paleta P{pallet_no} jest już WYSŁANA — dokument został wystawiony. "
-            "Cofnięcie zrobi biuro, korygując dokument.")
-    if stan not in ("cold_storage", "loaded"):
-        raise HTTPException(
-            409, f"Paleta P{pallet_no} ma status '{stan}' — nie ma czego cofać")
+    with transaction() as conn:
+        paleta = cx_query_one(
+            conn,
+            "SELECT id, status, cold_storage_at FROM order_pallets "
+            "WHERE order_id=%s AND pallet_no=%s FOR UPDATE", (order_id, pallet_no))
+        if not paleta:
+            _odmow("INVALID", f"Paleta P{pallet_no} nie istnieje dla tego zamówienia", 404)
 
-    if stan == "loaded":
-        # Wracamy tam, skąd przyszła: do mroźni, jeśli w niej była.
-        docelowy = "cold_storage" if paleta.get("cold_storage_at") else "created"
-        with transaction() as conn:
+        stan = paleta.get("status") or "created"
+        if stan == "shipped":
+            _odmow(
+                "ALREADY_COMPLETED",
+                f"Paleta P{pallet_no} jest już WYSŁANA — dokument został wystawiony. "
+                "Cofnięcie zrobi biuro, korygując dokument.", 409)
+        if stan not in ("cold_storage", "loaded"):
+            _odmow("ERROR", f"Paleta P{pallet_no} ma status '{stan}' — nie ma czego cofać", 409)
+
+        if stan == "loaded":
+            # Wracamy tam, skąd przyszła: do mroźni, jeśli w niej była.
+            docelowy = "cold_storage" if paleta.get("cold_storage_at") else "created"
             cx_execute(
                 conn,
                 "UPDATE order_pallets SET status=%s, loaded_at=NULL, "
                 "loaded_vehicle_id=NULL WHERE id=%s", (docelowy, paleta["id"]))
-            cx_execute(
-                conn,
-                "INSERT INTO pallet_scans (id, pallet_id, action, operator, vehicle_id) "
-                "VALUES (%s,%s,'undo',%s,NULL)", (cuid(), paleta["id"], operator or ""))
-    else:
-        with transaction() as conn:
+        else:
             cx_execute(
                 conn,
                 "UPDATE order_pallets SET status='created', cold_storage_at=NULL "
                 "WHERE id=%s", (paleta["id"],))
-            cx_execute(
-                conn,
-                "INSERT INTO pallet_scans (id, pallet_id, action, operator, vehicle_id) "
-                "VALUES (%s,%s,'undo',%s,NULL)", (cuid(), paleta["id"], operator or ""))
+        cx_execute(
+            conn,
+            "INSERT INTO pallet_scans (id, pallet_id, action, operator, vehicle_id) "
+            "VALUES (%s,%s,'undo',%s,NULL)", (cuid(), paleta["id"], operator or ""))
 
     logger.info("pallet.scan.undo", extra={
         "order_id": order_id, "pallet_no": pallet_no,
         "z_stanu": stan, "operator": operator or "-"})
-    return _pallet_with_items(order_id, pallet_no)
+    wynik = _pallet_with_items(order_id, pallet_no)
+    wynik["result"] = "SUCCESS"
+    return wynik
+
+
+def _odmow(result_code: str, message: str, status: int = 409) -> None:
+    """Odmowa skanu z KODEM, nie samym zdaniem.
+
+    Operator musi natychmiast wiedzieć, co się stało, a front nie może tego
+    zgadywać z treści komunikatu (tłumaczenie, literówka, zmiana słowa = cicho
+    zepsuta obsługa błędu). `detail` jest słownikiem `{code, message}`.
+    """
+    raise HTTPException(status, {"code": result_code, "message": message})
 
 
 def scan(code: str, action: str, operator: str = "", vehicle_id: str | None = None) -> Dict:
+    """Skan kartki palety. Wynik jest ZAWSZE jednoznaczny.
+
+    Sukces zwraca `result`: SUCCESS albo ALREADY_SCANNED.
+    Odmowa leci wyjątkiem z `detail={"code": …}`: INVALID, WRONG_ORDER,
+    ON_OTHER_VEHICLE, ALREADY_COMPLETED, ERROR.
+
+    ATOMOWOŚĆ (20.09.2026). Do tej pory status palety był czytany POZA
+    transakcją, a dopiero potem zapisywany. Dwa skanery trafiające w tę samą
+    paletę równocześnie przechodziły walidację OBA — wygrywał ten, kto zapisał
+    drugi (paleta lądowała na jego aucie), a `pallet_scans` dostawał dwa
+    wiersze zaliczenia. Na produkcji to jeszcze nie wystrzeliło (par skanów
+    poniżej 5 s: 0), ale przy dwóch stanowiskach jest kwestią czasu.
+
+    Teraz odczyt idzie `FOR UPDATE` w TEJ SAMEJ transakcji co zapis: drugi
+    skaner czeka na wierszu, a po wejściu widzi już stan po pierwszym i dostaje
+    uczciwe ALREADY_SCANNED zamiast cichego nadpisania.
+    """
     if action == "undo":
         return _cofnij_skan(code, operator=operator)
     if action not in _TRANSITIONS:
-        raise HTTPException(400, f"Nieznana akcja skanu: {action}")
+        _odmow("ERROR", f"Nieznana akcja skanu: {action}", 400)
 
     order_id, pallet_no = parse_code(code)
     rule = _TRANSITIONS[action]
-
-    pallet = query_one(
-        "SELECT id, status FROM order_pallets WHERE order_id=%s AND pallet_no=%s",
-        (order_id, pallet_no),
-    )
-    if not pallet:
-        raise HTTPException(404, f"Paleta P{pallet_no} nie istnieje dla tego zamówienia")
-
-    current = pallet.get("status") or "created"
-
-    # Idempotencja — drugi skan tej samej akcji nie jest błędem
-    if current == action:
-        logger.info(
-            "pallet.scan.idempotent",
-            extra={"order_id": order_id, "pallet_no": pallet_no, "action": action},
-        )
-        return _pallet_with_items(order_id, pallet_no)
-
-    if current not in rule["from"]:
-        allowed = " / ".join(rule["from"])
-        raise HTTPException(
-            409,
-            f"Paleta P{pallet_no} ma status '{current}' — akcja '{action}' wymaga stanu '{allowed}'",
-        )
-
     veh_id = (vehicle_id or "").strip() or None
+
     if action == "loaded" and veh_id:
         existing = query_one("SELECT id FROM vehicles WHERE id=%s AND active=true", (veh_id,))
         if not existing:
-            raise HTTPException(400, "Wybrany samochód nie istnieje lub jest nieaktywny")
+            _odmow("ERROR", "Wybrany samochód nie istnieje lub jest nieaktywny", 400)
 
+    juz_bylo = False
     with transaction() as conn:
-        if action == "loaded":
-            cx_execute(
-                conn,
-                f"UPDATE order_pallets SET status=%s, {rule['field']}=now(), loaded_vehicle_id=%s WHERE id=%s",
-                (action, veh_id, pallet["id"]),
-            )
-        else:
-            cx_execute(
-                conn,
-                f"UPDATE order_pallets SET status=%s, {rule['field']}=now() WHERE id=%s",
-                (action, pallet["id"]),
-            )
-        cx_execute(
+        pallet = cx_query_one(
             conn,
-            "INSERT INTO pallet_scans (id, pallet_id, action, operator, vehicle_id) VALUES (%s,%s,%s,%s,%s)",
-            (cuid(), pallet["id"], action, operator or "", veh_id),
+            "SELECT id, status, loaded_vehicle_id FROM order_pallets "
+            "WHERE order_id=%s AND pallet_no=%s FOR UPDATE",
+            (order_id, pallet_no),
         )
+        if not pallet:
+            _odmow("INVALID", f"Paleta P{pallet_no} nie istnieje dla tego zamówienia", 404)
+
+        current = pallet.get("status") or "created"
+
+        # Czy ta paleta w ogóle należy do zamówienia stojącego na tym aucie?
+        #
+        # Pilnował tego WYŁĄCZNIE front (`selectedIds.includes(...)`), a lista
+        # `selectedIds` pochodziła z localStorage TEGO telefonu — drugi skaner,
+        # z inną listą u siebie, przepuszczał paletę obcego zamówienia.
+        # Decyzja należy do backendu, bo tylko on zna prawdę o aucie.
+        if action == "loaded" and veh_id:
+            na_aucie = cx_query_one(
+                conn,
+                "SELECT 1 AS x FROM vehicle_loading_orders WHERE vehicle_id=%s AND order_id=%s",
+                (veh_id, order_id))
+            if not na_aucie:
+                zam = cx_query_one(
+                    conn, "SELECT order_no, client_name FROM client_orders WHERE id=%s",
+                    (order_id,)) or {}
+                _odmow(
+                    "WRONG_ORDER",
+                    f"Paleta P{pallet_no} należy do zamówienia {zam.get('order_no', '?')} "
+                    f"({zam.get('client_name', '?')}) — nie ma go na tym samochodzie",
+                    409)
+
+        if current == "shipped":
+            _odmow(
+                "ALREADY_COMPLETED",
+                f"Paleta P{pallet_no} została już wydana — załadunek jest zamknięty",
+                409)
+
+        # Paleta stoi już na INNYM aucie. Bez tego rozróżnienia operator
+        # drugiego samochodu dostawał „już zeskanowana" i szedł dalej
+        # przekonany, że mu się zaliczyła — a paleta jechała gdzie indziej
+        # i u niego nigdy się nie pokazała. Zamówienie bywa dzielone na dwa
+        # auta, więc to nie jest przypadek teoretyczny.
+        if (action == "loaded" and veh_id and current == "loaded"
+                and pallet.get("loaded_vehicle_id")
+                and pallet["loaded_vehicle_id"] != veh_id):
+            inne = cx_query_one(
+                conn, "SELECT name, plate FROM vehicles WHERE id=%s",
+                (pallet["loaded_vehicle_id"],)) or {}
+            opis = " ".join(x for x in (inne.get("name"), inne.get("plate")) if x) or "inny samochód"
+            _odmow(
+                "ON_OTHER_VEHICLE",
+                f"Paleta P{pallet_no} stoi już na aucie {opis} — zdejmij ją tam "
+                "albo weź inną paletę", 409)
+
+        if current == action:
+            # Idempotencja: drugi skan tej samej akcji to nie błąd, ale i nie
+            # sukces — operator ma zobaczyć, że ta paleta już jest zaliczona.
+            juz_bylo = True
+        elif current not in rule["from"]:
+            allowed = " / ".join(rule["from"])
+            _odmow(
+                "ERROR",
+                f"Paleta P{pallet_no} ma status '{current}' — "
+                f"akcja '{action}' wymaga stanu '{allowed}'",
+                409)
+        else:
+            if action == "loaded":
+                cx_execute(
+                    conn,
+                    f"UPDATE order_pallets SET status=%s, {rule['field']}=now(), "
+                    "loaded_vehicle_id=%s WHERE id=%s",
+                    (action, veh_id, pallet["id"]),
+                )
+            else:
+                cx_execute(
+                    conn,
+                    f"UPDATE order_pallets SET status=%s, {rule['field']}=now() WHERE id=%s",
+                    (action, pallet["id"]),
+                )
+            cx_execute(
+                conn,
+                "INSERT INTO pallet_scans (id, pallet_id, action, operator, vehicle_id) "
+                "VALUES (%s,%s,%s,%s,%s)",
+                (cuid(), pallet["id"], action, operator or "", veh_id),
+            )
 
     logger.info(
-        "pallet.scan",
+        "pallet.scan.idempotent" if juz_bylo else "pallet.scan",
         extra={
             "order_id": order_id,
             "pallet_no": pallet_no,
@@ -381,7 +456,9 @@ def scan(code: str, action: str, operator: str = "", vehicle_id: str | None = No
             "vehicle_id": veh_id or "-",
         },
     )
-    return _pallet_with_items(order_id, pallet_no)
+    wynik = _pallet_with_items(order_id, pallet_no)
+    wynik["result"] = "ALREADY_SCANNED" if juz_bylo else "SUCCESS"
+    return wynik
 
 
 def loading_status(order_id: str) -> Dict:
@@ -478,16 +555,31 @@ def pallets_in_cold_storage() -> List[Dict]:
     return rows
 
 
-def active_orders_for_loading() -> List[Dict]:
-    """Zamówienia, które mają jakiekolwiek palety jeszcze nie załadowane."""
+def active_orders_for_loading(include_done: bool = False) -> List[Dict]:
+    """Zamówienia, które mają jakiekolwiek palety jeszcze nie załadowane.
+
+    GŁÓWNY EKRAN ODPOWIADA NA JEDNO PYTANIE: „co mam teraz załadować?".
+
+    Dlatego domyślnie WYPADAJĄ zamówienia `done` i `cancelled`. To była
+    jedyna lista w całym MES bez tego filtra — `orders_service`,
+    `order_stock_service` i `finished_goods_service` mają go od dawna.
+    Pomiar na produkcji 20.09.2026: lista zwracała 24 zamówienia, z czego
+    17 miało status `done`. Operator przewijał ekran w poszukiwaniu siedmiu,
+    które go naprawdę dotyczyły.
+
+    `include_done=True` obsługuje osobny widok „Historia" — istnieje, ale nie
+    zaśmieca panelu.
+    """
+    filtr = "" if include_done else "WHERE o.status NOT IN ('done', 'cancelled')"
     return query_all(
-        """SELECT o.id, o.order_no, o.client_name, o.delivery_date, o.status AS order_status,
+        f"""SELECT o.id, o.order_no, o.client_name, o.delivery_date, o.status AS order_status,
                   COUNT(p.id)::int AS total_pallets,
                   SUM(CASE WHEN p.status = 'loaded'       THEN 1 ELSE 0 END)::int AS loaded_pallets,
                   SUM(CASE WHEN p.status = 'cold_storage' THEN 1 ELSE 0 END)::int AS cold_pallets,
                   SUM(CASE WHEN p.status = 'created'      THEN 1 ELSE 0 END)::int AS created_pallets
            FROM client_orders o
            JOIN order_pallets p ON p.order_id = o.id
+           {filtr}
            GROUP BY o.id
            HAVING SUM(CASE WHEN p.status NOT IN ('loaded','shipped') THEN 1 ELSE 0 END) > 0
               AND SUM(CASE WHEN p.status <> 'shipped' THEN 1 ELSE 0 END) > 0

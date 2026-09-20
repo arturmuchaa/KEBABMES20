@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import {
   palletScanApi,
+  vehicleLoadingApi,
   vehiclesApi,
   type PalletScanResult,
   type Vehicle,
@@ -73,6 +74,14 @@ export function MobilePalletLandingPage() {
     if (state.kind !== 'ready') return
     setState({ kind: 'busy', pallet: state.pallet, action })
     try {
+      // Załadunek z kartki palety: zamówienie musi najpierw trafić na WSPÓLNĄ
+      // listę auta. Ten skan JEST decyzją „to zamówienie jedzie tym autem",
+      // więc zapisujemy ją tam, gdzie widzą ją wszystkie skanery — inaczej
+      // backend odrzuci paletę jako spoza auta (WRONG_ORDER), a ekran
+      // załadunku i tak by jej u siebie nie pokazał.
+      if (action === 'loaded' && vehicleId && state.pallet.order?.id) {
+        await vehicleLoadingApi.addOrder(vehicleId, state.pallet.order.id)
+      }
       const result = await palletScanApi.scan(code, action, '', vehicleId)
       setState({ kind: 'done', pallet: result, action })
       if (action === 'loaded' && vehicleId) {

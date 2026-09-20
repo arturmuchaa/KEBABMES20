@@ -1772,6 +1772,32 @@ _DDL: list[str] = [
     "ALTER TABLE meat_pallets ADD COLUMN IF NOT EXISTS consumed_charge_id TEXT",
     "CREATE INDEX IF NOT EXISTS idx_meat_pallets_zywe ON meat_pallets(production_date) "
     "WHERE deleted_at IS NULL AND consumed_at IS NULL",
+
+    # Zamówienia WYBRANE na auto — wspólna lista wszystkich skanerów.
+    #
+    # Do 20.09.2026 ta lista (i jej kolejność) żyła w `localStorage` telefonu,
+    # więc zamówienie wybrane na urządzeniu A nie istniało dla urządzenia B,
+    # a zamówienie ZAKOŃCZONE na A nie miało jak zniknąć z ekranu B — serwer
+    # był dociągany wyłącznie jako suma i nigdy nic nie odejmował.
+    #
+    # Sam skan od zawsze szedł na serwer, ale wybór „to zamówienie jedzie tym
+    # autem" powstaje ZANIM padnie pierwszy skan i bez tej tabeli nie miał
+    # gdzie zamieszkać.
+    #
+    # `UNIQUE (vehicle_id, order_id)` to idempotencja na poziomie bazy: dwa
+    # skanery dopisujące to samo zamówienie w tej samej chwili nie zrobią
+    # duplikatu, bo rozstrzyga constraint, a nie kolejność requestów.
+    """CREATE TABLE IF NOT EXISTS vehicle_loading_orders (
+        id         TEXT PRIMARY KEY,
+        vehicle_id TEXT NOT NULL REFERENCES vehicles(id) ON DELETE CASCADE,
+        order_id   TEXT NOT NULL REFERENCES client_orders(id) ON DELETE CASCADE,
+        position   INTEGER NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT now(),
+        created_by TEXT DEFAULT '',
+        UNIQUE (vehicle_id, order_id)
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_vehicle_loading_orders_veh "
+    "ON vehicle_loading_orders(vehicle_id, position)",
 ]
 
 
@@ -1828,6 +1854,7 @@ def _run_migrations_locked() -> None:
     _strip_year_from_reception_no()
     _reconcile_deboning_ledger()
     _zapewnij_unikat_wz_seria()
+    _backfill_vehicle_loading_orders()
     logger.info("migrations.done")
 
 
@@ -3161,3 +3188,47 @@ def _backfill_mixing_session_lots() -> None:
         logger.warning(
             "migrations.backfill_mixing_session_lots.error", extra={"error": str(exc)}
         )
+
+
+def _backfill_vehicle_loading_orders() -> None:
+    """Przenosi TRWAJĄCE załadunki na wspólną listę pojazdu.
+
+    Wdrożenie nie może zgubić auta, które stoi w rampie w połowie załadowane:
+    do tej pory lista zamówień pojazdu żyła w `localStorage` telefonu, więc
+    jedynym śladem po niej w bazie są palety już zeskanowane na to auto
+    (`status='loaded'` + `loaded_vehicle_id`). Z nich ją odtwarzamy.
+
+    Zamówienia wybranego, ale jeszcze NIEZESKANOWANEGO, nie da się odzyskać —
+    nie istnieje nigdzie poza telefonem, który je wybrał. Magazynier dopisze
+    je jednym dotknięciem, a od tej chwili zobaczą je wszyscy.
+
+    ZAMKNIĘTE ZAMÓWIENIA POMIJAMY. Sprawdzone na produkcji 20.09.2026: cztery
+    auta mają palety wiszące w `loaded` od 9–10 września, a wszystkie cztery
+    zamówienia są już `done` — załadunku nigdy nie domknięto skanerem, bo
+    dokumenty wystawiło biuro inną drogą. Bez tego filtra migracja wrzuciłaby
+    magazynierom na ekran cztery zrealizowane zamówienia, czyli dokładnie ten
+    śmieć, który ta zmiana ma usunąć.
+
+    `ON CONFLICT DO NOTHING` — funkcja chodzi przy KAŻDYM starcie workera.
+    """
+    try:
+        execute(
+            """
+            INSERT INTO vehicle_loading_orders (id, vehicle_id, order_id, position, created_by)
+            SELECT md5(random()::text || clock_timestamp()::text),
+                   p.loaded_vehicle_id,
+                   p.order_id,
+                   ROW_NUMBER() OVER (PARTITION BY p.loaded_vehicle_id
+                                      ORDER BY MIN(p.loaded_at)) - 1,
+                   'backfill'
+              FROM order_pallets p
+              JOIN vehicles v      ON v.id = p.loaded_vehicle_id
+              JOIN client_orders o ON o.id = p.order_id
+             WHERE p.status = 'loaded' AND p.loaded_vehicle_id IS NOT NULL
+               AND o.status NOT IN ('done', 'cancelled')
+             GROUP BY p.loaded_vehicle_id, p.order_id
+            ON CONFLICT (vehicle_id, order_id) DO NOTHING
+            """
+        )
+    except Exception as exc:  # pragma: no cover - log i idziemy dalej
+        logger.warning("migrations.backfill_vehicle_loading_orders", extra={"error": str(exc)})

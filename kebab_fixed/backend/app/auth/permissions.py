@@ -92,6 +92,10 @@ def permission_for_path(path: str, method: str = "GET") -> str:
     if path.startswith("/api/pallets"):
         if path == "/api/pallets/scan" or path == "/api/pallets/in-cold-storage":
             return "wydanie"
+        # Wspólny stan auta (lista zamówień na pojeździe + jej kolejność) to
+        # ta sama robota co skan na wyjazd — ten sam magazynier, ten sam ekran.
+        if path.startswith("/api/pallets/vehicle-state"):
+            return "wydanie"
         return "pakowanie"
     # Tary wózków rozbioru (ważenie RS232): panel hali tylko czyta listę,
     # edycja wyłącznie z biura (strona Ustawienia firmy).

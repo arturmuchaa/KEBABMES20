@@ -107,8 +107,19 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
-    const msg = err.detail || err.message || `HTTP ${res.status}`
+    // Backend skanu odpowiada `detail: {code, message}` — operator musi wiedzieć
+    // CO się stało (paleta z obcego zamówienia? załadunek już zamknięty?), a front
+    // nie może tego zgadywać z treści zdania. Bez tej gałęzi `String(detail)`
+    // dawało „[object Object]" na ekranie magazyniera.
+    const detail = err.detail
+    const strukturalny = detail && typeof detail === 'object' && !Array.isArray(detail)
+      ? detail as { code?: string; message?: string }
+      : null
+    const msg = strukturalny
+      ? (strukturalny.message || `HTTP ${res.status}`)
+      : (detail || err.message || `HTTP ${res.status}`)
     const e = new Error(Array.isArray(msg) ? msg.map((x: any) => x.msg || x).join(', ') : String(msg))
+    if (strukturalny?.code) (e as Error & { code?: string }).code = strukturalny.code
     // Kod HTTP na błędzie — wołający musi umieć odróżnić konflikt wymagający
     // potwierdzenia (409) od zwykłego błędu walidacji. Message bez zmian.
     ;(e as Error & { status?: number }).status = res.status
@@ -120,6 +131,17 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
 /** Kod HTTP z błędu rzuconego przez klienta API (0 gdy to nie błąd sieci). */
 export const errStatus = (e: unknown): number =>
   (e as { status?: number } | null)?.status ?? 0
+
+/** Kod BIZNESOWY odmowy z backendu (np. 'WRONG_ORDER'), '' gdy go nie ma. */
+export const errCode = (e: unknown): string =>
+  (e as { code?: string } | null)?.code ?? ''
+
+/** Czy to zerwane połączenie, a nie odpowiedź serwera.
+ *  `fetch` odrzuca TypeError-em; wtedy backend NIC nie zapisał i skanu nie
+ *  wolno pokazać operatorowi jako zaliczonego. */
+export const isOfflineError = (e: unknown): boolean =>
+  e instanceof TypeError || /Failed to fetch|NetworkError|Load failed/i.test(
+    (e as Error | null)?.message ?? '')
 
 const get   = <T>(p: string)             => req<T>('GET',    p)
 const post  = <T>(p: string, b: unknown) => req<T>('POST',   p, b)
@@ -2276,6 +2298,116 @@ export const zaladunkiApi = {
       { operator }),
 }
 
+/** Jednoznaczny wynik skanu. Backend zwraca go zamiast kazać frontowi
+ *  domyślać się z treści komunikatu. */
+export type ScanResultCode =
+  | 'SUCCESS' | 'ALREADY_SCANNED' | 'INVALID'
+  | 'WRONG_ORDER' | 'ON_OTHER_VEHICLE' | 'ALREADY_COMPLETED' | 'ERROR'
+
+export interface VehicleStatePallet {
+  id: string
+  palletNo: number
+  status: string
+  totalQty: number
+  totalKg: number
+  items: Array<{ qty: number; kgPerUnit: number }>
+  /** Załadowana NA TO auto (paleta na innym samochodzie nie jest postępem). */
+  onThisVehicle: boolean
+}
+
+export interface VehicleStateOrder {
+  id: string
+  orderNo: string
+  clientName: string
+  deliveryDate: string | null
+  orderStatus: string
+  position: number
+  pallets: VehicleStatePallet[]
+  totals: {
+    totalPallets: number; loadedPallets: number; coldPallets: number
+    createdPallets: number; shippedPallets: number
+    totalKg: number; loadedKg: number
+  }
+}
+
+export interface VehicleState {
+  vehicle: { id: string; name: string; plate: string | null; kind?: string | null }
+  orders: VehicleStateOrder[]
+  totals: {
+    totalPallets: number; loadedPallets: number; shippedPallets: number
+    totalKg: number; loadedKg: number
+  }
+}
+
+function mapVehicleState(raw: any): VehicleState {
+  return {
+    vehicle: {
+      id:    raw?.vehicle?.id ?? '',
+      name:  raw?.vehicle?.name ?? '',
+      plate: raw?.vehicle?.plate ?? null,
+      kind:  raw?.vehicle?.kind ?? null,
+    },
+    orders: (raw?.orders ?? []).map((o: any): VehicleStateOrder => ({
+      id:           o.id ?? '',
+      orderNo:      o.order_no ?? '',
+      clientName:   o.client_name ?? '',
+      deliveryDate: o.delivery_date ?? null,
+      orderStatus:  o.order_status ?? '',
+      position:     Number(o.position ?? 0),
+      pallets: (o.pallets ?? []).map((p: any): VehicleStatePallet => ({
+        id:        p.id ?? '',
+        palletNo:  Number(p.pallet_no ?? 0),
+        status:    p.status ?? 'created',
+        totalQty:  Number(p.total_qty ?? 0),
+        totalKg:   Number(p.total_kg ?? 0),
+        items: (p.items ?? []).map((it: any) => ({
+          qty: Number(it.qty ?? 0), kgPerUnit: Number(it.kg_per_unit ?? 0),
+        })),
+        onThisVehicle: Boolean(p.on_this_vehicle),
+      })),
+      totals: {
+        totalPallets:   Number(o.totals?.total_pallets   ?? 0),
+        loadedPallets:  Number(o.totals?.loaded_pallets  ?? 0),
+        coldPallets:    Number(o.totals?.cold_pallets    ?? 0),
+        createdPallets: Number(o.totals?.created_pallets ?? 0),
+        shippedPallets: Number(o.totals?.shipped_pallets ?? 0),
+        totalKg:        Number(o.totals?.total_kg        ?? 0),
+        loadedKg:       Number(o.totals?.loaded_kg       ?? 0),
+      },
+    })),
+    totals: {
+      totalPallets:   Number(raw?.totals?.total_pallets   ?? 0),
+      loadedPallets:  Number(raw?.totals?.loaded_pallets  ?? 0),
+      shippedPallets: Number(raw?.totals?.shipped_pallets ?? 0),
+      totalKg:        Number(raw?.totals?.total_kg        ?? 0),
+      loadedKg:       Number(raw?.totals?.loaded_kg       ?? 0),
+    },
+  }
+}
+
+/** Wspólny stan auta — JEDYNE źródło prawdy ekranu załadunku.
+ *
+ *  Każda z tych operacji oddaje ŚWIEŻĄ migawkę po zmianie, więc urządzenie
+ *  nigdy nie dopisuje sobie wyniku lokalnie i nie może rozjechać się
+ *  z serwerem („front: 10/10, backend: 8/10").
+ */
+export const vehicleLoadingApi = {
+  state: (vehicleId: string) =>
+    get<any>(`/pallets/vehicle-state/${encodeURIComponent(vehicleId)}`).then(mapVehicleState),
+  addOrder: (vehicleId: string, orderId: string) =>
+    post<any>(`/pallets/vehicle-state/${encodeURIComponent(vehicleId)}/orders`,
+      { order_id: orderId }).then(mapVehicleState),
+  removeOrder: (vehicleId: string, orderId: string) =>
+    del<any>(`/pallets/vehicle-state/${encodeURIComponent(vehicleId)}/orders/${encodeURIComponent(orderId)}`)
+      .then(mapVehicleState),
+  reorder: (vehicleId: string, orderIds: string[]) =>
+    post<any>(`/pallets/vehicle-state/${encodeURIComponent(vehicleId)}/reorder`,
+      { order_ids: orderIds }).then(mapVehicleState),
+  clear: (vehicleId: string) =>
+    post<any>(`/pallets/vehicle-state/${encodeURIComponent(vehicleId)}/clear`, {})
+      .then(mapVehicleState),
+}
+
 export const palletScanApi = {
   scan: (
     code: string,
@@ -2284,7 +2416,7 @@ export const palletScanApi = {
     vehicleId = '',
   ) =>
     post<any>('/pallets/scan', { code, action, operator, vehicle_id: vehicleId })
-      .then(mapScanResult),
+      .then(raw => ({ ...mapScanResult(raw), result: (raw?.result ?? 'SUCCESS') as ScanResultCode })),
   /** Zamówienia, których palety STOJĄ na tym aucie — wspólna prawda dla
    *  wszystkich skanerów (do 12.09.2026 lista żyła w localStorage telefonu). */
   ordersOnVehicle: (vehicleId: string) =>
@@ -2298,8 +2430,8 @@ export const palletScanApi = {
     get<any>(`/pallets/lookup?code=${encodeURIComponent(code)}`).then(mapScanResult),
   loadingStatus: (orderId: string) =>
     get<any>(`/client-orders/${orderId}/loading-status`).then(mapLoadingStatus),
-  activeLoading: () =>
-    get<any[]>('/pallets/active-loading').then((arr): ActiveLoadingOrder[] =>
+  activeLoading: (includeDone = false) =>
+    get<any[]>(`/pallets/active-loading${includeDone ? '?include_done=true' : ''}`).then((arr): ActiveLoadingOrder[] =>
       (Array.isArray(arr) ? arr : []).map(r => ({
         id:             r.id,
         orderNo:        r.order_no ?? '',

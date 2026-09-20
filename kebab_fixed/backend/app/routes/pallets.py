@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Query
 
 from app.models.orders import PackUnitRequest, PalletScanRequest
-from app.services import loading_service, pallets_service
+from app.services import loading_service, pallets_service, vehicle_loading_service
 
 router = APIRouter(prefix="/api/pallets", tags=["pallets"])
 
@@ -44,8 +44,11 @@ def lookup(code: str = Query(...)):
 
 
 @router.get("/active-loading")
-def active_loading():
-    return pallets_service.active_orders_for_loading()
+def active_loading(include_done: bool = False):
+    """Zamówienia do załadunku. Domyślnie BEZ zrealizowanych i anulowanych —
+    główny ekran odpowiada na pytanie „co mam teraz załadować?".
+    `include_done=true` obsługuje osobną zakładkę Historia."""
+    return pallets_service.active_orders_for_loading(include_done=include_done)
 
 
 @router.get("/zaladunki/do-wydruku")
@@ -84,6 +87,45 @@ def zaladunek_wydrukowano(loading_id: str, body: dict | None = None):
 def on_vehicle(vehicle_id: str):
     """Zamówienia stojące na tym aucie — wspólna lista dla wszystkich skanerów."""
     return pallets_service.orders_on_vehicle(vehicle_id)
+
+
+# ── Wspólny stan auta ─────────────────────────────────────────────────────
+# Trasy STAŁE — muszą stać przed `/{pallet_id}/...` na dole pliku, inaczej
+# „vehicle-state" zostałoby wzięte za identyfikator palety.
+@router.get("/vehicle-state/{vehicle_id}")
+def vehicle_state(vehicle_id: str):
+    """CAŁY stan załadunku auta w jednym spójnym odczycie.
+
+    Zastępuje składanie ekranu z N+1 odpowiedzi (`on-vehicle` + `loading-status`
+    per zamówienie), przy którym nagłówek i lista palet mogły pochodzić
+    z dwóch różnych chwil.
+    """
+    return vehicle_loading_service.vehicle_state(vehicle_id)
+
+
+@router.post("/vehicle-state/{vehicle_id}/orders")
+def vehicle_add_order(vehicle_id: str, body: dict):
+    return vehicle_loading_service.add_order(
+        vehicle_id,
+        (body.get("order_id") or "").strip(),
+        operator=body.get("operator") or "")
+
+
+@router.delete("/vehicle-state/{vehicle_id}/orders/{order_id}")
+def vehicle_remove_order(vehicle_id: str, order_id: str):
+    return vehicle_loading_service.remove_order(vehicle_id, order_id)
+
+
+@router.post("/vehicle-state/{vehicle_id}/reorder")
+def vehicle_reorder(vehicle_id: str, body: dict):
+    return vehicle_loading_service.reorder(
+        vehicle_id, [str(x) for x in (body.get("order_ids") or []) if x])
+
+
+@router.post("/vehicle-state/{vehicle_id}/clear")
+def vehicle_clear(vehicle_id: str, body: dict | None = None):
+    return vehicle_loading_service.clear_vehicle(
+        vehicle_id, operator=((body or {}).get("operator") or ""))
 
 
 @router.get("/in-cold-storage")

@@ -72,6 +72,7 @@ _TRUNCATE = [
     # kolizji kodów następnemu testowi.
     "product_catalog",
     "recipe_ingredients", "recipes",
+    "vehicle_loading_orders",
     "order_pallet_items", "order_pallets", "client_order_lines", "client_orders",
     # `clients` dopisane 2026-07-29: kartoteka odbiorców przeciekała między
     # testami (suppliers czyszczono, clients nie), więc test seedujący tego

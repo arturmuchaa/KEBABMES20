@@ -22,6 +22,7 @@ from app.db import (cx_execute, cx_query_all, cx_query_one, execute, query_all,
                     query_one, transaction)
 from app.utils.ids import cuid
 from app.logging_config import get_logger
+from app.services import vehicle_loading_service
 from app.services.order_stock_service import picks_for_pallets, picks_z_dokumentu
 from app.services.settings_service import get_company
 from app.services.wz_service import (_insert_wz, _seller_block, build_goods_wz_lines,
@@ -415,6 +416,16 @@ def finalize_loading(
                     conn,
                     "UPDATE order_pallets SET status='shipped' WHERE id = ANY(%s)",
                     ([p["id"] for p in pallets],))
+
+            # Zdejmij zamówienie ze WSPÓLNEJ listy pojazdu — w TEJ SAMEJ
+            # transakcji, co wydanie towaru.
+            #
+            # To jest domknięcie zgłoszenia z 20.09.2026: dotąd listę czyściło
+            # u siebie wyłącznie urządzenie, które kliknęło „Zakończ" (usuwało
+            # swój klucz w localStorage). Każdy inny skaner trzymał zamówienie
+            # na ekranie w nieskończoność i pozwalał je „realizować" dalej,
+            # choć dokument był już wystawiony, a towar zszedł ze stanu.
+            vehicle_loading_service.release_orders(conn, vehicle_id, [order_id])
 
             results.append({
                 "order_id": order_id,
