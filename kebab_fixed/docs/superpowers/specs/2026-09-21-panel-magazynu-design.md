@@ -217,9 +217,41 @@ magazyn **potwierdza fizycznie**: zawieszki na palety, temperatury, karta 1.1.1
 kolumny f–k, podpis. Decyzja właściciela: najmniej pisania w rękawicach,
 a kiosk robi to, czego biuro zrobić nie może — patrzy na towar.
 
-**MROŹNIA** — jeden skan przestawia paletę w obie strony. Bez pytania
-o kierunek: paleta poza mroźnią wjeżdża, paleta w mroźni wyjeżdża. Pytanie
+**MROŹNIA — to nie jest czynność poboczna, tylko PRZEGUB procesu.**
+Pierwsza wersja tej specyfikacji opisywała ją jako oddzielną robotę i to był
+błąd. Mroźnia jest tym, co łączy pakowanie z załadunkiem:
+
+```
+KARTONY              MROŹNIA                        WYDANIE
+pakowanie       →    skan = wjazd      →  czeka  →  skan = wyjazd na auto
+karton pełny         do mroźni            (dni)     towar dawno gotowy
+```
+
+Właściciel (21.09.2026): *„po zakończeniu pakowania skan i wjazd do mroźni
+i tam czeka na załadunek"*. Stąd bierze się zdanie „kartony pod załadunek są
+już dawno przygotowane" — między spakowaniem a wyjazdem stoi mroźnia, nie
+dzień roboty. **To jest też powód, dla którego pakowanie i załadunek są
+niezależne:** drugi operator pakuje INNE zamówienia niż te, które właśnie
+jadą. Gdyby uzupełniał to, co jedzie, dwa osobne pasy (§7.2) byłyby złym
+pomysłem — potrzebny byłby jeden wspólny widok.
+
+Sam skan: jeden kod przestawia jednostkę w obie strony. Bez pytania
+o kierunek — co jest poza mroźnią, wjeżdża; co w mroźni, wyjeżdża. Pytanie
 „wstawiasz czy wyjmujesz?" byłoby pytaniem o coś, co system już wie.
+
+### Ogniwo, którego brakowało: karton → zamówienie
+
+Między „karton pełny" a „skan palety przy załadunku" leży moment, w którym
+towar przestaje być stanem magazynu, a staje się towarem konkretnego klienta.
+Backend to ma: `stock_cartons.linked_order_id` oraz
+`stock_carton_match_service.suggestions_for_order`, które podpowiada pasujące
+kartony (klient + receptura + rodzaj + opakowanie + gramatura).
+
+⚠️ **DO POTWIERDZENIA:** zakładam, że **przypina biuro** — klikając w sugestie
+przy zamówieniu, zanim towar pojedzie. Przy tym założeniu udział magazyniera
+kończy się na skanie do mroźni i wraca dopiero przy załadunku, więc **piąty
+kafel („skompletuj zamówienie") nie jest potrzebny**. Jeśli to magazynier
+kompletuje pod konkretny wyjazd — dochodzi ekran i trzeba to przeprojektować.
 
 ## 7. Dwa skanery
 
