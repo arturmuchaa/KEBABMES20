@@ -32,7 +32,7 @@ Te fakty pochodzą od właściciela i są twardymi wejściami, nie założeniami
 | Wózek mroźniczy mieści **~50 sztuk**, bywa mieszany | tam powstają błędy i tylko tam trzeba pilnować |
 | Pakowanie + (załadunek albo przyjęcie) naraz **prawie codziennie, do godziny** | podział ekranu musi być czasowy, nie stały |
 | Skaner Zebra DS **bezprzewodowy**, drugi zamówiony | operator może skanować przy wózku |
-| Skaner używany **nie tylko do MES-u** ⚠️ *do potwierdzenia* | musi zostać klawiaturą HID (patrz §7) |
+| Skanery służą **wyłącznie MES-owi** (potwierdzone 21.09) | mogą pracować w USB CDC — patrz §7 |
 | Komputer ma głośniki | werdykt może iść uchem |
 | Wózki **nie są ponumerowane** | żadna ścieżka nie może na nich polegać |
 
@@ -113,15 +113,37 @@ Kurs zakłada magazynier, gdy auto podjedzie — jak dziś.
 
 ### 5.1 Skąd się bierze lista (bez planowania)
 
-Nie ma planu pakowania i nie będzie — właściciel: *„bo to niepotrzebna praca"*.
-Lista **wylicza się z produkcji**:
+**Kartony definiuje biuro** (klient, receptura, rodzaj, tuleja, gramatura,
+ile sztuk) — magazyn ich nie zakłada, ale **musi je widzieć**. Natomiast
+planu PAKOWANIA nie ma i nie będzie — właściciel: *„bo to niepotrzebna praca"*.
+
+Ekran KARTONY pokazuje więc **dwie rzeczy naraz**: co pakować (kartony
+z biura) i czym pakować (sztuki z produkcji).
+
+Pula sztuk **wylicza się sama**:
 
 > **Do spakowania = sztuki wyprodukowane, które nie leżą w żadnym kartonie
 > ani na palecie** (`finished_units` z `carton_id IS NULL AND pallet_id IS NULL`),
 > pogrupowane po (`product_type_id`, `recipe_id`, `tuleja`, `weight_kg`).
 
-Nikt nic nie wprowadza. „Podgląd, co wyprodukowano wczoraj" to ta sama lista
-z filtrem po `produced_date` — wychodzi gratis.
+Nikt nic nie wprowadza.
+
+**Pula jest grupowana po DNIU PRODUKCJI, a zaległości oznaczone.** Właściciel
+(21.09.2026): *„chciałbym, żeby wiedział, co produkcja zrobiła poprzedniego
+dnia i co zostało, np. nie ściągnięte z poprzednich dni, czego nie zdążyli
+ściągnąć"*. To nie jest osobna funkcja — to ta sama pula z podziałem po
+`produced_date`:
+
+```
+DO SPAKOWANIA
+  wczoraj  20.09     32 szt   KIRMIZI 15 kg · YALCIN
+  19.09              8 szt    YAPRAK 25 kg · DEM'S      ← zaległe
+  18.09              3 szt    KIRMIZI 15 kg · YALCIN    ← zaległe
+```
+
+Starsze dni idą na górę i są wyróżnione — leżą najdłużej, więc mają
+najkrótszy termin. Magazynier widzi zaległości, zanim zacznie dzisiejszą
+robotę, bez pytania kogokolwiek.
 
 **Karton otwarty przez kilka dni to stan normalny, nie wyjątek.** Scenariusz
 zakładu wychodzi z modelu sam:
@@ -247,11 +269,11 @@ Backend to ma: `stock_cartons.linked_order_id` oraz
 `stock_carton_match_service.suggestions_for_order`, które podpowiada pasujące
 kartony (klient + receptura + rodzaj + opakowanie + gramatura).
 
-⚠️ **DO POTWIERDZENIA:** zakładam, że **przypina biuro** — klikając w sugestie
-przy zamówieniu, zanim towar pojedzie. Przy tym założeniu udział magazyniera
-kończy się na skanie do mroźni i wraca dopiero przy załadunku, więc **piąty
-kafel („skompletuj zamówienie") nie jest potrzebny**. Jeśli to magazynier
-kompletuje pod konkretny wyjazd — dochodzi ekran i trzeba to przeprojektować.
+**Przypina biuro** (potwierdzone 21.09.2026) — klikając w sugestie przy
+zamówieniu. Udział magazyniera kończy się więc na skanie do mroźni i wraca
+dopiero przy załadunku, co znaczy, że **piąty kafel („skompletuj zamówienie")
+nie jest potrzebny**. Magazyn kartony tylko WIDZI — nie zakłada ich i nie
+przypina.
 
 ## 7. Dwa skanery
 
@@ -262,17 +284,25 @@ Tauri: Rust dostaje ją z Windows **Raw Input** (`WM_INPUT`) przy każdym znaku.
 Most tego kształtu robiliśmy już dwa razy — `src-tauri/src/scale.rs`
 (RS232 → zdarzenia) i `doser.rs`.
 
-**Świadomie NIE idziemy w USB CDC**, choć dawałby sterowanie diodą skanera:
-skaner jest używany nie tylko do MES-u, a w CDC przestaje być klawiaturą.
+**Idziemy w USB CDC.** Skanery służą wyłącznie MES-owi (potwierdzone przez
+właściciela 21.09.2026), więc utrata trybu klawiatury nic nie kosztuje —
+a zyskujemy dwie rzeczy naraz:
 
-> ⚠️ **DO POTWIERDZENIA PRZED PLANEM.** Wyczytałem to z niejednoznacznego
-> zdania („nie tylko do MES-u") i to jedyne miejsce w dokumencie, gdzie
-> zgadywałem. Jeśli skaner jednak pracuje WYŁĄCZNIE z kioskiem, lepszy jest
-> USB CDC: rozróżnienie skanerów staje się darmowe i pewne (osobne porty
-> szeregowe zamiast Raw Input), a czerwona dioda na skanerze — możliwa.
-Czerwona dioda odpada; werdykt niesie głośnik i ekran. Przestawienie w CDC to
-później jeden kod kreskowy i drobna zmiana w moście — nic nie trzeba
-przeprojektowywać.
+- **rozróżnianie skanerów jest darmowe i pewne** — każdy to osobny port
+  szeregowy, zamiast przechwytywania klawiatury przez Raw Input
+- **czerwona dioda na skanerze wraca do gry** — w CDC komputer wysyła
+  skanerowi komendy, więc zła sztuka może zapalić się operatorowi w ręce,
+  a nie tylko na ekranie oddalonym o trzy kroki
+
+Przestawienie skanera to jeden kod kreskowy z instrukcji Zebry, odwracalny.
+
+Most idzie wzorcem `src-tauri/src/scale.rs` (port szeregowy → zdarzenia do
+ekranu) — tylko dwa porty zamiast jednego. Ten kształt robiliśmy już dwa razy
+(`scale.rs`, `doser.rs`), więc to nie jest nowe terytorium.
+
+**Zapasowo:** gdyby CDC okazał się kłopotliwy na tym konkretnym egzemplarzu,
+Raw Input (`WM_INPUT`) daje samo rozróżnianie bez zmiany trybu skanera —
+kosztem czerwonej diody. Reszta projektu jest niezależna od tego wyboru.
 
 ### 7.2 Podział ekranu 30 / 70
 
@@ -367,7 +397,6 @@ Zapisane, żeby nie wracały.
 | Skan wózka przed pakowaniem | wózki nie są numerowane; `trolley_id` to opcjonalne pole tekstowe wpisywane ręcznie — oparcie się na nim = robota dla kierownika produkcji |
 | Przycisk „wszystkie 60 do tego kartonu" | zapisuje dane bez fizycznej kontroli — właściciel odrzucił, bo celem jest eliminacja błędów |
 | Skan kartonu przy KAŻDEJ sztuce | przy trzech kartonach naraz mnoży ruchy tam, gdzie najmniej pomaga |
-| USB CDC (dawałby czerwoną diodę) | skaner używany nie tylko do MES-u, w CDC przestaje być klawiaturą |
 | Opakowanie ekranów mobilnych w ramę kiosku | rozciągnięty telefon na 21" + router i strony biura w bundlu kiosku |
 
 ## 12. Czego ten projekt NIE załatwia
