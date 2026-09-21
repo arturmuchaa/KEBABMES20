@@ -357,18 +357,49 @@ skanowania**. Ekran przestawiający się pod ręką jest gorszy niż podzielony.
 
 ## 9. Kolejność prac (plastry)
 
-Pionowy plaster: rama kiosku + ekran kafli + jedna czynność domknięta,
-wdrożona i sprawdzona w hali. Reszta po wydeptanej ścieżce.
+**Sprzęt docelowy (decyzja właściciela 21.09.2026):** jeden panel + **dwa
+skanery ręczne**, bez terminala magazynowego Android. Terminal to kilka tysięcy
+za sztukę; drugi skaner do panelu, który i tak stoi, to ułamek tego. Telefon
+ma zniknąć z obiegu — nie jest rozwiązaniem docelowym dla żadnej czynności.
 
-**Decyzja otwarta — do rozstrzygnięcia przed planem:**
+Plastrowanie wynika z jednej obserwacji: **rywalizacja o ekran pojawia się
+dopiero wtedy, gdy PAKOWANIE wejdzie na panel.** Dopóki pakowanie dzieje się
+poza systemem (jak dziś), panel obsługuje jedną czynność naraz i nikomu to nie
+przeszkadza. Dlatego podział ekranu nie musi być w pierwszym plastrze — ale
+musi być dokładnie wtedy, gdy dochodzą kartony.
 
-- **A. WYDANIE jednopasmowo.** Backend gotowy, roboty tylko na ekranie, sprawdza
-  ramę kiosku i motyw bez ryzyka nowego modelu danych. **Ale:** skoro pakowanie
-  i załadunek idą równolegle prawie codziennie, panel zajęty załadunkiem
-  blokuje pakowacza — załadunek musiałby chwilowo zostać na telefonie.
-- **B. KARTONY z dwoma pasami od razu.** Trafia tam, gdzie realnie ginie towar,
-  ale wymaga puli „do spakowania", routingu, karty QR i mostu dwóch skanerów
-  naraz. Większy pierwszy krok.
+### Plaster 1 — rama kiosku + WYDANIE + MROŹNIA
+
+Jeden skaner, jeden pas, pełna szerokość.
+
+- `magazyn.html` / `src/magazyn.tsx` / `MagazynHmiPage`, kanał `magazyn`
+- ekran kafli (cztery kafle, dwa aktywne)
+- WYDANIE: auta na rampie → załadunek palet, z ostrzeżeniem o kolejności
+- MROŹNIA: skan przestawia jednostkę w obie strony
+
+**Dlaczego to pierwsze:** backend obu jest gotowy w 100 % (wydanie wdrożone
+21.09.2026, mroźnia to jeden skan), więc plaster sprawdza ramę kiosku, motyw
+i kanał aktualizacji **bez ryzyka nowego modelu danych**. Telefon znika
+z załadunku od pierwszego dnia. Pakowanie zostaje na razie jak dziś, więc
+o ekran nikt się nie bije.
+
+### Plaster 2 — KARTONY + dwa skanery + podział 30/70
+
+- pula „do spakowania" grupowana po dniu produkcji, z zaległościami (§5.1)
+- kartony z biura widoczne na panelu
+- karta QR kartonu + wydruk przy zakładaniu
+- routing sztuki do właściwego otwartego kartonu (§5.3)
+- most USB CDC dla dwóch skanerów (§7.1) + podział ekranu (§7.2)
+
+**Dlaczego razem:** podział ekranu jest potrzebny dokładnie w chwili, gdy
+pakowanie wchodzi na panel — ani wcześniej, ani później. Rozdzielanie tego na
+dwa plastry dałoby tydzień, w którym dwie osoby biją się o jeden ekran.
+
+### Plaster 3 — PRZYJĘCIE
+
+Najbogatszy ekran (zawieszki, temperatury, karta 1.1.1, podpis), backend
+w większości gotowy. Idzie na końcu, bo dzienna liczba dostaw jest mała,
+a ekran duży — najgorszy stosunek roboty do korzyści z całej trójki.
 
 ## 10. Testy
 
