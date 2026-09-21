@@ -66,8 +66,10 @@ def zaladunek(loading_id: str):
 def zaladunek_wystaw(loading_id: str, body: dict):
     """Biuro wystawia komplet dla kursu — decyzja per odbiorca.
 
-    `orders`: [{"order_id", "cel_kg"}] — `cel_kg` to kilogramy NA FAKTURĘ;
-    „całość na fakturę" to `cel_kg` równe całemu zamówieniu.
+    `orders`: [{"order_id", "cel_kg", "invoice_no"}] — `cel_kg` to kilogramy
+    NA FAKTURĘ („całość na fakturę" to `cel_kg` równe całemu zamówieniu),
+    a `invoice_no` to numer faktury TEGO odbiorcy na jego CMR-ach. Przewoźnik
+    i auto idą w `cmr` — są wspólne dla kursu, faktura nie jest.
     """
     return loading_service.wystaw_z_kursu(
         loading_id,

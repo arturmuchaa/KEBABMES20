@@ -102,6 +102,15 @@ const KURS_DO_WYSTAWIENIA = {
   }],
 }
 
+const KURS_DWOCH_ODBIORCOW = {
+  ...KURS_DO_WYSTAWIENIA, id: 'k3',
+  pozycje: [
+    KURS_DO_WYSTAWIENIA.pozycje[0],
+    { ...KURS_DO_WYSTAWIENIA.pozycje[0], order_id: 'o2',
+      order_no: 'ZAGROS/Z/5/09/26', client_name: 'ZAGROS', kg_zaladowane: 240 },
+  ],
+}
+
 describe('kurs czekający na wystawienie', () => {
   it('pokazuje, ile FAKTYCZNIE wyjechało', async () => {
     stan.kurs = KURS_DO_WYSTAWIENIA
@@ -117,7 +126,7 @@ describe('kurs czekający na wystawienie', () => {
     fireEvent.click(await screen.findByTestId('wystaw-komplet'))
 
     await waitFor(() => expect(stan.wystawione).toHaveLength(1))
-    expect(stan.wystawione[0].orders).toEqual([{ order_id: 'o1', cel_kg: 300 }])
+    expect(stan.wystawione[0].orders).toEqual([{ order_id: 'o1', cel_kg: 300, invoice_no: '' }])
   })
 
   it('podział wysyła kilogramy wpisane przez biuro', async () => {
@@ -129,7 +138,7 @@ describe('kurs czekający na wystawienie', () => {
     fireEvent.click(screen.getByTestId('wystaw-komplet'))
 
     await waitFor(() => expect(stan.wystawione).toHaveLength(1))
-    expect(stan.wystawione[0].orders).toEqual([{ order_id: 'o1', cel_kg: 180 }])
+    expect(stan.wystawione[0].orders).toEqual([{ order_id: 'o1', cel_kg: 180, invoice_no: '' }])
   })
 
   it('podział bez kilogramów NIE wystawia niczego', async () => {
@@ -141,6 +150,30 @@ describe('kurs czekający na wystawienie', () => {
 
     expect(await screen.findByText(/Podaj kilogramy na fakturę/)).toBeTruthy()
     expect(stan.wystawione).toHaveLength(0)
+  })
+
+  it('każdy odbiorca ma WŁASNY numer faktury na CMR', async () => {
+    // Biuro (21.09.2026): kurs na czterech klientów przyjmował jeden numer FV
+    // i wszystkie CMR-y dostawały fakturę pierwszego odbiorcy.
+    stan.kurs = KURS_DWOCH_ODBIORCOW
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    pokaz()
+    fireEvent.change(await screen.findByTestId('faktura-o1'), { target: { value: 'FV 10/09/2026' } })
+    fireEvent.change(screen.getByTestId('faktura-o2'), { target: { value: 'FV 11/09/2026' } })
+    fireEvent.click(screen.getByTestId('wystaw-komplet'))
+
+    await waitFor(() => expect(stan.wystawione).toHaveLength(1))
+    expect(stan.wystawione[0].orders).toEqual([
+      { order_id: 'o1', cel_kg: 300, invoice_no: 'FV 10/09/2026' },
+      { order_id: 'o2', cel_kg: 240, invoice_no: 'FV 11/09/2026' },
+    ])
+  })
+
+  it('numer faktury NIE jest już polem wspólnym dla całego kursu', async () => {
+    stan.kurs = KURS_DWOCH_ODBIORCOW
+    pokaz()
+    await screen.findByTestId('faktura-o1')
+    expect(screen.queryByTestId('cmr-faktura')).toBeNull()
   })
 
   it('kurs z gotowymi papierami nie prosi o wystawienie', async () => {

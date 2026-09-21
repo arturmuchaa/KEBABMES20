@@ -31,8 +31,17 @@ type Pozycja = {
   cmr: Dok[]
 }
 
-/** Decyzja biura dla jednego odbiorcy: całość na fakturę albo podział. */
-type Decyzja = { tryb: 'calosc' | 'podzial'; kgFv: string }
+/** Decyzja biura dla jednego odbiorcy: całość na fakturę albo podział,
+ *  oraz NUMER FAKTURY tego odbiorcy.
+ *
+ *  Numer jest per odbiorca, bo faktura jest per odbiorca. Do 21.09.2026 cały
+ *  kurs szedł z jednym numerem z formularza transportu i kurs na czterech
+ *  klientów dawał cztery CMR-y z fakturą pierwszego z nich (biuro: „powinienem
+ *  móc do każdego klienta wpisać inny numer FV na CMR"). Przewoźnik i auto
+ *  zostają wspólne — to jedno auto i jeden kierowca. */
+type Decyzja = { tryb: 'calosc' | 'podzial'; kgFv: string; fakturaNr: string }
+
+const PUSTA_DECYZJA: Decyzja = { tryb: 'calosc', kgFv: '', fakturaNr: '' }
 
 function Papier({ do: doAdres, etykieta, numer }: { do: string; etykieta: string; numer: string }) {
   return (
@@ -65,7 +74,7 @@ export function ZaladunekDrukPage() {
       // Domyślnie CAŁOŚĆ na fakturę — tak wygląda większość kursów, a przy
       // podziale biuro i tak wpisuje kilogramy ręcznie.
       setDecyzje(Object.fromEntries(((k?.pozycje ?? []) as Pozycja[])
-        .map(p => [p.order_id, { tryb: 'calosc', kgFv: '' } as Decyzja])))
+        .map(p => [p.order_id, { tryb: 'calosc', kgFv: '', fakturaNr: '' } as Decyzja])))
     })
   }
 
@@ -74,9 +83,11 @@ export function ZaladunekDrukPage() {
     if (wystawia) return
     const czekajace = pozycjeDoWystawienia
     const orders = czekajace.map(p => {
-      const d = decyzje[p.order_id] ?? { tryb: 'calosc', kgFv: '' }
+      const d = decyzje[p.order_id] ?? PUSTA_DECYZJA
       const kg = d.tryb === 'calosc' ? p.kg_zaladowane : Number(d.kgFv.replace(',', '.'))
-      return { order_id: p.order_id, cel_kg: kg }
+      // `invoice_no` przy zamówieniu NADPISUJE numer z formularza transportu —
+      // pusty zostawia tamten, więc kurs na jednego odbiorcę działa jak dotąd.
+      return { order_id: p.order_id, cel_kg: kg, invoice_no: d.fakturaNr.trim() }
     })
     const zly = orders.find(o => !(o.cel_kg > 0))
     if (zly) { setBlad('Podaj kilogramy na fakturę dla każdego odbiorcy'); return }
@@ -147,7 +158,7 @@ export function ZaladunekDrukPage() {
             </div>
 
             {pozycjeDoWystawienia.map((p) => {
-              const d = decyzje[p.order_id] ?? { tryb: 'calosc' as const, kgFv: '' }
+              const d = decyzje[p.order_id] ?? PUSTA_DECYZJA
               const ustaw = (patch: Partial<Decyzja>) =>
                 setDecyzje(s => ({ ...s, [p.order_id]: { ...d, ...patch } }))
               return (
@@ -195,15 +206,32 @@ export function ZaladunekDrukPage() {
                       </span>
                     )}
                   </div>
+                  {/* Numer faktury TEGO odbiorcy — wchodzi w pole 5 obu jego
+                      listów przewozowych. Każdy klient ma własną fakturę. */}
+                  <label className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                      Nr faktury (CMR, pole 5)
+                    </span>
+                    <input
+                      className="w-48 rounded border border-slate-300 px-2 py-1 text-sm"
+                      data-testid={`faktura-${p.order_id}`}
+                      placeholder="FV 11/09/2026"
+                      value={d.fakturaNr}
+                      onChange={e => ustaw({ fakturaNr: e.target.value })}
+                    />
+                  </label>
                 </div>
               )
             })}
 
             <div>
               <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-sky-900">
-                Dane na listy przewozowe (CMR)
+                Dane na listy przewozowe (CMR) — wspólne dla całego kursu
               </div>
-              <CmrDaneTransportu wartosc={transport} onChange={setTransport} disabled={wystawia} />
+              {/* Bez numeru faktury: ten jest przy KAŻDYM odbiorcy wyżej. */}
+              <CmrDaneTransportu
+                wartosc={transport} onChange={setTransport} disabled={wystawia} bezFaktury
+              />
             </div>
 
             <Button onClick={wystaw} disabled={wystawia} data-testid="wystaw-komplet">

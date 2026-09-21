@@ -7,7 +7,7 @@
  */
 import { describe, it, expect } from 'vitest'
 
-import { komunikatOdmowy, komunikatSkanu } from './scanMessages'
+import { komunikatOdmowy, komunikatPozaKolejnoscia, komunikatSkanu } from './scanMessages'
 
 describe('komunikatSkanu', () => {
   it('sukces mówi wprost, że paleta weszła, i podaje którą', () => {
@@ -86,5 +86,35 @@ describe('komunikatOdmowy — operacje na liście auta', () => {
   it('brak sieci ma pierwszeństwo przed treścią błędu', () => {
     const k = komunikatOdmowy(new TypeError('Failed to fetch'), true)
     expect(k.naglowek).toMatch(/BRAK POŁĄCZENIA/)
+  })
+})
+
+
+describe('komunikatPozaKolejnoscia', () => {
+  // Hala (21.09.2026): „POLAT → POTRM → NAZAR — czy blokuje NAZARA między
+  // POLAT-em?". Nie blokuje: paleta wchodzi, ekran świeci na żółto.
+  const POZA = {
+    pozycja: 3,
+    czeka: { orderNo: 'POLAT/Z/1/09/26', clientName: 'POLAT', pozycja: 1, loaded: 4, total: 9 },
+  }
+
+  it('mówi WPROST, że paleta jednak weszła', () => {
+    const k = komunikatPozaKolejnoscia(POZA, { palletNo: 2 })
+    expect(k.ok).toBe(true)
+    expect(k.ton).toBe('uwaga')
+    expect(k.naglowek).toContain('ZALICZONA')
+  })
+
+  it('nazywa, kto czeka i na ile palet', () => {
+    const k = komunikatPozaKolejnoscia(POZA, { palletNo: 2 })
+    expect(k.szczegol).toContain('POLAT')
+    expect(k.szczegol).toContain('4 z 9')
+    expect(k.szczegol).toContain('3.')
+  })
+
+  it('bez nazwy klienta bierze numer zamówienia', () => {
+    const k = komunikatPozaKolejnoscia(
+      { ...POZA, czeka: { ...POZA.czeka, clientName: '' } }, { palletNo: 2 })
+    expect(k.szczegol).toContain('POLAT/Z/1/09/26')
   })
 })

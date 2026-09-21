@@ -562,10 +562,18 @@ def wystaw_z_kursu(loading_id: str, decyzje: List[Dict[str, Any]],
     biuro, bo magazynier nie ma ani drukarki, ani uprawnień. Dopiero to
     zdejmuje stan magazynu.
 
-    `decyzje`: `[{"order_id": ..., "cel_kg": ...}]`, gdzie `cel_kg` to
-    kilogramy NA FAKTURĘ. „Całość na fakturę" (odbiorca pokroju NAZARA) to po
-    prostu `cel_kg` równe całemu zamówieniu — powstaje wtedy WM na całość
-    i HDI z CMR, bez WZ dla klienta.
+    `decyzje`: `[{"order_id": ..., "cel_kg": ..., "invoice_no": ...}]`, gdzie
+    `cel_kg` to kilogramy NA FAKTURĘ. „Całość na fakturę" (odbiorca pokroju
+    NAZARA) to po prostu `cel_kg` równe całemu zamówieniu — powstaje wtedy WM
+    na całość i HDI z CMR, bez WZ dla klienta.
+
+    `invoice_no` jest PER ODBIORCA i nadpisuje numer z `forma_cmr`. Faktura
+    jest wystawiana każdemu klientowi osobno, a przewoźnik i auto są wspólne
+    dla kursu — dlatego numer faktury wchodzi tędy, a nie formularzem
+    transportu. Do 21.09.2026 `forma_cmr` szła do wszystkich odbiorców bez
+    zmian i kurs na czterech klientów dawał cztery CMR-y z jednym, tym samym
+    numerem faktury (biuro, 21.09.2026). Pusty `invoice_no` zostawia numer
+    z `forma_cmr`, więc kurs na jednego odbiorcę zachowuje się jak dotąd.
 
     Dokumenty buduje ISTNIEJĄCY potok (`zapisz_podzial` → `wystaw_komplet`),
     a nie druga, równoległa ścieżka. Dwa potoki na te same papiery rozjechałyby
@@ -604,7 +612,14 @@ def wystaw_z_kursu(loading_id: str, decyzje: List[Dict[str, Any]],
             "AND doc_series='WM' AND COALESCE(status,'')<>'anulowany'", (oid,))
         if not juz_wystawiony:
             zapisz_podzial(oid, float(d.get("cel_kg") or 0))
-        komplet = wystaw_komplet(oid, forma_cmr, hdi_fv)
+        # Kopia na odbiorcę, nie mutacja wspólnego dictu: `forma_cmr` obsługuje
+        # cały kurs, a wpisanie do niego numeru pierwszego odbiorcy przeciekłoby
+        # na każdego następnego, który swojego numeru nie podał.
+        forma = dict(forma_cmr)
+        faktura = str(d.get("invoice_no") or "").strip()
+        if faktura:
+            forma["invoice_no"] = faktura
+        komplet = wystaw_komplet(oid, forma, hdi_fv)
 
         wm = komplet.get("wm") or {}
         execute(

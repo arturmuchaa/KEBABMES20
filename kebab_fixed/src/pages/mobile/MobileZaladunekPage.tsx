@@ -42,7 +42,8 @@ import { useClientNames } from '@/lib/clientNames'
 import { drukuj } from '@/lib/print'
 import { useVehicleLoading } from '@/features/loading/useVehicleLoading'
 import {
-  komunikatOdmowy, komunikatSkanu, type KomunikatSkanu, type WynikSkanu,
+  komunikatOdmowy, komunikatPozaKolejnoscia, komunikatSkanu,
+  type KomunikatSkanu, type WynikSkanu,
 } from '@/features/loading/scanMessages'
 
 type Toast = KomunikatSkanu & { ts: number }
@@ -326,15 +327,27 @@ export function MobileZaladunekPage() {
       // Front tej decyzji NIE podejmuje: do 20.09.2026 sprawdzał ją po swojej
       // liście z localStorage, więc drugi skaner miewał inne zdanie.
       const wynik = await palletScanApi.scan(trimmed, 'loaded', '', vehicleId)
+      const kontekst = {
+        palletNo: wynik.palletNo,
+        orderNo: wynik.order.orderNo,
+        kg: wynik.totalKg,
+      }
+      // Skan poza ustawioną kolejnością załadunku zastępuje samo „zeskanowana":
+      // paleta JEST zaliczona, ale operator ma to zobaczyć, póki może ją
+      // cofnąć. Ostrzegamy tylko przy świeżym skanie — przy ALREADY_SCANNED
+      // paleta leży na aucie od dawna i cofać nie ma już czego.
+      const poza = wynik.result === 'SUCCESS' ? wynik.pozaKolejnoscia : null
       setToast({
-        ...komunikatSkanu(wynik.result, {
-          palletNo: wynik.palletNo,
-          orderNo: wynik.order.orderNo,
-          kg: wynik.totalKg,
-        }),
+        ...(poza
+          ? komunikatPozaKolejnoscia(poza, kontekst)
+          : komunikatSkanu(wynik.result, kontekst)),
         ts: Date.now(),
       })
-      try { navigator.vibrate?.(wynik.result === 'SUCCESS' ? 80 : [60, 40, 60]) } catch {}
+      try {
+        navigator.vibrate?.(
+          poza ? [40, 60, 40, 60, 40]
+            : wynik.result === 'SUCCESS' ? 80 : [60, 40, 60])
+      } catch {}
       // Stan bierzemy z serwera, nie z własnego licznika.
       await odswiez()
     } catch (e) {
@@ -682,28 +695,41 @@ export function MobileZaladunekPage() {
             </form>
 
             {/* Komunikat po skanie — duży, jednoznaczny */}
-            {toast && (
-              <div
-                role="status"
-                className={`flex items-start gap-3 rounded-xl border-2 p-3 xl:gap-6 xl:p-7 ${
-                  toast.ok ? 'border-emerald-300 bg-emerald-50' : 'border-red-300 bg-red-50'
-                }`}
-              >
-                {toast.ok
-                  ? <CheckCircle2 className="size-6 shrink-0 text-emerald-600 xl:size-14" />
-                  : <AlertTriangle className="size-6 shrink-0 text-red-600 xl:size-14" />}
-                <div className="min-w-0">
-                  <div className={`text-base font-bold leading-tight xl:text-4xl ${
-                    toast.ok ? 'text-emerald-900' : 'text-red-900'}`}>
-                    {toast.naglowek}
-                  </div>
-                  <div className={`mt-0.5 text-sm xl:mt-2 xl:text-2xl ${
-                    toast.ok ? 'text-emerald-800' : 'text-red-800'}`}>
-                    {toast.szczegol}
+            {toast && (() => {
+              // Trzy stany, nie dwa: zielony (zaliczone), ŻÓŁTY (zaliczone, ale
+              // sprawdź) i czerwony (nie przeszło). Żółty istnieje dla skanu
+              // poza kolejnością — na zielono zniknąłby operatorowi z oczu,
+              // a na czerwono kłamałby, że paleta nie weszła.
+              const t = toast.ton === 'uwaga' ? 'uwaga' : toast.ok ? 'ok' : 'blad'
+              const ramka = { ok: 'border-emerald-300 bg-emerald-50',
+                              uwaga: 'border-amber-400 bg-amber-50',
+                              blad: 'border-red-300 bg-red-50' }[t]
+              const ikona = { ok: 'text-emerald-600', uwaga: 'text-amber-600',
+                              blad: 'text-red-600' }[t]
+              const tytul = { ok: 'text-emerald-900', uwaga: 'text-amber-900',
+                              blad: 'text-red-900' }[t]
+              const opis  = { ok: 'text-emerald-800', uwaga: 'text-amber-800',
+                              blad: 'text-red-800' }[t]
+              return (
+                <div
+                  role="status"
+                  data-ton={t}
+                  className={`flex items-start gap-3 rounded-xl border-2 p-3 xl:gap-6 xl:p-7 ${ramka}`}
+                >
+                  {t === 'ok'
+                    ? <CheckCircle2 className={`size-6 shrink-0 xl:size-14 ${ikona}`} />
+                    : <AlertTriangle className={`size-6 shrink-0 xl:size-14 ${ikona}`} />}
+                  <div className="min-w-0">
+                    <div className={`text-base font-bold leading-tight xl:text-4xl ${tytul}`}>
+                      {toast.naglowek}
+                    </div>
+                    <div className={`mt-0.5 text-sm xl:mt-2 xl:text-2xl ${opis}`}>
+                      {toast.szczegol}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )
+            })()}
 
             {/* Zamówienia w kolejności załadunku.
                 Na panelu 21" dwie kolumny — przy 1920×1080 jedna kolumna

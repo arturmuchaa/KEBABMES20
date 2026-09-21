@@ -384,3 +384,93 @@ def test_paleta_z_innego_auta_nie_udaje_powtorzonego_skanu(db):
     # Paleta ZOSTAJE na pierwszym aucie.
     assert query_one(
         "SELECT loaded_vehicle_id v FROM order_pallets WHERE id='p1'")["v"] == "v1"
+
+
+# ── Kolejność załadunku: OSTRZEŻENIE, nie blokada ─────────────────────────
+#
+# Hala/biuro (21.09.2026): „ustawiam kolejność POLAT → POTRM → NAZAR — czy
+# system blokuje pomyłkowe załadowanie NAZARA między POLAT-em?". Nie blokował
+# w ogóle: `position` sortowała wyłącznie listę na skanerze. Blokada byłaby
+# gorsza od choroby (kolejność bywa ustawiona błędnie, paleta bywa pod ręką),
+# więc skan przechodzi, a odpowiedź niesie `out_of_sequence` na żółty komunikat.
+def _trzy_zamowienia_na_aucie():
+    """POLAT (2 palety) → POTRM (1) → NAZAR (1), dokładnie w tej kolejności."""
+    _pojazd(); _slowniki()
+    _zamowienie("polat", "POLAT/Z/1/09/26")
+    _zamowienie("potrm", "POTRM/Z/2/09/26")
+    _zamowienie("nazar", "NAZAR/Z/3/09/26")
+    _paleta("pp1", oid="polat", nr=1); _paleta("pp2", oid="polat", nr=2)
+    _paleta("pt1p", oid="potrm", nr=1)
+    _paleta("pn1", oid="nazar", nr=1)
+    for oid in ("polat", "potrm", "nazar"):
+        vehicle_loading_service.add_order("v1", oid)
+
+
+def test_skan_poza_kolejnoscia_OSTRZEGA_ale_nie_blokuje(db):
+    _trzy_zamowienia_na_aucie()
+    pallets_service.scan("PAL|polat|1", "loaded", vehicle_id="v1")  # POLAT: 1 z 2
+
+    wynik = pallets_service.scan("PAL|nazar|1", "loaded", vehicle_id="v1")
+
+    # Paleta WESZŁA — to jest cała różnica między ostrzeżeniem a blokadą.
+    assert wynik["result"] == "SUCCESS"
+    assert query_one(
+        "SELECT status, loaded_vehicle_id v FROM order_pallets WHERE id='pn1'") == {
+        "status": "loaded", "v": "v1"}
+    # …i niesie komplet liczb na komunikat: kto czeka i na ile palet.
+    poza = wynik["out_of_sequence"]
+    assert poza["pozycja"] == 3
+    assert poza["czeka"]["order_no"] == "POLAT/Z/1/09/26"
+    assert poza["czeka"]["pozycja"] == 1
+    assert (poza["czeka"]["loaded"], poza["czeka"]["total"]) == (1, 2)
+
+
+def test_skan_PO_KOLEI_nie_ostrzega(db):
+    """Fałszywe ostrzeżenie przy normalnej pracy byłoby gorsze niż jego brak —
+    magazynier przestałby je czytać po pierwszym dniu."""
+    _trzy_zamowienia_na_aucie()
+    pallets_service.scan("PAL|polat|1", "loaded", vehicle_id="v1")
+    pallets_service.scan("PAL|polat|2", "loaded", vehicle_id="v1")
+
+    wynik = pallets_service.scan("PAL|potrm|1", "loaded", vehicle_id="v1")
+
+    assert wynik["result"] == "SUCCESS"
+    assert "out_of_sequence" not in wynik
+
+
+def test_pierwsze_zamowienie_w_kolejce_nigdy_nie_jest_poza_kolejnoscia(db):
+    _trzy_zamowienia_na_aucie()
+
+    wynik = pallets_service.scan("PAL|polat|1", "loaded", vehicle_id="v1")
+
+    assert "out_of_sequence" not in wynik
+
+
+def test_zamowienie_bez_palet_nie_wstrzymuje_kolejki(db):
+    """Biuro nie rozpisało jeszcze palet POTRM — nie ma czego ładować, więc
+    NAZAR za nim nie jest „poza kolejnością"."""
+    _pojazd(); _slowniki()
+    _zamowienie("polat", "POLAT/Z/1/09/26")
+    _zamowienie("potrm", "POTRM/Z/2/09/26")   # bez ani jednej palety
+    _zamowienie("nazar", "NAZAR/Z/3/09/26")
+    _paleta("pp1", oid="polat", nr=1)
+    _paleta("pn1", oid="nazar", nr=1)
+    for oid in ("polat", "potrm", "nazar"):
+        vehicle_loading_service.add_order("v1", oid)
+    pallets_service.scan("PAL|polat|1", "loaded", vehicle_id="v1")
+
+    wynik = pallets_service.scan("PAL|nazar|1", "loaded", vehicle_id="v1")
+
+    assert "out_of_sequence" not in wynik
+
+
+def test_ostrzezenie_liczy_sie_wzgledem_USTAWIONEJ_kolejnosci(db):
+    """Po `reorder` NAZAR jest pierwszy — wtedy to POLAT jedzie poza kolejką.
+    Bez tego testu ostrzeżenie mogłoby patrzeć na kolejność DOPISANIA."""
+    _trzy_zamowienia_na_aucie()
+    vehicle_loading_service.reorder("v1", ["nazar", "potrm", "polat"])
+
+    assert "out_of_sequence" not in pallets_service.scan(
+        "PAL|nazar|1", "loaded", vehicle_id="v1")
+    poza = pallets_service.scan("PAL|polat|1", "loaded", vehicle_id="v1")["out_of_sequence"]
+    assert poza["czeka"]["order_no"] == "POTRM/Z/2/09/26"

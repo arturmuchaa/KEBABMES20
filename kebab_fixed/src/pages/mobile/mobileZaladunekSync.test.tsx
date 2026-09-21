@@ -24,6 +24,8 @@ const serwer = vi.hoisted(() => ({
   offline: false,
   /** Jak backend odpowie na najbliższy skan. */
   wynikSkanu: 'SUCCESS' as string,
+  /** Ostrzeżenie „poza kolejnością" doklejane przez backend do udanego skanu. */
+  pozaKolejnoscia: null as any,
 }))
 
 function migawka() {
@@ -78,6 +80,7 @@ vi.mock('@/lib/api', async () => {
         return Promise.resolve({
           palletNo: 1, totalKg: 100, result: 'SUCCESS',
           order: { id: zam?.id ?? '', orderNo: zam?.orderNo ?? '' },
+          pozaKolejnoscia: serwer.pozaKolejnoscia,
         })
       },
       finalizeLoading: () => {
@@ -131,6 +134,7 @@ beforeEach(() => {
   serwer.naAucie = []
   serwer.offline = false
   serwer.wynikSkanu = 'SUCCESS'
+  serwer.pozaKolejnoscia = null
   serwer.aktywne = [{ id: 'o1', order_no: 'DEM-S/Z/1/09/26', client_name: 'DEM`S' }]
   try { localStorage.clear() } catch {}
 })
@@ -198,6 +202,42 @@ describe('Załadunek — wspólny stan wielu urządzeń', () => {
     fireEvent.submit(pole.closest('form')!)
 
     expect(await screen.findByText('PALETA NIE NALEŻY DO TEGO ZAMÓWIENIA', {}, { timeout: 3000 })).toBeTruthy()
+  })
+
+  it('skan poza kolejnością OSTRZEGA na żółto, ale paleta wchodzi', async () => {
+    // Hala (21.09.2026): „ustawiam POLAT → POTRM → NAZAR — czy system blokuje
+    // załadowanie NAZARA między POLAT-em?". Nie blokuje i nie ma blokować;
+    // ma to POWIEDZIEĆ, póki magazynier może skan cofnąć.
+    serwer.naAucie = [{ id: 'o1', orderNo: 'DEM-S/Z/1/09/26', palety: [{ nr: 1, zaladowana: false }] }]
+    serwer.pozaKolejnoscia = {
+      pozycja: 3,
+      czeka: { orderNo: 'POLAT/Z/1/09/26', clientName: 'POLAT', pozycja: 1, loaded: 4, total: 9 },
+    }
+    urzadzenie()
+    await screen.findByText(/DEM-S\/Z\/1\/09\/26/, {}, { timeout: 3000 })
+
+    const pole = screen.getByPlaceholderText(/Skanuj QR palety/i)
+    fireEvent.change(pole, { target: { value: 'PAL|o1|1' } })
+    fireEvent.submit(pole.closest('form')!)
+
+    const komunikat = await screen.findByRole('status', {}, { timeout: 3000 })
+    expect(komunikat.getAttribute('data-ton')).toBe('uwaga')
+    expect(komunikat.textContent).toContain('POZA KOLEJNOŚCIĄ')
+    expect(komunikat.textContent).toContain('POLAT')
+    expect(komunikat.textContent).toContain('4 z 9')
+  })
+
+  it('zwykły skan po kolei zostaje ZIELONY', async () => {
+    serwer.naAucie = [{ id: 'o1', orderNo: 'DEM-S/Z/1/09/26', palety: [{ nr: 1, zaladowana: false }] }]
+    urzadzenie()
+    await screen.findByText(/DEM-S\/Z\/1\/09\/26/, {}, { timeout: 3000 })
+
+    const pole = screen.getByPlaceholderText(/Skanuj QR palety/i)
+    fireEvent.change(pole, { target: { value: 'PAL|o1|1' } })
+    fireEvent.submit(pole.closest('form')!)
+
+    const komunikat = await screen.findByRole('status', {}, { timeout: 3000 })
+    expect(komunikat.getAttribute('data-ton')).toBe('ok')
   })
 
   it('TEST 9: utrata połączenia jest widoczna, a ekran zachowuje ostatni stan', async () => {

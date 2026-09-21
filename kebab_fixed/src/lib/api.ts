@@ -2171,6 +2171,30 @@ function mapScanResult(raw: any): PalletScanResult {
   }
 }
 
+/** Skan poza ustawioną kolejnością załadunku — OSTRZEŻENIE, nie odmowa.
+ *  Paleta jest już na aucie; ekran hali mówi tylko, że kolejka mówiła co
+ *  innego (biuro/hala, 21.09.2026: „POLAT → POTRM → NAZAR"). */
+export interface PozaKolejnoscia {
+  /** Miejsce zeskanowanego zamówienia w kolejce, liczone od 1. */
+  pozycja: number
+  /** Pierwsze zamówienie przed nim, które nie ma jeszcze kompletu palet. */
+  czeka: { orderNo: string; clientName: string; pozycja: number; loaded: number; total: number }
+}
+
+function mapPozaKolejnoscia(raw: any): PozaKolejnoscia | null {
+  if (!raw?.czeka) return null
+  return {
+    pozycja: Number(raw.pozycja ?? 0),
+    czeka: {
+      orderNo:    raw.czeka.order_no ?? '',
+      clientName: raw.czeka.client_name ?? '',
+      pozycja:    Number(raw.czeka.pozycja ?? 0),
+      loaded:     Number(raw.czeka.loaded ?? 0),
+      total:      Number(raw.czeka.total ?? 0),
+    },
+  }
+}
+
 export interface LoadingStatusTotals {
   totalPallets:   number
   loadedPallets:  number
@@ -2288,8 +2312,11 @@ export const zaladunkiApi = {
       }))),
   get: (id: string) => get<any>(`/pallets/zaladunki/${encodeURIComponent(id)}`),
   /** Biuro wystawia komplet dla kursu. `celKg` to kilogramy NA FAKTURĘ;
-   *  „całość na fakturę" to `celKg` równe całemu zamówieniu. */
-  wystaw: (id: string, orders: Array<{ order_id: string; cel_kg: number }>,
+   *  „całość na fakturę" to `celKg` równe całemu zamówieniu.
+   *  `invoice_no` przy zamówieniu to numer faktury TEGO odbiorcy — nadpisuje
+   *  `cmr.invoice_no`, bo faktura jest per klient, a auto per kurs. */
+  wystaw: (id: string,
+           orders: Array<{ order_id: string; cel_kg: number; invoice_no?: string }>,
            cmr: Record<string, unknown>, hdiFv = false) =>
     post<any>(`/pallets/zaladunki/${encodeURIComponent(id)}/wystaw`,
       { orders, cmr, hdi_fv: hdiFv }),
@@ -2416,7 +2443,11 @@ export const palletScanApi = {
     vehicleId = '',
   ) =>
     post<any>('/pallets/scan', { code, action, operator, vehicle_id: vehicleId })
-      .then(raw => ({ ...mapScanResult(raw), result: (raw?.result ?? 'SUCCESS') as ScanResultCode })),
+      .then(raw => ({
+        ...mapScanResult(raw),
+        result: (raw?.result ?? 'SUCCESS') as ScanResultCode,
+        pozaKolejnoscia: mapPozaKolejnoscia(raw?.out_of_sequence),
+      })),
   /** Zamówienia, których palety STOJĄ na tym aucie — wspólna prawda dla
    *  wszystkich skanerów (do 12.09.2026 lista żyła w localStorage telefonu). */
   ordersOnVehicle: (vehicleId: string) =>

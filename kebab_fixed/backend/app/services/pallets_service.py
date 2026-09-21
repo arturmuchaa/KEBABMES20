@@ -5,7 +5,7 @@ Zapis działa jako pełen replace zestawu palet zamówienia — żeby uniknąć
 edge case'ów częściowej synchronizacji UI/DB.
 """
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
@@ -218,6 +218,58 @@ def save_pallets(order_id: str, pallets: List[PalletDto]) -> List[Dict]:
 
 
 # ── Skanowanie palet (mroźnia / załadunek) ────────────────────────
+
+def _poza_kolejnoscia(vehicle_id: str, order_id: str) -> Optional[Dict]:
+    """Czy ta paleta weszła POZA ustawioną kolejnością załadunku?
+
+    Biuro/hala (21.09.2026): „ustawiam kolejność POLAT → POTRM → NAZAR — czy
+    system blokuje pomyłkowe załadowanie NAZARA między POLAT-em?". Nie blokował:
+    `position` w `vehicle_loading_orders` sortowała wyłącznie listę na skanerze,
+    a skan sprawdzał tylko, czy zamówienie W OGÓLE jest na tym aucie.
+
+    ŚWIADOMIE OSTRZEŻENIE, NIE BLOKADA. Kolejność bywa ustawiona błędnie,
+    a paleta bywa akurat pod ręką — twarda odmowa zatrzymywałaby magazyniera
+    przy aucie i kazała wołać biuro. Skan przechodzi, operator widzi pomyłkę
+    natychmiast i ma czas ją cofnąć (przycisk cofnięcia przy palecie).
+
+    Zwraca `None`, gdy wszystko wcześniejsze w kolejce jest już na aucie —
+    a także dla zamówienia spoza listy auta (tam decyduje `WRONG_ORDER`, ta
+    funkcja nie ma o czym mówić).
+
+    Palety `shipped` odpadają: pojechały wcześniejszym kursem i nie są ani
+    celem, ani brakiem tego załadunku (ta sama reguła co w `vehicle_state`).
+    """
+    moja = query_one(
+        "SELECT position FROM vehicle_loading_orders WHERE vehicle_id=%s AND order_id=%s",
+        (vehicle_id, order_id))
+    if not moja:
+        return None
+    wczesniejsze = query_all(
+        """SELECT vlo.position, o.order_no, o.client_name,
+                  COUNT(p.id)::int AS total,
+                  COALESCE(SUM(CASE WHEN p.status='loaded' AND p.loaded_vehicle_id=%s
+                                    THEN 1 ELSE 0 END), 0)::int AS loaded
+             FROM vehicle_loading_orders vlo
+             JOIN client_orders o ON o.id = vlo.order_id
+             LEFT JOIN order_pallets p
+                    ON p.order_id = vlo.order_id AND p.status <> 'shipped'
+            WHERE vlo.vehicle_id = %s AND vlo.position < %s
+            GROUP BY vlo.position, o.order_no, o.client_name
+            ORDER BY vlo.position""",
+        (vehicle_id, vehicle_id, moja["position"]))
+    for z in wczesniejsze:
+        # Zamówienie bez ani jednej palety nie jest „niedokończone" — biuro go
+        # jeszcze nie rozpisało i nie ma czego ładować.
+        if int(z["total"]) > 0 and int(z["loaded"]) < int(z["total"]):
+            return {
+                "pozycja": int(moja["position"]) + 1,
+                "czeka": {"order_no": z["order_no"] or "",
+                          "client_name": z["client_name"] or "",
+                          "pozycja": int(z["position"]) + 1,
+                          "loaded": int(z["loaded"]), "total": int(z["total"])},
+            }
+    return None
+
 
 def _pallet_with_items(order_id: str, pallet_no: int) -> Dict:
     """Zwróć rekord palety wzbogacony o pozycje + nagłówek zamówienia."""
@@ -458,6 +510,15 @@ def scan(code: str, action: str, operator: str = "", vehicle_id: str | None = No
     )
     wynik = _pallet_with_items(order_id, pallet_no)
     wynik["result"] = "ALREADY_SCANNED" if juz_bylo else "SUCCESS"
+    # Podpowiedź, nie odmowa — skan jest już zapisany. Ekran hali pokazuje ją
+    # na żółto obok potwierdzenia palety (patrz `_poza_kolejnoscia`).
+    if action == "loaded" and veh_id:
+        poza = _poza_kolejnoscia(veh_id, order_id)
+        if poza:
+            wynik["out_of_sequence"] = poza
+            logger.info("pallet.scan.out_of_sequence", extra={
+                "order_id": order_id, "pallet_no": pallet_no,
+                "vehicle_id": veh_id, "czeka": poza["czeka"]["order_no"]})
     return wynik
 
 

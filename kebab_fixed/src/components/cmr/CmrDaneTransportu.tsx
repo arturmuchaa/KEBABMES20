@@ -15,6 +15,12 @@ import { carriersApi, type Carrier } from '@/lib/api'
  * pytały o DOKŁADNIE to samo. Rozjazd między dwoma formularzami na ten sam
  * dokument skończyłby się listem przewozowym, który zależy od tego, którym
  * przyciskiem go wystawiono.
+ *
+ * `bezFaktury` — przewoźnik i auto są WSPÓLNE dla całego kursu, ale numer
+ * faktury nie: każdy odbiorca dostaje własną fakturę. Ekran papierów kursu
+ * pyta więc o numer przy KAŻDYM odbiorcy z osobna i chowa tu to pole, żeby
+ * nie było dwóch miejsc na tę samą daną (biuro, 21.09.2026: kurs na czterech
+ * klientów dostał jeden numer faktury na wszystkich czterech CMR-ach).
  */
 export type DaneTransportu = {
   carrier_id: string
@@ -36,11 +42,13 @@ export function brakujeDanychPrzewoznika(d: DaneTransportu): boolean {
 }
 
 export function CmrDaneTransportu({
-  wartosc, onChange, disabled = false,
+  wartosc, onChange, disabled = false, bezFaktury = false,
 }: {
   wartosc: DaneTransportu
   onChange: (d: DaneTransportu) => void
   disabled?: boolean
+  /** Numer faktury zbiera wołający — per odbiorca, nie na cały kurs. */
+  bezFaktury?: boolean
 }) {
   const [carriers, setCarriers] = useState<Carrier[]>([])
 
@@ -88,17 +96,19 @@ export function CmrDaneTransportu({
           onChange={e => onChange({ ...wartosc, plate: e.target.value })}
         />
       </label>
-      <label>
-        <span className={etykieta}>Nr faktury (pole 5)</span>
-        <input
-          className={pole}
-          data-testid="cmr-faktura"
-          placeholder="FV 11/09/2026"
-          value={wartosc.invoice_no}
-          disabled={disabled}
-          onChange={e => onChange({ ...wartosc, invoice_no: e.target.value })}
-        />
-      </label>
+      {!bezFaktury && (
+        <label>
+          <span className={etykieta}>Nr faktury (pole 5)</span>
+          <input
+            className={pole}
+            data-testid="cmr-faktura"
+            placeholder="FV 11/09/2026"
+            value={wartosc.invoice_no}
+            disabled={disabled}
+            onChange={e => onChange({ ...wartosc, invoice_no: e.target.value })}
+          />
+        </label>
+      )}
       <label className="col-span-2">
         <span className={etykieta}>Instrukcje (pole 13)</span>
         <input

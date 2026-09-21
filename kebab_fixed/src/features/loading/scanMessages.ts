@@ -10,7 +10,7 @@
  * Techniczne błędy backendu (stack trace, SQL) nigdy nie trafiają na ekran:
  * nieznany kod dostaje zdanie ogólne, a szczegół ląduje tylko w konsoli.
  */
-import type { ScanResultCode } from '@/lib/api'
+import type { PozaKolejnoscia, ScanResultCode } from '@/lib/api'
 
 /** 'OFFLINE' nie przychodzi z backendu — powstaje, gdy żądanie w ogóle
  *  nie doszło. Traktujemy je jak osobny wynik, bo operator musi wiedzieć,
@@ -23,6 +23,11 @@ export interface KomunikatSkanu {
   naglowek: string
   /** Jedno zdanie kontekstu (numer palety, zamówienie). */
   szczegol: string
+  /** Kolor ekranu. Domyślnie wynika z `ok` (zielony/czerwony); `uwaga` to
+   *  trzeci przypadek: skan PRZESZEDŁ, ale operator ma coś sprawdzić.
+   *  Bez tego skan poza kolejnością musiałby udawać sukces (zielono,
+   *  niezauważalnie) albo błąd (czerwono, choć paleta jest zaliczona). */
+  ton?: 'uwaga'
 }
 
 export interface KontekstSkanu {
@@ -121,5 +126,31 @@ export function komunikatOdmowy(e: unknown, offline: boolean): KomunikatSkanu {
     ok: false,
     naglowek: 'NIE UDAŁO SIĘ',
     szczegol: czytelny ? tekst : 'Operacja nie przeszła. Spróbuj ponownie albo zawołaj biuro.',
+  }
+}
+
+
+/** Skan PRZESZEDŁ, ale zamówienie jest poza ustawioną kolejnością załadunku.
+ *
+ *  Hala (21.09.2026): „ustawiam POLAT → POTRM → NAZAR — czy system blokuje
+ *  załadowanie NAZARA między POLAT-em?". Nie blokuje i świadomie nie będzie:
+ *  paleta bywa akurat pod ręką, a kolejność bywa ustawiona błędnie. Ekran ma
+ *  to natomiast POWIEDZIEĆ, na żółto i od razu, póki jest czas cofnąć skan.
+ *
+ *  Liczby („4 z 9 palet") są w zdaniu celowo: bez nich operator nie wie, czy
+ *  chodzi o pomyłkę, czy o dwie palety, które po prostu jeszcze nie przyjechały.
+ */
+export function komunikatPozaKolejnoscia(
+  poza: PozaKolejnoscia,
+  ctx: KontekstSkanu = {},
+): KomunikatSkanu {
+  const kto = poza.czeka.clientName || poza.czeka.orderNo || 'poprzednie zamówienie'
+  return {
+    ok: true,
+    ton: 'uwaga',
+    naglowek: 'POZA KOLEJNOŚCIĄ — PALETA ZALICZONA',
+    szczegol: `${paleta(ctx)} jest ${poza.pozycja}. w kolejce, a ${kto} `
+      + `(${poza.czeka.pozycja}.) ma dopiero ${poza.czeka.loaded} z `
+      + `${poza.czeka.total} palet. Sprawdź, czy to na pewno ta paleta.`,
   }
 }

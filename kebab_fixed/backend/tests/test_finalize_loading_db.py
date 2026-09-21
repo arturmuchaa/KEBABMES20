@@ -1144,6 +1144,60 @@ def test_powtorne_wystawienie_nie_dubluje_dokumentow(db):
     assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 10)
 
 
+def _kurs_dwoch_odbiorcow(qty=10, kg=30):
+    """Kurs z dwoma odbiorcami — najkrótszy układ, w którym widać, czy numer
+    faktury jest per odbiorca, czy wspólny dla całego auta."""
+    _przygotuj(qty=qty, kg=kg)
+    _zamowienie(oid="o2", order_no="ZAGROS/Z/5/09/26", qty=qty, kg=kg)
+    _wyrob(gid="f2", qty=qty, kg=kg)
+    _paleta(pid="p2", oid="o2", nr=1)
+    _sztuki("p2", "f2", ile=qty, kg=kg, oid="o2", od=101)
+    finalize_loading("v1", ["o1", "o2"], plate="KR 99999")
+    from app.services.loading_service import zaladunki_do_wydruku
+    return zaladunki_do_wydruku()[0]["id"]
+
+
+def _numery_faktur(order_id):
+    """Numery z pola 5 obu CMR-ów zamówienia (na drogę i do faktury)."""
+    return {(r["payload"].get("attachments") or {}).get("invoice_no", "")
+            for r in query_all(
+                "SELECT payload FROM cmr_documents WHERE order_id=%s", (order_id,))}
+
+
+def test_kazdy_odbiorca_ma_WLASNY_numer_faktury_na_CMR(db):
+    """Biuro (21.09.2026): „do każdego klienta inny numer FV na CMR".
+
+    Kurs na czterech odbiorców dawał cztery CMR-y z JEDNYM numerem faktury,
+    bo `forma_cmr` opisywała całe auto i szła do każdego zamówienia bez zmian.
+    Przewoźnik i auto wspólne zostają — faktura jest per klient.
+    """
+    from app.services.loading_service import wystaw_z_kursu
+    kurs = _kurs_dwoch_odbiorcow()
+
+    wystaw_z_kursu(kurs, [
+        {"order_id": "o1", "cel_kg": 300.0, "invoice_no": "FV 10/09/2026"},
+        {"order_id": "o2", "cel_kg": 300.0, "invoice_no": "FV 11/09/2026"},
+    ], _FORMA_CMR)
+
+    assert _numery_faktur("o1") == {"FV 10/09/2026"}
+    assert _numery_faktur("o2") == {"FV 11/09/2026"}
+
+
+def test_pusty_numer_faktury_bierze_numer_z_formularza_kursu(db):
+    """Zgodność wstecz: odbiorca bez własnego numeru dostaje ten z `forma_cmr`,
+    a numer podany przy PIERWSZYM odbiorcy nie przecieka na następnego."""
+    from app.services.loading_service import wystaw_z_kursu
+    kurs = _kurs_dwoch_odbiorcow()
+
+    wystaw_z_kursu(kurs, [
+        {"order_id": "o1", "cel_kg": 300.0, "invoice_no": "FV 10/09/2026"},
+        {"order_id": "o2", "cel_kg": 300.0},
+    ], _FORMA_CMR)
+
+    assert _numery_faktur("o1") == {"FV 10/09/2026"}
+    assert _numery_faktur("o2") == {_FORMA_CMR["invoice_no"]}
+
+
 def test_zamowienie_spoza_kursu_odmawia(db):
     """Biuro nie może wystawić z kursu papierów na zamówienie, które nim nie
     jechało — to jest cała wartość zapisu kursu."""
