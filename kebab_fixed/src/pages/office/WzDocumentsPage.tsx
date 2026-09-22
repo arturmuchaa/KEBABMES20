@@ -170,6 +170,10 @@ export function WzDocumentsPage() {
   // WYŁĄCZNIE przy tworzeniu, więc WZ wystawiony z kursu zostawał z PLN.
   const [waluta, setWaluta]       = useState<'PLN' | 'EUR'>('PLN')
   const [kursStr, setKursStr]     = useState('')
+  /** Jedna cena dla wszystkich pozycji. Biuro najczęściej ma z klientem
+   *  JEDNĄ stawkę za kilogram — wpisywanie jej osobno w każdą linię było
+   *  przepisywaniem tej samej liczby (WZ/83/09/26: 19 pozycji × 3,10 €). */
+  const [cenaWszystkie, setCenaWszystkie] = useState('')
   const [editErr, setEditErr] = useState('')
   const [saving, setSaving]   = useState(false)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
@@ -216,6 +220,7 @@ export function WzDocumentsPage() {
       // świadomie, a nie przez przypadkowe otwarcie edytora.
       setWaluta((doc.currency || 'PLN').toUpperCase() === 'EUR' ? 'EUR' : 'PLN')
       setKursStr(doc.eur_rate != null ? String(doc.eur_rate) : '')
+      setCenaWszystkie('')
       setEditMode(mode)
       setEditId(id)
     } catch (e: any) { alert(e?.message || 'Błąd pobierania WZ') }
@@ -655,6 +660,33 @@ export function WzDocumentsPage() {
                                   ceny wpisuj w EUR — kwoty nie są przeliczane
                                 </span>
                               )}
+                            </div>
+                          )}
+                          {/* Jedna stawka na cały dokument. Klient ma zwykle
+                              jedną cenę za kilogram, a wpisywanie jej w każdą
+                              linię z osobna było przepisywaniem tej samej
+                              liczby. Nie nadpisujemy po cichu: to osobny
+                              przycisk, więc ręcznie wpisane ceny giną tylko
+                              wtedy, gdy biuro o to poprosi. */}
+                          {editMode === 'prices' && editLines.length > 1 && (
+                            <div className="flex items-center gap-2 mt-2 flex-wrap">
+                              <span className="text-muted-foreground uppercase tracking-wider text-[10px]">
+                                Jedna cena dla wszystkich
+                              </span>
+                              <Input
+                                className="h-7 w-28 text-[12px]"
+                                placeholder={`za kg [${waluta === 'EUR' ? '€' : 'zł'}]`}
+                                inputMode="decimal"
+                                value={cenaWszystkie}
+                                onChange={e => setCenaWszystkie(sanitizeDecimal(e.target.value))}
+                              />
+                              <Button
+                                size="sm" variant="outline" className="h-7 text-[11px]"
+                                disabled={!toNum(cenaWszystkie)}
+                                onClick={() => setPriceStrs(editLines.map(() => cenaWszystkie))}
+                              >
+                                Wstaw do {editLines.length} pozycji
+                              </Button>
                             </div>
                           )}
                           <div className="flex items-center justify-between mt-3">
