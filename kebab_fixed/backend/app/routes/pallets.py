@@ -38,6 +38,16 @@ def scan(body: PalletScanRequest):
     )
 
 
+@router.get("/slad/{order_id}")
+def slad(order_id: str):
+    """Etapy skanowania palet zamówienia — podgląd dla biura.
+
+    Segment `slad` musi stać PRZED trasami z `{pallet_id}`, inaczej router
+    wziąłby go za identyfikator palety.
+    """
+    return pallets_service.slad_skanowania(order_id)
+
+
 @router.get("/lookup")
 def lookup(code: str = Query(...)):
     return pallets_service.lookup(code)

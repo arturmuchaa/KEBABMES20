@@ -219,6 +219,58 @@ def save_pallets(order_id: str, pallets: List[PalletDto]) -> List[Dict]:
 
 # ── Skanowanie palet (mroźnia / załadunek) ────────────────────────
 
+def slad_skanowania(order_id: str) -> List[Dict]:
+    """Etapy skanowania każdej palety zamówienia — „czy sztuka nie zginęła".
+
+    Zgłoszenie właściciela 22.09.2026: „chciałbym prześledzić etapy skanowania,
+    czy gdzieś sztuka nie zginęła".
+
+    `pallet_scans` zapisuje KAŻDY skan od zawsze (mroźnia, załadunek,
+    cofnięcie), a do tej pory NIKT tej tabeli nie czytał — w całym backendzie
+    nie było ani jednego SELECT-a. Historia jest więc kompletna wstecz i nie
+    trzeba żadnej migracji, żeby ją pokazać.
+
+    PALETY BEZ SKANÓW ZOSTAJĄ NA LIŚCIE i to jest sedno tej funkcji: paleta,
+    której nikt nie tknął, to dokładnie ta, której ktoś szuka. Gdyby wypadała
+    z wyniku, narzędzie odpowiadałoby wyłącznie na pytania, na które i tak
+    znamy odpowiedź.
+
+    Ślad jest per PALETA, nie per sztuka — skan w hali jest skanem palety
+    (sztuk przy załadunku nikt nie skanuje), więc ślad per sztuka udawałby
+    dokładność, której w danych nie ma.
+
+    Nazwa auta dociągana z `vehicles`: sam identyfikator nic biuru nie mówi.
+    """
+    palety = query_all(
+        "SELECT id, pallet_no, status FROM order_pallets "
+        "WHERE order_id=%s ORDER BY pallet_no", (order_id,))
+    if not palety:
+        return []
+
+    zdarzenia = query_all(
+        """SELECT ps.pallet_id, ps.action, ps.scanned_at, ps.operator,
+                  v.name AS vehicle_name, v.plate AS vehicle_plate
+             FROM pallet_scans ps
+             LEFT JOIN vehicles v ON v.id = ps.vehicle_id
+            WHERE ps.pallet_id = ANY(%s)
+            ORDER BY ps.scanned_at, ps.id""",
+        ([p["id"] for p in palety],))
+
+    wg_palety: Dict[str, List[Dict]] = {}
+    for z in zdarzenia:
+        wg_palety.setdefault(z["pallet_id"], []).append({
+            "action": z["action"],
+            "scanned_at": z["scanned_at"],
+            "operator": z.get("operator") or "",
+            "vehicle": " ".join(
+                x for x in (z.get("vehicle_name"), z.get("vehicle_plate")) if x),
+        })
+
+    return [{"pallet_id": p["id"], "pallet_no": p["pallet_no"],
+             "status": p.get("status"), "zdarzenia": wg_palety.get(p["id"], [])}
+            for p in palety]
+
+
 def _poza_kolejnoscia(vehicle_id: str, order_id: str) -> Optional[Dict]:
     """Czy ta paleta weszła POZA ustawioną kolejnością załadunku?
 
