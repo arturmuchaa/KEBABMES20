@@ -11,7 +11,8 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { filterWz, wzTabCounts, type WzTab } from '@/features/wz/wzListView'
+import { filterWz, wzRodzajCounts, wzTabCounts,
+         type RodzajWydania, type WzTab } from '@/features/wz/wzListView'
 import { fmtMoneyPl } from '@/features/wz/rowMath'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -174,6 +175,10 @@ export function WzDocumentsPage() {
   // Zakładki jak w rejestrze faktur: anulowane osobno, żeby seria aktywnych
   // dokumentów dała się przeczytać z góry na dół.
   const [tab,     setTab]     = useState<WzTab>('active')
+  // Druga oś: dokument dla kontrahenta kontra wydanie wewnętrzne.
+  // ZEWNĘTRZNE domyślnie — to papier, który biuro dotyka najczęściej
+  // (ceny, wydruk dla kierowcy).
+  const [rodzaj,  setRodzaj]  = useState<RodzajWydania>('zewnetrzne')
   const [sortCol, setSortCol] = useState<SortCol>('date')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
@@ -290,7 +295,11 @@ export function WzDocumentsPage() {
 
   // Wyszukiwanie: numer, odbiorca, NIP. Sortowanie: klik nagłówka (Subiekt).
   const counts = wzTabCounts(docs ?? [])
-  const visibleDocs = filterWz(docs ?? [], query, tab)
+  const licznikRodzaju = wzRodzajCounts(docs ?? [], tab)
+  /** Znacznik załadunku opisuje WM — to on jest porównywany z zawartością
+   *  auta. Przy WZ dla kontrahenta ta kolumna byłaby zawsze pusta. */
+  const magazynowe = rodzaj === 'magazynowe'
+  const visibleDocs = filterWz(docs ?? [], query, tab, rodzaj)
     .slice()
     .sort((a, b) => {
       let cmp = 0
@@ -308,8 +317,12 @@ export function WzDocumentsPage() {
     <div className="space-y-4 animate-fade-in">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-lg font-bold leading-tight">Dokumenty WZ</h1>
-          <div className="text-[11px] text-muted-foreground">Wydania zewnętrzne — sprzedaż z magazynu</div>
+          <h1 className="text-lg font-bold leading-tight">Wydania</h1>
+          <div className="text-[11px] text-muted-foreground">
+            {magazynowe
+              ? 'Wydania magazynowe — rozchód ze stanu (WM)'
+              : 'Wydania zewnętrzne — dokumenty dla kontrahentów (WZ)'}
+          </div>
         </div>
         <Button className="gap-1.5" onClick={() => nav('/office/wz/nowy')}>
           <Plus size={14} /> Nowy WZ
@@ -317,6 +330,25 @@ export function WzDocumentsPage() {
       </div>
 
       <Card>
+        <div className="px-4 pt-2.5 border-b" role="tablist">
+          <div className="flex gap-1">
+            {([
+              ['zewnetrzne', 'Zewnętrzne (WZ)', licznikRodzaju.zewnetrzne],
+              ['magazynowe', 'Magazynowe (WM)', licznikRodzaju.magazynowe],
+            ] as const).map(([key, label, n]) => (
+              <button key={key} role="tab" type="button"
+                      aria-selected={rodzaj === key}
+                      className={cn('px-3.5 py-2 text-[12.5px] font-bold border-b-2 -mb-px transition-colors',
+                        rodzaj === key
+                          ? 'border-ink text-ink'
+                          : 'border-transparent text-muted-foreground hover:text-ink')}
+                      onClick={() => setRodzaj(key)}>
+                {label} <span className="tabular-nums opacity-70">{n}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="px-4 py-2.5 border-b flex items-center gap-3 flex-wrap">
           <div className="flex rounded-md border overflow-hidden">
             {([['active', 'Aktywne', counts.active], ['cancelled', 'Anulowane', counts.cancelled]] as const).map(
@@ -390,7 +422,9 @@ export function WzDocumentsPage() {
                     </span>
                   </TableHead>
                 ))}
-                <TableHead className="text-[9px] uppercase tracking-wider h-8 px-3">Załadunek</TableHead>
+                {magazynowe && (
+                  <TableHead className="text-[9px] uppercase tracking-wider h-8 px-3">Załadunek</TableHead>
+                )}
                 <TableHead className="text-[9px] uppercase tracking-wider h-8 px-3" />
               </TableRow>
             </TableHeader>
@@ -415,6 +449,7 @@ export function WzDocumentsPage() {
                         ? <Badge variant="success" className="text-[10px]">Wyceniony</Badge>
                         : <Badge variant="warning" className="text-[10px]">Do wyceny</Badge>}
                     </TableCell>
+                    {magazynowe && (
                     <TableCell className="py-2 px-3">
                       {d.loading_status === 'rozjazd' ? (
                         <button onClick={() => setReportDoc(d)} title="Raport rozjazdu">
@@ -432,6 +467,7 @@ export function WzDocumentsPage() {
                         <span className="text-muted-foreground text-[11px]">—</span>
                       )}
                     </TableCell>
+                    )}
                     <TableCell className="py-1.5 px-3">
                       <div className="flex justify-end gap-1">
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary"
