@@ -2754,6 +2754,10 @@ export interface WzDoc {
   place?: string; issued_date?: string; release_date?: string; status: string
   currency?: string             // 'PLN' | 'EUR'
   eur_rate?: number | null      // kurs średni NBP użyty przy EUR
+  /** Czy ten WM pokazuje WIĘCEJ, niż pójdzie na fakturę (wysyłka z podziałem).
+   *  Tylko wtedy wydruk niesie pasek „nie wydawać klientowi" — przy całości
+   *  na fakturę WM nie ukrywa niczego i można go dać klientowi. */
+  ukrywa_czesc_poza_faktura?: boolean
   loading_status?: 'potwierdzony' | 'rozjazd' | null  // weryfikacja przy załadunku
   loading_diff?: WzLoadingDiff[] | null
   vehicle_plate?: string | null

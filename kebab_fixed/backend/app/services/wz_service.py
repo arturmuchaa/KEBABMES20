@@ -1821,7 +1821,35 @@ def get_wz(wz_id: str) -> Dict[str, Any]:
     row = query_one("SELECT * FROM wz_documents WHERE id=%s", (wz_id,))
     if not row:
         raise HTTPException(404, "Dokument WZ nie istnieje")
+    row["ukrywa_czesc_poza_faktura"] = _ukrywa_czesc_poza_faktura(row)
     return row
+
+
+def _ukrywa_czesc_poza_faktura(doc: Dict[str, Any]) -> bool:
+    """Czy ten WM pokazuje WIĘCEJ, niż pójdzie na fakturę?
+
+    Ostrzeżenie „nie wydawać klientowi" na wydruku WM istnieje z jednego
+    powodu: WM niesie CAŁĄ przesyłkę, więc przy wysyłce z podziałem ujawniłby
+    klientowi ilości spoza faktury. Gdy CAŁOŚĆ idzie na fakturę, nie ukrywa
+    niczego — a właściciel (22.09.2026) chce móc dać klientowi papier od ręki,
+    bo fakturę wystawiacie czasem kilka dni później.
+
+    Sygnałem podziału jest ISTNIENIE WZ dla klienta: `wystaw_wz_klienta`
+    tworzy go WYŁĄCZNIE wtedy, gdy jest część niefakturowana. Liczymy to tutaj
+    zamiast trzymać w kolumnie, bo wtedy działa też dla dokumentów sprzed tej
+    zmiany — bez migracji i bez backfillu.
+
+    Anulowany WZ klienta nie liczy się: skoro go nie ma, nie ma też części,
+    którą miałby opisywać.
+    """
+    if (doc.get("doc_series") or "") != "WM" or not doc.get("source_id"):
+        return False
+    rodzenstwo = query_one(
+        "SELECT 1 AS x FROM wz_documents "
+        "WHERE source_type='order' AND source_id=%s AND doc_series='WZ' "
+        "AND COALESCE(status,'')<>'anulowany' LIMIT 1",
+        (doc.get("source_id"),))
+    return bool(rodzenstwo)
 
 
 def list_wz() -> List[Dict[str, Any]]:

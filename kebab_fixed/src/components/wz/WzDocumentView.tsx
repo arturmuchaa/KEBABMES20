@@ -22,10 +22,14 @@ export type WzDocData = {
   total_value?: number
   currency?: string
   eur_rate?: number | null
-  /** 'WM' = wewnętrzny WZ podziału wysyłki (Task 3) — niesie CAŁĄ przesyłkę
-   *  (także część spoza faktury) i NIE MOŻE wyjść do klienta; stąd dopisek
-   *  ostrzegawczy na wydruku, patrz niżej. */
+  /** 'WM' = wewnętrzny WZ podziału wysyłki (Task 3) — niesie CAŁĄ przesyłkę,
+   *  także część spoza faktury. */
   doc_series?: string
+  /** Czy ten WM naprawdę ukrywa część spoza faktury (wysyłka Z PODZIAŁEM).
+   *  Liczy backend po istnieniu WZ dla klienta. Tylko wtedy wydruk niesie
+   *  pasek ostrzegawczy — przy całości na fakturę WM nie ukrywa niczego
+   *  i wolno go dać klientowi (właściciel, 22.09.2026). */
+  ukrywa_czesc_poza_faktura?: boolean
 }
 
 export function asWzDocData(doc: WzDoc): WzDocData { return doc }
@@ -183,13 +187,16 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
       </div>
 
       {/* ── Dopisek WZ wewnętrznego (seria WM, Task 3 podziału wysyłki) ──
-             WM ląduje w tym samym transporcie co fakturowany WZ i pokazuje
-             CAŁĄ przesyłkę (również część spoza faktury) — istnieje TYLKO
-             po to, żeby stan ruszył raz. Musi zostać w zakładzie: jeżeli
-             trafi do klienta jak zwykły WZ, ujawnia ilości spoza faktury.
+             WM niesie CAŁĄ przesyłkę, więc przy wysyłce Z PODZIAŁEM ujawniłby
+             klientowi ilości spoza faktury — i TYLKO wtedy ten pasek ma sens.
+             Gdy całość idzie na fakturę, WM nie ukrywa niczego, a ostrzeżenie
+             jest hałasem na papierze, który właściciel chce móc dać klientowi
+             od ręki (22.09.2026: „fakturę wystawiamy dopiero za kilka dni").
+             Warunek liczy backend (`_ukrywa_czesc_poza_faktura`) po istnieniu
+             WZ dla klienta — ten powstaje wyłącznie przy podziale.
              Pasek gruby i kontrastowy — dokument czyta się na hali z ręki,
              nie na ekranie, i musi działać wydrukowany czarno-biało. */}
-      {doc.doc_series === 'WM' && (
+      {doc.doc_series === 'WM' && doc.ukrywa_czesc_poza_faktura && (
         <div className="text-center font-bold" style={{
           background: '#DC2626', color: '#fff', border: '2px solid #7F1D1D',
           fontSize: 12.5, padding: '5px 8px', letterSpacing: '.03em', marginBottom: 6,

@@ -7,6 +7,14 @@
  * fakturze — gdyby trafił do klienta zamiast dokumentu WZ, ujawniłby ilości
  * i ceny spoza faktury. Dopisek ma to uniemożliwić na pierwszy rzut oka,
  * zanim ktoś podepnie kartkę do palety.
+ *
+ * ZMIANA 22.09.2026: dopisek pokazuje się TYLKO przy wysyłce z podziałem.
+ * Właściciel: „WM nie pisz na czerwono, że nie dla klienta — czasem
+ * chciałbym dać klientowi papier, bo fakturę wystawiamy dopiero za kilka
+ * dni". Gdy CAŁOŚĆ idzie na fakturę, WM nie ukrywa niczego i ostrzeżenie
+ * jest hałasem. Warunek (`ukrywa_czesc_poza_faktura`) liczy backend po
+ * istnieniu WZ dla klienta — ten powstaje wyłącznie przy podziale.
+ * Pierwotna troska zostaje nietknięta tam, gdzie jest realna.
  */
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
@@ -30,9 +38,22 @@ const DOC: WzDocData = {
 }
 
 describe('WzDocumentView — dopisek dokumentu wewnętrznego (seria WM)', () => {
-  it('WZ wewnetrzny ma dopisek, ze nie wychodzi do klienta', () => {
-    render(<WzDocumentView doc={{ ...DOC, doc_series: 'WM', number: 'WM/1/09/26' }} />)
+  it('WM z wysylki Z PODZIALEM ma dopisek — jest co ukrywac', () => {
+    render(<WzDocumentView doc={{ ...DOC, doc_series: 'WM', number: 'WM/1/09/26',
+                                  ukrywa_czesc_poza_faktura: true }} />)
     expect(screen.getByText(/DOKUMENT WEWNĘTRZNY/i)).toBeTruthy()
+  })
+
+  it('WM przy CALOSCI na fakture dopisku NIE ma — nie ukrywa niczego', () => {
+    // Przypadek FUDI z 22.09: 150 zamowione, 150 na fakture, 0 poza.
+    render(<WzDocumentView doc={{ ...DOC, doc_series: 'WM', number: 'WM/9/09/26',
+                                  ukrywa_czesc_poza_faktura: false }} />)
+    expect(screen.queryByText(/DOKUMENT WEWNĘTRZNY/i)).toBeNull()
+  })
+
+  it('brak flagi = brak dopisku — bezpieczny domysl dla starych dokumentow', () => {
+    render(<WzDocumentView doc={{ ...DOC, doc_series: 'WM', number: 'WM/1/09/26' }} />)
+    expect(screen.queryByText(/DOKUMENT WEWNĘTRZNY/i)).toBeNull()
   })
 
   it('zwykly WZ dopisku NIE ma', () => {
