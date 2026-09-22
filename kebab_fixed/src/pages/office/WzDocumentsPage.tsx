@@ -165,6 +165,10 @@ export function WzDocumentsPage() {
   const [contStrs, setContStrs]   = useState<string[]>([])
   /** 'prices' = uzupełnianie cen (WZ z zamówień); 'full' = pełna edycja ręcznego WZ. */
   const [editMode, setEditMode]   = useState<'prices' | 'full'>('prices')
+  // Waluta dokumentu przy uzupełnianiu cen. Do 22.09.2026 dało się ją ustawić
+  // WYŁĄCZNIE przy tworzeniu, więc WZ wystawiony z kursu zostawał z PLN.
+  const [waluta, setWaluta]       = useState<'PLN' | 'EUR'>('PLN')
+  const [kursStr, setKursStr]     = useState('')
   const [editErr, setEditErr] = useState('')
   const [saving, setSaving]   = useState(false)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
@@ -205,6 +209,10 @@ export function WzDocumentsPage() {
       setPriceStrs((doc.lines || []).map(l => l.price != null ? String(l.price) : ''))
       setQtyStrs((doc.lines || []).map(l => String(l.qty ?? '')))
       setContStrs((doc.lines || []).map(l => (l as any).containers ? String((l as any).containers) : ''))
+      // Waluta startuje od tej, którą dokument już ma — biuro przestawia ją
+      // świadomie, a nie przez przypadkowe otwarcie edytora.
+      setWaluta((doc.currency || 'PLN').toUpperCase() === 'EUR' ? 'EUR' : 'PLN')
+      setKursStr(doc.eur_rate != null ? String(doc.eur_rate) : '')
       setEditMode(mode)
       setEditId(id)
     } catch (e: any) { alert(e?.message || 'Błąd pobierania WZ') }
@@ -227,7 +235,11 @@ export function WzDocumentsPage() {
     setEditErr(''); setSaving(true)
     try {
       const prices = editLines.map((_, index) => ({ index, price: toNum(priceStrs[index] ?? '') }))
-      await wzApi.updatePrices(editId, prices)
+      const kurs = waluta === 'EUR' ? toNum(kursStr) : null
+      if (waluta === 'EUR' && !kurs) {
+        setEditErr('Przy EUR podaj kurs NBP'); setSaving(false); return
+      }
+      await wzApi.updatePrices(editId, prices, waluta, kurs)
       setEditId(null)
       await reload()
     } catch (e: any) { setEditErr(e?.message || 'Błąd zapisu cen') }
@@ -593,6 +605,36 @@ export function WzDocumentsPage() {
                               })}
                             </TableBody>
                           </Table>
+                          {/* Waluta dokumentu — tylko przy uzupełnianiu cen.
+                              Pełna edycja ręcznego WZ ma własny tryb i nie
+                              dotyka waluty, żeby nie było dwóch miejsc na tę
+                              samą daną. */}
+                          {editMode === 'prices' && (
+                            <div className="flex items-center gap-3 mt-3 flex-wrap">
+                              <span className="text-muted-foreground uppercase tracking-wider text-[10px]">Waluta</span>
+                              {(['PLN', 'EUR'] as const).map(w => (
+                                <label key={w} className="flex items-center gap-1.5 text-[12px] cursor-pointer">
+                                  <input type="radio" name="wz-waluta" checked={waluta === w}
+                                         onChange={() => setWaluta(w)} />
+                                  {w}
+                                </label>
+                              ))}
+                              {waluta === 'EUR' && (
+                                <Input
+                                  className="h-7 w-28 text-[12px]"
+                                  placeholder="kurs NBP"
+                                  inputMode="decimal"
+                                  value={kursStr}
+                                  onChange={e => setKursStr(sanitizeDecimal(e.target.value))}
+                                />
+                              )}
+                              {waluta === 'EUR' && (
+                                <span className="text-[11px] text-muted-foreground">
+                                  ceny wpisuj w EUR — kwoty nie są przeliczane
+                                </span>
+                              )}
+                            </div>
+                          )}
                           <div className="flex items-center justify-between mt-3">
                             <div className="text-[12px]">
                               <span className="text-muted-foreground uppercase tracking-wider text-[10px] mr-2">Razem</span>
@@ -600,7 +642,7 @@ export function WzDocumentsPage() {
                                 {(editMode === 'full'
                                   ? editLines.reduce((sum, l, i) => sum + toNum(qtyStrs[i] ?? '') * toNum(priceStrs[i] ?? ''), 0)
                                   : editTotal
-                                ).toFixed(2)} zł
+                                ).toFixed(2)} {editMode === 'prices' && waluta === 'EUR' ? '€' : 'zł'}
                               </span>
                             </div>
                             <Button size="sm" disabled={saving} onClick={editMode === 'full' ? saveEdits : savePrices} className="gap-1.5">

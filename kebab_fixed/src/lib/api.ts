@@ -2806,8 +2806,13 @@ export const wzApi = {
     /** Zakup pracownika na własny użytek — potrącenie powstaje razem z WZ. */
     payrollDeduction?: { workerId: string; amount: number } | null;
   }) => post<WzDoc>('/wz/manual', body),
-  updatePrices: (id: string, prices: { index: number; price: number }[]) =>
-    patch<WzDoc>(`/wz/${encodeURIComponent(id)}/prices`, { prices }),
+  /** Uzupełnienie cen. `currency`/`eurRate` opcjonalnie przestawiają walutę
+   *  dokumentu — do 22.09.2026 walutę dało się ustawić WYŁĄCZNIE przy jego
+   *  tworzeniu, więc WZ z kursu zostawał z PLN na zawsze. */
+  updatePrices: (id: string, prices: { index: number; price: number }[],
+                 currency?: string, eurRate?: number | null) =>
+    patch<WzDoc>(`/wz/${encodeURIComponent(id)}/prices`,
+      { prices, currency: currency ?? null, eur_rate: eurRate ?? null }),
   // Edycja pozycji ręcznego WZ: cena/pojemniki swobodnie; ilość koryguje
   // stany magazynowe (różnica) — UI ostrzega o wpływie na traceability.
   updateLines: (id: string, edits: { index: number; qty?: number; price?: number; containers?: number | null }[]) =>

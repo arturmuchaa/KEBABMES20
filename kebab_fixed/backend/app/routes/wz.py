@@ -130,7 +130,13 @@ def manual(body: dict):
 
 @router.patch("/{wz_id}/prices")
 def update_prices(wz_id: str, body: dict):
-    return svc.update_wz_prices(wz_id, body.get("prices") or [])
+    """Uzupełnienie cen; `currency`/`eur_rate` opcjonalnie przestawiają walutę."""
+    return svc.update_wz_prices(
+        wz_id,
+        body.get("prices") or [],
+        currency=body.get("currency"),
+        eur_rate=body.get("eur_rate"),
+    )
 
 
 @router.patch("/{wz_id}/lines")

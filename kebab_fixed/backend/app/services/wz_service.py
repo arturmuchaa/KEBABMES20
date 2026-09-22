@@ -1082,13 +1082,36 @@ def apply_wz_prices(lines: List[Dict[str, Any]], prices: List[Dict[str, Any]]) -
     return out, total
 
 
-def update_wz_prices(wz_id: str, prices: List[Dict[str, Any]]) -> Dict[str, Any]:
+def update_wz_prices(wz_id: str, prices: List[Dict[str, Any]],
+                     currency: Optional[str] = None,
+                     eur_rate: Optional[float] = None) -> Dict[str, Any]:
     """Uzupełnij ceny na WZ wstępnym: nadpisuje wskazane pozycje, valued=True,
-    przelicza total_value. WZ potwierdzony → 409."""
+    przelicza total_value. WZ potwierdzony → 409.
+
+    `currency` (22.09.2026, zgłoszenie właściciela „nie mam możliwości zmienić
+    już wtedy na euro"): waluta była parametrem WYŁĄCZNIE przy tworzeniu
+    dokumentu, więc WZ wystawiony z kursu rodził się z PLN i zostawał z nim na
+    zawsze. Podana tutaj nadpisuje ją razem z cenami; pominięta — zostawia,
+    co było (zgodność wstecz dla wołających, którzy o niej nie wiedzą).
+
+    NIE PRZELICZAMY wpisanych cen. Biuro wpisuje je w walucie docelowej;
+    automatyczne przeliczanie ceny kontrahenta byłoby zgadywaniem.
+    """
     if not prices:
         raise HTTPException(400, "Brak cen do uzupełnienia")
+    waluta = (currency or "").strip().upper() or None
+    if waluta and waluta not in ("PLN", "EUR"):
+        raise HTTPException(400, f"Nieznana waluta: {waluta}")
+    if waluta == "EUR" and not eur_rate:
+        # Bez kursu wartości w euro nie da się przeliczyć na pasek płacowy
+        # (patrz niżej) — lepiej odmówić, niż zapisać liczbę nie do obronienia.
+        raise HTTPException(400, "Przy EUR wymagany kurs")
+
     with transaction() as conn:
-        row = cx_query_one(conn, "SELECT id, status, lines FROM wz_documents WHERE id=%s FOR UPDATE", (wz_id,))
+        row = cx_query_one(
+            conn,
+            "SELECT id, status, lines, currency, eur_rate FROM wz_documents "
+            "WHERE id=%s FOR UPDATE", (wz_id,))
         if not row:
             raise HTTPException(404, "Dokument WZ nie istnieje")
         if row.get("status") != "wstepny":
@@ -1097,21 +1120,31 @@ def update_wz_prices(wz_id: str, prices: List[Dict[str, Any]]) -> Dict[str, Any]
         if not isinstance(lines, list):
             lines = json.loads(lines or "[]")
         new_lines, total = apply_wz_prices(lines, prices)
+        docelowa = waluta or (row.get("currency") or "PLN")
+        kurs = eur_rate if waluta else row.get("eur_rate")
         cx_execute(conn,
-                   "UPDATE wz_documents SET lines=%s, total_value=%s, valued=TRUE WHERE id=%s",
-                   (json.dumps(new_lines), total, wz_id))
+                   "UPDATE wz_documents SET lines=%s, total_value=%s, valued=TRUE, "
+                   "currency=%s, eur_rate=%s WHERE id=%s",
+                   (json.dumps(new_lines), total, docelowa, kurs, wz_id))
         # Potrącenie pracownika idzie za wartością dokumentu, dopóki jest
         # oczekujące — ceny bywają dopisywane po wystawieniu. Rozliczonego
         # nie ruszamy, bo jego kwota jest już na pasku.
         # Opis idzie za cenami razem z kwotą — inaczej pasek pokazywałby
         # starą cenę przy nowej kwocie i pracownik słusznie by to zakwestionował.
+        #
+        # PASEK PŁACOWY JEST W ZŁOTÓWKACH i nie ma pola na walutę. Wartość
+        # dokumentu w EUR wylądowałaby tam jako złotówki — potrącenie zaniżone
+        # o cały kurs (~4,3×), przy kwocie, która sama w sobie wygląda
+        # sensownie, więc nikt by tego nie zauważył. Przeliczamy kursem.
+        kwota = (round(float(total) * float(kurs or 0), 2) if docelowa == "EUR"
+                 else round(float(total), 2))
         cx_execute(
             conn,
             "UPDATE worker_deductions SET amount=%s, description=%s "
             "WHERE source_type='wz' AND source_id=%s AND status='pending'",
-            (round(float(total), 2),
-             deduction_description_from_lines(new_lines), wz_id))
-    logger.info("wz.prices_updated", extra={"wz_id": wz_id, "total": total})
+            (kwota, deduction_description_from_lines(new_lines), wz_id))
+    logger.info("wz.prices_updated", extra={"wz_id": wz_id, "total": total,
+                                            "waluta": docelowa})
     return get_wz(wz_id)
 
 
