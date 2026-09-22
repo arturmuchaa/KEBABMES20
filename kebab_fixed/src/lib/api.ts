@@ -2454,6 +2454,11 @@ export const palletScanApi = {
     get<any[]>(`/pallets/on-vehicle/${encodeURIComponent(vehicleId)}`)
       .then(arr => (Array.isArray(arr) ? arr : []).map(r => String(r.id ?? ''))
         .filter(Boolean)),
+  /** Etapy skanowania palet zamówienia — „czy gdzieś sztuka nie zginęła".
+   *  `pallet_scans` zbiera je od zawsze; do 22.09.2026 nikt ich nie czytał. */
+  slad: (orderId: string) =>
+    get<any[]>(`/pallets/slad/${encodeURIComponent(orderId)}`)
+      .then(r => (Array.isArray(r) ? r : [])),
   inColdStorage: () =>
     get<any[]>('/pallets/in-cold-storage')
       .then(arr => (Array.isArray(arr) ? arr : []).map(mapColdStoragePallet)),

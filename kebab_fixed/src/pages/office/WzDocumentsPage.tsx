@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { SladSkanowania } from '@/features/wz/SladSkanowania'
 import { filterWz, wzRodzajCounts, wzTabCounts,
          type RodzajWydania, type WzTab } from '@/features/wz/wzListView'
 import { fmtMoneyPl } from '@/features/wz/rowMath'
@@ -175,6 +176,8 @@ export function WzDocumentsPage() {
   const [hdiId, setHdiId] = useState<string | null>(null)
   const [previewDoc, setPreviewDoc] = useState<WzDoc | null>(null)
   const [reportDoc, setReportDoc]   = useState<WzDoc | null>(null)
+  /** Rozwinięty ślad skanowania — id dokumentu WM. */
+  const [sladId, setSladId] = useState<string | null>(null)
   const [query,   setQuery]   = useState('')
   // Zakładki jak w rejestrze faktur: anulowane osobno, żeby seria aktywnych
   // dokumentów dała się przeczytać z góry na dół.
@@ -478,6 +481,15 @@ export function WzDocumentsPage() {
                       ) : (
                         <span className="text-muted-foreground text-[11px]">—</span>
                       )}
+                      {(d.source_id || d.sourceId) && (
+                        <button
+                          type="button"
+                          className="block mt-1 text-[10px] underline text-muted-foreground hover:text-ink"
+                          onClick={() => setSladId(sladId === d.id ? null : d.id)}
+                        >
+                          {sladId === d.id ? 'Ukryj ślad' : 'Ślad skanowania'}
+                        </button>
+                      )}
                     </TableCell>
                     )}
                     <TableCell className="py-1.5 px-3">
@@ -532,6 +544,16 @@ export function WzDocumentsPage() {
                       </div>
                     </TableCell>
                   </TableRow>
+                  {sladId === d.id && (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={8} className="bg-muted/30 p-0">
+                        <div className="px-4 pt-3 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
+                          Ślad skanowania — {d.number}
+                        </div>
+                        <SladSkanowania orderId={String(d.source_id || d.sourceId)} />
+                      </TableCell>
+                    </TableRow>
+                  )}
                   {editId === d.id && (
                     <TableRow className="hover:bg-transparent">
                       <TableCell colSpan={7} className="bg-muted/30 p-4">
