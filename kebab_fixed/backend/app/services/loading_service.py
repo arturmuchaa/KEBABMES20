@@ -552,6 +552,86 @@ def zaladunek(loading_id: str) -> Dict[str, Any]:
     return {**kurs, "pozycje": pozycje}
 
 
+def _agregat_z_zapisu_kursu(loading_id: str, order_id: str) -> Dict[Tuple, Dict[str, Any]]:
+    """Co FAKTYCZNIE wyjechało tym kursem — z zapisu skanu, nie z dokumentu.
+
+    `loading_orders.pozycje` trzyma stock_id, partię, sztuki i kg/szt, ale NIE
+    trzyma receptury — a klucz porównania (`_line_key`) jej wymaga. Dociągamy
+    ją z `finished_goods` po stock_id: to ten sam wiersz magazynu, z którego
+    pozycja kursu powstała, więc receptura jest z definicji ta sama.
+    """
+    row = query_one(
+        "SELECT pozycje FROM loading_orders WHERE loading_id=%s AND order_id=%s",
+        (loading_id, order_id))
+    pozycje = (row or {}).get("pozycje") or []
+    if isinstance(pozycje, str):
+        pozycje = json.loads(pozycje or "[]")
+    if not pozycje:
+        return {}
+
+    ids = [p.get("stock_id") for p in pozycje if p.get("stock_id")]
+    receptury: Dict[str, Any] = {}
+    if ids:
+        for g in query_all(
+                "SELECT id, recipe_id FROM finished_goods WHERE id = ANY(%s)", (ids,)):
+            receptury[g["id"]] = g.get("recipe_id")
+
+    agg: Dict[Tuple, Dict[str, Any]] = {}
+    for poz in pozycje:
+        szt = int(poz.get("szt") or 0)
+        if szt <= 0:
+            continue
+        kg = float(poz.get("kg_per_unit") or 0)
+        k = _line_key(receptury.get(poz.get("stock_id")), kg, poz.get("batch_no"))
+        g = agg.setdefault(k, {"qty": 0, "kg": 0.0})
+        g["qty"] += szt
+        g["kg"] += szt * kg
+    return agg
+
+
+def _potwierdz_zaladunek_na_dokumencie(loading_id: str, order_id: str,
+                                       wm_id: Optional[str]) -> None:
+    """Postaw na WM znacznik zgodności papieru z tym, co wyjechało.
+
+    REGRESJA, którą to naprawia (zgłoszenie właściciela 21.09.2026 — „kiedyś
+    była informacja przy WZ, czy potwierdzony, a teraz zniknęła"):
+    `loading_status` stemplowała WYŁĄCZNIE gałąź `if existing:` w
+    `finalize_loading`, czyli tryb „dokument przygotowany wcześniej". Po
+    odwróceniu kolejności (12.09.2026: skan zapisuje kurs, papiery wystawia
+    biuro) produkcyjna ścieżka tej gałęzi nie dotyka — w chwili skanu nie ma
+    jeszcze czego stemplować, a gdy dokument w końcu powstaje, nikt do tego
+    nie wracał. Kolumna zostawała NULL na zawsze i znacznik zniknął z listy,
+    mimo że kod go wyświetlający cały czas żył.
+
+    Stemplujemy TĄ SAMĄ funkcją (`verify_wz_against_loaded`), której używa
+    stara gałąź — dwie reguły „co znaczy potwierdzony" rozjechałyby się przy
+    pierwszej poprawce.
+
+    Cicho odpuszczamy, gdy kurs nic nie zapisał: dokument wystawiony poza
+    kursem nie ma się z czym porównać i NULL jest wtedy uczciwą odpowiedzią.
+    """
+    if not wm_id:
+        return
+    agg = _agregat_z_zapisu_kursu(loading_id, order_id)
+    if not agg:
+        return
+    doc = query_one("SELECT lines FROM wz_documents WHERE id=%s", (wm_id,))
+    if not doc:
+        return
+    status, diff = verify_wz_against_loaded(_linie_dokumentu(doc), agg)
+    plate = (query_one("SELECT plate FROM loadings WHERE id=%s",
+                       (loading_id,)) or {}).get("plate") or ""
+    execute(
+        """UPDATE wz_documents
+           SET loading_status=%s, loading_diff=%s::jsonb, loaded_at=now(),
+               vehicle_plate=%s
+           WHERE id=%s""",
+        (status, json.dumps(diff), plate, wm_id))
+    if status != "potwierdzony":
+        logger.warning("loading.documents.rozjazd", extra={
+            "loading_id": loading_id, "order_id": order_id, "wm_id": wm_id})
+
+
 def wystaw_z_kursu(loading_id: str, decyzje: List[Dict[str, Any]],
                    forma_cmr: Dict[str, Any],
                    hdi_fv: bool = False) -> Dict[str, Any]:
@@ -622,6 +702,10 @@ def wystaw_z_kursu(loading_id: str, decyzje: List[Dict[str, Any]],
         komplet = wystaw_komplet(oid, forma, hdi_fv)
 
         wm = komplet.get("wm") or {}
+        # Znacznik zgodności papieru z tym, co wyjechało — TUTAJ jest jedyne
+        # miejsce, w którym istnieją obie liczby naraz: dokument już powstał,
+        # a zapis kursu mówi, co naprawdę zeskanowano.
+        _potwierdz_zaladunek_na_dokumencie(loading_id, oid, wm.get("id"))
         execute(
             "UPDATE loading_orders SET wz_id=%s, wz_status='wystawiony' "
             "WHERE loading_id=%s AND order_id=%s",

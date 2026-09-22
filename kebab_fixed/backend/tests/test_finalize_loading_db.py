@@ -1198,6 +1198,69 @@ def test_pusty_numer_faktury_bierze_numer_z_formularza_kursu(db):
     assert _numery_faktur("o2") == {_FORMA_CMR["invoice_no"]}
 
 
+def _wm_zamowienia(oid="o1"):
+    """Wystawiony WM zamówienia — jedyny dokument, który zdjął stan."""
+    return query_one(
+        "SELECT number, loading_status, loading_diff, loaded_at, vehicle_plate "
+        "FROM wz_documents WHERE source_type='order' AND source_id=%s "
+        "AND doc_series='WM' AND COALESCE(status,'')<>'anulowany'", (oid,))
+
+
+def test_wystawienie_stempluje_potwierdzenie_zaladunku(db):
+    """Biuro musi widzieć na dokumencie, czy załadunek się zgadza.
+
+    REGRESJA z 12.09.2026: `loading_status` stemplowała WYŁĄCZNIE gałąź
+    `if existing:` w `finalize_loading` — czyli tryb „przygotuj dokument
+    wcześniej". Po odwróceniu kolejności (skan zapisuje kurs, papiery wystawia
+    biuro) produkcyjna ścieżka tej gałęzi nie dotyka: w chwili skanu nie ma
+    jeszcze czego stemplować, a gdy dokument w końcu powstaje, nikt do tego
+    nie wraca. Kolumna zostawała NULL na zawsze, a znacznik „potwierdzony"
+    zniknął z listy dokumentów — mimo że kod go wyświetlający cały czas żył.
+    """
+    from app.services.loading_service import wystaw_z_kursu
+    kurs = _kurs_do_wystawienia()
+
+    wystaw_z_kursu(kurs, [{"order_id": "o1", "cel_kg": 300.0}], _FORMA_CMR)
+
+    wm = _wm_zamowienia()
+    assert wm is not None, "komplet nie wystawił WM"
+    assert wm["loading_status"] == "potwierdzony", wm
+    assert wm["loaded_at"] is not None, "brak godziny załadunku na dokumencie"
+    assert wm["vehicle_plate"] == "KR 99999"
+
+
+def test_brakujaca_sztuka_wychodzi_jako_rozjazd(db):
+    """„Czy gdzieś sztuka nie zginęła" — pytanie właściciela 21.09.2026.
+
+    Kurs zapisał, że wyjechało 8 sztuk, a dokument opisuje 10. Taki papier
+    NIE MOŻE wyjść oznaczony jako potwierdzony, bo to jest dokładnie ten
+    przypadek, dla którego znacznik istnieje.
+    """
+    from app.services.loading_service import wystaw_z_kursu
+    kurs = _kurs_do_wystawienia()
+
+    # Symuluj zgubioną sztukę: zapis kursu mówi o 8 sztukach zamiast 10.
+    zapis = query_one(
+        "SELECT pozycje FROM loading_orders WHERE loading_id=%s AND order_id='o1'",
+        (kurs,))
+    poz = zapis["pozycje"]
+    if isinstance(poz, str):
+        poz = json.loads(poz)
+    assert poz, "kurs nie zapisał, co wyjechało"
+    poz[0]["szt"] = 8
+    execute("UPDATE loading_orders SET pozycje=%s::jsonb "
+            "WHERE loading_id=%s AND order_id='o1'", (json.dumps(poz), kurs))
+
+    wystaw_z_kursu(kurs, [{"order_id": "o1", "cel_kg": 300.0}], _FORMA_CMR)
+
+    wm = _wm_zamowienia()
+    assert wm["loading_status"] == "rozjazd", wm
+    roznice = wm["loading_diff"]
+    if isinstance(roznice, str):
+        roznice = json.loads(roznice)
+    assert any(int(r.get("diff") or 0) == -2 for r in roznice), roznice
+
+
 def test_zamowienie_spoza_kursu_odmawia(db):
     """Biuro nie może wystawić z kursu papierów na zamówienie, które nim nie
     jechało — to jest cała wartość zapisu kursu."""
