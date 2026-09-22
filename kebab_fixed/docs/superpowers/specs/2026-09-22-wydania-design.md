@@ -101,23 +101,44 @@ samo: *„na WM już każda sztuka"*.
 
 ## 5. §C — Nazwy i podział ekranów
 
-| dziś | po zmianie | co zawiera |
+**JEDNA strona z dwiema zakładkami, nie dwa ekrany** (decyzja właściciela
+22.09.2026, po przedstawieniu obu wariantów).
+
+```
+WYDANIA                       (menu: dziś „Dokumenty WZ")
+┌──────────────────┬──────────────────┐
+│ ZEWNĘTRZNE (WZ)  │ MAGAZYNOWE (WM)  │
+└──────────────────┴──────────────────┘
+  ▲ domyślna
+```
+
+| zakładka | zawiera | kolumny |
 |---|---|---|
-| „Dokumenty WZ" (`/office/wz`) | **Wydania magazynowe** | dokumenty WM — wydanie ze stanu magazynu |
-| — | **Wydania zewnętrzne** (`/office/wydania-zewnetrzne`) | WZ dla klientów — papier, który jedzie z towarem |
+| **Zewnętrzne** (pierwsza, domyślna) | WZ dla klientów + ręczne WZ | numer · klient · data · kg · wartość · **waluta** · „uzupełnij ceny" |
+| **Magazynowe** | dokumenty WM | numer · klient · data · kg · **POTWIERDZONY / ROZJAZD** · **ślad skanowania** |
 
-Podział po `doc_series` (`'WM'` vs `'WZ'`), bo to jedyne pole, które te dwa
-byty rozróżnia bez zgadywania.
+Podział po `doc_series` (`'WZ'` vs `'WM'`) — jedyne pole, które te dwa byty
+rozróżnia bez zgadywania. Ręczne WZ (bez zamówienia) idą na **Zewnętrzne**:
+są papierem dla kontrahenta, nie wydaniem wewnętrznym.
 
-⚠️ **DO POTWIERDZENIA:** to moja interpretacja zdania *„zmień dokumenty WZ na
-wydania magazynowe oraz dodaj wydania zewnętrzne gdzie będą WZ klientów"*.
-Czytam je tak, że dzisiejsza lista zostaje (pod nową nazwą) i pokazuje WM,
-a WZ klientów przenoszą się na nowy ekran. Jeśli chodziło o coś innego —
-na przykład o jedną listę z dwiema zakładkami — powiedz przed planem, bo to
-różnica dwóch ekranów zamiast jednego.
+**Zewnętrzne jako pierwsza i domyślna** — to papier, który biuro dotyka
+najczęściej (ceny, wydruk dla kierowcy).
 
-Ręczne WZ (bez zamówienia, seria `WZ`) idą na **Wydania zewnętrzne** — są
-papierem dla kontrahenta, nie wydaniem wewnętrznym.
+**Dlaczego zakładki, a nie dwa ekrany** (rozważone i odrzucone):
+
+1. **Jedno zamówienie rodzi OBA dokumenty** — przy podziale na fakturę
+   powstaje WM na całość i WZ klienta na część niefakturowaną. Dwa ekrany
+   znaczyłyby skakanie, żeby zobaczyć jedną wysyłkę.
+2. **Biuro szuka po kliencie i dacie, nie po rodzaju dokumentu.** Wybór
+   ekranu wymagałby wiedzy, której szukający zwykle nie ma.
+3. Pasek boczny biura jest już długi.
+
+Dwa osobne ekrany byłyby lepsze, gdyby to były roboty **dwóch różnych osób**
+(jedna prowadzi rozchód magazynu, druga papiery kontrahentów). W tym zakładzie
+robi to jedna osoba — stąd zakładki.
+
+**Znacznik potwierdzenia i ślad skanowania siedzą przy WM**, bo to on opisuje
+faktyczny załadunek. **Ceny i waluta przy WZ**, bo to on idzie do kontrahenta.
 
 ## 6. §D — Ceny i waluta
 
