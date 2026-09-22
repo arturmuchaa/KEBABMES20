@@ -248,12 +248,25 @@ def build_wz_lines(items: List[Dict[str, Any]], valued: bool) -> Tuple[List[Dict
             "price": None,
             "value": None,
         }
-        if kg_per_unit > 0:
+        # `total_kg` podane WPROST wygrywa: pozycja zbiorcza WZ klienta scala
+        # kilka gramatur, więc qty*kg_per_unit nie opisuje jej sumy
+        # (10×15 kg + 9×30 kg = 420 kg przy qty 19 — żadna gramatura nie pasuje).
+        jawne_kg = it.get("total_kg")
+        if not kg_per_unit and jawne_kg is not None and float(jawne_kg) > 0:
+            line["total_kg"] = round(float(jawne_kg), 3)
+        elif kg_per_unit > 0:
             line["kg_per_unit"] = round(kg_per_unit, 3)
             line["total_kg"] = round(qty * kg_per_unit, 3)
         if valued:
             price = float(it.get("price") or 0)
-            base = line.get("total_kg") if kg_per_unit > 0 else qty
+            # Podstawa wyceny idzie po `total_kg` NA LINII, nie po gramaturze:
+            # pozycja zbiorcza WZ klienta ma sumę kilogramów i NIE ma
+            # `kg_per_unit`, więc warunek po gramaturze wyceniałby ją za
+            # sztukę (19 × 12,50 zamiast 420 kg × 12,50). Ta sama reguła,
+            # co w `apply_wz_prices` — dwie różne rozjechałyby się przy
+            # pierwszej poprawce.
+            kg_linii = float(line.get("total_kg") or 0)
+            base = kg_linii if kg_linii > 0 else qty
             value = round(float(base) * price, 2)
             line["price"] = round(price, 2)
             line["value"] = value

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
 
@@ -255,9 +255,60 @@ def _pozycje_niefakturowane(order: Dict[str, Any],
         items.append({
             "name": (f"{name} {_fmt_kg(kgpu)}kg" if kgpu > 0 else name)
                     + tuleja_suffix(l.get("packaging_name")),
+            # Nazwa BEZ gramatury i bez tulei — pozycja zbiorcza (WZ klienta)
+            # scala kilka gramatur, więc żadna z nich nie może zostać w nazwie.
+            "name_base": name,
             "qty": qty, "unit": "szt", "kg_per_unit": kgpu,
+            "total_kg": round(qty * kgpu, 3) if kgpu > 0 else 0.0,
+            # Klucz POZYCJI CENNIKOWEJ — po nim scala `_scal_pozycje_cennikowe`.
+            "product_type_id": l.get("product_type_id"),
+            "recipe_id": l.get("recipe_id"),
         })
     return items
+
+
+def _scal_pozycje_cennikowe(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Scal pozycje WZ klienta do POZYCJI CENNIKOWYCH (rodzaj + receptura).
+
+    Właściciel 22.09.2026: „na WZ dla klienta ogólna nazwa, a nie każda
+    sztuka". Klient dostaje jedną linię na to, co u was jest jedną ceną —
+    pozycje różniące się wyłącznie gramaturą i tuleją wchodzą w jedną,
+    z sumą kilogramów.
+
+    DLACZEGO PO CENNIKU, A NIE PO CENIE: ceny uzupełnia się PO wystawieniu
+    dokumentu (`wz_service.update_wz_prices`), więc w chwili składania linii
+    cen jeszcze nie ma. Podział musi wynikać z czegoś, co wtedy już wiadomo.
+
+    DLACZEGO NIE DOTYCZY WM: `loading_service.verify_wz_against_loaded`
+    porównuje dokument z zawartością auta po kluczu (receptura, waga sztuki,
+    PARTIA). Zbiorcza linia ten klucz niszczy i KAŻDY poprawny załadunek
+    wychodziłby jako rozjazd — ta klasa błędu kosztowała już rundę poprawek
+    (`build_goods_wz_lines`, review C1, 2026-09-11). WM zostaje per partia
+    i to jest warunek poprawności, nie przeoczenie. Życzenie właściciela
+    („na WM już każda sztuka") mówi szczęśliwie to samo.
+
+    Nazwa jest już złożona per odbiorca (`hdi_product_base` + `mode`
+    z kartoteki), więc wchodzi do klucza: dwie pozycje o tej samej nazwie są
+    dla klienta tym samym towarem.
+    """
+    scalone: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+    for it in items or []:
+        nazwa = (it.get("name_base") or it.get("name") or "").strip()
+        klucz = (str(it.get("product_type_id") or ""),
+                 str(it.get("recipe_id") or ""), nazwa)
+        biezaca = scalone.get(klucz)
+        if biezaca is None:
+            scalona = {**it, "name": nazwa}
+            # Gramatura przestaje opisywać scaloną linię — jej obecność
+            # kłamałaby na wydruku („19 szt × 15 kg" przy 420 kg).
+            scalona.pop("kg_per_unit", None)
+            scalona.pop("name_base", None)
+            scalone[klucz] = scalona
+            continue
+        biezaca["qty"] = int(biezaca.get("qty") or 0) + int(it.get("qty") or 0)
+        biezaca["total_kg"] = round(
+            float(biezaca.get("total_kg") or 0) + float(it.get("total_kg") or 0), 3)
+    return list(scalone.values())
 
 
 def wystaw_wz_klienta(order_id: str) -> Dict[str, Any]:
@@ -293,7 +344,9 @@ def wystaw_wz_klienta(order_id: str) -> Dict[str, Any]:
             "towar ze stanu. WZ dla klienta jest tylko dokumentem na część "
             "niefakturowaną i sam magazynu nie rusza.")
 
-    items = _pozycje_niefakturowane(order, linie)
+    # WZ klienta dostaje pozycje ZBIORCZE (pozycja cennikowa); WM zostaje
+    # per partia — patrz `_scal_pozycje_cennikowe`.
+    items = _scal_pozycje_cennikowe(_pozycje_niefakturowane(order, linie))
     if not items:
         raise HTTPException(400, "Cały towar poszedł na fakturę — nie ma nic do WZ dla klienta")
 

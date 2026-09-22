@@ -326,12 +326,25 @@ def test_ANULOWANY_komplet_odblokowuje_edycje_zamowienia(db):
 
 
 # ── Nazwa wyrobu: jedna wysyłka, jedna nazwa na obu papierach ─────────────
-def test_nazwa_na_WM_ma_dopisek_tulei_tak_jak_WZ_klienta(db):
-    """`wystaw_wz_wewnetrzny` czytało wiersz wyrobu BEZ `product_type_id`
-    i `packaging_name`, a `build_goods_wz_lines` bierze z nich rodzaj
-    z kartoteki odbiorcy i dopisek tulei. Ten sam wyrób nazywał się więc
-    inaczej na WM i na WZ dla klienta (`_pozycje_niefakturowane` czyta oba
-    pola) — a biuro te dwa papiery zestawia (review końcowy, minor 1)."""
+def test_WM_szczegolowy_WZ_klienta_zbiorczy(db):
+    """Dwa papiery, dwie GRANULACJE — świadomie, od 22.09.2026.
+
+    HISTORIA TEGO TESTU. Powstał, bo `wystaw_wz_wewnetrzny` czytało wiersz
+    wyrobu BEZ `product_type_id` i `packaging_name`, przez co ten sam wyrób
+    nazywał się inaczej na WM i na WZ klienta — a biuro te dwa papiery
+    zestawia (review końcowy, minor 1). Pilnował wtedy, żeby OBA kończyły się
+    dopiskiem tulei.
+
+    CO SIĘ ZMIENIŁO. Właściciel 22.09.2026: „na WZ dla klienta ogólna nazwa,
+    a nie każda sztuka; na WM już każda sztuka". WZ klienta scala się teraz do
+    POZYCJI CENNIKOWEJ (rodzaj+receptura), więc gramatura i tuleja z jego
+    nazwy znikają — nie przez pomyłkę, tylko dlatego, że jedna linia opisuje
+    kilka gramatur naraz i żadna z nich nie może zostać w nazwie.
+
+    Pierwotna troska NIE ZNIKA i dalej jest tu pilnowana: RDZEŃ nazwy (rodzaj
+    + receptura z kartoteki odbiorcy) musi być na obu papierach ten sam, żeby
+    biuro dalej mogło je zestawić.
+    """
     _przygotuj_z_podzialem(cel_kg=300.0)
     execute("UPDATE finished_goods SET packaging_name='METAL 80CM' WHERE id='f1'")
     execute("UPDATE client_order_lines SET packaging_name='METAL 80CM' WHERE id='o1-l1'")
@@ -345,8 +358,20 @@ def test_nazwa_na_WM_ma_dopisek_tulei_tak_jak_WZ_klienta(db):
             linie = json.loads(linie or "[]")
         return [l["name"] for l in linie]
 
-    assert any(n.endswith("(80cm)") for n in _nazwy(wm["id"])), _nazwy(wm["id"])
-    assert any(n.endswith("(80cm)") for n in _nazwy(wz["id"])), _nazwy(wz["id"])
+    nazwy_wm, nazwy_wz = _nazwy(wm["id"]), _nazwy(wz["id"])
+
+    # WM: pełny opis — gramatura i tuleja zostają, bo to on jest porównywany
+    # z zawartością auta i to on opisuje partie.
+    assert any(n.endswith("(80cm)") for n in nazwy_wm), nazwy_wm
+
+    # WZ klienta: nazwa zbiorcza — bez tulei i bez gramatury.
+    assert nazwy_wz, "WZ klienta bez pozycji"
+    assert not any("(80cm)" in n for n in nazwy_wz), nazwy_wz
+    assert not any("kg" in n for n in nazwy_wz), nazwy_wz
+
+    # Rdzeń nazwy wspólny — po tym biuro zestawia oba papiery.
+    rdzen = nazwy_wz[0]
+    assert any(n.startswith(rdzen) for n in nazwy_wm), (rdzen, nazwy_wm)
 
 
 # ── Usunięcie zamówienia pod wystawionymi papierami ───────────────────────
