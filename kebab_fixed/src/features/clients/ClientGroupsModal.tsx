@@ -5,9 +5,13 @@
  * jeden klient, więc towar zrobiony dla jednej spółki ma pokrywać zamówienia
  * pozostałych, zamiast leżeć obok i udawać, że nie istnieje.
  *
- * Grupa łączy WYŁĄCZNIE pulę wyrobu przy liczeniu pokrycia zamówień. Dokumenty
- * (WZ, HDI, CMR, faktura) zostają przy konkretnej spółce — sprzedaje się firmie,
- * nie grupie, a odbiorca na papierze musi mieć swój NIP i adres.
+ * Grupa łączy WYŁĄCZNIE pulę wyrobu gotowego — i przy liczeniu pokrycia,
+ * i przy zdejmowaniu towaru na dokumenty (od 23.09.2026; wcześniej działała
+ * tylko pierwsza połowa i opis w tym oknie był obietnicą na wyrost).
+ *
+ * Sam DOKUMENT (WZ, HDI, CMR, faktura) zostaje przy konkretnej spółce —
+ * sprzedaje się firmie, nie grupie, a odbiorca na papierze musi mieć swój
+ * NIP i adres.
  */
 import { useEffect, useState } from 'react'
 import { Plus, Trash2, Users, Loader2 } from 'lucide-react'

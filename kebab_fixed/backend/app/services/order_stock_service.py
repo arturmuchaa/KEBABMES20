@@ -24,6 +24,57 @@ from app.utils.product_key import kandydaci, klucz_wyrobu
 
 _key = klucz_wyrobu
 
+# ── Pula odbiorcy ───────────────────────────────────────────────────────
+# Spółki zapisane w jednej GRUPIE ODBIORCÓW (`clients.group_id`) dzielą
+# zapas wyrobu gotowego — dokładnie tak liczy pokrycie zamówienia
+# (`client_groups_service.pule_klientow`). Do 23.09.2026 ten moduł o grupach
+# nie wiedział i była to POŁOWA funkcji: ekran zamówienia SOFMONA pokazywał
+# „pokryte", bo towar leżał pod MEPĄ z tej samej grupy SŁOWACJA, a komplet
+# dokumentów tego towaru nie brał, bo formalnie należał do spółki siostrzanej.
+#
+# Kolejność w COALESCE odtwarza dawne pierwszeństwo 1:1 — najpierw
+# `fg.client_id`, dopiero potem nazwa — z tą różnicą, że każda gałąź
+# przechodzi przez grupę. Druga gałąź (surowy `client_id`) jest OBOWIĄZKOWA:
+# wyrób podpisany klientem, którego nie ma już w kartotece, ma zostać CUDZY.
+# Bez niej wpadłby do puli pustej, czyli „niczyjej", i dokument wciągnąłby go
+# po cichu — odwrotnie, niż chce reguła opisana niżej przy filtrze.
+#
+# NULLIF na `group_id` nie jest ozdobnikiem: kolumna to zwykły `text` bez
+# klucza obcego, więc może w niej siedzieć pusty łańcuch. Gołe COALESCE
+# wzięłoby go za pulę i CAŁY zapas takiego klienta stałby się „niczyj" —
+# dokładnie ten wyciek, przed którym broni gałąź wyżej. `pule_klientow`
+# liczy to samo Pythonowym `or`, które pustego łańcucha też nie uznaje.
+_PULA_ZAPASU = """COALESCE(
+                       (SELECT COALESCE(NULLIF(c.group_id, ''), c.id) FROM clients c
+                         WHERE c.id = NULLIF(fg.client_id, '')),
+                       NULLIF(fg.client_id, ''),
+                       (SELECT COALESCE(NULLIF(c2.group_id, ''), c2.id) FROM clients c2
+                         WHERE c2.name = fg.client_name
+                            OR c2.display_name = fg.client_name
+                         ORDER BY (c2.name = fg.client_name) DESC
+                         LIMIT 1),
+                       '')"""
+
+
+def _pula_zamowienia(order_id: str) -> str:
+    """Pula odbiorcy zamówienia: grupa, a gdy spółka jej nie ma — ona sama.
+
+    Liczona w Pythonie, a nie w SQL, bo ta sama wartość wchodzi do filtra
+    i do sortowania tego samego zapytania; powtórzony podzapytaniem COALESCE
+    byłby trzecią kopią reguły, a to właśnie kopie wyprodukowały ten błąd.
+    """
+    row = query_one(
+        """
+        SELECT COALESCE(
+                   (SELECT COALESCE(NULLIF(c.group_id, ''), c.id) FROM clients c
+                     WHERE c.id = o.client_id),
+                   NULLIF(o.client_id, ''), '') AS pula
+        FROM client_orders o WHERE o.id = %s
+        """,
+        (order_id,),
+    )
+    return (row or {}).get("pula") or ""
+
 
 def produced_by_key_from_plan_lines(plan_lines: List[Dict[str, Any]]) -> Dict[Key, int]:
     """Suma qty_done linii planu per (receptura, waga sztuki)."""
@@ -141,8 +192,9 @@ def stock_portions_for_order(
     # Kolejność: stempel tego zamówienia → zapas własny albo niczyj → dopiero
     # na końcu towar podpisany INNYM klientem. Samo FEFO wystawiało dokument
     # z najstarszego wiersza na magazynie, choć leżał tam pod czyjąś nazwą.
+    pula = _pula_zamowienia(order_id)
     fg_rows = query_all(
-        """
+        f"""
         SELECT id, batch_no, recipe_id, recipe_name, product_type_id, product_type_name,
                packaging_id, packaging_name,
                kg_per_unit, qty, qty_available, qty_shipped,
@@ -163,16 +215,12 @@ def stock_portions_for_order(
                     OR NOT EXISTS (SELECT 1 FROM client_orders o2
                                    WHERE o2.order_no = fg.client_order_no
                                      AND o2.status NOT IN ('done', 'cancelled')))
-                   -- ...i tylko towar TEGO klienta albo niczyj. Cudzy wolno
-                   -- sprzedać, ale ręcznym WZ, świadomie — dokument z
-                   -- zamówienia nie wciąga po cichu kebabu innego klienta.
-                   AND COALESCE(NULLIF(fg.client_id, ''), (
-                           SELECT c.id FROM clients c
-                           WHERE c.name = fg.client_name OR c.display_name = fg.client_name
-                           ORDER BY (c.name = fg.client_name) DESC
-                           LIMIT 1
-                       ), '') IN ('', COALESCE((SELECT o3.client_id FROM client_orders o3
-                                                WHERE o3.id = %s), ''))
+                   -- ...i tylko towar TEJ PULI albo niczyj. Pula to grupa
+                   -- odbiorców (spółki siostrzane biorą ze wspólnego zapasu),
+                   -- a bez grupy — sam klient. Towar spoza puli wolno sprzedać,
+                   -- ale ręcznym WZ, świadomie: dokument z zamówienia nie
+                   -- wciąga po cichu kebabu obcego kontrahenta.
+                   AND {_PULA_ZAPASU} IN ('', %s)
                ))
           AND COALESCE(fg.source_production_id, '') NOT IN (
               SELECT DISTINCT pl.plan_id FROM production_plan_lines pl
@@ -182,16 +230,10 @@ def stock_portions_for_order(
         -- bez stempla wyprzedzało 34 ostemplowane (produkcja, 30.08.2026) —
         -- odwrotnie niż mówi reguła kolejności opisana na górze modułu.
         ORDER BY (COALESCE(fg.client_order_no, '') = %s) DESC,
-                 (COALESCE(NULLIF(fg.client_id, ''), (
-                      SELECT c.id FROM clients c
-                      WHERE c.name = fg.client_name OR c.display_name = fg.client_name
-                      ORDER BY (c.name = fg.client_name) DESC
-                      LIMIT 1
-                  ), '') IN ('', COALESCE((
-                      SELECT o.client_id FROM client_orders o WHERE o.id = %s), ''))) DESC,
+                 ({_PULA_ZAPASU} IN ('', %s)) DESC,
                  produced_date ASC NULLS LAST, created_at ASC
         """,
-        (order_no, order_id, order_id, order_no, order_id),
+        (order_no, pula, order_id, order_no, pula),
     )
     # Sztuki, które wyjechały NA TO zamówienie — dokument wystawiany po WZ
     # musi je nadal wykazać. Rozpoznajemy po dokumencie WZ: wystawionym
@@ -357,8 +399,9 @@ def picks_for_pallets(order_id: str, pallet_ids: List[str]) -> List[Dict[str, An
     if not braki:
         return []
 
+    pula = _pula_zamowienia(order_id)
     fg_rows = query_all(
-        """
+        f"""
         SELECT id, batch_no, recipe_id, recipe_name, product_type_id, product_type_name,
                packaging_id, packaging_name,
                kg_per_unit, qty, qty_available, qty_shipped,
@@ -372,18 +415,12 @@ def picks_for_pallets(order_id: str, pallet_ids: List[str]) -> List[Dict[str, An
                     OR NOT EXISTS (SELECT 1 FROM client_orders o2
                                    WHERE o2.order_no = fg.client_order_no
                                      AND o2.status NOT IN ('done', 'cancelled')))
-                   AND COALESCE(NULLIF(fg.client_id, ''), (
-                           SELECT c.id FROM clients c
-                           WHERE c.name = fg.client_name OR c.display_name = fg.client_name
-                           ORDER BY (c.name = fg.client_name) DESC
-                           LIMIT 1
-                       ), '') IN ('', COALESCE((SELECT o3.client_id FROM client_orders o3
-                                                WHERE o3.id = %s), ''))
+                   AND {_PULA_ZAPASU} IN ('', %s)
                ))
         ORDER BY (COALESCE(fg.client_order_no, '') = %s) DESC,
                  produced_date ASC NULLS LAST, created_at ASC
         """,
-        (order_no, order_id, order_no),
+        (order_no, pula, order_no),
     )
     return portion_stock_rows(braki, fg_rows, order_no)
 
@@ -418,8 +455,9 @@ def picks_for_order(order_id: str) -> List[Dict[str, Any]]:
     if not braki:
         return []
 
+    pula = _pula_zamowienia(order_id)
     fg_rows = query_all(
-        """
+        f"""
         SELECT id, batch_no, recipe_id, recipe_name, product_type_id, product_type_name,
                packaging_id, packaging_name,
                kg_per_unit, qty, qty_available, qty_shipped,
@@ -433,13 +471,7 @@ def picks_for_order(order_id: str) -> List[Dict[str, Any]]:
                     OR NOT EXISTS (SELECT 1 FROM client_orders o2
                                    WHERE o2.order_no = fg.client_order_no
                                      AND o2.status NOT IN ('done', 'cancelled')))
-                   AND COALESCE(NULLIF(fg.client_id, ''), (
-                           SELECT c.id FROM clients c
-                           WHERE c.name = fg.client_name OR c.display_name = fg.client_name
-                           ORDER BY (c.name = fg.client_name) DESC
-                           LIMIT 1
-                       ), '') IN ('', COALESCE((SELECT o3.client_id FROM client_orders o3
-                                                WHERE o3.id = %s), ''))
+                   AND {_PULA_ZAPASU} IN ('', %s)
                ))
         -- COALESCE, nie gołe porównanie: `NULL = 'ZAM/7/08'` daje w SQL NULL,
         -- a przy DESC Postgres stawia NULL-e PIERWSZE — towar bez stempla
@@ -447,7 +479,7 @@ def picks_for_order(order_id: str) -> List[Dict[str, Any]]:
         ORDER BY (COALESCE(fg.client_order_no, '') = %s) DESC,
                  produced_date ASC NULLS LAST, created_at ASC
         """,
-        (order_no, order_id, order_no),
+        (order_no, pula, order_no),
     )
     # Bez `wydane_wg_wiersza`: formularz wystawia NOWY dokument, więc liczy
     # się tylko to, co fizycznie leży. Sztuki już wydane pokazałyby się jako

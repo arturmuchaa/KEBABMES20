@@ -2,7 +2,7 @@
 NIE są liczone drugi raz w FIFO finished_goods (anty-dublowanie)."""
 from app.db import execute, query_one
 from app.services.order_stock_service import stock_portions_for_order
-from app.utils.ids import now_iso
+from app.utils.ids import cuid, now_iso
 
 
 def _seed_order(order_id="ord1", order_no="ZAM/1", client_id="c1"):
@@ -131,6 +131,57 @@ def test_dokument_nie_siega_po_towar_innego_klienta(db):
     portions = stock_portions_for_order(
         "ord1", "YALCIN/Z/2/08/26",
         [{"recipe_id": "r1", "kg_per_unit": 10.0, "qty": 50}], {})
+
+    assert portions == []
+
+
+def _grupa_odbiorcow(nazwa, *spolki):
+    """Grupa odbiorców — kilka spółek, WSPÓLNA pula wyrobu gotowego.
+
+    `DO UPDATE`, nie `DO NOTHING`: `_seed_order` i `_seed_fg_klienta` zakładają
+    te same karty klientów `ON CONFLICT DO NOTHING`, więc przy „nic nie rób"
+    spółka zostałaby bez grupy i test przechodziłby z fałszywego powodu.
+    """
+    gid = cuid()
+    execute("INSERT INTO client_groups (id, name, created_at) VALUES (%s,%s,%s)",
+            (gid, nazwa, now_iso()))
+    for cid, nazwa_spolki in spolki:
+        execute("INSERT INTO clients (id, code, name, group_id) VALUES (%s,%s,%s,%s) "
+                "ON CONFLICT (id) DO UPDATE SET group_id = EXCLUDED.group_id",
+                (cid, cid, nazwa_spolki, gid))
+    return gid
+
+
+def test_zapas_SIOSTRZANEJ_SPOLKI_dobiera_sie_JAK_SWOJ(db):
+    """Odwrotność testu wyżej — i cały sens grup odbiorców.
+
+    Towar spółki z tej samej grupy nie jest „obcy", więc nie wolno zepchnąć go
+    na koniec kolejki za towar niczyj: o wyborze decyduje FEFO, dokładnie jak
+    przy własnym zapasie. Zgłoszenie właściciela 23.09.2026 — SOFMON i MEPA
+    w grupie SŁOWACJA „mogli brać dla siebie ten sam wyrób gotowy".
+    """
+    _grupa_odbiorcow("SŁOWACJA", ("c1", "MEPA"), ("c2", "SOFMON"))
+    _seed_order(client_id="c1")
+    _seed_fg_klienta("fg-siostra", 50, "c2", "SOFMON", "2026-06-01")   # starszy
+    _seed_fg_klienta("fg-niczyj", 50, None, "", "2026-06-20")          # młodszy
+
+    portions = stock_portions_for_order(
+        "ord1", "ZAM/1", [{"recipe_id": "r1", "kg_per_unit": 10.0, "qty": 30}], {}
+    )
+
+    assert [p["fg"]["id"] for p in portions] == ["fg-siostra"]
+
+
+def test_spolka_z_INNEJ_grupy_dalej_nie_wchodzi(db):
+    """Granica puli: dwie grupy to dwie pule. Gdyby sama obecność grupy
+    otwierała magazyn, poprawka zamieniłaby błąd na znacznie gorszy."""
+    _grupa_odbiorcow("SŁOWACJA", ("c1", "MEPA"))
+    _grupa_odbiorcow("NIEMCY", ("c2", "Provia Global BV"))
+    _seed_order(client_id="c1")
+    _seed_fg_klienta("fg-obcy", 50, "c2", "Provia Global BV", "2026-06-01")
+
+    portions = stock_portions_for_order(
+        "ord1", "ZAM/1", [{"recipe_id": "r1", "kg_per_unit": 10.0, "qty": 50}], {})
 
     assert portions == []
 

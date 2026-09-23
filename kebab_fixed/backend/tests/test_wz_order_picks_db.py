@@ -25,6 +25,23 @@ def _pozycja_zamowienia(oid, qty=10, kg=20.0, recipe="rec-1", ptype="pt-1"):
             (cuid(), oid, qty, kg, recipe, ptype))
 
 
+def _grupa(nazwa="SŁOWACJA"):
+    gid = cuid()
+    execute("INSERT INTO client_groups (id, name, created_at) VALUES (%s,%s,%s)",
+            (gid, nazwa, now_iso()))
+    return gid
+
+
+def _spolka(client_id, nazwa, group_id=None):
+    """Spółka w kartotece; `group_id` wpina ją do grupy odbiorców."""
+    # Kod z IDENTYFIKATORA, nie z nazwy: `clients.code` jest unikalny,
+    # a „KLIENT A" i „KLIENT B" dają te same trzy litery.
+    execute("INSERT INTO clients (id, code, name, active, group_id, created_at) "
+            "VALUES (%s,%s,%s,true,%s,%s) ON CONFLICT (id) DO UPDATE SET group_id=EXCLUDED.group_id",
+            (client_id, client_id[-4:].upper(), nazwa, group_id, now_iso()))
+    return client_id
+
+
 def _na_magazynie(qty=10, kg=20.0, recipe="rec-1", ptype="pt-1",
                   client_order_no=None, client_name="", client_id=""):
     fid = cuid()
@@ -64,6 +81,47 @@ class TestPicksForOrder:
         oid = _zamowienie()
         _pozycja_zamowienia(oid, qty=10)
         _na_magazynie(qty=10, client_name="KTOS INNY", client_id="cl-2")
+        assert picks_for_order(oid) == []
+
+    def test_towar_SIOSTRZANEJ_SPOLKI_z_grupy_wchodzi_na_dokument(self, db):
+        """Grupy odbiorców (commit 9a29daa, 28.08.2026) nazywają się „kilka
+        spółek, WSPÓLNA PULA WYROBU" — ale pule trafiły wtedy wyłącznie do
+        LICZENIA pokrycia (`orders_service`). Ścieżka, która faktycznie zdejmuje
+        wyrób ze stanu przy wystawianiu dokumentów, filtrowała sztywno po
+        `client_id`, więc ekran pokazywał „pokryte z puli grupy", a komplet
+        dokumentów tego towaru nie brał. Zgłoszenie właściciela 23.09.2026
+        (SOFMON i MEPA w grupie SŁOWACJA).
+        """
+        gid = _grupa()
+        _spolka("cl-1", "MEPA", gid)          # klient zamówienia
+        _spolka("cl-2", "SOFMON", gid)        # siostra z tej samej grupy
+        oid = _zamowienie(client_id="cl-1")
+        _pozycja_zamowienia(oid, qty=10)
+        fid = _na_magazynie(qty=10, client_name="SOFMON", client_id="cl-2")
+
+        assert [(p["fg"]["id"], p["take"]) for p in picks_for_order(oid)] == [(fid, 10)]
+
+    def test_spolka_SPOZA_grupy_dalej_nie_wchodzi(self, db):
+        """Pula dzieli się w obrębie grupy, nie z całą kartoteką — inaczej
+        dokument po cichu wciągałby kebab obcego kontrahenta."""
+        gid = _grupa()
+        _spolka("cl-1", "MEPA", gid)
+        _spolka("cl-3", "OBCY", None)         # bez grupy
+        oid = _zamowienie(client_id="cl-1")
+        _pozycja_zamowienia(oid, qty=10)
+        _na_magazynie(qty=10, client_name="OBCY", client_id="cl-3")
+
+        assert picks_for_order(oid) == []
+
+    def test_klient_bez_grupy_ma_wlasna_pule(self, db):
+        """Zgodność wstecz: spółka bez grupy widzi wyłącznie swój towar,
+        dokładnie jak przed zmianą."""
+        _spolka("cl-1", "KLIENT A", None)
+        _spolka("cl-2", "KLIENT B", None)
+        oid = _zamowienie(client_id="cl-1")
+        _pozycja_zamowienia(oid, qty=10)
+        _na_magazynie(qty=10, client_name="KLIENT B", client_id="cl-2")
+
         assert picks_for_order(oid) == []
 
     def test_stempel_TEGO_zamowienia_idzie_pierwszy(self, db):

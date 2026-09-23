@@ -5,9 +5,13 @@ i Emin Handels GmbH), odbiorca wrocławski ma pięć oddziałów. Dla hali to je
 klient — towar zrobiony dla jednej spółki ma pokrywać zamówienia pozostałych,
 zamiast leżeć obok i udawać, że nie istnieje.
 
-Grupa łączy WYŁĄCZNIE pulę wyrobu przy liczeniu pokrycia zamówień. Dokumenty
-(WZ, HDI, CMR, faktura) zostają przy KONKRETNEJ spółce — sprzedaje się firmie,
-nie grupie, a odbiorca na papierze musi mieć swój NIP i adres.
+Grupa łączy WYŁĄCZNIE pulę wyrobu gotowego: i przy liczeniu pokrycia, i przy
+zdejmowaniu towaru na dokumenty (`order_stock_service`). Do 23.09.2026 działała
+tylko pierwsza połowa — ekran mówił „pokryte", a komplet dokumentów tego samego
+towaru nie brał, bo należał do spółki siostrzanej.
+
+Sam DOKUMENT (WZ, HDI, CMR, faktura) zostaje przy KONKRETNEJ spółce — sprzedaje
+się firmie, nie grupie, a odbiorca na papierze musi mieć swój NIP i adres.
 """
 from typing import Any, Dict, List
 
