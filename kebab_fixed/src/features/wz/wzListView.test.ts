@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { filterWz, rodzajDokumentu, wzRodzajCounts, wzTabCounts,
+import { filterWz, rodzajDokumentu, sladDostepny, wzRodzajCounts, wzTabCounts,
          type WzTab } from './wzListView'
 
 /**
@@ -89,5 +89,36 @@ describe('rodzajWydania — zewnętrzne kontra magazynowe', () => {
 
   it('liczniki liczą osobno dla każdego rodzaju', () => {
     expect(wzRodzajCounts(WYDANIA, 'active')).toEqual({ zewnetrzne: 2, magazynowe: 1 })
+  })
+})
+
+// ─── Ślad skanowania: na KTÓRYCH dokumentach go pokazać ──────────────
+//
+// Zgłoszenie właściciela 24.09.2026, DRUGIE w tej sprawie: „dalej nie widzę
+// w wydaniach historii skanów kebabów". Ślad istniał i dane były kompletne
+// (WM/10 — 9 skanów na 3 paletach, WZ/83 — 27 na 13), ale link rysował się
+// wyłącznie na zakładce „Magazynowe (WM)", a ekran otwiera się na
+// „Zewnętrzne (WZ)". Szukający nie widział NICZEGO.
+describe('sladDostepny', () => {
+  it('dokument z zamówienia ma ślad — także WZ dla klienta', () => {
+    // WZ/83 realnie ma 27 skanów; zakładka, na której leży, nie jest
+    // powodem, żeby je chować.
+    expect(sladDostepny({ doc_series: 'WZ', source_id: 'ord1' })).toBe(true)
+  })
+
+  it('wydanie magazynowe z zamówienia ma ślad', () => {
+    expect(sladDostepny({ doc_series: 'WM', source_id: 'ord1' })).toBe(true)
+  })
+
+  it('dokument ręczny nie ma śladu — nie ma zamówienia, nie ma palet', () => {
+    expect(sladDostepny({ doc_series: 'WZ', source_type: 'manual' })).toBe(false)
+  })
+
+  it('puste źródło liczy się jak brak', () => {
+    expect(sladDostepny({ doc_series: 'WM', source_id: '' })).toBe(false)
+  })
+
+  it('czyta też zapis camelCase z API', () => {
+    expect(sladDostepny({ doc_series: 'WM', sourceId: 'ord1' })).toBe(true)
   })
 })

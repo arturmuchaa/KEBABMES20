@@ -28,9 +28,29 @@ interface WzRow {
   status?: string
   /** Seria dokumentu: 'WM' wewnętrzny, 'WZ' (albo brak) dla kontrahenta. */
   doc_series?: string
+  /** Zamówienie, z którego powstał dokument — źródło palet i ich skanów. */
+  source_id?: string
+  sourceId?: string
+  source_type?: string
 }
 
 const anulowany = (d: WzRow) => (d.status || '') === 'anulowany'
+
+/**
+ * Czy dla tego dokumentu da się pokazać ślad skanowania palet.
+ *
+ * Warunek jest JEDEN: dokument pochodzi z zamówienia, bo skany wiszą na
+ * paletach zamówienia (`order_pallets` → `pallet_scans`). Seria nie ma tu
+ * nic do rzeczy — WZ/83 dla klienta ma 27 skanów na 13 paletach dokładnie
+ * tak samo jak WM.
+ *
+ * Związanie śladu z zakładką „Magazynowe" było błędem projektowym
+ * (22.09.2026): rejestr otwiera się na „Zewnętrzne", więc szukający nie
+ * widział NICZEGO — właściciel zgłosił to dwa razy, zanim się wydało.
+ */
+export function sladDostepny(d: WzRow): boolean {
+  return Boolean(d.source_id || d.sourceId)
+}
 
 /** Dokument BEZ serii to WZ sprzed podziału wysyłki (przed 09.2026) — z
  *  definicji zewnętrzny. Potraktowanie go jako magazynowego schowałoby biuru

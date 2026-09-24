@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SladSkanowania } from '@/features/wz/SladSkanowania'
-import { filterWz, wzRodzajCounts, wzTabCounts,
+import { filterWz, sladDostepny, wzRodzajCounts, wzTabCounts,
          type RodzajWydania, type WzTab } from '@/features/wz/wzListView'
 import { fmtMoneyPl } from '@/features/wz/rowMath'
 import {
@@ -24,6 +24,7 @@ import {
 import {
   Plus, Printer, FileText, Eye, FileSpreadsheet, Pencil, ChevronUp, ChevronDown,
   ChevronsUpDown, AlertTriangle, CheckCircle2, Truck, Search, X, Ban, Loader2,
+  ScanLine,
 } from 'lucide-react'
 
 /** Raport rozjazdu: różnice dokument↔załadunek + łańcuch ilości per etap. */
@@ -486,15 +487,6 @@ export function WzDocumentsPage() {
                       ) : (
                         <span className="text-muted-foreground text-[11px]">—</span>
                       )}
-                      {(d.source_id || d.sourceId) && (
-                        <button
-                          type="button"
-                          className="block mt-1 text-[10px] underline text-muted-foreground hover:text-ink"
-                          onClick={() => setSladId(sladId === d.id ? null : d.id)}
-                        >
-                          {sladId === d.id ? 'Ukryj ślad' : 'Ślad skanowania'}
-                        </button>
-                      )}
                     </TableCell>
                     )}
                     <TableCell className="py-1.5 px-3">
@@ -511,6 +503,20 @@ export function WzDocumentsPage() {
                                 title="PDF" onClick={() => void downloadDocPdf(wzApi.pdfUrl(d.id)).catch(e => alert(e?.message || 'Nie udało się pobrać PDF'))}>
                           <FileText size={13} />
                         </Button>
+                        {/* Skany palet: kolumna akcji jest na OBU zakładkach,
+                            więc ślad przestaje zależeć od tego, czy biuro
+                            trafiło na „Magazynowe". WZ z zamówienia ma
+                            dokładnie te same skany co WM. */}
+                        {sladDostepny(d as any) && (
+                          <Button variant="outline" size="sm"
+                                  className="h-7 text-[11px] gap-1"
+                                  title="Historia skanowania palet tego wydania"
+                                  onClick={() => setSladId(sladId === d.id ? null : d.id)}>
+                            {sladId === d.id
+                              ? <><ChevronUp size={12} /> Zwiń skany</>
+                              : <><ScanLine size={12} /> Skany</>}
+                          </Button>
+                        )}
                         {!cancelled && ((d as any).source_type === 'manual' ? (
                           <Button variant="outline" size="sm"
                                   className="h-7 text-[11px] gap-1 text-amber-700 border-amber-200 hover:bg-amber-50"
@@ -551,7 +557,7 @@ export function WzDocumentsPage() {
                   </TableRow>
                   {sladId === d.id && (
                     <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={8} className="bg-muted/30 p-0">
+                      <TableCell colSpan={magazynowe ? 7 : 6} className="bg-muted/30 p-0">
                         <div className="px-4 pt-3 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
                           Ślad skanowania — {d.number}
                         </div>
