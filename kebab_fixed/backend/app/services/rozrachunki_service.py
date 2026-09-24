@@ -14,8 +14,9 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.db import query_all, query_one
+from app.db import execute, query_all, query_one
 from app.logging_config import get_logger
+from app.utils.ids import cuid
 from app.services.rozrachunki_saldo import (TERMINY_DOMYSLNE, dni_po_terminie,
                                             po_odcieciu, policz_saldo,
                                             termin_platnosci)
@@ -143,3 +144,83 @@ def zestawienie() -> List[Dict[str, Any]]:
                 "SELECT id FROM clients WHERE settlement_enabled IS TRUE "
                 "ORDER BY COALESCE(NULLIF(display_name,''), name)"))
     ]
+
+
+# ── Zapis: saldo otwarcia, faktury, wpłaty ──────────────────────────────
+def _waluta_klienta(client_id: str) -> str:
+    """Waluta bierze się z KARTOTEKI, nie z formularza. Dwa miejsca na tę
+    samą decyzję to dwa miejsca, w których da się ją ustawić inaczej —
+    a wpłata zapisana w innej walucie niż obciążenia zsumowałaby się po
+    cichu i zafałszowała saldo."""
+    return _klient(client_id)["settlement_currency"]
+
+
+def ustaw_otwarcie(client_id: str, amount: float, as_of_date,
+                   note: str = "") -> Dict[str, Any]:
+    """Saldo otwarcia — jednorazowe ODCIĘCIE przepisywane z arkusza.
+
+    Właściciel 24.09.2026: „historycznie nie patrz — ja zrobię saldo na dany
+    dzień i już będziemy szli od nowa na nowym systemie".
+    """
+    waluta = _waluta_klienta(client_id)
+    execute(
+        "INSERT INTO client_opening_balances (client_id, amount, currency, as_of_date, note) "
+        "VALUES (%s,%s,%s,%s,%s) "
+        "ON CONFLICT (client_id) DO UPDATE SET amount=EXCLUDED.amount, "
+        "  currency=EXCLUDED.currency, as_of_date=EXCLUDED.as_of_date, "
+        "  note=EXCLUDED.note",
+        (client_id, float(amount), waluta, as_of_date, note or ""))
+    logger.info("rozrachunki.otwarcie", extra={"client_id": client_id})
+    return {"clientId": client_id, "amount": float(amount), "currency": waluta}
+
+
+def dodaj_fakture(client_id: str, number: str, doc_date, amount: float,
+                  note: str = "") -> Dict[str, Any]:
+    """Faktura wpisywana przez biuro.
+
+    ZNAK NAKŁADA SERWIS: biuro wpisuje „2000", bo tyle jest do zapłaty,
+    a w saldzie to obciążenie ujemne. Gdyby znak wpisywał człowiek, prędzej
+    czy później ktoś wpisałby go odwrotnie i saldo pokazałoby nadpłatę
+    zamiast długu.
+    """
+    numer = (number or "").strip()
+    if not numer:
+        raise HTTPException(400, "Podaj numer faktury")
+    if query_one("SELECT 1 FROM client_charges WHERE client_id=%s AND kind='invoice' "
+                 "AND number=%s", (client_id, numer)):
+        raise HTTPException(409, f"Faktura {numer} jest już zapisana dla tego kontrahenta")
+    cid = cuid()
+    execute(
+        "INSERT INTO client_charges (id, client_id, kind, number, doc_date, amount, "
+        " currency, note) VALUES (%s,%s,'invoice',%s,%s,%s,%s,%s)",
+        (cid, client_id, numer, doc_date, -abs(float(amount)),
+         _waluta_klienta(client_id), note or ""))
+    logger.info("rozrachunki.faktura",
+                extra={"client_id": client_id, "numer_faktury": numer})
+    return {"id": cid, "number": numer}
+
+
+def dodaj_wplate(client_id: str, paid_date, amount: float,
+                 note: str = "") -> Dict[str, Any]:
+    """Wpłata idzie na WSPÓLNE saldo klienta, nie do konkretnego dokumentu —
+    decyzja właściciela, zgodna z tym, jak działa ich arkusz (uwagi typu
+    „2850 28.07" czy „1264+1500 husain" opisują wpłatę, nie przypisanie)."""
+    cid = cuid()
+    execute(
+        "INSERT INTO client_payments (id, client_id, paid_date, amount, currency, note) "
+        "VALUES (%s,%s,%s,%s,%s,%s)",
+        (cid, client_id, paid_date, -abs(float(amount)),
+         _waluta_klienta(client_id), note or ""))
+    logger.info("rozrachunki.wplata", extra={"client_id": client_id})
+    return {"id": cid}
+
+
+def usun_pozycje(kind: str, entry_id: str) -> Dict[str, Any]:
+    """Usuwanie pozycji WPISANEJ RĘCZNIE. Obciążeń z WZ tą drogą usunąć się
+    nie da — znikają, gdy zniknie albo zostanie anulowany sam dokument."""
+    tabela = {"invoice": "client_charges", "payment": "client_payments"}.get(kind)
+    if not tabela:
+        raise HTTPException(400, f"Nieznany rodzaj pozycji: {kind}")
+    execute(f"DELETE FROM {tabela} WHERE id=%s", (entry_id,))
+    logger.info("rozrachunki.usunieto", extra={"rodzaj": kind, "pozycja_id": entry_id})
+    return {"ok": True}
