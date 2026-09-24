@@ -241,10 +241,14 @@ mówiła:
    dostawę po pojemnikach, nie po kilogramach. Scalona linia „3250 kg"
    bez rozbicia byłaby krokiem wstecz wobec kartki.
 
-⚠️ NIEROZSTRZYGNIĘTE: czym jest linia `BOŁGAR: 37 000 €`. Z opisu
-właściciela („zadłużenie z poprzednich dostaw") wychodzi saldo przed
-dokumentem, ale to może być też nazwana pozycja dopisywana ręcznie.
-Do potwierdzenia przed wykonaniem wydruku.
+**`BOLÇAR` = `borçlar`, po turecku „długi"** (właściciel, 24.09.2026).
+Ta linia to więc zadłużenie z poprzednich dostaw, czyli `saldo_przed` —
+potwierdzone, nie zgadywane.
+
+Skoro papier jedzie do tureckiego odbiorcy, podpisy mogą być DWUJĘZYCZNE:
+„Zadłużenie z poprzednich dostaw / BORÇLAR", „Razem / TOPLAM". Precedens
+w kodzie już jest — `hdi_documents.language`. Decyzja przy wykonaniu
+wydruku; domyślnie polskie, turecki jako opcja per kontrahent.
 
 ### Zestawienie dla klienta
 
