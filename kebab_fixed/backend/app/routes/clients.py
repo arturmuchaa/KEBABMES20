@@ -26,3 +26,14 @@ def update_client(client_id: str, dto: ClientCreate):
 def deactivate_client(client_id: str):
     svc.deactivate_client(client_id)
     return {"ok": True}
+
+
+@router.put("/{client_id}/rozliczenie")
+def ustaw_rozliczenie(client_id: str, body: dict):
+    """Włącznik rozrachunków i waluta rozliczeniowa kontrahenta.
+
+    Waluta jest per klient — przy niezerowym saldzie serwis odmawia jej
+    zmiany, bo kwot nie przelicza.
+    """
+    return svc.ustaw_rozliczenie(
+        client_id, bool(body.get("enabled")), body.get("currency") or "PLN")
