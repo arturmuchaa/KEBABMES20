@@ -72,6 +72,25 @@ Po tej zmianie: `doc_series='WM'` = ruch magazynowy (nie obciąża klienta),
 Waluta jest **per klient**, nie per dokument. Upraszcza to saldo do jednej
 liczby; przeliczenie na złotówki robi wyłącznie zestawienie zbiorcze.
 
+### ⚠️ REGUŁA NADRZĘDNA: saldo otwarcia jest ODCIĘCIEM
+
+Właściciel 24.09.2026: *„historycznie nie patrz — ja zrobię saldo na dany
+dzień i już będziemy szli od nowa na nowym systemie."*
+
+Z tego wynika **najważniejsza reguła poprawności całego modułu**:
+
+> Do salda liczą się **wyłącznie** dokumenty o dacie **PO** `as_of_date`
+> salda otwarcia. Wszystko wcześniejsze jest już **zawarte** w tej jednej
+> kwocie.
+
+Bez tego obciążenia zaciągnęłyby się z **177 historycznych WZ** leżących
+w bazie i doliczyły **na wierzchu** salda otwarcia — każdy kontrahent
+miałby zawyżony dług, a błąd byłby cichy: liczby wyglądałyby sensownie.
+
+Dotyczy tak samo faktur i wpłat. Data odcięcia jest widoczna na ekranie
+i na zestawieniu dla klienta („saldo na dzień …"), żeby nikt nie szukał
+w MES dokumentów sprzed wdrożenia.
+
 ### 2. Saldo otwarcia (`client_opening_balances`)
 
 `client_id` · `amount` · `currency` · `as_of_date` · `note`
