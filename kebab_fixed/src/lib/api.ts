@@ -1267,6 +1267,11 @@ export const clientsApi = {
   update:     (id: string, dto: Partial<CreateClientDto>) => put<any>(`/clients/${id}`, toSnake(dto)).then(mapClient),
   deactivate: (id: string) => patch<void>(`/clients/${id}/deactivate`, {}),
   delete:     (id: string) => del<{ ok: boolean }>(`/clients/${id}`),
+  /** Rozrachunki: włącznik i waluta rozliczeniowa. Przy niezerowym saldzie
+   *  backend odmawia zmiany waluty — kwot nie przelicza. */
+  ustawRozliczenie: (id: string, enabled: boolean, currency: string) =>
+    put<{ clientId: string; enabled: boolean; currency: string }>(
+      `/clients/${id}/rozliczenie`, { enabled, currency }),
 }
 
 /** Grupy odbiorców — kilka spółek jednego kontrahenta ze WSPÓLNĄ pulą wyrobu.
@@ -2790,6 +2795,51 @@ export const fxApi = {
   eurRate: (on = '') =>
     get<{ rate?: number; date?: string; table?: string }>(
       `/analytics/eur-rate${on ? `?on=${encodeURIComponent(on)}` : ''}`),
+}
+
+// ─── Rozrachunki z odbiorcami ─────────────────────────────────
+export interface RozrachunkiPozycja {
+  id?: string
+  kind: string
+  number: string
+  doc_date: string
+  amount: number
+  termin?: string
+  dni_po_terminie?: number
+  note?: string
+}
+export interface RozrachunkiWplata {
+  id: string; paid_date: string; amount: number; note: string
+}
+export interface RozrachunkiKarta {
+  client: { id: string; name: string; nip: string }
+  waluta: string
+  otwarcie: { amount: number; as_of_date: string; note: string } | null
+  obciazenia: RozrachunkiPozycja[]
+  wplaty: RozrachunkiWplata[]
+  saldo: {
+    otwarcie: number; obciazenia: number; wplaty: number
+    saldo: number; skonfigurowane: boolean
+  }
+  na_dzien: string
+}
+export interface RozrachunkiWiersz {
+  clientId: string; name: string; waluta: string
+  saldo: number; skonfigurowane: boolean
+}
+
+export const rozrachunkiApi = {
+  lista:  () => get<RozrachunkiWiersz[]>('/rozrachunki'),
+  karta:  (id: string) => get<RozrachunkiKarta>(`/rozrachunki/${id}`),
+  otwarcie: (id: string, dto: { amount: number; as_of_date: string; note?: string }) =>
+    post<any>(`/rozrachunki/${id}/otwarcie`, dto),
+  faktura: (id: string,
+            dto: { number: string; doc_date: string; amount: number; note?: string }) =>
+    post<any>(`/rozrachunki/${id}/faktura`, dto),
+  wplata: (id: string, dto: { paid_date: string; amount: number; note?: string }) =>
+    post<any>(`/rozrachunki/${id}/wplata`, dto),
+  usunPozycje: (kind: string, entryId: string) =>
+    del<{ ok: boolean }>(`/rozrachunki/pozycja/${kind}/${entryId}`),
 }
 
 export const wzApi = {
