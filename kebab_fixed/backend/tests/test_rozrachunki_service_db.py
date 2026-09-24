@@ -179,3 +179,40 @@ def test_nieznana_podstawa_liczy_OBA(db):
     _wz("w1", "c1", "WZ/9/09/26", "2026-09-15", 1000.0)
 
     assert karta_klienta("c1")["saldo"]["saldo"] == -1000.0
+
+
+# ─── C4/I5 z recenzji 24.09.2026 ────────────────────────────────────────
+
+def test_WZ_w_INNEJ_WALUCIE_nie_wpada_do_salda(db):
+    """C4. `wz_documents.currency` jest zmienialne (biuro wycenia WZ w euro),
+    a `policz_saldo` sumuje same kwoty — nie czyta waluty. Klient rozliczany
+    w złotówkach dostawał dług „−10 000 zł" zamiast ~−42 700 zł. Liczba
+    wyglądała sensownie i nic nie ostrzegało."""
+    _klient(waluta="PLN"); _otwarcie(kwota=0.0)
+    _wz("w1", "c1", "WZ/9/09/26", "2026-09-15", 10000.0)
+    execute("UPDATE wz_documents SET currency='EUR' WHERE id='w1'")
+
+    karta = karta_klienta("c1")
+
+    assert karta["saldo"]["saldo"] == 0.0
+    assert karta["obciazenia"] == []
+
+
+def test_dokument_w_innej_walucie_jest_ZGLOSZONY_a_nie_przemilczany(db):
+    """Ciche pominięcie byłoby drugim błędem: należność znikałaby bez śladu.
+    Karta ma powiedzieć, ile dokumentów odpadło i dlaczego."""
+    _klient(waluta="PLN"); _otwarcie(kwota=0.0)
+    _wz("w1", "c1", "WZ/9/09/26", "2026-09-15", 10000.0)
+    execute("UPDATE wz_documents SET currency='EUR' WHERE id='w1'")
+
+    ostrz = karta_klienta("c1")["ostrzezenia"]
+
+    assert ostrz["inna_waluta"] == 1
+
+
+def test_zgodna_waluta_wchodzi_normalnie(db):
+    _klient(waluta="EUR"); _otwarcie(kwota=0.0, waluta="EUR")
+    _wz("w1", "c1", "WZ/9/09/26", "2026-09-15", 10000.0)
+    execute("UPDATE wz_documents SET currency='EUR' WHERE id='w1'")
+
+    assert karta_klienta("c1")["saldo"]["saldo"] == -10000.0

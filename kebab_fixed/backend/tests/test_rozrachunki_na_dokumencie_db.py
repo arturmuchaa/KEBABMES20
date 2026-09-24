@@ -88,3 +88,97 @@ def test_dokument_spoza_salda_nie_wywraca_bloku(db):
 
     assert blok["dokument_biezacy"] is None
     assert blok["saldo_przed"] == blok["saldo_po"] == -1000.0
+
+
+# ─── C2: kartka nie może liczyć bieżącej dostawy jako zaległości ────────
+#
+# Recenzja 24.09.2026: `rozliczenie_dostawy` brało BIEŻĄCE saldo karty jako
+# `saldo_przed`, a to saldo zawiera już WZ wystawiony z TEJ dostawy. Potem
+# doliczało wartość całej dostawy jeszcze raz. Linia opisana jako
+# „Zadłużenie z poprzednich dostaw / BORÇLAR" zawierała dostawę bieżącą.
+
+def _priced_wz(wid, oid, cid, numer, data, wartosc, seria="WZ", zakres=None, seq=1):
+    """Dokument PRZYPIĘTY DO ISTNIEJĄCEGO zamówienia — tak jak w podziale
+    wysyłki, gdzie WM i WZ klienta dzielą jedno `source_id`."""
+    execute(
+        "INSERT INTO wz_documents (id, number, seq, year_month, buyer_name, lines, "
+        " total_value, valued, status, doc_series, split_scope, currency, source_type, "
+        " source_id, issued_date) "
+        "VALUES (%s,%s,%s,'2609','TRUVA',%s::jsonb,%s,true,'wstepny',%s,%s,'PLN',"
+        " 'order',%s,%s)",
+        (wid, numer, seq,
+         '[{"name":"KIRMIZI","qty":10,"kg_per_unit":25.0,"total_kg":250.0}]',
+         wartosc, seria, zakres, oid, data))
+
+
+def test_kartka_NIE_liczy_biezacej_dostawy_jako_zaleglosci(db):
+    """Rozjazd, który to dawało, był równy wartości dostawy trzymanej przez
+    klienta w ręku."""
+    from app.services.rozrachunki_service import rozliczenie_dostawy
+    _klient()
+    # Poprzednia dostawa — to JEST zaległość.
+    _wz("w0", "c1", "WZ/1/09/26", "2026-09-05", 37000.0)
+    # Bieżąca dostawa: WM na całość + WZ klienta na część.
+    execute("INSERT INTO client_orders (id, order_no, client_id, client_name) "
+            "VALUES ('ord9','ZAM/9','c1','TRUVA')")
+    _priced_wz("wm9", "ord9", "c1", "WM/9/09/26", "2026-09-20", 0.0,
+               seria="WM", zakres="calosc", seq=9)
+    _priced_wz("wz9", "ord9", "c1", "WZ/9/09/26", "2026-09-20", 16160.0,
+               seria="WZ", zakres="wz_klienta", seq=10)
+
+    wynik = rozliczenie_dostawy("ord9", {"KIRMIZI": 3.20})
+
+    # Zaległość to WYŁĄCZNIE poprzednia dostawa.
+    assert wynik["saldo_przed"] == -37000.0
+
+
+def test_kartka_bez_zaleglosci_pokazuje_zero(db):
+    """Pierwsza dostawa klienta — linia BORÇLAR ma być zerem, a nie
+    wartością tej dostawy."""
+    from app.services.rozrachunki_service import rozliczenie_dostawy
+    _klient()
+    execute("INSERT INTO client_orders (id, order_no, client_id, client_name) "
+            "VALUES ('ord9','ZAM/9','c1','TRUVA')")
+    _priced_wz("wm9", "ord9", "c1", "WM/9/09/26", "2026-09-20", 0.0,
+               seria="WM", zakres="calosc", seq=9)
+    _priced_wz("wz9", "ord9", "c1", "WZ/9/09/26", "2026-09-20", 16160.0,
+               seria="WZ", zakres="wz_klienta", seq=10)
+
+    assert rozliczenie_dostawy("ord9", {})["saldo_przed"] == 0.0
+
+
+# ─── I5: bez salda otwarcia NIE drukujemy zaległości ────────────────────
+
+def test_bez_salda_otwarcia_kartka_ODMAWIA(db):
+    """Brak odcięcia przepuszcza CAŁĄ historię, więc linia „Zadłużenie
+    z poprzednich dostaw" pokazałaby sumę wszystkich WZ tego klienta —
+    dokładnie te „177 dokumentów doliczonych na wierzchu", przed czym broni
+    cała specyfikacja, tyle że na papierze jadącym do kontrahenta.
+
+    Lepiej odmówić wydruku niż wydrukować kwotę, której nikt nie obroni."""
+    import pytest
+    from fastapi import HTTPException
+    from app.services.rozrachunki_service import rozliczenie_dostawy
+    execute("INSERT INTO clients (id, code, name, settlement_enabled) "
+            "VALUES ('c1','C1','TRUVA',true)")          # BEZ salda otwarcia
+    execute("INSERT INTO client_orders (id, order_no, client_id, client_name) "
+            "VALUES ('ord9','ZAM/9','c1','TRUVA')")
+    _priced_wz("wm9", "ord9", "c1", "WM/9/09/26", "2026-09-20", 1000.0,
+               seria="WM", zakres="calosc", seq=9)
+
+    with pytest.raises(HTTPException) as e:
+        rozliczenie_dostawy("ord9", {})
+    assert e.value.status_code == 400
+    assert "saldo otwarcia" in str(e.value.detail).lower()
+
+
+def test_bez_salda_otwarcia_blok_na_dokumencie_ODMAWIA(db):
+    import pytest
+    from fastapi import HTTPException
+    execute("INSERT INTO clients (id, code, name, settlement_enabled) "
+            "VALUES ('c1','C1','TRUVA',true)")
+    _wz("w1", "c1", "WZ/1/09/26", "2026-09-10", 1000.0)
+
+    with pytest.raises(HTTPException) as e:
+        saldo_na_dokument("c1", "w1")
+    assert e.value.status_code == 400

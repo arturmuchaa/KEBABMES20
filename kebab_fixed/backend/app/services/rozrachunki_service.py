@@ -125,7 +125,20 @@ def karta_klienta(client_id: str, na_dzien: Optional[date] = None) -> Dict[str, 
     if podstawa != "wz":
         zrodla += _obciazenia_wpisane(client_id)
 
-    obciazenia = po_odcieciu(zrodla, odciecie, "doc_date")
+    # WALUTA MUSI SIĘ ZGADZAĆ Z KARTOTEKĄ.
+    #
+    # `policz_saldo` sumuje same kwoty — waluty nie czyta. Dokument wyceniony
+    # w euro u klienta rozliczanego w złotówkach dawał dług „−10 000 zł"
+    # zamiast ~−42 700 zł: liczba wyglądała sensownie i nic nie ostrzegało
+    # (recenzja 24.09.2026).
+    #
+    # Odpadające dokumenty ZGŁASZAMY, a nie przemilczamy — ciche pominięcie
+    # byłoby drugim błędem, bo należność znikałaby bez śladu.
+    waluta_klienta = klient["settlement_currency"]
+    zgodne = [z for z in zrodla if (z.get("currency") or waluta_klienta) == waluta_klienta]
+    inna_waluta = len(zrodla) - len(zgodne)
+
+    obciazenia = po_odcieciu(zgodne, odciecie, "doc_date")
     for o in obciazenia:
         o["termin"] = termin_platnosci(o["doc_date"], o["kind"], TERMINY_DOMYSLNE)
         o["dni_po_terminie"] = dni_po_terminie(o["termin"], dzien)
@@ -147,6 +160,7 @@ def karta_klienta(client_id: str, na_dzien: Optional[date] = None) -> Dict[str, 
         "obciazenia": obciazenia,
         "wplaty": wplaty,
         "saldo": policz_saldo(otwarcie, obciazenia, wplaty),
+        "ostrzezenia": {"inna_waluta": inna_waluta},
         "na_dzien": dzien,
     }
 
@@ -245,6 +259,26 @@ def usun_pozycje(kind: str, entry_id: str) -> Dict[str, Any]:
     return {"ok": True}
 
 
+def _wymagaj_salda_otwarcia(karta: Dict[str, Any]) -> None:
+    """Papier dla KLIENTA bez salda otwarcia byłby nieprawdziwy.
+
+    Brak odcięcia przepuszcza całą historię, więc linia „Zadłużenie
+    z poprzednich dostaw" pokazałaby sumę wszystkich WZ tego kontrahenta —
+    dokładnie te „177 dokumentów doliczonych na wierzchu", przed czym broni
+    cała specyfikacja, tyle że wydrukowane i wręczone klientowi
+    (recenzja 24.09.2026).
+
+    Na WEWNĘTRZNEJ karcie brak salda jest tylko oznaczony żółtym napisem —
+    tam biuro widzi kontekst. Na papierze wychodzącym z firmy odmawiamy.
+    """
+    if not karta["saldo"]["skonfigurowane"]:
+        raise HTTPException(
+            400,
+            f"{karta['client']['name']}: nie ma wpisanego salda otwarcia. "
+            "Bez niego wydruk pokazałby całą historię jako zaległość. "
+            "Wpisz saldo otwarcia w Rozrachunkach i spróbuj ponownie.")
+
+
 def saldo_na_dokument(client_id: str, wz_id: str) -> Dict[str, Any]:
     """Blok „niezapłacone" drukowany NA dokumencie wydania.
 
@@ -265,6 +299,7 @@ def saldo_na_dokument(client_id: str, wz_id: str) -> Dict[str, Any]:
     równe — papier pokazuje same zaległości.
     """
     karta = karta_klienta(client_id)
+    _wymagaj_salda_otwarcia(karta)
     biezacy = next(
         (o for o in karta["obciazenia"] if o.get("source_id") == wz_id), None)
     pozostale = [o for o in karta["obciazenia"] if o.get("source_id") != wz_id]
@@ -309,8 +344,31 @@ def rozliczenie_dostawy(order_id: str, ceny: Dict[str, float]) -> Dict[str, Any]
         raise HTTPException(400, "Zamówienie nie ma jeszcze dokumentu wydania")
 
     karta = karta_klienta(zam["client_id"])
+    _wymagaj_salda_otwarcia(karta)
+
+    # SALDO PRZED = bez dokumentów TEJ dostawy.
+    #
+    # Bieżące saldo karty zawiera już WZ wystawiony z tego zamówienia, więc
+    # wzięcie go wprost liczyło dostawę DWA RAZY: raz w linii „Zadłużenie
+    # z poprzednich dostaw", drugi raz w sumie za dostawę. Rozjazd był równy
+    # wartości dostawy, którą klient trzyma w ręku (recenzja 24.09.2026).
+    #
+    # ⚠️ OGRANICZENIE: faktura wpisana ręcznie nie ma powiązania z zamówieniem
+    # (`client_charges.source_id` jest dla niej puste), więc gdyby biuro
+    # wpisało ją PRZED wydrukiem kartki, wejdzie do zaległości. W praktyce
+    # kartkę drukuje się przy dostawie, a fakturę wpisuje później. Domknie to
+    # dopiero integracja z Subiektem, która da fakturze `source_id`.
+    moje_dokumenty = {
+        r["id"] for r in query_all(
+            "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s",
+            (order_id,))
+    }
+    wczesniejsze = [o for o in karta["obciazenia"]
+                    if o.get("source_id") not in moje_dokumenty]
+    saldo_przed = policz_saldo(karta["otwarcie"], wczesniejsze, karta["wplaty"])["saldo"]
+
     wynik = podsumowanie_dostawy(doc["lines"] or [], ceny or {},
-                                 saldo_przed=karta["saldo"]["saldo"])
+                                 saldo_przed=saldo_przed)
     wynik.update({
         "klient": karta["client"],
         "waluta": karta["waluta"],
