@@ -250,6 +250,39 @@ Skoro papier jedzie do tureckiego odbiorcy, podpisy mogą być DWUJĘZYCZNE:
 w kodzie już jest — `hdi_documents.language`. Decyzja przy wykonaniu
 wydruku; domyślnie polskie, turecki jako opcja per kontrahent.
 
+### ⚠️ Kartka opisuje CAŁĄ DOSTAWĘ, nie dokument WZ
+
+Właściciel 24.09.2026: *„zobacz dzisiejszą dostawę do TRUVY towaru 8250 kg,
+a on chce 3200 kg faktura i ja mu fakturę 3200, ale kartkę mu robię na
+całość."*
+
+Liczby z kartki potwierdzają to co do kilograma:
+
+```
+kartka:  3250 + 3200 + 1800 = 8250 kg   ← cała dostawa
+faktura:                      3200 kg
+reszta:  8250 − 3200 =        5050 kg   ← WZ dla klienta
+```
+
+**Dwa wnioski, oba korygują wcześniejsze założenia tej specyfikacji:**
+
+1. **TRUVA to przypadek Z PODZIAŁEM.** Faktura obciąża 3200 kg, WZ obciąża
+   5050 kg — różne części tej samej dostawy, więc `settlement_basis='both'`
+   jest dla niej POPRAWNE i nic się nie dubluje. Ustawienie `'wz'` zgubiłoby
+   fakturę z salda. (Ustawienie zostaje — dane pokazują u innych inne
+   wzorce — ale TRUVA nie jest jego przypadkiem użycia.)
+
+2. **Kartka NIE jest wydrukiem dokumentu WZ.** WZ opisuje 5050 kg, a kartka
+   8250 kg. Jej źródłem jest **cała dostawa (zamówienie/kurs)**, nie
+   pojedynczy dokument. To osobny wydruk: „rozliczenie dostawy".
+
+Stąd dwa różne wydruki, których nie wolno mylić:
+
+| wydruk | zakres | po co |
+|---|---|---|
+| saldo na WZ/fakturze | ten dokument + zaległości | podpinane do dokumentu |
+| **rozliczenie dostawy** | **CAŁA dostawa** + zaległości | kartka dla TRUVY |
+
 ### Zestawienie dla klienta
 
 Osobny wydruk: nagłówek z danymi kontrahenta, tabela niezapłaconych WZ
