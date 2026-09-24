@@ -64,3 +64,19 @@ def wplata(client_id: str, body: Dict[str, Any]):
 @router.delete("/pozycja/{kind}/{entry_id}")
 def usun(kind: str, entry_id: str):
     return svc.usun_pozycje(kind, entry_id)
+
+
+@router.get("/{client_id}/na-dokumencie/{wz_id}")
+def na_dokumencie(client_id: str, wz_id: str):
+    """Blok „niezapłacone" drukowany na dokumencie wydania."""
+    return svc.saldo_na_dokument(client_id, wz_id)
+
+
+@router.post("/dostawa/{order_id}")
+def dostawa(order_id: str, body: Dict[str, Any]):
+    """Rozliczenie CAŁEJ dostawy — kartka dla klienta.
+
+    Ceny za kilogram przychodzą per GRUPA (`{"KIRMIZI": 3.20, ...}`), bo tak
+    je wypisuje biuro: na oryginale 3,20 / 3,40 / 3,20 na jednej dostawie.
+    """
+    return svc.rozliczenie_dostawy(order_id, body.get("ceny") or {})

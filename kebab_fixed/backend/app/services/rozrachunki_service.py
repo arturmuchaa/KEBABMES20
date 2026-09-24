@@ -9,7 +9,7 @@ przez biuro (numer MES zna z formularza CMR). WM nie obciąża NIGDY — to
 ruch magazynowy, a nie należność; gdyby obciążał, ten sam towar liczyłby
 się dwa razy: raz jako wydanie, raz jako faktura.
 """
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -17,6 +17,7 @@ from fastapi import HTTPException
 from app.db import execute, query_all, query_one
 from app.logging_config import get_logger
 from app.utils.ids import cuid
+from app.services.rozliczenie_dostawy import podsumowanie_dostawy
 from app.services.rozrachunki_saldo import (TERMINY_DOMYSLNE, dni_po_terminie,
                                             po_odcieciu, policz_saldo,
                                             termin_platnosci)
@@ -242,3 +243,80 @@ def usun_pozycje(kind: str, entry_id: str) -> Dict[str, Any]:
     execute(f"DELETE FROM {tabela} WHERE id=%s", (entry_id,))
     logger.info("rozrachunki.usunieto", extra={"rodzaj": kind, "pozycja_id": entry_id})
     return {"ok": True}
+
+
+def saldo_na_dokument(client_id: str, wz_id: str) -> Dict[str, Any]:
+    """Blok „niezapłacone" drukowany NA dokumencie wydania.
+
+    Właściciel 24.09.2026: „do każdej WZ i do faktury drukowało się saldo
+    niezapłaconych FV lub WZ; będę podpinał klientowi do dokumentów".
+
+    SALDO JEST Z CHWILI WYDRUKU, nie z chwili wystawienia — dlatego nie
+    zapisujemy go w treści dokumentu, tylko liczymy przy renderowaniu
+    i drukujemy obok datę z godziną. Bez tej daty dwa wydruki tego samego
+    WZ pokazują różne kwoty i nikt nie wie, który jest aktualny.
+
+    DOKUMENT BIEŻĄCY NIE LICZY SIĘ SAM DO SIEBIE jako zaległość — klient
+    dostawałby WZ i widział je w „niezapłaconych" tego samego papieru.
+    Pokazujemy go osobno, a saldo w dwóch liczbach: przed i po nim.
+
+    Dokument spoza rozrachunków (sprzed odcięcia albo niewyceniony) nie
+    wywraca bloku: `dokument_biezacy` jest wtedy `None`, a oba salda są
+    równe — papier pokazuje same zaległości.
+    """
+    karta = karta_klienta(client_id)
+    biezacy = next(
+        (o for o in karta["obciazenia"] if o.get("source_id") == wz_id), None)
+    pozostale = [o for o in karta["obciazenia"] if o.get("source_id") != wz_id]
+
+    saldo_przed = policz_saldo(karta["otwarcie"], pozostale, karta["wplaty"])["saldo"]
+    kwota_biezaca = float(biezacy["amount"]) if biezacy else 0.0
+    return {
+        "waluta": karta["waluta"],
+        "klient": karta["client"],
+        "pozycje": pozostale,
+        "dokument_biezacy": biezacy,
+        "saldo_przed": saldo_przed,
+        "saldo_po": round(saldo_przed + kwota_biezaca, 2),
+        "policzono": datetime.now().isoformat(timespec="minutes"),
+    }
+
+
+def rozliczenie_dostawy(order_id: str, ceny: Dict[str, float]) -> Dict[str, Any]:
+    """Kartka dla klienta: CAŁA dostawa plus zaległość z poprzednich.
+
+    Źródłem jest dokument NA CAŁOŚĆ (seria WM, `split_scope='calosc'`), bo
+    kartka opisuje całą dostawę — także część, która poszła na fakturę.
+    Wydruk WZ klienta pokazywałby mniej towaru, niż klient dostał: przy
+    TRUVIE 5050 kg zamiast 8250 (właściciel, 24.09.2026).
+
+    Gdy dokumentu na całość nie ma (zamówienie bez podziału sprzed
+    24.09.2026), bierzemy jedyny dokument zamówienia — wtedy i tak opisuje
+    on całość.
+    """
+    zam = query_one(
+        "SELECT id, client_id, order_no FROM client_orders WHERE id=%s", (order_id,))
+    if not zam:
+        raise HTTPException(404, "Zamówienie nie znalezione")
+
+    doc = query_one(
+        "SELECT number, lines, issued_date FROM wz_documents "
+        "WHERE source_type='order' AND source_id=%s "
+        "  AND COALESCE(status,'')<>'anulowany' "
+        "ORDER BY (COALESCE(split_scope,'') = 'calosc') DESC, created_at LIMIT 1",
+        (order_id,))
+    if not doc:
+        raise HTTPException(400, "Zamówienie nie ma jeszcze dokumentu wydania")
+
+    karta = karta_klienta(zam["client_id"])
+    wynik = podsumowanie_dostawy(doc["lines"] or [], ceny or {},
+                                 saldo_przed=karta["saldo"]["saldo"])
+    wynik.update({
+        "klient": karta["client"],
+        "waluta": karta["waluta"],
+        "order_no": zam["order_no"],
+        "dokument": doc["number"],
+        "data_dostawy": doc["issued_date"],
+        "policzono": datetime.now().isoformat(timespec="minutes"),
+    })
+    return wynik
