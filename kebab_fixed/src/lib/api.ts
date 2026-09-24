@@ -1269,9 +1269,13 @@ export const clientsApi = {
   delete:     (id: string) => del<{ ok: boolean }>(`/clients/${id}`),
   /** Rozrachunki: włącznik i waluta rozliczeniowa. Przy niezerowym saldzie
    *  backend odmawia zmiany waluty — kwot nie przelicza. */
-  ustawRozliczenie: (id: string, enabled: boolean, currency: string) =>
+  ustawRozliczenie: (id: string, enabled: boolean, currency: string, basis?: string) =>
     put<{ clientId: string; enabled: boolean; currency: string }>(
-      `/clients/${id}/rozliczenie`, { enabled, currency }),
+      // `basis` pomijane, gdy niepodane — trasa go wtedy NIE RUSZA.
+      // Wysyłanie domyślnego 'both' kasowało ustawienie zrobione świadomie
+      // dla konkretnego kontrahenta (recenzja 24.09.2026).
+      `/clients/${id}/rozliczenie`,
+      basis ? { enabled, currency, basis } : { enabled, currency }),
 }
 
 /** Grupy odbiorców — kilka spółek jednego kontrahenta ze WSPÓLNĄ pulą wyrobu.
@@ -2821,6 +2825,9 @@ export interface RozrachunkiKarta {
     otwarcie: number; obciazenia: number; wplaty: number
     saldo: number; skonfigurowane: boolean
   }
+  /** Dokumenty odrzucone z salda — dziś: niezgodna waluta. */
+  ostrzezenia?: { inna_waluta: number }
+  podstawa?: string
   na_dzien: string
 }
 export interface RozrachunkiWiersz {

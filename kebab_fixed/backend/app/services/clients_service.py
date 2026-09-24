@@ -1,5 +1,5 @@
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
@@ -172,7 +172,7 @@ _WALUTY_ROZLICZEN = ("PLN", "EUR")
 
 
 def ustaw_rozliczenie(client_id: str, enabled: bool, currency: str,
-                      basis: str = "both") -> Dict[str, Any]:
+                      basis: Optional[str] = None) -> Dict[str, Any]:
     """Włącznik rozrachunków i waluta rozliczeniowa kontrahenta.
 
     Waluta jest PER KLIENT (decyzja właściciela 24.09.2026: „w zależności od
@@ -209,13 +209,23 @@ def ustaw_rozliczenie(client_id: str, enabled: bool, currency: str,
                 "kwot. Rozlicz saldo do zera albo popraw dokumenty, potem "
                 "zmień walutę.")
 
-    podstawa = (basis or "both").lower()
-    if podstawa not in ("both", "wz", "invoice"):
+    # `basis=None` znaczy „nie ruszaj", a nie „ustaw domyślne".
+    #
+    # Trasa ma semantykę PUT-a, a klient API wysyłał tylko `{enabled,
+    # currency}` — każde użycie resetowało wtedy `settlement_basis` do
+    # 'both' i kasowało ustawienie zrobione świadomie dla konkretnego
+    # kontrahenta (recenzja 24.09.2026).
+    podstawa = None if basis is None else str(basis).lower()
+    if podstawa is not None and podstawa not in ("both", "wz", "invoice"):
         raise HTTPException(400, f"Nieznana podstawa rozliczenia: {basis}")
 
-    execute("UPDATE clients SET settlement_enabled=%s, settlement_currency=%s, "
-            "settlement_basis=%s WHERE id=%s",
-            (bool(enabled), waluta, podstawa, client_id))
+    if podstawa is None:
+        execute("UPDATE clients SET settlement_enabled=%s, settlement_currency=%s "
+                "WHERE id=%s", (bool(enabled), waluta, client_id))
+    else:
+        execute("UPDATE clients SET settlement_enabled=%s, settlement_currency=%s, "
+                "settlement_basis=%s WHERE id=%s",
+                (bool(enabled), waluta, podstawa, client_id))
     logger.info("client.settlement.set",
                 extra={"client_id": client_id, "waluta": waluta, "podstawa": podstawa})
     return {"clientId": client_id, "enabled": bool(enabled), "currency": waluta,

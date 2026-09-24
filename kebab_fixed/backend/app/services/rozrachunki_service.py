@@ -189,12 +189,22 @@ def _waluta_klienta(client_id: str) -> str:
 
 
 def ustaw_otwarcie(client_id: str, amount: float, as_of_date,
-                   note: str = "") -> Dict[str, Any]:
+                   note: str = "", nadplata: bool = False) -> Dict[str, Any]:
     """Saldo otwarcia — jednorazowe ODCIĘCIE przepisywane z arkusza.
 
     Właściciel 24.09.2026: „historycznie nie patrz — ja zrobię saldo na dany
     dzień i już będziemy szli od nowa na nowym systemie".
     """
+    # ZNAK NAKŁADA SERWIS — tak samo jak przy fakturach i wpłatach.
+    #
+    # Saldo otwarcia to JEDYNA kwota przepisywana ręcznie z arkusza, więc
+    # akurat tu zasada modułu była najpotrzebniejsza, a jej brakowało
+    # (recenzja 24.09.2026). Biuro przepisuje z kolumny `SALDO W €` liczbę
+    # 15649 i ma dostać DŁUG 15 649 €; wpisanie „-15649" daje to samo.
+    # Nadpłata (zaliczka) zdarza się rzadko, więc jest osobną, świadomą
+    # decyzją, a nie skutkiem wpisania liczby bez minusa — pomyłka w znaku
+    # dawałaby rozjazd podwójnej wysokości salda.
+    kwota = abs(float(amount)) if nadplata else -abs(float(amount))
     waluta = _waluta_klienta(client_id)
     execute(
         "INSERT INTO client_opening_balances (client_id, amount, currency, as_of_date, note) "
@@ -202,9 +212,9 @@ def ustaw_otwarcie(client_id: str, amount: float, as_of_date,
         "ON CONFLICT (client_id) DO UPDATE SET amount=EXCLUDED.amount, "
         "  currency=EXCLUDED.currency, as_of_date=EXCLUDED.as_of_date, "
         "  note=EXCLUDED.note",
-        (client_id, float(amount), waluta, as_of_date, note or ""))
+        (client_id, kwota, waluta, as_of_date, note or ""))
     logger.info("rozrachunki.otwarcie", extra={"client_id": client_id})
-    return {"clientId": client_id, "amount": float(amount), "currency": waluta}
+    return {"clientId": client_id, "amount": kwota, "currency": waluta}
 
 
 def dodaj_fakture(client_id: str, number: str, doc_date, amount: float,
@@ -334,14 +344,29 @@ def rozliczenie_dostawy(order_id: str, ceny: Dict[str, float]) -> Dict[str, Any]
     if not zam:
         raise HTTPException(404, "Zamówienie nie znalezione")
 
+    # DOKUMENT NA CAŁOŚĆ, nie „pierwszy z brzegu".
+    #
+    # Sortowanie po `created_at` bez filtra serii brało WZ klienta, gdy WM
+    # powstał później (np. po korekcie) — kartka opisywałaby wtedy 5050 kg
+    # zamiast 8250, czyli mniej towaru, niż klient dostał (recenzja
+    # 24.09.2026).
+    #
+    # Zamówienia sprzed 24.09.2026 mają jeden zwykły WZ bez `split_scope`
+    # i on też opisuje całość — dlatego dopuszczamy go jawnie, zamiast
+    # wymagać serii WM.
     doc = query_one(
         "SELECT number, lines, issued_date FROM wz_documents "
         "WHERE source_type='order' AND source_id=%s "
         "  AND COALESCE(status,'')<>'anulowany' "
+        "  AND (COALESCE(split_scope,'') = 'calosc' OR split_scope IS NULL) "
         "ORDER BY (COALESCE(split_scope,'') = 'calosc') DESC, created_at LIMIT 1",
         (order_id,))
     if not doc:
-        raise HTTPException(400, "Zamówienie nie ma jeszcze dokumentu wydania")
+        raise HTTPException(
+            400,
+            "To zamówienie nie ma dokumentu na CAŁOŚĆ dostawy — kartka "
+            "opisywałaby tylko część towaru. Wystaw komplet dokumentów "
+            "i spróbuj ponownie.")
 
     karta = karta_klienta(zam["client_id"])
     _wymagaj_salda_otwarcia(karta)

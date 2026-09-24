@@ -19,6 +19,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { RefreshCw, Wallet } from 'lucide-react'
 import { KartaRozrachunkow } from '@/features/rozrachunki/KartaRozrachunkow'
+import { UstawieniaRozliczenia } from '@/features/rozrachunki/UstawieniaRozliczenia'
 import { fmtSaldo, stanSalda, sumaZaleglosci } from '@/features/rozrachunki/rozrachunkiView'
 
 const KOLOR: Record<string, string> = {
@@ -28,7 +29,7 @@ const KOLOR: Record<string, string> = {
 }
 
 export function RozrachunkiPage() {
-  const { data, loading } = useApi(() => rozrachunkiApi.lista())
+  const { data, loading, refetch } = useApi(() => rozrachunkiApi.lista())
   const [kursStr, setKursStr] = useState('')
   const [wybrany, setWybrany] = useState<string | null>(null)
   const [pobiera, setPobiera] = useState(false)
@@ -83,15 +84,15 @@ export function RozrachunkiPage() {
         )}
       </Card>
 
+      <UstawieniaRozliczenia onZmiana={() => refetch()} />
+
       {loading ? (
         <div className="space-y-2">{[0, 1, 2].map(i => <Skeleton key={i} className="h-9 w-full" />)}</div>
       ) : wiersze.length === 0 ? (
         <Card className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
           <Wallet size={32} className="opacity-20" />
           <div className="text-sm font-medium">Nikt nie ma włączonego rozliczenia</div>
-          <div className="text-xs">
-            Włącz je w kartotece kontrahenta — „Rozliczenie w systemie".
-          </div>
+          <div className="text-xs">Dodaj kontrahenta formularzem powyżej.</div>
         </Card>
       ) : (
         <Card className="divide-y">

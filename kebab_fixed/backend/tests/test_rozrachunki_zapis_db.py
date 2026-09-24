@@ -128,3 +128,39 @@ def test_usuniecie_nieznanego_rodzaju_odmawia(db):
     with pytest.raises(HTTPException) as e:
         usun_pozycje("wz", "cokolwiek")
     assert e.value.status_code == 400
+
+
+# ─── I11 z recenzji: znak salda otwarcia ────────────────────────────────
+#
+# Kodeks modułu, powtórzony w trzech docstringach: „ZNAK NAKŁADA SERWIS —
+# gdyby znak wpisywał człowiek, prędzej czy później ktoś wpisałby go
+# odwrotnie". Przy saldzie otwarcia — JEDYNEJ kwocie przepisywanej ręcznie
+# z arkusza — zasada nie była zastosowana.
+
+def test_saldo_otwarcia_domyslnie_jest_DLUGIEM(db):
+    """Biuro przepisuje z kolumny `SALDO W €` wartość 15649 i ma dostać dług
+    15 649 €, a nie nadpłatę. Wpisanie „-15649" ma dać to samo — znak
+    nakłada serwis, tak jak przy fakturach i wpłatach."""
+    _klient()
+
+    ustaw_otwarcie("c1", 15649.0, date(2026, 9, 1))
+
+    assert karta_klienta("c1")["saldo"]["saldo"] == -15649.0
+
+
+def test_wpisanie_ze_znakiem_daje_TO_SAMO(db):
+    _klient()
+
+    ustaw_otwarcie("c1", -15649.0, date(2026, 9, 1))
+
+    assert karta_klienta("c1")["saldo"]["saldo"] == -15649.0
+
+
+def test_NADPLATE_trzeba_zaznaczyc_swiadomie(db):
+    """Zaliczka zdarza się rzadko, więc jest osobną decyzją, a nie skutkiem
+    wpisania liczby bez minusa."""
+    _klient()
+
+    ustaw_otwarcie("c1", 5000.0, date(2026, 9, 1), nadplata=True)
+
+    assert karta_klienta("c1")["saldo"]["saldo"] == 5000.0

@@ -37,4 +37,4 @@ def ustaw_rozliczenie(client_id: str, body: dict):
     """
     return svc.ustaw_rozliczenie(
         client_id, bool(body.get("enabled")), body.get("currency") or "PLN",
-        body.get("basis") or "both")
+        body.get("basis"))   # brak pola = nie ruszaj podstawy

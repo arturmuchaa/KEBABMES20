@@ -61,3 +61,27 @@ def test_nieznana_waluta_odmawia(db):
     with pytest.raises(HTTPException) as e:
         clients_service.ustaw_rozliczenie("c1", enabled=True, currency="USD")
     assert e.value.status_code == 400
+
+
+# ─── I7 z recenzji: PUT nie moze kasowac pol, ktorych nie wyslano ───────
+
+def test_zmiana_waluty_NIE_kasuje_podstawy_rozliczenia(db):
+    """Trasa ma semantykę PUT-a, a klient API wysyłał tylko `{enabled,
+    currency}`. Każde użycie resetowało `settlement_basis` do 'both',
+    kasując ustawienie zrobione dla konkretnego kontrahenta."""
+    execute("INSERT INTO clients (id, code, name, settlement_basis) "
+            "VALUES ('c1','C1','TRUVA','wz')")
+
+    clients_service.ustaw_rozliczenie("c1", enabled=True, currency="EUR")
+
+    assert query_one("SELECT settlement_basis FROM clients WHERE id='c1'"
+                     )["settlement_basis"] == "wz"
+
+
+def test_podstawe_da_sie_zmienic_swiadomie(db):
+    execute("INSERT INTO clients (id, code, name) VALUES ('c1','C1','TRUVA')")
+
+    clients_service.ustaw_rozliczenie("c1", enabled=True, currency="PLN", basis="wz")
+
+    assert query_one("SELECT settlement_basis FROM clients WHERE id='c1'"
+                     )["settlement_basis"] == "wz"

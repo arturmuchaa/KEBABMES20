@@ -182,3 +182,40 @@ def test_bez_salda_otwarcia_blok_na_dokumencie_ODMAWIA(db):
     with pytest.raises(HTTPException) as e:
         saldo_na_dokument("c1", "w1")
     assert e.value.status_code == 400
+
+
+# ─── I8 z recenzji: kartka MUSI brać dokument na całość ─────────────────
+
+def test_kartka_bierze_dokument_NA_CALOSC_a_nie_WZ_klienta(db):
+    """Zapytanie sortowało po `created_at` bez filtra serii. Gdy WM powstał
+    PÓŹNIEJ niż WZ klienta (np. po korekcie), kartka opisywała 5050 kg
+    zamiast 8250 — czyli mniej towaru, niż klient dostał."""
+    from app.services.rozrachunki_service import rozliczenie_dostawy
+    _klient()
+    execute("INSERT INTO client_orders (id, order_no, client_id, client_name) "
+            "VALUES ('ord9','ZAM/9','c1','TRUVA')")
+    # WZ klienta powstaje PIERWSZY, WM po nim.
+    _priced_wz("wz9", "ord9", "c1", "WZ/9/09/26", "2026-09-20", 16160.0,
+               seria="WZ", zakres="wz_klienta", seq=10)
+    _priced_wz("wm9", "ord9", "c1", "WM/9/09/26", "2026-09-20", 0.0,
+               seria="WM", zakres="calosc", seq=9)
+
+    assert rozliczenie_dostawy("ord9", {})["dokument"] == "WM/9/09/26"
+
+
+def test_brak_dokumentu_na_calosc_ODMAWIA_zamiast_zgadywac(db):
+    """Lepiej powiedzieć „nie ma z czego", niż wydrukować kartkę opisującą
+    część dostawy — klient porówna ją z towarem i wyjdzie niezgodność."""
+    import pytest
+    from fastapi import HTTPException
+    from app.services.rozrachunki_service import rozliczenie_dostawy
+    _klient()
+    execute("INSERT INTO client_orders (id, order_no, client_id, client_name) "
+            "VALUES ('ord9','ZAM/9','c1','TRUVA')")
+    _priced_wz("wz9", "ord9", "c1", "WZ/9/09/26", "2026-09-20", 16160.0,
+               seria="WZ", zakres="wz_klienta", seq=10)
+
+    with pytest.raises(HTTPException) as e:
+        rozliczenie_dostawy("ord9", {})
+    assert e.value.status_code == 400
+    assert "całość" in str(e.value.detail).lower()
