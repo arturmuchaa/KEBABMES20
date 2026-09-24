@@ -206,6 +206,46 @@ klient dostaje WZ i widzi je w „niezapłaconych" tego samego papieru. Pozycja
 bieżąca pokazuje się osobno („ten dokument"), a saldo ma dwie liczby: przed
 i po tym dokumencie.
 
+### Wzorzec z ręki: rozliczenie dostawy dla TRUVY
+
+Właściciel przysłał 24.09.2026 zdjęcie kartki, którą dziś wypisuje TRUVIE
+długopisem, z prośbą „chciałbym coś bardziej profesjonalnego". Rachunki na
+niej zgadzają się co do euro, więc to gotowa specyfikacja układu:
+
+```
+TRUVA
+KIRMIZI         30×25kg=750 + 80×20kg=1600 + 60×15kg=900 = 3250 kg × 3,20 € = 10 400 €
+KIRMIZI/FILET   30×30kg=900 + 60×25kg=1500 + 40×20kg=800 = 3200 kg × 3,40 € = 10 880 €
+BEYAZ           60×30kg=1800                             = 1800 kg × 3,20 € =  5 760 €
+                                                         za dostawę          27 040 €
+                                           + BOŁGAR                          37 000 €
+                                                         RAZEM               64 040 €
+```
+
+Czego to uczy o dokumencie:
+
+| element kartki | skąd w MES |
+|---|---|
+| grupy po RODZAJU/RECEPTURZE | pozycje dokumentu (ta sama para co przy scalaniu WZ) |
+| linia `30 × 25 kg = 750 kg` | `qty × kg_per_unit`, obie liczby WIDOCZNE |
+| podsuma kg grupy × cena za kg | `total_kg` × cena z wyceny |
+| **za dostawę** | suma grup |
+| **zadłużenie z poprzednich dostaw** | `saldo_przed` |
+| **RAZEM** | `saldo_po` |
+
+Dwie rzeczy, które ta kartka rozstrzyga, a których sama specyfikacja nie
+mówiła:
+
+1. **Cena jest PER GRUPA, nie jedna na dokument** (3,20 / 3,40 / 3,20).
+2. **Liczba sztuk i gramatura muszą zostać widoczne** — klient sprawdza
+   dostawę po pojemnikach, nie po kilogramach. Scalona linia „3250 kg"
+   bez rozbicia byłaby krokiem wstecz wobec kartki.
+
+⚠️ NIEROZSTRZYGNIĘTE: czym jest linia `BOŁGAR: 37 000 €`. Z opisu
+właściciela („zadłużenie z poprzednich dostaw") wychodzi saldo przed
+dokumentem, ale to może być też nazwana pozycja dopisywana ręcznie.
+Do potwierdzenia przed wykonaniem wydruku.
+
 ### Zestawienie dla klienta
 
 Osobny wydruk: nagłówek z danymi kontrahenta, tabela niezapłaconych WZ
