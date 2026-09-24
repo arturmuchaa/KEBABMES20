@@ -118,6 +118,29 @@ Dwa rodzaje:
 ⚠️ Faktura niepowiązana z zamówieniem też musi dać się dopisać ręcznie —
 w Excelu takie są (`niezarejestrowany`, `faktura zwykła (FS)`).
 
+### Terminy płatności
+
+Właściciel 24.09.2026: *„termin FV 14 dni od daty wydania, a WZ wymagany
+przy odbiorze, czyli +1 dzień, bo wyjeżdża do klientów zawsze dzień
+wcześniej."*
+
+| rodzaj | termin | liczony od |
+|---|---|---|
+| faktura | **+14 dni** | daty dostawy |
+| WZ | **+1 dzień** | daty dostawy |
+
+**Liczymy od daty DOSTAWY, nie od daty wystawienia dokumentu.** Potwierdza
+to ich własny arkusz: kolumna faktur ma nagłówek `DATA DOSTAWY`, nie „data
+wystawienia". Towar wyjeżdża dzień wcześniej, więc dla WZ „przy odbiorze"
+znaczy dzień po dacie dokumentu — stąd `+1`, a nie `0`.
+
+Terminy są **ustawieniem** (domyślnie 14 i 1), nie liczbą zaszytą w kodzie:
+zmiana umowy z odbiorcą nie może wymagać wydania nowej wersji. Osobnych
+terminów per kontrahent nie robimy, dopóki nikt o nie nie poprosi.
+
+`dni_po_terminie` na zestawieniu liczy się względem **dnia wydruku**,
+tak samo jak samo saldo.
+
 ### 4. Wpłaty (`client_payments`)
 
 `id` · `client_id` · `paid_date` · `amount` · `currency` · `note`
