@@ -2840,6 +2840,13 @@ export const rozrachunkiApi = {
     post<any>(`/rozrachunki/${id}/wplata`, dto),
   usunPozycje: (kind: string, entryId: string) =>
     del<{ ok: boolean }>(`/rozrachunki/pozycja/${kind}/${entryId}`),
+  /** Blok „niezapłacone" drukowany NA dokumencie wydania. */
+  naDokumencie: (clientId: string, wzId: string) =>
+    get<any>(`/rozrachunki/${clientId}/na-dokumencie/${wzId}`),
+  /** Rozliczenie CAŁEJ dostawy — kartka dla klienta. Ceny za kilogram
+   *  przychodzą per GRUPA, bo tak wypisuje je biuro. */
+  dostawa: (orderId: string, ceny: Record<string, number>) =>
+    post<any>(`/rozrachunki/dostawa/${orderId}`, { ceny }),
 }
 
 export const wzApi = {
