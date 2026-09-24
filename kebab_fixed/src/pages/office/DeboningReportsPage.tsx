@@ -6,7 +6,7 @@
  * ranking pracowników (kto najwięcej, kto najlepszy %) i live-feed (gdy dziś).
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { deboningApi, type DeboningStats, type DeboningStatsWorker } from '@/lib/api'
+import { deboningApi, fxApi, type DeboningStats, type DeboningStatsWorker } from '@/lib/api'
 import { ChangeBatchDialog, DeleteEntryDialog, EntryCorrectionDialog } from '@/features/deboning/EntryFixDialogs'
 import { DeboningWeighingsLog } from '@/features/deboning/DeboningWeighingsLog'
 import { YieldOverridesLog } from '@/features/deboning/YieldOverridesLog'
@@ -182,9 +182,8 @@ export function DeboningReportsPage() {
   // Ten sam wzorzec co WZ/faktury; brak kursu = po prostu bez linijki euro.
   const [eurRate, setEurRate] = useState<number | null>(null)
   useEffect(() => {
-    fetch('https://api.nbp.pl/api/exchangerates/rates/a/eur/?format=json')
-      .then(r => r.json())
-      .then(j => { const m = Number(j?.rates?.[0]?.mid); if (m > 0) setEurRate(m) })
+    fxApi.eurRate()
+      .then(d => { const m = Number(d?.rate); if (m > 0) setEurRate(m) })
       .catch(() => setEurRate(null))
   }, [])
 

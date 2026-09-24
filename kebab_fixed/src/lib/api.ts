@@ -2778,6 +2778,20 @@ export interface QuantityChain {
   lines: QuantityChainLine[]
 }
 
+/** Kurs EUR z NBP — PRZEZ MES, nie prosto z przeglądarki.
+ *
+ *  Trzy ekrany woływały `api.nbp.pl` własnym `fetch`-em, więc powodzenie
+ *  zależało od sieci i CSP komputera w biurze, a nie od serwera. Stąd
+ *  zgłoszenie „czasem pobiera, a czasem muszę ręcznie wpisywać" — przy
+ *  sprawnym backendzie, który w logach nie miał ANI JEDNEGO błędu NBP.
+ *  Backend dokłada obsługę weekendów i świąt (szuka ostatniej tabeli
+ *  wstecz), czego gołe `rates/a/eur/` nie robi. Patrz [[kebab-cors-wlasny-fetch]]. */
+export const fxApi = {
+  eurRate: (on = '') =>
+    get<{ rate?: number; date?: string; table?: string }>(
+      `/analytics/eur-rate${on ? `?on=${encodeURIComponent(on)}` : ''}`),
+}
+
 export const wzApi = {
   generate: (body: {
     sourceType?: string; sourceId?: string;

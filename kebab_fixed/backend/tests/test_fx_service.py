@@ -107,3 +107,79 @@ def test_rozne_dni_to_rozne_wpisy_w_cache(monkeypatch):
     fx_service.nbp_eur_rate("2026-06-30")
     fx_service.nbp_eur_rate("2026-07-28")
     assert len(calls) == 2
+
+
+# ─── Nieudane pobranie nie może blokować na pół dnia (24.09.2026) ───────
+#
+# Właściciel: „kursy z NBP niech pobiera, ale to mi coś nie zawsze działa —
+# np. jak wystawiam WZ w euro, czasem pobiera, a czasem muszę ręcznie
+# wpisywać".
+#
+# Pułapka w cache: wynik `None` (awaria sieci) zapisywał się z tym samym
+# TTL co poprawny kurs — 6 GODZIN. Jedna chwilowa usterka i przez pół dnia
+# biuro wpisuje kurs ręcznie, choć NBP dawno odpowiada.
+
+def test_udany_kurs_jest_cache_owany(monkeypatch):
+    """Zachowanie wsteczne: kurs dnia się nie zmienia, więc drugi raz
+    nie pytamy sieci."""
+    wolania = []
+
+    def _raz(url):
+        wolania.append(url)
+        return _payload([{"effectiveDate": "2026-07-28", "mid": 4.3242}])
+
+    monkeypatch.setattr(fx_service, "_fetch", _raz)
+    monkeypatch.setattr(fx_service, "_today", lambda: date(2026, 7, 28))
+    fx_service.nbp_eur_rate("2026-07-28")
+    fx_service.nbp_eur_rate("2026-07-28")
+
+    assert len(wolania) == 1
+
+
+def test_PORAZKA_nie_blokuje_na_pol_dnia(monkeypatch):
+    """SEDNO zgłoszenia. Awaria ma znikać po MINUCIE, nie po sześciu
+    godzinach — biuro wystawia WZ w euro wiele razy dziennie."""
+    stan = {"padaj": True, "wolania": 0, "zegar": 1000.0}
+
+    def _czasem(url):
+        stan["wolania"] += 1
+        if stan["padaj"]:
+            raise OSError("chwilowy brak sieci")
+        return _payload([{"effectiveDate": "2026-07-28", "mid": 4.3242}])
+
+    monkeypatch.setattr(fx_service, "_fetch", _czasem)
+    monkeypatch.setattr(fx_service, "_today", lambda: date(2026, 7, 28))
+    monkeypatch.setattr(fx_service, "_teraz", lambda: stan["zegar"])
+
+    assert fx_service.nbp_eur_rate("2026-07-28") is None
+
+    stan["padaj"] = False
+    stan["zegar"] += fx_service._TTL_BLAD_S + 1
+
+    assert fx_service.nbp_eur_rate("2026-07-28") == {
+        "rate": 4.3242, "date": "2026-07-28", "table": "A"}
+    assert stan["wolania"] == 2
+
+
+def test_udany_kurs_trzyma_sie_dluzej_niz_porazka(monkeypatch):
+    """Dwa różne okna życia w cache — to jest cała istota poprawki."""
+    assert fx_service._TTL_BLAD_S < fx_service._TTL_S
+
+
+def test_porazka_chroni_przed_mlynkiem_zapytan(monkeypatch):
+    """Ale nie rezygnujemy z hamulca całkiem: seria wejść w tej samej chwili
+    nie może zamienić awarii NBP w pętlę zapytań z naszego serwera."""
+    stan = {"wolania": 0}
+
+    def _pada(url):
+        stan["wolania"] += 1
+        raise OSError("brak sieci")
+
+    monkeypatch.setattr(fx_service, "_fetch", _pada)
+    monkeypatch.setattr(fx_service, "_today", lambda: date(2026, 7, 28))
+    monkeypatch.setattr(fx_service, "_teraz", lambda: 1000.0)
+
+    for _ in range(5):
+        assert fx_service.nbp_eur_rate("2026-07-28") is None
+
+    assert stan["wolania"] == 1

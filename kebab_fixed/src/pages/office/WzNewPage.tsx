@@ -1,7 +1,7 @@
 import { useOtworzDokument } from '@/lib/otworzDokument'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { wzApi, clientsApi, settingsApi, downloadDocPdf, containersApi, payrollApi, WzDoc } from '@/lib/api'
+import { wzApi, clientsApi, settingsApi, downloadDocPdf, containersApi, payrollApi, fxApi, WzDoc } from '@/lib/api'
 import { todayIso, cn } from '@/lib/utils'
 import { OTHER_CARRIER_KINDS } from '@/lib/containers'
 import { WzDocumentView, WzDocData } from '@/components/wz/WzDocumentView'
@@ -208,13 +208,11 @@ export function WzNewPage() {
   const eurRate = toNum(eurRateStr)
   const fetchNbpRate = () => {
     setRateLoading(true)
-    fetch('https://api.nbp.pl/api/exchangerates/rates/a/eur/?format=json')
-      .then(r => r.json())
+    fxApi.eurRate()
       .then(d => {
-        const rate = d?.rates?.[0]
-        if (rate?.mid) { setEurRateStr(String(rate.mid)); setEurRateDate(rate.effectiveDate || '') }
+        if (d?.rate) { setEurRateStr(String(d.rate)); setEurRateDate(d.date || '') }
       })
-      .catch(() => { /* brak internetu/NBP — kurs można wpisać ręcznie */ })
+      .catch(() => { /* brak kursu — można wpisać ręcznie */ })
       .finally(() => setRateLoading(false))
   }
   useEffect(() => { if (currency === 'EUR' && !eurRateStr) fetchNbpRate() }, [currency])  // eslint-disable-line react-hooks/exhaustive-deps

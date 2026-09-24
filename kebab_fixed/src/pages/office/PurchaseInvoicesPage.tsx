@@ -3,7 +3,7 @@
  */
 import { useState, useMemo, useCallback } from 'react'
 import { useApi } from '@/hooks/useApi'
-import { suppliersApi, rawBatchesApi, invoicesApi, ingredientsApi, packagingApi } from '@/lib/apiClient'
+import { suppliersApi, rawBatchesApi, invoicesApi, ingredientsApi, packagingApi, fxApi } from '@/lib/apiClient'
 import type { PurchaseInvoice, InvoiceCategory } from '@/lib/mockApi'
 import { INVOICE_CATEGORY_LABELS as CAT_LABELS } from '@/lib/mockApi'
 import { fmtPln, fmtDatePl, fmtKg, todayIso } from '@/lib/utils'
@@ -111,11 +111,8 @@ function InvoiceForm({ initial, onSave, onClose }: {
   async function fetchNbpRate() {
     setNbpLoading(true); setNbpError('')
     try {
-      const res  = await fetch('https://api.nbp.pl/api/exchangerates/rates/a/eur/?format=json')
-      if (!res.ok) throw new Error('Błąd NBP')
-      const data = await res.json()
-      const rate = data?.rates?.[0]?.mid
-      if (rate) set('exchangeRate', String(rate))
+      const data = await fxApi.eurRate()
+      if (data?.rate) set('exchangeRate', String(data.rate))
       else throw new Error('Brak danych')
     } catch { setNbpError('Nie udało się pobrać kursu NBP. Wpisz ręcznie.') }
     finally { setNbpLoading(false) }

@@ -28,6 +28,13 @@ _TIMEOUT_S = 6
 _LOOKBACK_DAYS = 10
 #: Kurs dnia się nie zmienia, a raport bywa drukowany wielokrotnie.
 _TTL_S = 6 * 3600
+#: AWARII nie zapamiętujemy na tak długo. Zgłoszenie właściciela 24.09.2026:
+#: „czasem pobiera, a czasem muszę ręcznie wpisywać". Wynik `None` szedł do
+#: cache z TYM SAMYM sześciogodzinnym TTL co poprawny kurs, więc jedna
+#: chwilowa usterka sieci kazała biuru wpisywać kurs ręcznie przez pół dnia
+#: — choć NBP dawno odpowiadał. Minuta wystarczy, żeby nie zrobić z awarii
+#: NBP młynka zapytań, a jednocześnie nie blokować kolejnego wystawienia WZ.
+_TTL_BLAD_S = 60
 _CACHE: Dict[str, tuple] = {}
 
 
@@ -43,6 +50,11 @@ def _today() -> date:
     return date.today()
 
 
+def _teraz() -> float:
+    """Wydzielone, żeby test mógł zamrozić zegar cache."""
+    return time.time()
+
+
 def nbp_eur_rate(on: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Kurs średni EUR obowiązujący w dniu `on` (RRRR-MM-DD, domyślnie dziś).
 
@@ -50,8 +62,12 @@ def nbp_eur_rate(on: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """
     day = on or date.today().isoformat()
     hit = _CACHE.get(day)
-    if hit and time.time() - hit[0] < _TTL_S:
-        return hit[1]
+    if hit is not None:
+        # Dwa różne okna życia: poprawny kurs trzyma się godzinami, awaria
+        # tylko minutę (patrz `_TTL_BLAD_S`).
+        ttl = _TTL_S if hit[1] is not None else _TTL_BLAD_S
+        if _teraz() - hit[0] < ttl:
+            return hit[1]
 
     try:
         end = date.fromisoformat(day)
@@ -78,5 +94,5 @@ def nbp_eur_rate(on: Optional[str] = None) -> Optional[Dict[str, Any]]:
         logger.warning("fx.nbp.error", extra={"day": day, "error": str(exc)})
         result = None
 
-    _CACHE[day] = (time.time(), result)
+    _CACHE[day] = (_teraz(), result)
     return result
