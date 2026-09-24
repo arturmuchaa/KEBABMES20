@@ -120,3 +120,62 @@ def test_zestawienie_pomija_klientow_z_WYLACZONYM_rozliczeniem(db):
     _klient("c2", enabled=False, nazwa="INNY")
 
     assert [z["clientId"] for z in zestawienie()] == ["c1"]
+
+
+# ─── Co obciąża saldo: ustawienie per klient (24.09.2026) ───────────────
+#
+# Właściciel o TRUVIE: „tam saldo nie liczymy osobno na WZ i FV, tylko
+# ogólnie". Łączne saldo było od początku — podział na WZ i faktury to
+# sposób pokazania listy, nie dwa osobne salda.
+#
+# Otwarte zostało co innego: czy faktura opisuje TĘ SAMĄ dostawę co WZ.
+# Dane pokazują trzy wzorce (TRUVA 49/11, YBM 14/63, NAZAR 1/31), więc to
+# jest ustawienie kontrahenta, a nie reguła globalna.
+
+def _podstawa(cid, basis):
+    execute("UPDATE clients SET settlement_basis=%s WHERE id=%s", (basis, cid))
+
+
+def test_domyslnie_obciazaja_OBA_zrodla(db):
+    """Odtwarza arkusz biura: `SALDO ŁĄCZNIE` sumuje obie kolumny."""
+    _klient(); _otwarcie(kwota=0.0)
+    _wz("w1", "c1", "WZ/9/09/26", "2026-09-15", 1000.0)
+    execute("INSERT INTO client_charges (id, client_id, kind, number, doc_date, amount, "
+            " currency) VALUES ('ch1','c1','invoice','FS 1/2026','2026-09-16',-2000,'PLN')")
+
+    assert karta_klienta("c1")["saldo"]["saldo"] == -3000.0
+
+
+def test_podstawa_WZ_pomija_faktury(db):
+    """Dla odbiorcy, u którego faktura opisuje tę samą dostawę co wydanie —
+    liczenie obu podwoiłoby dług."""
+    _klient(); _otwarcie(kwota=0.0); _podstawa("c1", "wz")
+    _wz("w1", "c1", "WZ/9/09/26", "2026-09-15", 1000.0)
+    execute("INSERT INTO client_charges (id, client_id, kind, number, doc_date, amount, "
+            " currency) VALUES ('ch1','c1','invoice','FS 1/2026','2026-09-16',-2000,'PLN')")
+
+    karta = karta_klienta("c1")
+
+    assert karta["saldo"]["saldo"] == -1000.0
+    assert [o["kind"] for o in karta["obciazenia"]] == ["wz"]
+
+
+def test_podstawa_FAKTURA_pomija_WZ(db):
+    _klient(); _otwarcie(kwota=0.0); _podstawa("c1", "invoice")
+    _wz("w1", "c1", "WZ/9/09/26", "2026-09-15", 1000.0)
+    execute("INSERT INTO client_charges (id, client_id, kind, number, doc_date, amount, "
+            " currency) VALUES ('ch1','c1','invoice','FS 1/2026','2026-09-16',-2000,'PLN')")
+
+    karta = karta_klienta("c1")
+
+    assert karta["saldo"]["saldo"] == -2000.0
+    assert [o["kind"] for o in karta["obciazenia"]] == ["invoice"]
+
+
+def test_nieznana_podstawa_liczy_OBA(db):
+    """Literówka w ustawieniu nie może po cichu wyzerować czyjegoś długu —
+    w razie wątpliwości pokazujemy wszystko."""
+    _klient(); _otwarcie(kwota=0.0); _podstawa("c1", "cos-dziwnego")
+    _wz("w1", "c1", "WZ/9/09/26", "2026-09-15", 1000.0)
+
+    assert karta_klienta("c1")["saldo"]["saldo"] == -1000.0

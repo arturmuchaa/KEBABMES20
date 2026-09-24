@@ -26,7 +26,8 @@ logger = get_logger(__name__)
 
 def _klient(client_id: str) -> Dict[str, Any]:
     row = query_one(
-        "SELECT id, name, display_name, nip, settlement_enabled, settlement_currency "
+        "SELECT id, name, display_name, nip, settlement_enabled, settlement_currency, "
+        "       COALESCE(settlement_basis,'both') AS settlement_basis "
         "FROM clients WHERE id=%s", (client_id,))
     if not row:
         raise HTTPException(404, "Kontrahent nie znaleziony")
@@ -105,9 +106,25 @@ def karta_klienta(client_id: str, na_dzien: Optional[date] = None) -> Dict[str, 
         "WHERE client_id=%s", (client_id,))
     odciecie = otwarcie["as_of_date"] if otwarcie else None
 
-    obciazenia = po_odcieciu(
-        _obciazenia_z_wz(client_id) + _obciazenia_wpisane(client_id),
-        odciecie, "doc_date")
+    # CO OBCIĄŻA SALDO — ustawienie per kontrahent.
+    #
+    # Właściciel o TRUVIE 24.09.2026: „tam saldo nie liczymy osobno na WZ
+    # i FV, tylko ogólnie". Łączne saldo jest tu od początku (jedna liczba);
+    # otwarte było co innego — czy faktura opisuje TĘ SAMĄ dostawę co WZ.
+    # Dane pokazują trzy wzorce: TRUVA 49 wierszy WZ i 11 faktur, YBM 14/63,
+    # NAZAR 1/31. Reguła globalna byłaby więc zła dla dwóch z trzech.
+    #
+    # `both` odtwarza arkusz biura (`SALDO ŁĄCZNIE` sumuje obie kolumny).
+    # Nieznana wartość liczy OBA: literówka w ustawieniu nie może po cichu
+    # wyzerować czyjegoś długu.
+    podstawa = klient["settlement_basis"]
+    zrodla: List[Dict[str, Any]] = []
+    if podstawa != "invoice":
+        zrodla += _obciazenia_z_wz(client_id)
+    if podstawa != "wz":
+        zrodla += _obciazenia_wpisane(client_id)
+
+    obciazenia = po_odcieciu(zrodla, odciecie, "doc_date")
     for o in obciazenia:
         o["termin"] = termin_platnosci(o["doc_date"], o["kind"], TERMINY_DOMYSLNE)
         o["dni_po_terminie"] = dni_po_terminie(o["termin"], dzien)
@@ -124,6 +141,7 @@ def karta_klienta(client_id: str, na_dzien: Optional[date] = None) -> Dict[str, 
                    "name": klient["display_name"] or klient["name"],
                    "nip": klient["nip"] or ""},
         "waluta": klient["settlement_currency"],
+        "podstawa": podstawa,
         "otwarcie": dict(otwarcie) if otwarcie else None,
         "obciazenia": obciazenia,
         "wplaty": wplaty,

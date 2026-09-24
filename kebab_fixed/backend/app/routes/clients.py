@@ -36,4 +36,5 @@ def ustaw_rozliczenie(client_id: str, body: dict):
     zmiany, bo kwot nie przelicza.
     """
     return svc.ustaw_rozliczenie(
-        client_id, bool(body.get("enabled")), body.get("currency") or "PLN")
+        client_id, bool(body.get("enabled")), body.get("currency") or "PLN",
+        body.get("basis") or "both")

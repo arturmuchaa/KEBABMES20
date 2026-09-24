@@ -171,7 +171,8 @@ def deactivate_client(client_id: str) -> None:
 _WALUTY_ROZLICZEN = ("PLN", "EUR")
 
 
-def ustaw_rozliczenie(client_id: str, enabled: bool, currency: str) -> Dict[str, Any]:
+def ustaw_rozliczenie(client_id: str, enabled: bool, currency: str,
+                      basis: str = "both") -> Dict[str, Any]:
     """Włącznik rozrachunków i waluta rozliczeniowa kontrahenta.
 
     Waluta jest PER KLIENT (decyzja właściciela 24.09.2026: „w zależności od
@@ -208,8 +209,14 @@ def ustaw_rozliczenie(client_id: str, enabled: bool, currency: str) -> Dict[str,
                 "kwot. Rozlicz saldo do zera albo popraw dokumenty, potem "
                 "zmień walutę.")
 
-    execute("UPDATE clients SET settlement_enabled=%s, settlement_currency=%s "
-            "WHERE id=%s", (bool(enabled), waluta, client_id))
+    podstawa = (basis or "both").lower()
+    if podstawa not in ("both", "wz", "invoice"):
+        raise HTTPException(400, f"Nieznana podstawa rozliczenia: {basis}")
+
+    execute("UPDATE clients SET settlement_enabled=%s, settlement_currency=%s, "
+            "settlement_basis=%s WHERE id=%s",
+            (bool(enabled), waluta, podstawa, client_id))
     logger.info("client.settlement.set",
-                extra={"client_id": client_id, "waluta": waluta})
-    return {"clientId": client_id, "enabled": bool(enabled), "currency": waluta}
+                extra={"client_id": client_id, "waluta": waluta, "podstawa": podstawa})
+    return {"clientId": client_id, "enabled": bool(enabled), "currency": waluta,
+            "basis": podstawa}

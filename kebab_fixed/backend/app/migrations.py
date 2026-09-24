@@ -1853,6 +1853,14 @@ _DDL: list[str] = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_client_payments_klient "
     "ON client_payments(client_id, paid_date)",
+    # CO OBCIĄŻA SALDO — ustawienie per klient, bo dane pokazują trzy różne
+    # wzorce: TRUVA 49 wierszy WZ i 11 faktur, YBM 14 WZ i 63 faktury,
+    # NAZAR 1 WZ i 31 faktur. 'both' odtwarza arkusz biura (SALDO ŁĄCZNIE
+    # sumuje obie kolumny); 'wz' albo 'invoice' dla odbiorcy, u którego
+    # faktura opisuje TĘ SAMĄ dostawę co wydanie — wtedy liczenie obu
+    # podwoiłoby dług.
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS "
+    "settlement_basis TEXT NOT NULL DEFAULT 'both'",
 ]
 
 
