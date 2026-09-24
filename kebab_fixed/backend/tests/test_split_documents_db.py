@@ -90,14 +90,22 @@ def test_powtorne_wz_wewnetrzny_nie_dubluje_rozchodu(db):
     assert (int(fg["qty_available"]), int(fg["qty_shipped"])) == (0, 30)
 
 
-def test_zwykly_wz_ma_puste_split_scope(db):
-    """Nie zaczynamy oznaczać dokumentów, które nie należą do podziału —
-    zwykły WZ ze starej ścieżki zostaje z `split_scope IS NULL`, tak samo
-    jak wszystkie historyczne dokumenty sprzed tej kolumny."""
+def test_wz_z_zamowienia_to_dokument_WEWNETRZNY(db):
+    """DECYZJA ZMIENIONA 24.09.2026 — wcześniej ten test pilnował, że
+    dokument ze „starej ścieżki" ma `split_scope IS NULL`.
+
+    Właściciel: „powinni dostać sam WM, nie WZ — WM po to, aby ściągnąć ze
+    stanu". Ta ścieżka wystawia więc dokument wewnętrzny (WM/`calosc`),
+    a papierem dla klienta jest HDI plus faktura.
+
+    HISTORYCZNE dokumenty zostają z `split_scope IS NULL` i nadal muszą być
+    rozpoznawane — pilnuje tego `test_HISTORYCZNY_zwykly_WZ_dalej_jest_
+    oddawany` w `test_wz_z_zamowienia_jako_wm_db`."""
     _przygotuj_bez_podzialu()
-    stary = create_wz_from_order("o1")
-    row = query_all("SELECT split_scope FROM wz_documents WHERE id=%s", (stary["id"],))[0]
-    assert row["split_scope"] is None
+    nowy = create_wz_from_order("o1")
+    row = query_all("SELECT doc_series, split_scope FROM wz_documents WHERE id=%s",
+                    (nowy["id"],))[0]
+    assert (row["doc_series"], row["split_scope"]) == ("WM", "calosc")
 
 
 # ── Fix round 2: `split_scope` odróżnia dokumenty od siebie, ale nikt nie
@@ -229,7 +237,8 @@ def test_po_anulowaniu_zwykly_WZ_znowu_dziala(db):
 
     nowy = create_wz_from_order("o1")
 
-    assert nowy["number"].startswith("WZ/")
+    # Seria WM od 24.09.2026; troska testu (odwracalność odmowy) bez zmian.
+    assert nowy["number"].startswith("WM/")
 
 
 def test_po_anulowaniu_mozna_wystawic_podzial_ponownie(db):

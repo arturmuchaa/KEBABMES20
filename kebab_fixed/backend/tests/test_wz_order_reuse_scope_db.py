@@ -39,18 +39,24 @@ def _dokument_podzialu(oid="o1", series="WM", split_scope="calosc", nr=1):
     return {"id": wid, "number": number}
 
 
-def test_stary_wz_nie_podbiera_dokumentu_wewnetrznego_wm(db):
-    """FINDING: bez filtra `create_wz_from_order` zwróciłby WM (powstaje
-    PIERWSZY, `ORDER BY created_at LIMIT 1` trafia w niego) jako zwykły WZ
-    dla klienta — z adnotacją „NIE WYDAWAĆ KLIENTOWI"."""
+def test_stary_wz_ODDAJE_istniejacy_dokument_wewnetrzny(db):
+    """DECYZJA ZMIENIONA 24.09.2026 — ten test celował wcześniej odwrotnie.
+
+    Poprzednio: „Wystaw WZ" miało wystawiać papier DLA KLIENTA, więc oddanie
+    mu dokumentu WM z adnotacją „NIE WYDAWAĆ KLIENTOWI" było cichą pomyłką.
+
+    Od 24.09.2026 ta ścieżka SAMA wystawia dokument wewnętrzny (decyzja
+    właściciela: „powinni dostać sam WM, nie WZ"), więc oddanie istniejącego
+    WM to poprawna idempotencja, a nie pomyłka. Papierem dla klienta jest
+    HDI plus faktura.
+
+    Co ZOSTAJE chronione: żadnego drugiego rozchodu magazynu — pilnuje tego
+    `test_stary_wz_NIE_zdejmuje_stanu_drugi_raz_po_podziale` niżej."""
     _przygotuj_z_podzialem(cel_kg=300.0)
     wm = _dokument_podzialu("o1", series="WM", split_scope="calosc")
 
-    with pytest.raises(Exception) as e:
-        create_wz_from_order("o1")
-
-    assert wm["number"] in str(e.value)
-    assert "drugi raz" in str(e.value)
+    # Od 24.09.2026: nie odmowa, tylko oddanie TEGO SAMEGO dokumentu.
+    assert create_wz_from_order("o1")["number"] == wm["number"]
 
 
 def test_stary_wz_nie_podbiera_wz_klienta(db):
@@ -76,8 +82,10 @@ def test_stary_wz_NIE_zdejmuje_stanu_drugi_raz_po_podziale(db):
         "SELECT COALESCE(SUM(qty_available),0) AS s FROM finished_goods")["s"]
     ruchow_przed = query_one("SELECT COUNT(*) AS n FROM stock_movements")["n"]
 
-    with pytest.raises(Exception):
-        create_wz_from_order("o1")
+    # Od 24.09.2026 ścieżka nie ODMAWIA, tylko oddaje istniejący dokument
+    # wewnętrzny — ale gwarancja jest ta sama i to ona jest tu testowana:
+    # magazyn ma zostać nietknięty.
+    create_wz_from_order("o1")
 
     po = query_one("SELECT COALESCE(SUM(qty_available),0) AS s FROM finished_goods")["s"]
     ruchow_po = query_one("SELECT COUNT(*) AS n FROM stock_movements")["n"]
@@ -96,7 +104,9 @@ def test_ANULOWANY_podzial_nie_blokuje_starego_wz(db):
     nowy = create_wz_from_order("o1")
 
     assert nowy["id"] != wm["id"]
-    assert nowy["number"].startswith("WZ/")
+    # Seria WM, nie WZ — decyzja z 24.09.2026. Troska tego testu (odmowa
+    # musi być odwracalna) zostaje nietknięta.
+    assert nowy["number"].startswith("WM/")
 
 
 def test_stary_wz_nadal_zwraca_zwykly_historyczny_wz(db):

@@ -1733,19 +1733,32 @@ def create_wz_from_order(
     notes = "UWAGA: zamówienie zrealizowane częściowo — może brakować sztuk." if incomplete else ""
 
     with transaction() as conn:
-        _odmow_gdy_zamowienie_ma_podzial(conn, order_id)
-        # `COALESCE(doc_series,'WZ')='WZ' AND split_scope IS NULL` — zwykły
-        # WZ (177 historycznych dokumentów, split_scope IS NULL od zawsze),
-        # NIE dokument z podziału wysyłki (WM/WZ klienta, split_documents_
-        # service.py). Bez tego zawężenia ta ścieżka znajdowała dokument
-        # wewnętrzny WM (powstaje PIERWSZY, więc ORDER BY created_at LIMIT 1
-        # trafiał właśnie w niego) i oddawał go biuru jako zwykły WZ z
-        # adnotacją „NIE WYDAWAĆ KLIENTOWI" (review Task 4, fix round 3,
-        # 2026-09-10). `= NULL` nigdy nie pasuje w SQL — stąd IS NULL.
+        # Zamówienie z PODZIAŁEM ma własną ścieżkę (komplet). Pytamy wprost
+        # o WZ KLIENTA, bo to on znaczy „część poszła osobnym dokumentem";
+        # pytanie o `split_scope IS NOT NULL` trafiałoby też we własny WM
+        # tej ścieżki (ma `split_scope='calosc'`) i odbijało drugie kliknięcie
+        # od papieru, który sama wystawiła.
+        klienta = cx_query_one(
+            conn, "SELECT number FROM wz_documents WHERE source_type='order' "
+                  "AND source_id=%s AND split_scope='wz_klienta' "
+                  "AND COALESCE(status,'')<>'anulowany' LIMIT 1", (order_id,))
+        if klienta:
+            raise HTTPException(400, _KOMUNIKAT_PODZIAL.format(numer=klienta["number"]))
+        # TYLKO WZ klienta blokuje. Od 24.09.2026 ta ścieżka i komplet tworzą
+        # TEN SAM dokument wewnętrzny (WM/calosc), więc oddanie istniejącego
+        # WM jest poprawne, a nie pomyłką — dawna obawa („biuro dostaje papier
+        # z napisem NIE WYDAWAĆ KLIENTOWI") dotyczyła czasów, gdy ten przycisk
+        # miał wystawiać papier DLA KLIENTA. Dziś wystawia wewnętrzny.
+
+        # Dokument tej wysyłki, który RUSZA STAN — od 24.09.2026 seria WM
+        # (`split_scope='calosc'`), wcześniej zwykły WZ (`split_scope IS NULL`,
+        # 177 historycznych). Oba warianty muszą tu pasować: wejście na stare
+        # zamówienie ma oddać TAMTEN dokument, a nie dorobić do niego WM.
         existing = cx_query_one(
             conn, "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s "
                   "AND COALESCE(status,'') <> 'anulowany' "
-                  "AND COALESCE(doc_series,'WZ')='WZ' AND split_scope IS NULL "
+                  "AND ((doc_series='WM' AND split_scope='calosc') "
+                  "     OR (COALESCE(doc_series,'WZ')='WZ' AND split_scope IS NULL)) "
                   "ORDER BY created_at LIMIT 1", (order_id,))
         if existing:
             doc = get_wz(existing["id"])
@@ -1753,11 +1766,24 @@ def create_wz_from_order(
             logger.info("wz.order.reused", extra={"wz_id": existing["id"]})
             return doc
 
+        # Strażnik zostaje jako obrona w głąb: docieramy tu tylko wtedy, gdy
+        # żadnego dokumentu tej wysyłki jeszcze nie ma.
+        _odmow_gdy_zamowienie_ma_podzial(conn, order_id)
+
+        # SERIA WM, nie WZ. Decyzja właściciela 24.09.2026: „powinni dostać
+        # sam WM, nie WZ — WM po to, aby ściągnąć ze stanu, a WZ wtedy, jak
+        # dzielimy FV i WZ". Papierem dla klienta jest tu HDI (plus faktura),
+        # a ten dokument zostaje w biurze i rusza magazyn.
+        #
+        # To nie jest kosmetyka: rozrachunki z odbiorcami liczą obciążenia
+        # z WZ i z faktur, więc zamówienie fakturowane w całości, rodzące WZ,
+        # policzyłoby ten sam towar DWA RAZY.
         wid = _insert_wz(
             conn, source_type="order", source_id=order_id, seller=_seller_block(),
             buyer=buyer, valued=valued, lines=lines, total=total,
             place=get_company().get("city") or "", issued=issued, released=issued,
-            notes=notes, currency=currency, eur_rate=eur_rate)
+            notes=notes, currency=currency, eur_rate=eur_rate,
+            series="WM", split_scope="calosc")
 
         fg_cols = ("id, qty, qty_available, qty_shipped, kg_per_unit, "
                    "client_order_no, client_name")

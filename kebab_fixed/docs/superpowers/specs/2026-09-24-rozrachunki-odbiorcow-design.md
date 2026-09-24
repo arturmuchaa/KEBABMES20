@@ -134,6 +134,46 @@ które dziś nie działa.**
 Kurs do przeliczenia: pole w konfiguracji, widoczne przy sumie — żeby nikt
 nie musiał zgadywać, po jakim kursie policzono łączną kwotę.
 
+## Saldo NA DOKUMENCIE i zestawienie do druku
+
+Doprecyzowanie właściciela 24.09.2026:
+
+> „bardzo ważna sprawa — aby móc ładnie wydrukować zestawienie dla klienta
+> i chciałbym, aby do każdej WZ i do faktury drukowało się saldo
+> niezapłaconych FV lub WZ; będę podpinał klientowi do dokumentów."
+
+To zmienia rozrachunki z narzędzia WEWNĘTRZNEGO w coś, co **jedzie do
+klienta** — a więc podnosi wymagania wobec poprawności i formy.
+
+### Blok salda na dokumencie
+
+Na wydruku WZ (i na zestawieniu do faktury) sekcja: **niezapłacone
+dokumenty** (data, numer, kwota) i **saldo razem**, w walucie rozliczeniowej
+klienta.
+
+⚠️ **Saldo na papierze musi być z chwili WYDRUKU, nie z chwili wystawienia.**
+Dokument drukowany ponownie za tydzień pokaże inne saldo — i tak ma być, bo
+klient dostaje aktualny stan. Dlatego saldo NIE jest zapisywane w treści
+dokumentu; liczy się przy renderowaniu, a na wydruku jest data i godzina,
+na które zostało policzone. Bez tej daty dwa wydruki tego samego WZ pokazują
+różne kwoty i nikt nie wie, który jest aktualny — ta sama zasada co przy
+kursie NBP na raporcie zarządczym ([[fx_service]]).
+
+⚠️ **Dokument bieżący nie może liczyć się sam do siebie** jako zaległość —
+klient dostaje WZ i widzi je w „niezapłaconych" tego samego papieru. Pozycja
+bieżąca pokazuje się osobno („ten dokument"), a saldo ma dwie liczby: przed
+i po tym dokumencie.
+
+### Zestawienie dla klienta
+
+Osobny wydruk: nagłówek z danymi kontrahenta, tabela niezapłaconych WZ
+i faktur (data, numer, kwota, dni po terminie), saldo razem, data
+sporządzenia. Ma się mieścić na jednej stronie A4 przy typowej liczbie
+pozycji ([[kebab-wydruk-jedna-strona]]).
+
+Wydruk jest **stroną aplikacji**, nie oknem `window.open` — w Tauri okna
+i skrypty inline nie działają ([[tauri-okna-i-inline-skrypty]]).
+
 ## Poza zakresem (świadomie)
 
 - **Integracja z Subiektem.** Właściciel: „docelowo MES będzie połączony
