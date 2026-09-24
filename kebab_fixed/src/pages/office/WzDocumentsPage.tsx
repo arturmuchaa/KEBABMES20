@@ -181,8 +181,8 @@ export function WzDocumentsPage() {
   const [hdiId, setHdiId] = useState<string | null>(null)
   const [previewDoc, setPreviewDoc] = useState<WzDoc | null>(null)
   const [reportDoc, setReportDoc]   = useState<WzDoc | null>(null)
-  /** Rozwinięty ślad skanowania — id dokumentu WM. */
-  const [sladId, setSladId] = useState<string | null>(null)
+  /** Dokument, którego ślad skanowania jest otwarty w oknie. */
+  const [sladDoc, setSladDoc] = useState<WzDoc | null>(null)
   const [query,   setQuery]   = useState('')
   // Zakładki jak w rejestrze faktur: anulowane osobno, żeby seria aktywnych
   // dokumentów dała się przeczytać z góry na dół.
@@ -510,11 +510,9 @@ export function WzDocumentsPage() {
                         {sladDostepny(d as any) && (
                           <Button variant="outline" size="sm"
                                   className="h-7 text-[11px] gap-1"
-                                  title="Historia skanowania palet tego wydania"
-                                  onClick={() => setSladId(sladId === d.id ? null : d.id)}>
-                            {sladId === d.id
-                              ? <><ChevronUp size={12} /> Zwiń skany</>
-                              : <><ScanLine size={12} /> Skany</>}
+                                  title="Skład palet i łańcuch skanowania tego wydania"
+                                  onClick={() => setSladDoc(d)}>
+                            <ScanLine size={12} /> Skany
                           </Button>
                         )}
                         {!cancelled && ((d as any).source_type === 'manual' ? (
@@ -555,16 +553,6 @@ export function WzDocumentsPage() {
                       </div>
                     </TableCell>
                   </TableRow>
-                  {sladId === d.id && (
-                    <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={magazynowe ? 7 : 6} className="bg-muted/30 p-0">
-                        <div className="px-4 pt-3 text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
-                          Ślad skanowania — {d.number}
-                        </div>
-                        <SladSkanowania orderId={String(d.source_id || d.sourceId)} />
-                      </TableCell>
-                    </TableRow>
-                  )}
                   {editId === d.id && (
                     <TableRow className="hover:bg-transparent">
                       <TableCell colSpan={7} className="bg-muted/30 p-4">
@@ -748,6 +736,23 @@ export function WzDocumentsPage() {
             <div className="shadow-lg border border-surface-4 w-fit mx-auto">
               <WzDocumentView doc={previewDoc} />
             </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Ślad jako OKNO, nie rozwinięty wiersz: skład palety plus pięć etapów
+          nie mieści się w wierszu tabeli, a biuro czyta to przy reklamacji,
+          nie przelotem (zgłoszenie właściciela 24.09.2026). */}
+      <Dialog open={!!sladDoc} onOpenChange={open => { if (!open) setSladDoc(null) }}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto p-0">
+          <DialogHeader className="px-4 pt-4">
+            <DialogTitle className="text-[15px]">
+              Ślad skanowania — {sladDoc?.number}
+            </DialogTitle>
+          </DialogHeader>
+          {sladDoc && (
+            <SladSkanowania
+              orderId={String((sladDoc as any).source_id || (sladDoc as any).sourceId)} />
           )}
         </DialogContent>
       </Dialog>

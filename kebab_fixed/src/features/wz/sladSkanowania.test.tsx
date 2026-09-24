@@ -3,7 +3,7 @@
  * Panel śladu skanowania — „czy gdzieś sztuka nie zginęła".
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 
 const stan = vi.hoisted(() => ({ slad: [] as any[], padnij: false }))
 vi.mock('@/lib/api', () => ({
@@ -55,5 +55,68 @@ describe('ślad skanowania', () => {
     stan.padnij = true
     render(<SladSkanowania orderId="o1" />)
     expect(await screen.findByText(/Nie udało się wczytać/i)).toBeTruthy()
+  })
+})
+
+// ─── Okno śladu: skład palety i łańcuch etapów (24.09.2026) ─────────────
+describe('okno śladu palety', () => {
+  const PALETA = {
+    pallet_no: 1, status: 'shipped',
+    sklad: [
+      { qty: 10, kg_per_unit: 40, rodzaj: 'KEBAB UDO 100%', receptura: 'BULLI' },
+      { qty: 15, kg_per_unit: 25, rodzaj: 'KEBAB UDO 100%', receptura: 'BULLI' },
+    ],
+    sztuki: { zadeklarowane: 25, sledzone: 0 },
+    zdarzenia: [
+      { action: 'loaded', scanned_at: '2026-09-23T10:14:00Z', operator: 'VLAD M.', vehicle: 'MAN 1234' },
+    ],
+  }
+
+  it('pokazuje SKŁAD palety, a nie samo „P1 na auto"', async () => {
+    stan.slad = [PALETA]
+    render(<SladSkanowania orderId="o1" />)
+    expect(await screen.findByText('10 szt')).toBeTruthy()
+    expect(screen.getByText('× 40 kg')).toBeTruthy()
+    expect(screen.getByText('15 szt')).toBeTruthy()
+  })
+
+  it('mówi WPROST, że etapu nikt nie skanuje — to odpowiedź przy reklamacji', async () => {
+    stan.slad = [PALETA]
+    const { container } = render(<SladSkanowania orderId="o1" />)
+    await screen.findByText('Produkcja')
+    const produkcja = container.querySelector('[data-etap="produkcja"]')!
+    expect(produkcja.getAttribute('data-stan')).toBe('brak_zrodla')
+    expect(produkcja.textContent).toMatch(/nie skanowane na tym etapie/i)
+  })
+
+  it('ostrzega, że pojedynczej sztuki nie da się dziś wskazać', async () => {
+    stan.slad = [PALETA]
+    render(<SladSkanowania orderId="o1" />)
+    expect(await screen.findByText(/pojedynczej sztuki nie da się dziś wskazać/i)).toBeTruthy()
+  })
+
+  it('nie ostrzega, gdy wszystkie sztuki mają numery', async () => {
+    stan.slad = [{ ...PALETA, sztuki: { zadeklarowane: 25, sledzone: 25 } }]
+    render(<SladSkanowania orderId="o1" />)
+    await screen.findByText('Produkcja')
+    expect(screen.queryByText(/pojedynczej sztuki nie da się/i)).toBeNull()
+  })
+
+  it('przełącza się między paletami zamówienia', async () => {
+    stan.slad = [
+      PALETA,
+      { ...PALETA, pallet_no: 2, sklad: [
+        { qty: 7, kg_per_unit: 30, rodzaj: 'KEBAB MIX', receptura: 'YAPRAK' }] },
+    ]
+    render(<SladSkanowania orderId="o1" />)
+    fireEvent.click(await screen.findByText('Paleta P2'))
+    expect(await screen.findByText('7 szt')).toBeTruthy()
+  })
+
+  it('łańcuch ma zawsze pięć etapów, także dla nietkniętej palety', async () => {
+    stan.slad = [{ ...PALETA, zdarzenia: [] }]
+    const { container } = render(<SladSkanowania orderId="o1" />)
+    await screen.findByText('Produkcja')
+    expect(container.querySelectorAll('[data-etap]')).toHaveLength(5)
   })
 })

@@ -266,9 +266,61 @@ def slad_skanowania(order_id: str) -> List[Dict]:
                 x for x in (z.get("vehicle_name"), z.get("vehicle_plate")) if x),
         })
 
-    return [{"pallet_id": p["id"], "pallet_no": p["pallet_no"],
-             "status": p.get("status"), "zdarzenia": wg_palety.get(p["id"], [])}
-            for p in palety]
+    ids = [p["id"] for p in palety]
+
+    # SKŁAD palety wg rozpisu biura. To jedyne źródło, jakie dziś jest:
+    # `order_pallet_items` mówi, ILE sztuk której linii zamówienia miało
+    # leżeć na palecie. Sortowanie po `position` linii, a nie po wadze —
+    # biuro układa rozpis w swojej kolejności i ma ją rozpoznać.
+    pozycje = query_all(
+        """SELECT i.pallet_id, i.qty, l.kg_per_unit,
+                  COALESCE(pt.name, '') AS rodzaj,
+                  COALESCE(r.name, '')  AS receptura
+             FROM order_pallet_items i
+             JOIN client_order_lines l ON l.id = i.order_line_id
+             LEFT JOIN recipes r       ON r.id = l.recipe_id
+             LEFT JOIN product_types pt ON pt.id = l.product_type_id
+            WHERE i.pallet_id = ANY(%s)
+            ORDER BY i.pallet_id, COALESCE(l.position, 0),
+                     l.kg_per_unit DESC, i.id""",
+        (ids,))
+    sklad_wg_palety: Dict[str, List[Dict]] = {}
+    for poz in pozycje:
+        sklad_wg_palety.setdefault(poz["pallet_id"], []).append({
+            "qty": int(poz["qty"] or 0),
+            "kg_per_unit": float(poz["kg_per_unit"] or 0),
+            "rodzaj": poz["rodzaj"],
+            "receptura": poz["receptura"],
+        })
+
+    # Sztuki z WŁASNYM numerem, faktycznie przypisane do palety.
+    # 24.09.2026 na produkcji jest ich ZERO: `finished_units` ma 89 wierszy,
+    # z tego jeden 'produced' i żadnego z `pallet_id`. Liczymy to mimo
+    # wszystko i pokazujemy obok liczby zadeklarowanej, bo różnica między
+    # „25 sztuk wg rozpisu" a „0 sztuk z numerem" to jedyna uczciwa odpowiedź
+    # na pytanie „która sztuka zaginęła" — dopóki hala nie skanuje.
+    sledzone = {
+        r["pallet_id"]: int(r["n"])
+        for r in query_all(
+            "SELECT pallet_id, COUNT(*) AS n FROM finished_units "
+            "WHERE pallet_id = ANY(%s) GROUP BY pallet_id", (ids,))
+    }
+
+    out = []
+    for p in palety:
+        sklad = sklad_wg_palety.get(p["id"], [])
+        out.append({
+            "pallet_id": p["id"],
+            "pallet_no": p["pallet_no"],
+            "status": p.get("status"),
+            "zdarzenia": wg_palety.get(p["id"], []),
+            "sklad": sklad,
+            "sztuki": {
+                "zadeklarowane": sum(x["qty"] for x in sklad),
+                "sledzone": sledzone.get(p["id"], 0),
+            },
+        })
+    return out
 
 
 def _poza_kolejnoscia(vehicle_id: str, order_id: str) -> Optional[Dict]:
