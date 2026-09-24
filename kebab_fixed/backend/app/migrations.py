@@ -1798,6 +1798,61 @@ _DDL: list[str] = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_vehicle_loading_orders_veh "
     "ON vehicle_loading_orders(vehicle_id, position)",
+
+    # ── Rozrachunki z odbiorcami (24.09.2026) ───────────────────────────
+    # Zastępują arkusz PŁATNOŚCI: 27 zakładek, a `PODSUMOWANIE` w nich
+    # w całości `#REF!`. Domyślnie WYŁĄCZONE — właściciel rozlicza część
+    # kontrahentów, nie wszystkich w kartotece.
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS "
+    "settlement_enabled BOOLEAN NOT NULL DEFAULT false",
+    # Waluta PER KLIENT, nie per dokument („w zależności od klienta jest albo
+    # euro albo PLN"). Saldo jest wtedy jedną liczbą zamiast dwóch równoległych.
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS "
+    "settlement_currency TEXT NOT NULL DEFAULT 'PLN'",
+    # Saldo otwarcia = ODCIĘCIE. Do salda liczą się WYŁĄCZNIE dokumenty
+    # o dacie PO `as_of_date`; wszystko wcześniejsze zawiera się w `amount`.
+    # Bez tego 177 historycznych WZ doliczyłoby się na wierzchu.
+    """CREATE TABLE IF NOT EXISTS client_opening_balances (
+        client_id  TEXT PRIMARY KEY REFERENCES clients(id) ON DELETE CASCADE,
+        amount     NUMERIC NOT NULL DEFAULT 0,
+        currency   TEXT NOT NULL DEFAULT 'PLN',
+        as_of_date DATE NOT NULL,
+        note       TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ DEFAULT now()
+    )""",
+    # `kind`: 'wz' (zaciągane z MES) albo 'invoice' (wpisywane przez biuro).
+    # `source_id` wskazuje `wz_documents.id` dla 'wz'; dla faktury zostaje
+    # puste do czasu integracji z Subiektem.
+    """CREATE TABLE IF NOT EXISTS client_charges (
+        id         TEXT PRIMARY KEY,
+        client_id  TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        kind       TEXT NOT NULL,
+        source_id  TEXT NOT NULL DEFAULT '',
+        number     TEXT NOT NULL DEFAULT '',
+        doc_date   DATE NOT NULL,
+        qty_kg     NUMERIC NOT NULL DEFAULT 0,
+        amount     NUMERIC NOT NULL DEFAULT 0,
+        currency   TEXT NOT NULL DEFAULT 'PLN',
+        note       TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_client_charges_klient "
+    "ON client_charges(client_id, doc_date)",
+    # Numer faktury unikalny w obrębie kontrahenta: biuro wpisuje go ręcznie,
+    # a pomyłka „wpisałem dwa razy" ma odbić się o bazę, nie o czyjeś oko.
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_client_charges_faktura "
+    "ON client_charges(client_id, number) WHERE kind='invoice' AND number <> ''",
+    """CREATE TABLE IF NOT EXISTS client_payments (
+        id         TEXT PRIMARY KEY,
+        client_id  TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        paid_date  DATE NOT NULL,
+        amount     NUMERIC NOT NULL DEFAULT 0,
+        currency   TEXT NOT NULL DEFAULT 'PLN',
+        note       TEXT NOT NULL DEFAULT '',
+        created_at TIMESTAMPTZ DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_client_payments_klient "
+    "ON client_payments(client_id, paid_date)",
 ]
 
 

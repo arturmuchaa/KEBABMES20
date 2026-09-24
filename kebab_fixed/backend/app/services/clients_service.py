@@ -1,9 +1,10 @@
 import re
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
-from app.db import cx_execute, cx_execute_returning, query_all, transaction
+from app.db import (cx_execute, cx_execute_returning, execute, query_all,
+                    query_one, transaction)
 from app.logging_config import get_logger
 from app.models.clients import ClientCreate
 from app.utils.ids import cuid, now_iso
@@ -164,3 +165,51 @@ def deactivate_client(client_id: str) -> None:
     with transaction() as conn:
         cx_execute(conn, "UPDATE clients SET active=false WHERE id=%s", (client_id,))
     logger.info("client.deactivated", extra={"client_id": client_id})
+
+
+# ── Rozrachunki z odbiorcami ────────────────────────────────────────────
+_WALUTY_ROZLICZEN = ("PLN", "EUR")
+
+
+def ustaw_rozliczenie(client_id: str, enabled: bool, currency: str) -> Dict[str, Any]:
+    """Włącznik rozrachunków i waluta rozliczeniowa kontrahenta.
+
+    Waluta jest PER KLIENT (decyzja właściciela 24.09.2026: „w zależności od
+    klienta jest albo euro albo PLN"), więc saldo jest jedną liczbą zamiast
+    dwóch równoległych.
+
+    ZMIANY WALUTY PRZY NIEZEROWYM SALDZIE ODMAWIAMY. Kwot nie przeliczamy —
+    zamiana jednostki zrobiłaby z długu 15 649 zł dług 15 649 €, a liczba
+    wyglądałaby tak samo sensownie jak przedtem. Taki błąd nie ma jak się
+    ujawnić inaczej niż awanturą z kontrahentem.
+    """
+    waluta = (currency or "PLN").upper()
+    if waluta not in _WALUTY_ROZLICZEN:
+        raise HTTPException(400, f"Nieznana waluta rozliczeń: {currency}")
+
+    obecna = query_one(
+        "SELECT settlement_currency FROM clients WHERE id=%s", (client_id,))
+    if not obecna:
+        raise HTTPException(404, "Kontrahent nie znaleziony")
+
+    if obecna["settlement_currency"] != waluta:
+        saldo = query_one(
+            "SELECT COALESCE((SELECT amount FROM client_opening_balances "
+            "                 WHERE client_id=%s), 0) "
+            "     + COALESCE((SELECT SUM(amount) FROM client_charges "
+            "                 WHERE client_id=%s), 0) "
+            "     - COALESCE((SELECT SUM(amount) FROM client_payments "
+            "                 WHERE client_id=%s), 0) AS s",
+            (client_id, client_id, client_id))
+        if abs(float((saldo or {}).get("s") or 0)) > 0.005:
+            raise HTTPException(
+                409,
+                "Kontrahent ma niezerowe saldo — zmiana waluty nie przelicza "
+                "kwot. Rozlicz saldo do zera albo popraw dokumenty, potem "
+                "zmień walutę.")
+
+    execute("UPDATE clients SET settlement_enabled=%s, settlement_currency=%s "
+            "WHERE id=%s", (bool(enabled), waluta, client_id))
+    logger.info("client.settlement.set",
+                extra={"client_id": client_id, "waluta": waluta})
+    return {"clientId": client_id, "enabled": bool(enabled), "currency": waluta}

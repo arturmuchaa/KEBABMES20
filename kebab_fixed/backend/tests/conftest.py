@@ -86,6 +86,11 @@ _TRUNCATE = [
     # odbiorcy przeciekały między testami (klienci po stałym id), więc dokument
     # kolejnego testu dostawał nazwę z poprzedniego.
     "client_recipe_names",
+    # Rozrachunki z odbiorcami (24.09.2026) — WYMIENIONE WPROST, choć
+    # `clients` i tak ciągnie je CASCADE. Jawny wpis mówi następnemu
+    # czytającemu, że te tabele są czyszczone, zamiast kazać mu to
+    # wydedukować z kluczy obcych.
+    "client_payments", "client_charges", "client_opening_balances",
     "product_types", "machine_locks", "sequences", "suppliers", "clients",
     # Grupy odbiorców — czyszczone RAZEM z klientami, inaczej `clients.group_id`
     # wskazywałby na grupę z poprzedniego przebiegu.
