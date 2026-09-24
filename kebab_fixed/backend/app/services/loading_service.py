@@ -21,6 +21,7 @@ from fastapi import HTTPException
 from app.db import (cx_execute, cx_query_all, cx_query_one, execute, query_all,
                     query_one, transaction)
 from app.utils.ids import cuid
+from app.utils.product_key import klucz_wyrobu
 from app.logging_config import get_logger
 from app.services import vehicle_loading_service
 from app.services.order_stock_service import picks_for_pallets, picks_z_dokumentu
@@ -169,11 +170,80 @@ def _ensure_hdi(order_id: str, plate: str) -> Dict[str, Any]:
         return {"hdi_number": None, "hdi_id": None, "hdi_error": str(exc)}
 
 
+def _etykieta_pozycji(poz: Dict[str, Any]) -> str:
+    """„KEBAB UDO 100% BEYAZ AFIYET 40 kg" — jak na kartce palety.
+
+    `:g` zamiast surowego float: magazynier ma zobaczyć „40 kg", nie „40.0 kg".
+    Wiersze bez rodzaju i receptury (starsze dane) oddają samą gramaturę —
+    lepiej mniej informacji niż wywrócony załadunek na formatowaniu nazwy.
+    """
+    kg = float(poz.get("kg_per_unit") or 0)
+    czlony = [str(poz.get(x) or "").strip() for x in ("rodzaj", "receptura")]
+    return " ".join([c for c in czlony if c] + [f"{kg:g} kg"])
+
+
+def _braki_pokrycia(rozpis: List[Dict[str, Any]],
+                    picks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Czego i ile brakuje — per POZYCJA, nie w sumie.
+
+    Incydent 24.09.2026: przy 506 sztukach na 17 paletach komunikat „na
+    paletach 506, na stanie 505" nie pozwala ruszyć z miejsca. Brakowała
+    jedna sztuka 40 kg BEYAZ AFIYET, bo 29 sztuk tej pozycji trzymał stempel
+    zamówienia jadącego pięć dni później.
+    """
+    pokryte: Dict[Any, int] = {}
+    for p in picks or []:
+        fg = p.get("fg") or {}
+        k = klucz_wyrobu(fg.get("recipe_id"), fg.get("kg_per_unit"),
+                         fg.get("product_type_id"), fg.get("packaging_id"))
+        pokryte[k] = pokryte.get(k, 0) + int(p.get("take") or 0)
+
+    braki = []
+    for poz in rozpis or []:
+        k = klucz_wyrobu(poz.get("recipe_id"), poz.get("kg_per_unit"),
+                         poz.get("product_type_id"), poz.get("packaging_id"))
+        trzeba = int(poz.get("qty") or 0)
+        mam = int(pokryte.get(k, 0))
+        if mam < trzeba:
+            braki.append({"etykieta": _etykieta_pozycji(poz), "brak": trzeba - mam,
+                          "rozpis": trzeba, "stan": mam})
+    return braki
+
+
+# Ekran skanera pokazuje zdanie backendu tylko do 220 znaków
+# (`scanMessages.komunikatOdmowy`); dłuższe zamienia na ogólnik — czyli
+# dokładnie na to, co właściciel zgłosił jako bezużyteczne.
+_LIMIT_EKRANU = 220
+
+
+def _komunikat_braku(order_no: str, braki: List[Dict[str, Any]]) -> str:
+    """Zdanie dla magazyniera: czego brakuje i o ile."""
+    prefiks = f"{order_no}: brakuje na stanie — "
+    czesci = [f"{b['etykieta']}: {b['brak']} szt (rozpis {b['rozpis']}, stan {b['stan']})"
+              for b in braki]
+    zmieszczone: List[str] = []
+    for i, cz in enumerate(czesci):
+        reszta = len(czesci) - (i + 1)
+        ogon = f" (+{reszta} więcej)" if reszta else ""
+        kandydat = prefiks + "; ".join(zmieszczone + [cz]) + ogon
+        if len(kandydat) > _LIMIT_EKRANU:
+            break
+        zmieszczone.append(cz)
+    pominiete = len(czesci) - len(zmieszczone)
+    ogon = f" (+{pominiete} więcej)" if pominiete else ""
+    return prefiks + "; ".join(zmieszczone) + ogon
+
+
 def _sprawdz_pokrycie_rozpisu(conn, order, pallet_ids, picks) -> None:
     """Czy magazyn pokrywa całą zawartość zeskanowanych palet.
 
     Bez tej kontroli `picks_for_pallets` oddaje tyle, ile leży, i załadunek
     wystawia dokument na MNIEJ, niż fizycznie pojechało — cicho, bez błędu.
+
+    ODMOWĄ RZĄDZI NADAL SUMA, nie rozbicie na pozycje. Rozbicie służy wyłącznie
+    TREŚCI komunikatu — gdyby decydowało, różnica w kluczu wyrobu (starsze
+    wiersze bez rodzaju) mogłaby odmówić poprawnemu załadunkowi. Gdy rozbicie
+    nic nie znajdzie, zostaje zdanie o sumach.
     """
     rozpisano = cx_query_one(
         conn,
@@ -182,6 +252,25 @@ def _sprawdz_pokrycie_rozpisu(conn, order, pallet_ids, picks) -> None:
     trzeba = int((rozpisano or {}).get("n") or 0)
     dobrano = sum(int(p.get("take") or 0) for p in picks)
     if dobrano < trzeba:
+        # Nazwy wyrobów dociągamy DOPIERO tutaj — w ścieżce, która i tak
+        # kończy się odmową. Zapytanie z JOIN-ami nie ma po co chodzić przy
+        # każdym poprawnym załadunku.
+        rozpis = cx_query_all(
+            conn,
+            """SELECT l.recipe_id, l.kg_per_unit, l.product_type_id, l.packaging_id,
+                      SUM(i.qty) AS qty,
+                      COALESCE(pt.name, '') AS rodzaj,
+                      COALESCE(r.name, '')  AS receptura
+                 FROM order_pallet_items i
+                 JOIN client_order_lines l ON l.id = i.order_line_id
+                 LEFT JOIN recipes r        ON r.id = l.recipe_id
+                 LEFT JOIN product_types pt ON pt.id = l.product_type_id
+                WHERE i.pallet_id = ANY(%s)
+                GROUP BY 1, 2, 3, 4, 6, 7""",
+            (pallet_ids,))
+        braki = _braki_pokrycia(rozpis, picks)
+        if braki:
+            raise HTTPException(400, _komunikat_braku(order.get("order_no") or "", braki))
         raise HTTPException(
             400,
             f"{order.get('order_no')}: magazyn nie pokrywa zeskanowanych palet — "

@@ -118,3 +118,35 @@ describe('komunikatPozaKolejnoscia', () => {
     expect(k.szczegol).toContain('POLAT/Z/1/09/26')
   })
 })
+
+// ─── Incydent 24.09.2026: komunikat odmowy przy POTWIERDZENIU ───────────
+//
+// Auto załadowane, wszystko zeskanowane, „Potwierdź" → „Skan nie został
+// przyjęty, zawołaj biuro". Backend mówił konkretnie, czego brakuje, ale
+// ekran wtłaczał tę odmowę w słownik kodów SKANU i lądował w gałęzi
+// domyślnej — jedyna użyteczna informacja ginęła.
+describe('odmowa potwierdzenia załadunku', () => {
+  const ZDANIE = 'YALCIN/Z/7/09/26: brakuje na stanie — '
+    + 'KEBAB UDO 100% BEYAZ AFIYET 40 kg: 1 szt (rozpis 40, stan 39)'
+
+  it('pokazuje zdanie backendu, a nie ogólnik', () => {
+    const k = komunikatOdmowy(new Error(ZDANIE), false)
+    expect(k.szczegol).toBe(ZDANIE)
+    expect(k.szczegol).not.toMatch(/zawołaj biuro/i)
+  })
+
+  it('prawdziwy komunikat mieści się w limicie ekranu', () => {
+    // Backend tnie listę braków do 220 znaków — gdyby przekroczył, ekran
+    // zamieniłby go na ogólnik i wróciłby dokładnie zgłoszony problem.
+    expect(ZDANIE.length).toBeLessThanOrEqual(220)
+  })
+
+  it('techniczny wyciek nadal nie idzie do magazyniera', () => {
+    const k = komunikatOdmowy(new Error('psycopg2.errors.ForeignKeyViolation: ...'), false)
+    expect(k.szczegol).toMatch(/Operacja nie przeszła/i)
+  })
+
+  it('brak sieci wygrywa z treścią błędu', () => {
+    expect(komunikatOdmowy(new Error(ZDANIE), true).naglowek).toMatch(/BRAK POŁĄCZENIA/i)
+  })
+})

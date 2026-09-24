@@ -445,7 +445,14 @@ export function MobileZaladunekPage() {
       await odswiez()
       dostepneRes.refetch()
     } catch (e) {
-      pokazBlad(e)
+      // Odmowa POTWIERDZENIA niesie konkretne zdanie z serwera („brakuje na
+      // stanie — KEBAB UDO 100% BEYAZ AFIYET 40 kg: 1 szt"). `pokazBlad`
+      // wtłaczał ją w słownik kodów SKANU i lądował w gałęzi domyślnej
+      // („Skan nie został przyjęty, zawołaj biuro"), gubiąc jedyną użyteczną
+      // informację — incydent na hali 24.09.2026, auto stało załadowane.
+      // To nie jest skan; te same cztery operacje na liście auta niżej już
+      // używają `pokazOdmowe`.
+      pokazOdmowe(e)
       await odswiez()
     } finally {
       setFinalizing(false)
