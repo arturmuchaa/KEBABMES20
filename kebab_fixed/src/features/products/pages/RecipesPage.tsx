@@ -25,10 +25,11 @@ import { useProductTypes } from '../hooks'
 import { useApi } from '@/hooks/useApi'
 import { rawBatchesApi } from '@/lib/apiClient'
 import type { Recipe } from '@/features/ingredients/types'
-import { Plus, X, ChevronDown, ChevronUp, BookOpen, AlertTriangle, Pencil } from 'lucide-react'
+import { Plus, X, ChevronDown, ChevronUp, BookOpen, AlertTriangle, Pencil, Copy } from 'lucide-react'
 
 export function RecipesPage() {
-  const { recipes, loading, create, createLoading, update, updateLoading } = useRecipes()
+  const { recipes, loading, create, createLoading, update, updateLoading,
+          duplicate, duplicateLoading } = useRecipes()
   const { ingredients: ingList } = useIngredients()
   const { productTypes }         = useProductTypes()
   const form = useRecipeForm()
@@ -41,6 +42,12 @@ export function RecipesPage() {
   const [editingId,    setEditingId]    = useState<string | null>(null)
   const [expanded,     setExpanded]     = useState<string | null>(null)
   const [viewRecipe,   setViewRecipe]   = useState<Recipe | null>(null)
+
+  async function duplikuj(r: Recipe) {
+    const blad = await duplicate(r.id)
+    if (blad) toast.error(blad)
+    else toast.success(`Skopiowano „${r.name}" — kopia jest na liście tuż pod oryginałem`)
+  }
 
   function loadRecipeIntoForm(r: Recipe) {
     form.setName(r.name)
@@ -141,6 +148,13 @@ export function RecipesPage() {
                 <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1"
                   onClick={e => { e.stopPropagation(); openEditModal(r) }}>
                   <Pencil size={11}/> Edytuj
+                </Button>
+                {/* stopPropagation: wiersz jest klikalny (rozwija skład),
+                    więc bez tego duplikowanie rozwijałoby też recepturę. */}
+                <Button variant="outline" size="sm" className="h-7 text-[11px] gap-1"
+                  disabled={duplicateLoading}
+                  onClick={e => { e.stopPropagation(); void duplikuj(r) }}>
+                  <Copy size={11}/> Duplikuj
                 </Button>
                 <Button variant="outline" size="sm" className="h-7 text-[11px]"
                   onClick={e => { e.stopPropagation(); setViewRecipe(r) }}>

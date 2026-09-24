@@ -72,6 +72,7 @@ export function useRecipes() {
   const updateMut     = useMutation(({ id, dto }: { id: string; dto: UpdateRecipeDto }) =>
     recipesApi.update(id, dto))
   const deactivateMut = useMutation((id: string) => recipesApi.deactivate(id))
+  const duplicateMut  = useMutation((id: string) => recipesApi.duplicate(id))
 
   const create = useCallback(async (dto: CreateRecipeDto): Promise<string | null> => {
     if (!dto.name.trim()) return 'Podaj nazwę receptury'
@@ -96,6 +97,14 @@ export function useRecipes() {
     catch (e) { return e instanceof Error ? e.message : 'Błąd' }
   }, [deactivateMut, refetch])
 
+  // Nazwę kopii („KIRMIZI(1)") nadaje backend — tylko on zna wszystkie
+  // zajęte numery. `refetch` jest częścią operacji: bez odświeżenia operator
+  // nie widzi kopii, klika drugi raz i robi trzecią.
+  const duplicate = useCallback(async (id: string): Promise<string | null> => {
+    try { await duplicateMut.mutate(id); refetch(); return null }
+    catch (e) { return e instanceof Error ? e.message : 'Nie udało się skopiować' }
+  }, [duplicateMut, refetch])
+
   const calculate = useCallback(async (
     recipeId: string, meatKg: number,
   ): Promise<RecipeCalculation | null> => {
@@ -108,9 +117,10 @@ export function useRecipes() {
     ingredients: ingredientList ?? [],
     stock:       stock ?? [],
     loading, error, refetch,
-    create, update, deactivate, calculate,
+    create, update, deactivate, duplicate, calculate,
     createLoading: createMut.loading,
     updateLoading: updateMut.loading,
+    duplicateLoading: duplicateMut.loading,
   }
 }
 

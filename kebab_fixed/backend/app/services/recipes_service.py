@@ -1,4 +1,5 @@
 import json
+import re
 from typing import Dict, List, Optional
 
 from fastapi import HTTPException
@@ -187,6 +188,92 @@ def deactivate_recipe(recipe_id: str) -> None:
     with transaction() as conn:
         cx_execute(conn, "UPDATE recipes SET active=false WHERE id=%s", (recipe_id,))
         logger.info("recipe.deactivated", extra={"recipe_id": recipe_id})
+
+
+_SUFIKS_KOPII = re.compile(r"\((\d+)\)\s*$")
+
+
+def _nazwa_kopii(conn, nazwa: str) -> str:
+    """„KIRMIZI" → „KIRMIZI(1)"; gdy ta jest zajęta, kolejny wolny numer.
+
+    Numerujemy od nazwy BAZOWEJ, więc duplikat duplikatu daje „KIRMIZI(2)",
+    a nie „KIRMIZI(1)(1)" — po kilku kopiach to drugie jest nie do czytania.
+
+    Nazwy czytamy w całości zamiast filtrować LIKE-iem: receptur są dziesiątki,
+    a `%` albo `_` w nazwie robi z LIKE wieloznacznik i cicho zmienia wynik.
+    """
+    baza = _SUFIKS_KOPII.sub("", nazwa or "").strip()
+    zajete = {r["name"] for r in cx_query_all(conn, "SELECT name FROM recipes")}
+    n = 1
+    while f"{baza}({n})" in zajete:
+        n += 1
+    return f"{baza}({n})"
+
+
+def duplicate_recipe(recipe_id: str) -> Dict:
+    """Kopia receptury pod nową nazwą — z przyprawami i składem produkcyjnym.
+
+    Właściciel 24.09.2026: receptury różnią się często jednym składnikiem,
+    a przepisywanie kilkunastu przypraw ręcznie to proszenie się o literówkę
+    w gramaturze.
+
+    Kolumny wyliczamy WPROST, nie przez `SELECT *` → `INSERT`: `recipes.code`
+    ma unikalny indeks, więc skopiowany kod albo wywaliłby zapis, albo (gdyby
+    indeks kiedyś zniknął) wskazywał w katalogu wyrobów dwie różne receptury.
+    Kod nadaje się osobno, tak samo jak przy zakładaniu receptury.
+    """
+    with transaction() as conn:
+        src = cx_query_one(conn, "SELECT * FROM recipes WHERE id=%s", (recipe_id,))
+        if not src:
+            raise HTTPException(404, "Receptura nie znaleziona")
+
+        nowy = cuid()
+        row = cx_query_one(
+            conn,
+            """
+            INSERT INTO recipes
+                (id, name, product_type_id, product_type_name,
+                 total_output_per_100kg, shelf_life_days, mixing_minutes, active, notes,
+                 components, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,true,%s,%s,%s)
+            RETURNING *
+            """,
+            (
+                nowy,
+                _nazwa_kopii(conn, src["name"]),
+                src["product_type_id"],
+                src["product_type_name"],
+                src["total_output_per_100kg"],
+                src["shelf_life_days"],
+                src["mixing_minutes"],
+                src["notes"],
+                json.dumps(src["components"] or []),
+                now_iso(),
+            ),
+        )
+        # `seq` przepisujemy z oryginału, a nie numerujemy od nowa: kolejność
+        # składników jest znacząca (woda ZAWSZE ostatnia) i tak samo trafia
+        # na wydruk planu masowania.
+        for ing in cx_query_all(
+            conn,
+            "SELECT * FROM recipe_ingredients WHERE recipe_id=%s ORDER BY seq",
+            (recipe_id,),
+        ):
+            cx_execute(
+                conn,
+                """
+                INSERT INTO recipe_ingredients
+                    (id, recipe_id, ingredient_id, ingredient_name, unit, qty_per_100kg, seq)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (cuid(), nowy, ing["ingredient_id"], ing["ingredient_name"],
+                 ing["unit"], ing["qty_per_100kg"], ing["seq"]),
+            )
+
+        row["ingredients"] = _load_ingredients(conn, nowy)
+        logger.info("recipe.duplicated",
+                    extra={"recipe_id": nowy, "zrodlo_receptury": recipe_id})
+        return row
 
 
 def calculate_recipe(recipe_id: str, kg: float) -> Dict:

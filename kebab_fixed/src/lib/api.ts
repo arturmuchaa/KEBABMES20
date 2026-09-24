@@ -1576,6 +1576,7 @@ export const recipesApi = {
   byId:       (id: string) => get<any>(`/recipes/${id}`).then(mapRecipe),
   create:     (dto: CreateRecipeDto) => post<any>('/recipes', toSnakeRecipeDto(dto)).then(mapRecipe),
   update:     (id: string, dto: UpdateRecipeDto) => put<any>(`/recipes/${id}`, toSnakeRecipeDto(dto)).then(mapRecipe),
+  duplicate:  (id: string) => post<any>(`/recipes/${id}/duplicate`, {}).then(mapRecipe),
   deactivate: (id: string) => patch<void>(`/recipes/${id}/deactivate`, {}),
   calculate:  (id: string, kg: number) => get<any>(`/recipes/${id}/calculate?kg=${kg}`),
 }

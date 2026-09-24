@@ -27,6 +27,13 @@ def update_recipe(recipe_id: str, dto: RecipeCreate):
     return svc.update_recipe(recipe_id, dto)
 
 
+@router.post("/{recipe_id}/duplicate")
+def duplicate_recipe(recipe_id: str):
+    """Kopia receptury pod nazwą „…(1)" — receptury różnią się często jednym
+    składnikiem, a przepisywanie przypraw ręcznie to literówka w gramaturze."""
+    return svc.duplicate_recipe(recipe_id)
+
+
 @router.patch("/{recipe_id}/deactivate")
 def deactivate_recipe(recipe_id: str):
     svc.deactivate_recipe(recipe_id)
