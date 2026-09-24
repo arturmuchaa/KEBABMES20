@@ -4,7 +4,7 @@ import { useAuth } from '@/features/auth/AuthContext'
 import {
   LayoutDashboard, Package, Beef, BookOpen,
   Layers, Users, UserCog, FlaskConical, ShoppingBag,
-  BarChart2, CreditCard, Scissors, Monitor, Truck, Building2,
+  BarChart2, CreditCard, Scissors, Monitor, Truck, Building2, Wallet,
   FileText, X, Factory, ShoppingCart, Archive,
   Banknote, Clock, Settings, QrCode, Calculator, GitBranch, History, ChevronRight, ShieldCheck, BarChart3,
   ClipboardCheck, UserSearch, Boxes, Thermometer, ClipboardList, Tags,
@@ -20,6 +20,7 @@ const NAV: NavSection[] = [
     { to: '/office/zamowienia',  label: 'Zamówienia',  icon: <ShoppingCart size={16} /> },
     { to: '/office/hdi',         label: 'Dokumenty HDI', icon: <FileText size={16} /> },
     { to: '/office/wz',          label: 'Wydania',       icon: <FileText size={16} /> },
+    { to: '/office/rozrachunki', label: 'Rozrachunki',   icon: <Wallet size={16} /> },
     { to: '/office/saldo-pojemnikow', label: 'Saldo pojemników', icon: <Boxes size={16} /> },
     { to: '/office/przewoznicy', label: 'Przewoźnicy',   icon: <Truck size={16} /> },
     { to: '/office/cmr',              label: 'Dokumenty CMR',    icon: <FileText size={16} /> },

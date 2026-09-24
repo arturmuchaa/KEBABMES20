@@ -82,6 +82,7 @@ import { UsersPage }              from '@/pages/office/UsersPage'
 import { VehiclesPage }           from '@/pages/office/VehiclesPage'
 import { LabelTemplatesPage }     from '@/pages/office/LabelTemplatesPage'
 import { ProductTypesPage, RecipesPage, PlanningPage } from '@/features/products'
+import { RozrachunkiPage } from '@/pages/office/RozrachunkiPage'
 import { ProductCatalogPage } from '@/pages/office/ProductCatalogPage'
 import { RozbiorRoute }        from '@/pages/tablet/RozbiorRoute'
 import { MixingTabletPage }    from '@/pages/tablet/MixingTabletPage'
@@ -222,6 +223,7 @@ export default function App() {
         {/* Katalog wyrobów — rodzaj × receptura × tuleja × gramatura z kodem. */}
         <Route path="katalog-wyrobow"       element={<ProductCatalogPage />} />
         <Route path="receptury"             element={<RecipesPage />} />
+        <Route path="rozrachunki"           element={<RozrachunkiPage />} />
         <Route path="szablony-etykiet"      element={<LabelTemplatesPage />} />
         <Route path="kalkulacja-kosztow"    element={<CostCalculatorPage />} />
         <Route path="planowanie-masowania"  element={<PlanningPage />} />
