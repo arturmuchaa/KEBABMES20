@@ -35,7 +35,7 @@
       "dangerousInsecureTransportProtocol": true,
       "dialog": false,
       "windows": {
-        "installMode": "quiet"
+        "installMode": "passive"
       }
     }
   },
