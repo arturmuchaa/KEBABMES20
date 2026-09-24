@@ -180,16 +180,33 @@ def test_komplet_buduje_oba_cmr_z_tego_samego_formularza(db):
     assert all(c["payload"]["carrier"]["plate"] == "KR 12345" for c in dane["cmr"])
 
 
-def test_komplet_wpisuje_numery_HDI_w_zalaczniki_obu_CMR(db):
-    """Ta sama klasa defektu co pusty numer rejestracyjny na drugim HDI:
-    CMR cytuje w polu „załączniki" numer HDI SWOJEGO wariantu. Komplet
-    wystawia więc HDI PRZED listami i jednym przejściem — załączniki mają być
-    wypełnione już w tym, co trasa zwraca."""
+def test_przy_PODZIALE_zalaczniki_CMR_zostaja_PUSTE(db):
+    """DECYZJA ZMIENIONA 24.09.2026 — ten test celował wcześniej odwrotnie.
+
+    Poprzednio: „CMR cytuje numer HDI SWOJEGO wariantu", więc komplet
+    wystawiał HDI przed listami i wypełniał oba załączniki.
+
+    Właściciel 24.09.2026: „HDI wstawiaj tylko jeżeli nie ma WZ i wszystko
+    jedzie na całość; jeżeli dzielimy — pole puste". Powód: CMR-y wychodzą
+    parami, a w praktyce biuro wystawia HDI tylko na całość (na produkcji
+    24.09 WSZYSTKIE 44 dokumenty HDI miały `scope='calosc'`), więc drugi
+    papier z pary zawsze szedł z pustym polem i wyglądało to jak pomyłka.
+
+    Pierwotna troska ZOSTAJE przetestowana niżej
+    (`test_bez_podzialu_CMR_niesie_numer_HDI` w `test_cmr_hdi_*`): gdy
+    zamówienie nie jest dzielone, numer HDI na CMR nadal musi być.
+
+    ⚠️ Świadomy koszt: przy zaznaczonym „HDI do faktury" oba dokumenty HDI
+    dalej powstają, ale ich numery NIE trafiają na CMR-y.
+    """
     _przygotuj_z_podzialem(cel_kg=300.0)
     dane = route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
+
     zalaczniki = [c["payload"]["attachments"]["hdi_number"] for c in dane["cmr"]]
-    assert zalaczniki == [dane["hdi_calosc"]["number"], dane["hdi_fv"]["number"]]
-    assert all(zalaczniki)
+    assert zalaczniki == ["", ""]
+    # Same dokumenty HDI powstają jak dotąd — zmienia się tylko to,
+    # czy ich numer jest cytowany na liście przewozowym.
+    assert dane["hdi_calosc"]["number"] and dane["hdi_fv"]["number"]
 
 
 def test_awaria_HDI_nie_pali_numerow_CMR(db, monkeypatch):
