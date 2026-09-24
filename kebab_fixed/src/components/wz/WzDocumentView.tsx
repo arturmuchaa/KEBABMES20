@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from 'react'
+import { BlokSalda } from '@/features/rozrachunki/BlokSalda'
 import { WzDoc, WzLine } from '@/lib/api'
 import { fmtDatePl } from '@/lib/utils'
 import { buildHdiRows } from './hdiRows'
@@ -30,6 +31,10 @@ export type WzDocData = {
    *  pasek ostrzegawczy — przy całości na fakturę WM nie ukrywa niczego
    *  i wolno go dać klientowi (właściciel, 22.09.2026). */
   ukrywa_czesc_poza_faktura?: boolean
+  /** Identyfikator dokumentu — po nim blok rozrachunków pyta backend
+   *  o zaległości kontrahenta. Nieobecny na szkicu (dokument jeszcze
+   *  nie istnieje), więc blok się wtedy nie rysuje. */
+  id?: string
 }
 
 export function asWzDocData(doc: WzDoc): WzDocData { return doc }
@@ -297,6 +302,13 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
           </div>
         </div>
       )}
+
+      {/* Rozrachunki: zaległości klienta na tym samym papierze co wydanie.
+          Właściciel 24.09.2026: „będę podpinał klientowi do dokumentów".
+          Blok MILCZY dla kontrahenta bez rozrachunków — jest dodatkiem do
+          dokumentu, nie warunkiem jego powstania. Nie pokazujemy go na
+          szkicu: szkic nie jedzie do klienta. */}
+      {!draft && doc.id ? <BlokSalda wzId={String(doc.id)} /> : null}
 
       {/* ── Identyfikacja partii surowca (HDI) — tylko pozycje surowcowe;
              sprzedaż wyrobu (kebab) ma osobny, pełny HDI jak dotąd. ── */}

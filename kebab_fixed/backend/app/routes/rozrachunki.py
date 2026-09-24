@@ -66,10 +66,14 @@ def usun(kind: str, entry_id: str):
     return svc.usun_pozycje(kind, entry_id)
 
 
-@router.get("/{client_id}/na-dokumencie/{wz_id}")
-def na_dokumencie(client_id: str, wz_id: str):
-    """Blok „niezapłacone" drukowany na dokumencie wydania."""
-    return svc.saldo_na_dokument(client_id, wz_id)
+@router.get("/na-dokumencie/{wz_id}")
+def na_dokumencie(wz_id: str):
+    """Blok „niezapłacone" drukowany na dokumencie wydania.
+
+    Kontrahenta ustala SERWIS z dokumentu — wołający nie ma czym udowodnić,
+    czyj on jest, a `wz_documents` nie ma kolumny `client_id`.
+    """
+    return svc.saldo_na_dokument(wz_id)
 
 
 @router.post("/dostawa/{order_id}")

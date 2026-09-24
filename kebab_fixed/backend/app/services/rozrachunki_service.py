@@ -289,7 +289,35 @@ def _wymagaj_salda_otwarcia(karta: Dict[str, Any]) -> None:
             "Wpisz saldo otwarcia w Rozrachunkach i spróbuj ponownie.")
 
 
-def saldo_na_dokument(client_id: str, wz_id: str) -> Dict[str, Any]:
+def _klient_dokumentu(wz_id: str) -> str:
+    """Czyj jest ten dokument — ustalane Z DOKUMENTU, nie od wołającego.
+
+    `wz_documents` nie ma kolumny `client_id`, więc każdy, kto podpina blok
+    salda do wydruku, musiałby rozstrzygać klienta sam — i wpadłby w tę samą
+    pułapkę dwóch kart „YALCIN" co `_obciazenia_z_wz` (recenzja 24.09.2026).
+    Jedno miejsce, jedna reguła: najpierw zamówienie, potem nazwa nabywcy.
+    """
+    row = query_one(
+        """
+        SELECT COALESCE(
+                 (SELECT o.client_id FROM client_orders o
+                   WHERE w.source_type='order' AND o.id = w.source_id),
+                 (SELECT c.id FROM clients c
+                   WHERE c.name = w.buyer_name OR c.display_name = w.buyer_name
+                   ORDER BY (c.name = w.buyer_name) DESC LIMIT 1),
+                 '') AS client_id
+        FROM wz_documents w WHERE w.id = %s
+        """, (wz_id,))
+    cid = (row or {}).get("client_id") or ""
+    if not cid:
+        raise HTTPException(
+            404,
+            "Nie umiem ustalić kontrahenta tego dokumentu — nabywcy nie ma "
+            "w kartotece, więc nie ma czyjego salda pokazać.")
+    return cid
+
+
+def saldo_na_dokument(wz_id: str) -> Dict[str, Any]:
     """Blok „niezapłacone" drukowany NA dokumencie wydania.
 
     Właściciel 24.09.2026: „do każdej WZ i do faktury drukowało się saldo
@@ -308,7 +336,7 @@ def saldo_na_dokument(client_id: str, wz_id: str) -> Dict[str, Any]:
     wywraca bloku: `dokument_biezacy` jest wtedy `None`, a oba salda są
     równe — papier pokazuje same zaległości.
     """
-    karta = karta_klienta(client_id)
+    karta = karta_klienta(_klient_dokumentu(wz_id))
     _wymagaj_salda_otwarcia(karta)
     biezacy = next(
         (o for o in karta["obciazenia"] if o.get("source_id") == wz_id), None)

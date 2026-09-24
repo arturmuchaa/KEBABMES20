@@ -39,7 +39,7 @@ def test_dokument_biezacy_NIE_liczy_sie_jako_zaleglosc(db):
     _wz("w1", "c1", "WZ/1/09/26", "2026-09-10", 1000.0)
     _wz("w2", "c1", "WZ/2/09/26", "2026-09-15", 3000.0, seq=2)
 
-    blok = saldo_na_dokument("c1", "w2")
+    blok = saldo_na_dokument("w2")
 
     assert [p["number"] for p in blok["pozycje"]] == ["WZ/1/09/26"]
     assert blok["dokument_biezacy"]["number"] == "WZ/2/09/26"
@@ -50,7 +50,7 @@ def test_saldo_przed_i_po_tym_dokumencie(db):
     _wz("w1", "c1", "WZ/1/09/26", "2026-09-10", 1000.0)
     _wz("w2", "c1", "WZ/2/09/26", "2026-09-15", 3000.0, seq=2)
 
-    blok = saldo_na_dokument("c1", "w2")
+    blok = saldo_na_dokument("w2")
 
     assert blok["saldo_przed"] == -1000.0
     assert blok["saldo_po"] == -4000.0
@@ -61,7 +61,7 @@ def test_pierwszy_dokument_klienta_ma_zerowe_saldo_przed(db):
     _klient()
     _wz("w1", "c1", "WZ/1/09/26", "2026-09-10", 1000.0)
 
-    blok = saldo_na_dokument("c1", "w1")
+    blok = saldo_na_dokument("w1")
 
     assert blok["pozycje"] == []
     assert blok["saldo_przed"] == 0.0
@@ -75,16 +75,18 @@ def test_blok_niesie_CHWILE_policzenia(db):
     _klient()
     _wz("w1", "c1", "WZ/1/09/26", "2026-09-10", 1000.0)
 
-    assert saldo_na_dokument("c1", "w1")["policzono"]
+    assert saldo_na_dokument("w1")["policzono"]
 
 
 def test_dokument_spoza_salda_nie_wywraca_bloku(db):
-    """Wydruk dokumentu, którego w rozrachunkach nie ma (sprzed odcięcia
-    albo niewycenionego) — blok pokazuje zaległości bez pozycji bieżącej."""
+    """Wydruk dokumentu, którego w rozrachunkach nie ma — tu NIEWYCENIONEGO.
+    Blok pokazuje zaległości bez pozycji bieżącej, zamiast się wywracać."""
     _klient()
-    _wz("w1", "c1", "WZ/1/09/26", "2026-09-10", 1000.0)
+    _wz("w1", "c1", "WZ/1/09/26", "2026-09-10", 1000.0)      # wyceniony
+    _wz("w2", "c1", "WZ/2/09/26", "2026-09-12", 500.0, seq=2)
+    execute("UPDATE wz_documents SET valued=false WHERE id='w2'")
 
-    blok = saldo_na_dokument("c1", "nie-ma-takiego")
+    blok = saldo_na_dokument("w2")
 
     assert blok["dokument_biezacy"] is None
     assert blok["saldo_przed"] == blok["saldo_po"] == -1000.0
@@ -180,7 +182,7 @@ def test_bez_salda_otwarcia_blok_na_dokumencie_ODMAWIA(db):
     _wz("w1", "c1", "WZ/1/09/26", "2026-09-10", 1000.0)
 
     with pytest.raises(HTTPException) as e:
-        saldo_na_dokument("c1", "w1")
+        saldo_na_dokument("w1")
     assert e.value.status_code == 400
 
 
@@ -219,3 +221,34 @@ def test_brak_dokumentu_na_calosc_ODMAWIA_zamiast_zgadywac(db):
         rozliczenie_dostawy("ord9", {})
     assert e.value.status_code == 400
     assert "całość" in str(e.value.detail).lower()
+
+
+# ─── I4: klient wyprowadzany Z DOKUMENTU, nie z parametru ───────────────
+
+def test_blok_ustala_klienta_SAM_z_dokumentu(db):
+    """Recenzja 24.09.2026: `saldo_na_dokument` brało `client_id` od
+    wołającego, a `wz_documents` tej kolumny nie ma. Każdy, kto podpina blok
+    do wydruku, musiałby rozstrzygać klienta sam — czyli wpadłby w tę samą
+    pułapkę dwóch kart „YALCIN". Dokument wie, czyj jest; niech powie."""
+    _klient()
+    _wz("w1", "c1", "WZ/1/09/26", "2026-09-10", 1000.0)
+
+    blok = saldo_na_dokument("w1")
+
+    assert blok["klient"]["id"] == "c1"
+    assert blok["saldo_po"] == -1000.0
+
+
+def test_dokument_bez_kontrahenta_w_kartotece_odmawia(db):
+    """WZ na nazwę spoza kartoteki nie ma czyjego salda pokazać."""
+    import pytest
+    from fastapi import HTTPException
+    execute(
+        "INSERT INTO wz_documents (id, number, seq, year_month, buyer_name, lines, "
+        " total_value, valued, status, doc_series, currency, issued_date) "
+        "VALUES ('wx','WZ/99/09/26',99,'2609','KTOS SPOZA','[]'::jsonb,100,true,"
+        " 'wstepny','WZ','PLN','2026-09-10')")
+
+    with pytest.raises(HTTPException) as e:
+        saldo_na_dokument("wx")
+    assert e.value.status_code == 404

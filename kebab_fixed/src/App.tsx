@@ -84,6 +84,7 @@ import { LabelTemplatesPage }     from '@/pages/office/LabelTemplatesPage'
 import { ProductTypesPage, RecipesPage, PlanningPage } from '@/features/products'
 import { RozrachunkiPage } from '@/pages/office/RozrachunkiPage'
 import { RozliczenieDostawyPage } from '@/pages/office/RozliczenieDostawyPage'
+import { RozrachunkiDrukPage } from '@/pages/office/RozrachunkiDrukPage'
 import { ProductCatalogPage } from '@/pages/office/ProductCatalogPage'
 import { RozbiorRoute }        from '@/pages/tablet/RozbiorRoute'
 import { MixingTabletPage }    from '@/pages/tablet/MixingTabletPage'
@@ -226,6 +227,7 @@ export default function App() {
         <Route path="receptury"             element={<RecipesPage />} />
         <Route path="rozrachunki"           element={<RozrachunkiPage />} />
         <Route path="rozliczenie-dostawy/:id" element={<RozliczenieDostawyPage />} />
+        <Route path="rozrachunki/:id/druk"  element={<RozrachunkiDrukPage />} />
         <Route path="szablony-etykiet"      element={<LabelTemplatesPage />} />
         <Route path="kalkulacja-kosztow"    element={<CostCalculatorPage />} />
         <Route path="planowanie-masowania"  element={<PlanningPage />} />
