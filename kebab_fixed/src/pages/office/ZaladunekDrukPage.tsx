@@ -71,6 +71,17 @@ export function ZaladunekDrukPage() {
   function wczytaj() {
     return zaladunkiApi.get(id).then((k) => {
       setKurs(k)
+      // Numer rejestracyjny znamy z POTWIERDZENIA ZAŁADUNKU — magazynier
+      // wpisał go przy skanowaniu, a ekran pokazuje go w nagłówku. Formularz
+      // transportu startował mimo to z pustego pola i biuro przepisywało
+      // numer ręcznie (zgłoszenie właściciela 24.09.2026: „nie zaciąga się
+      // do pola CMR, widać tylko u góry").
+      //
+      // NIE NADPISUJEMY tego, co biuro już wpisało: auto bywa podmieniane
+      // między załadunkiem a wystawieniem papierów, a wtedy racji ma biuro.
+      if (k?.plate) {
+        setTransport(t => (t.plate.trim() ? t : { ...t, plate: String(k.plate) }))
+      }
       // Domyślnie CAŁOŚĆ na fakturę — tak wygląda większość kursów, a przy
       // podziale biuro i tak wpisuje kilogramy ręcznie.
       setDecyzje(Object.fromEntries(((k?.pozycje ?? []) as Pozycja[])

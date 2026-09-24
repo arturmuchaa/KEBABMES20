@@ -1861,9 +1861,16 @@ def list_wz() -> List[Dict[str, Any]]:
     drukowanej na samym WZ i osobnego dokumentu nie potrzebują.
     """
     return query_all(
+        # `doc_series` i `split_scope` NIE SĄ ozdobnikami: na nich stoi podział
+        # rejestru na zakładki Zewnętrzne/Magazynowe i pasek „nie wydawać
+        # klientowi". Bez nich ekran czyta każdy dokument jako WZ — zakładka
+        # Magazynowe stała pusta, a WM-y wisiały w cudzej (zgłoszenie
+        # właściciela 24.09.2026). COALESCE, bo dokumenty sprzed podziału
+        # wysyłki serii nie mają i z definicji są zewnętrzne.
         "SELECT id, number, buyer_name, total_value, valued, status, issued_date, "
         "currency, source_type, source_id, loading_status, loading_diff, "
         "vehicle_plate, loaded_at, created_at, "
+        "COALESCE(doc_series, 'WZ') AS doc_series, split_scope, "
         "EXISTS (SELECT 1 FROM jsonb_array_elements("
         "          COALESCE(lines, '[]'::jsonb)) li "
         "        WHERE li->>'stock_type' = 'fg') AS has_fg "

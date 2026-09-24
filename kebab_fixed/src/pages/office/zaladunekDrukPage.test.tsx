@@ -183,3 +183,30 @@ describe('kurs czekający na wystawienie', () => {
     expect(screen.queryByTestId('wystaw-komplet')).toBeNull()
   })
 })
+
+// ─── Numer rejestracyjny z kursu (zgłoszenie 24.09.2026) ────────────────
+//
+// „Jak wystawiam dokumenty po skanie, to nr rejestracyjny nie zaciąga się
+// do pola CMR — widać tylko u góry." Numer JEST na ekranie (nagłówek kursu,
+// zapisany przy potwierdzeniu załadunku), ale formularz transportu startował
+// z pustych wartości domyślnych i biuro przepisywało go ręcznie.
+describe('numer rejestracyjny w danych transportu', () => {
+  it('podstawia się z kursu, bez przepisywania', async () => {
+    // Formularz transportu pokazuje się tylko dla pozycji DO WYSTAWIENIA.
+    stan.kurs = { ...KURS, plate: 'SMY01302/ST0302X',
+                  pozycje: [{ ...KURS.pozycje[0], wz_status: 'do_wystawienia' }] }
+    pokaz()
+    await screen.findByText(/Do wystawienia/)
+
+    expect(await screen.findByDisplayValue('SMY01302/ST0302X')).toBeTruthy()
+  })
+
+  it('kurs bez numeru zostawia pole puste do wpisania', async () => {
+    stan.kurs = { ...KURS, plate: '',
+                  pozycje: [{ ...KURS.pozycje[0], wz_status: 'do_wystawienia' }] }
+    pokaz()
+    await screen.findByText(/Do wystawienia/)
+
+    expect(screen.queryByDisplayValue('SMY01302/ST0302X')).toBeNull()
+  })
+})

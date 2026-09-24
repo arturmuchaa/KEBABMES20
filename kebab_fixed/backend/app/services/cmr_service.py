@@ -199,7 +199,22 @@ def build_cmr(order_id: str, form: Dict[str, Any],
     # jadący z pełnym towarem powoływałby się na dokument na inną ilość.
     # Gdy HDI danego wariantu jeszcze nie ma, załącznik zostaje PUSTY —
     # podstawienie numeru drugiego wariantu byłoby cichym błędem na papierze.
-    hdi = query_one(
+    # Numer HDI na CMR TYLKO wtedy, gdy zamówienie nie jest dzielone.
+    #
+    # Decyzja właściciela 24.09.2026: „HDI wstawiaj tylko jeżeli nie ma WZ
+    # i wszystko jedzie na całość; jeżeli dzielimy — pole puste". Powód jest
+    # praktyczny: CMR-y wychodzą parami, a HDI wystawiamy jedno (na całość),
+    # więc jeden papier z pary dostawał numer, a drugi nigdy — i na wydruku
+    # wyglądało to jak pomyłka biura.
+    #
+    # Kryterium „dzielimy" to ISTNIENIE WZ DLA KLIENTA: dokładnie to znaczy,
+    # że część poszła osobnym dokumentem. ANULOWANY się nie liczy — nic już
+    # nie wydaje, więc zamówienie znów jest na całość.
+    dzielone = query_one(
+        "SELECT 1 FROM wz_documents WHERE source_type='order' AND source_id=%s "
+        "AND split_scope='wz_klienta' AND COALESCE(status,'')<>'anulowany' LIMIT 1",
+        (order_id,))
+    hdi = None if dzielone else query_one(
         "SELECT number FROM hdi_documents WHERE order_id=%s "
         "AND COALESCE(scope,%s)=%s ORDER BY created_at DESC LIMIT 1",
         (order_id, ZAKRES_CALOSC, scope))
