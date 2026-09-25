@@ -633,7 +633,7 @@ def zaladunek(loading_id: str) -> Dict[str, Any]:
                 "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at", (oid,)),
             "hdi": query_all(
                 "SELECT id, number, scope FROM hdi_documents WHERE order_id=%s "
-                "ORDER BY created_at", (oid,)),
+                "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at", (oid,)),
             "cmr": query_all(
                 "SELECT id, number, scope FROM cmr_documents WHERE order_id=%s "
                 "ORDER BY created_at", (oid,)),

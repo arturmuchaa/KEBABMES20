@@ -11,11 +11,13 @@ import { render, screen, cleanup, fireEvent, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 
 const stan = vi.hoisted(() => ({ zamowienia: [] as any[] }))
+const api = vi.hoisted(() => ({ cofnij: [] as string[] }))
 
 vi.mock('@/hooks/useApi', () => ({
   useApi: () => ({ data: stan.zamowienia, loading: false, error: null, refetch: vi.fn() }),
 }))
-vi.mock('@/lib/apiClient', () => ({ clientOrdersApi: { list: vi.fn(), remove: vi.fn(), updateStatus: vi.fn() } }))
+vi.mock('@/lib/apiClient', () => ({ clientOrdersApi: { list: vi.fn(), remove: vi.fn(), updateStatus: vi.fn(),
+  cofnijRealizacje: (id: string) => { api.cofnij.push(id); return Promise.resolve({}) } } }))
 vi.mock('@/lib/api', () => ({ hdiApi: {}, wzApi: {} }))
 vi.mock('@/lib/clientNames', () => ({ useClientNames: () => (n: string) => n }))
 vi.mock('@/components/PageHeader', () => ({ usePageHeaderActions: () => {} }))
@@ -74,5 +76,30 @@ describe('ClientOrdersPage — bieżące osobno od zrealizowanych', () => {
     stan.zamowienia = [zam('a', 'YALCIN/Z/2/08/26', 'confirmed')]
     pokaz()
     expect(screen.queryByRole('button', { name: /Zrealizowane i anulowane/i })).toBeNull()
+  })
+})
+
+// 25.09.2026, SAS ISSA: po anulowanym WZ zamówienie zostało zrealizowane,
+// a HDI zamkniętego zamówienia wychodzi zamrożone. Cofnięcie realizacji
+// dotąd wymagało zmiany w bazie.
+describe('ClientOrdersPage — cofnięcie realizacji', () => {
+  beforeEach(() => { api.cofnij = []; vi.spyOn(window, 'confirm').mockReturnValue(true) })
+
+  it('zrealizowane ma przycisk i woła serwer', async () => {
+    pokaz()
+    fireEvent.click(screen.getByRole('button', { name: /Zrealizowane i anulowane/i }))
+    const wiersz = screen.getByText('TRUVA/Z/1/08/26').closest('tr')!
+    fireEvent.click(within(wiersz).getByTitle(/Cofnij realizację/i))
+    await Promise.resolve()
+    expect(api.cofnij).toEqual(['b'])
+  })
+
+  it('bieżące i anulowane go nie mają', () => {
+    pokaz()
+    fireEvent.click(screen.getByRole('button', { name: /Zrealizowane i anulowane/i }))
+    for (const nr of ['YALCIN/Z/2/08/26', 'VATAN/Z/1/08/26']) {
+      const wiersz = screen.getByText(nr).closest('tr')!
+      expect(within(wiersz).queryByTitle(/Cofnij realizację/i)).toBeNull()
+    }
   })
 })

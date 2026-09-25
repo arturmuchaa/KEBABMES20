@@ -216,7 +216,8 @@ def build_cmr(order_id: str, form: Dict[str, Any],
         (order_id,))
     hdi = None if dzielone else query_one(
         "SELECT number FROM hdi_documents WHERE order_id=%s "
-        "AND COALESCE(scope,%s)=%s ORDER BY created_at DESC LIMIT 1",
+        "AND COALESCE(scope,%s)=%s AND COALESCE(status,'')<>'anulowany' "
+        "ORDER BY created_at DESC LIMIT 1",
         (order_id, ZAKRES_CALOSC, scope))
     today = datetime.now().strftime("%Y-%m-%d")
 

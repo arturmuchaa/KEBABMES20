@@ -28,6 +28,12 @@ def generate_from_wz(wz_id: str = Query(...)):
     return svc.generate_hdi_from_wz(wz_id)
 
 
+@router.post("/{hdi_id}/anuluj")
+def anuluj(hdi_id: str):
+    """Anulowanie HDI — numer zostaje spalony, dokument w rejestrze."""
+    return svc.anuluj_hdi(hdi_id)
+
+
 @router.get("/{hdi_id}/pdf")
 def pdf(hdi_id: str):
     doc = svc.get_hdi(hdi_id)  # 404, gdy nie istnieje

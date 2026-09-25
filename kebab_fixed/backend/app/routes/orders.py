@@ -53,6 +53,12 @@ def update_order_status(order_id: str, body: dict):
     return svc.update_order_status(order_id, body["status"])
 
 
+@router.post("/{order_id}/cofnij-realizacje")
+def cofnij_realizacje(order_id: str):
+    """Zrealizowane → potwierdzone, gdy nie trzyma go żaden aktywny WZ/WM."""
+    return svc.cofnij_realizacje(order_id)
+
+
 @router.delete("/{order_id}")
 def delete_order(order_id: str):
     return svc.delete_order(order_id)

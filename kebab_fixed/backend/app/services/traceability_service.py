@@ -981,7 +981,7 @@ def trace_tree(q: str) -> Dict[str, Any]:
     if oid_list:
         for h in query_all(
             "SELECT id, number, order_id, issue_date FROM hdi_documents "
-            "WHERE order_id = ANY(%s::text[])",
+            "WHERE order_id = ANY(%s::text[]) AND COALESCE(status,'')<>'anulowany'",
             (oid_list,),
         ):
             docs_by_order.setdefault(h["order_id"], []).append({

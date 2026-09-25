@@ -1839,6 +1839,9 @@ export const clientOrdersApi = {
   })),
   update:       (id: string, dto: CreateClientOrderDto) => put<any>(`/client-orders/${id}`, toSnakeOrderDto(dto)).then(mapClientOrder),
   updateStatus: (id: string, status: string) => patch<any>(`/client-orders/${id}/status`, { status }).then(mapClientOrder),
+  /** Zrealizowane → potwierdzone. Serwer odmawia, gdy trzyma je aktywny WZ/WM,
+   *  i podaje numery tych dokumentów. */
+  cofnijRealizacje: (id: string) => post<any>(`/client-orders/${id}/cofnij-realizacje`, {}),
   delete:       (id: string) => del<void>(`/client-orders/${id}`),
   // Kartony magazynowe „z ręki" pasujące do zamówienia + przypisanie
   stockCartonSuggestions: (orderId: string) =>
@@ -2731,6 +2734,8 @@ export const hdiApi = {
     incomplete: !!r.incomplete, issueDate: r.issue_date ?? '', createdAt: r.created_at ?? '',
   }))),
   pdfUrl: (id: string) => `${BASE}/hdi/${encodeURIComponent(id)}/pdf`,
+  /** Anulowanie — numer zostaje SPALONY, dokument zostaje w rejestrze. */
+  anuluj: (id: string) => post<any>(`/hdi/${encodeURIComponent(id)}/anuluj`, {}),
 }
 
 // ─── WZ (Wydanie Zewnętrzne) ────────────────────────────────────

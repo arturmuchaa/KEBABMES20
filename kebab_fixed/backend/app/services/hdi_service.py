@@ -581,7 +581,8 @@ def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
     # wydaniu, [[kebab-hdi-numeracja]], więc pomyłki nie da się cicho cofnąć).
     existing = query_one(
         "SELECT id, number, status, incomplete, totals, header FROM hdi_documents "
-        "WHERE order_id=%s AND COALESCE(scope,%s)=%s ORDER BY created_at LIMIT 1",
+        "WHERE order_id=%s AND COALESCE(scope,%s)=%s "
+        "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1",
         (order_id, ZAKRES_CALOSC, scope))
 
     # Zamówienie ZREALIZOWANE (albo anulowane) — dokument jest zamknięty.
@@ -639,7 +640,8 @@ def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
         # jedno wydanie.
         raced = cx_query_one(conn,
             "SELECT id, number, status FROM hdi_documents WHERE order_id=%s "
-            "AND COALESCE(scope,%s)=%s ORDER BY created_at LIMIT 1",
+            "AND COALESCE(scope,%s)=%s AND COALESCE(status,'')<>'anulowany' "
+            "ORDER BY created_at LIMIT 1",
             (order_id, ZAKRES_CALOSC, scope))
         if raced:
             logger.info("hdi.raced", extra={"hdi_id": raced["id"], "number": raced["number"],
@@ -666,7 +668,7 @@ def generate_hdi_from_wz(wz_id: str) -> Dict[str, Any]:
     data = build_hdi_from_wz(wz_id)
     existing = query_one(
         "SELECT id, number, status FROM hdi_documents WHERE wz_id=%s "
-        "ORDER BY created_at LIMIT 1", (wz_id,))
+        "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1", (wz_id,))
     if existing:
         if existing["status"] == "wstepny":
             with transaction() as conn:
@@ -699,6 +701,30 @@ def generate_hdi_from_wz(wz_id: str) -> Dict[str, Any]:
     logger.info("hdi.wz.generated", extra={"hdi_id": hid, "number": number, "wz_id": wz_id})
     return {"id": hid, "number": number, "status": "wstepny",
             "incomplete": False, "totals": data["totals"]}
+
+
+def anuluj_hdi(hdi_id: str) -> Dict[str, Any]:
+    """Anuluj HDI — dokument zostaje w rejestrze, numer jest SPALONY.
+
+    Do 25.09.2026 HDI nie dało się anulować wcale. Numeru NIE oddajemy do
+    puli (inaczej niż przy WZ): HDI to papier, który jedzie z towarem, więc
+    mógł już wyjechać — ten sam numer na dwóch transportach to dokładnie
+    błąd, przed którym chroni licznik ([[kebab-hdi-numeracja]]).
+
+    Towaru nie ruszamy: HDI niczego nie zdejmuje ze stanu. Wszystkie odczyty
+    „istniejącego HDI" (wystawienie, CMR, kurs, ślad partii) pomijają
+    anulowane, więc kolejne „HDI" z zamówienia wystawi nowy dokument.
+    """
+    with transaction() as conn:
+        row = cx_query_one(conn, "SELECT id, number, status FROM hdi_documents "
+                                 "WHERE id=%s FOR UPDATE", (hdi_id,))
+        if not row:
+            raise HTTPException(404, "HDI nie znaleziony")
+        if (row.get("status") or "") == "anulowany":
+            raise HTTPException(409, f"HDI {row['number']} jest już anulowane")
+        cx_execute(conn, "UPDATE hdi_documents SET status='anulowany' WHERE id=%s", (hdi_id,))
+    logger.info("hdi.cancelled", extra={"hdi_id": hdi_id, "number": row["number"]})
+    return {"id": hdi_id, "number": row["number"], "status": "anulowany"}
 
 
 def get_hdi(hdi_id: str) -> Dict[str, Any]:

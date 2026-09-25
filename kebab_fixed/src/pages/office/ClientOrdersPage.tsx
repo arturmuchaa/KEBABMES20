@@ -18,7 +18,7 @@ import { wydane, wydaneWCalosci } from '@/features/orders/lineShipping'
 import { podzielZamowienia } from '@/features/orders/orderBuckets'
 import {
   Check, CheckCircle2, ChevronDown, ChevronUp, ChevronsUpDown, Clock,
-  Pencil, Plus, Printer, ShoppingCart, Trash2, Truck, X, Search, Download,
+  Pencil, Plus, Printer, RotateCcw, ShoppingCart, Trash2, Truck, X, Search, Download,
 } from 'lucide-react'
 import { PalletsEditor } from '@/components/orders/PalletsEditor'
 import { StockCartonSuggestions } from '@/features/finished-goods/components/StockCartonSuggestions'
@@ -310,6 +310,15 @@ export function ClientOrdersPage() {
                                   <Check size={13}/>
                                 </button>
                               )}
+                              {o.status === 'done' && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); void handleCofnijRealizacje(o) }}
+                                  className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-amber-700 hover:bg-amber-50"
+                                  title="Cofnij realizację — zamówienie wraca do potwierdzonych"
+                                >
+                                  <RotateCcw size={13}/>
+                                </button>
+                              )}
                               {(o.status === 'draft' || o.status === 'confirmed') && (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); navigate(`/office/zamowienia/${o.id}/edycja`) }}
@@ -476,6 +485,18 @@ export function ClientOrdersPage() {
       : <ChevronsUpDown size={11} className="opacity-30 group-hover:opacity-60"/>
 
   async function handleStatus(id: string, status: ClientOrder['status']) { await clientOrdersApi.updateStatus(id, status); refetch() }
+  // 25.09.2026, SAS ISSA: po anulowanym WZ zamówienie zostało zrealizowane,
+  // a HDI zamkniętego zamówienia wychodzi zamrożone. Odmowę serwera (aktywny
+  // WZ/WM) pokazujemy w całości — są w niej numery dokumentów do anulowania.
+  async function handleCofnijRealizacje(o: ClientOrder) {
+    if (!confirm(`Cofnąć realizację zamówienia ${o.orderNo}?\n\nWróci do potwierdzonych — HDI będzie się znowu liczyć od stanu faktycznego.`)) return
+    try {
+      await clientOrdersApi.cofnijRealizacje(o.id)
+      refetch()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Nie udało się cofnąć realizacji')
+    }
+  }
   async function handleDelete(id: string) {
     if (!confirm('Usunąć to zamówienie?')) return
     await clientOrdersApi.delete(id); refetch()

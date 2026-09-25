@@ -443,6 +443,11 @@ export function HdiPrintPage() {
             <tr>
               <td style={{ width: '50%' }}>
                 <b>{bi('number')}:</b> {doc.number}
+                {/* Anulowane HDI da się otworzyć, a numer jest spalony — papier
+                    bez tego znacznika wyglądałby na ważny dokument. */}
+                {doc.status === 'anulowany' && (
+                  <b style={{ marginLeft: '8px', color: '#b91c1c', letterSpacing: '0.05em' }}>ANULOWANY</b>
+                )}
               </td>
               <td style={{ width: '50%' }}>
                 <b>{bi('issue')}:</b> {doc.issueDate}

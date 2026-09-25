@@ -674,6 +674,40 @@ def update_order_status(order_id: str, status: str) -> Dict:
     return row
 
 
+def cofnij_realizacje(order_id: str) -> Dict[str, Any]:
+    """Zamówienie ze „Zrealizowanych" wraca do „Potwierdzonych".
+
+    25.09.2026, SAS ISSA: po omyłkowym WZ zamówienie zostało `done`, a HDI
+    dla zamkniętego zamówienia wychodzi zamrożone — biuro nie miało jak tego
+    odkręcić bez zmiany w bazie.
+
+    Tylko gdy NIE trzyma go żaden aktywny dokument wydania (WZ/WM): wydane
+    naprawdę zamówienie, otwarte na nowo, wróciłoby do puli i zaczęło znowu
+    brać towar z magazynu ([[kebab-pokrycie-zamowien]]). Odmowa podaje
+    numery dokumentów — to one są do anulowania najpierw.
+    """
+    with transaction() as conn:
+        order = cx_query_one(conn, "SELECT id, order_no, status FROM client_orders "
+                                   "WHERE id=%s FOR UPDATE", (order_id,))
+        if not order:
+            raise HTTPException(404, "Zamówienie nie znalezione")
+        if (order.get("status") or "") != "done":
+            raise HTTPException(409, "Cofnąć można tylko zamówienie zrealizowane")
+        trzymaja = cx_query_all(
+            conn,
+            "SELECT number FROM wz_documents WHERE source_type='order' AND source_id=%s "
+            "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at",
+            (order_id,))
+        if trzymaja:
+            numery = ", ".join(d["number"] for d in trzymaja)
+            raise HTTPException(
+                409, f"Zamówienie trzymają wystawione dokumenty: {numery}. "
+                     "Najpierw je anuluj w Wydaniach.")
+        cx_execute(conn, "UPDATE client_orders SET status='confirmed' WHERE id=%s", (order_id,))
+    logger.info("order.reopened", extra={"order_id": order_id})
+    return {"id": order_id, "status": "confirmed"}
+
+
 def delete_order(order_id: str) -> Dict[str, bool]:
     with transaction() as conn:
         order = cx_query_one(

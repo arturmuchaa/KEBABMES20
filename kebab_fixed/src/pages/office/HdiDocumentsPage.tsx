@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils'
 import { DataTable } from '@/components/DataTable'
 import { usePageHeaderActions } from '@/components/PageHeader'
 import {
-  Search, ChevronDown, ChevronUp, ChevronsUpDown, X, Printer, FileText, ExternalLink, FileDown,
+  Ban, Search, ChevronDown, ChevronUp, ChevronsUpDown, X, Printer, FileText, ExternalLink, FileDown,
 } from 'lucide-react'
 
 import { Input } from '@/components/ui/input'
@@ -47,10 +47,10 @@ function compareRows(col: SortCol) {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  wstepny: 'Wstępny', potwierdzony: 'Potwierdzony', korekta: 'Korekta',
+  wstepny: 'Wstępny', potwierdzony: 'Potwierdzony', korekta: 'Korekta', anulowany: 'Anulowany',
 }
 const DOC_TONE: Record<string, StatusTone> = {
-  wstepny: 'amber', potwierdzony: 'green', korekta: 'red',
+  wstepny: 'amber', potwierdzony: 'green', korekta: 'red', anulowany: 'gray',
 }
 
 function openPrint(id: string) {
@@ -66,7 +66,19 @@ function downloadPdf(id: string) {
 
 // ─── Strona ─────────────────────────────────────────────────
 export function HdiDocumentsPage() {
-  const { data: rows, loading } = useApi(() => hdiApi.listDocs())
+  const { data: rows, loading, refetch } = useApi(() => hdiApi.listDocs())
+
+  // Numer HDI jest SPALONY po wydaniu — anulowane zostaje w rejestrze,
+  // a kolejne „HDI" z zamówienia wystawi dokument z nowym numerem.
+  async function anuluj(r: HdiListRow) {
+    if (!window.confirm(`Anulować HDI ${r.number} (${r.clientName || 'brak klienta'})?\n\nNumer zostaje spalony — następne HDI z tego zamówienia dostanie nowy numer.`)) return
+    try {
+      await hdiApi.anuluj(r.id)
+      refetch()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Nie udało się anulować HDI')
+    }
+  }
   const rawList = rows ?? []
 
   usePageHeaderActions(
@@ -116,6 +128,9 @@ export function HdiDocumentsPage() {
                   <button onClick={e => { e.stopPropagation(); downloadPdf(r.id) }} className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-rose-600 hover:bg-rose-50" title="Pobierz PDF"><FileDown size={13}/></button>
                   <button onClick={e => { e.stopPropagation(); openPrint(r.id) }} className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-primary hover:bg-primary/10" title="Drukuj"><Printer size={13}/></button>
                   <button onClick={e => { e.stopPropagation(); openPrint(r.id) }} className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-primary hover:bg-primary/10" title="Otwórz dokument"><ExternalLink size={13}/></button>
+                  {r.status !== 'anulowany' && (
+                    <button onClick={e => { e.stopPropagation(); void anuluj(r) }} className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-red-700 hover:bg-red-50" title="Anuluj HDI"><Ban size={13}/></button>
+                  )}
                 </div>
               ) },
           ]}
