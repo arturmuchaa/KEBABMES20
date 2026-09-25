@@ -32,6 +32,7 @@ export default defineConfig({
     __PRODUKCJA_VERSION__: JSON.stringify('test'),
     __ROZBIOR_V11_VERSION__: JSON.stringify('test'),
     __MASOWANIE_VERSION__: JSON.stringify('test'),
+    __MAGAZYN_VERSION__: JSON.stringify('test'),
   },
   test: {
     environment: 'node',

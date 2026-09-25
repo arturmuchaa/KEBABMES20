@@ -21,6 +21,9 @@ export const HMI_VARS: CSSProperties = {
   ['--lineSoft' as string]:    '#E2E5EA',
   ['--accent' as string]:      '#4F46E5',
   ['--accentSoft' as string]:  '#EEF2FF',
+  // Obrys akcentu (kafle, kółka numerów) — dopisany przy kiosku magazynu,
+  // wcześniej każdy ekran wpisywał ten odcień z ręki.
+  ['--accentLine' as string]:  '#C7D0FB',
   ['--barBg' as string]:       '#D3DBF7',
   ['--success' as string]:     '#16A34A',
   ['--successSoft' as string]: '#F0FDF4',

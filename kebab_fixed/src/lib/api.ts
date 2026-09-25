@@ -3889,6 +3889,65 @@ export const stockCartonsApi = {
     post<{ ok: boolean; added: number }>(`/stock-cartons/${cartonId}/lines/${lineId}/add`, { qty }),
 }
 
+// ─── Kiosk magazynu: pakowanie kartonów ─────────────────────────
+/** Pozycja otwartego kartonu — to, co jest na etykiecie kartonu. */
+export interface KartonPozycja {
+  productTypeName: string; recipeName: string; packagingName: string
+  kgPerUnit: number; targetQty: number; packedQty: number
+}
+
+/** Otwarty karton: paleta zamówienia (`order`) albo karton magazynowy
+ *  (`stock`). Dla magazyniera to JEDNO — ten sam numer, ta sama etykieta. */
+export interface OtwartyKarton {
+  kind: 'order' | 'stock'
+  id: string
+  cartonNo: string
+  clientName: string
+  orderNo: string
+  palletNo: number
+  deliveryDate: string
+  openedAt: string
+  targetQty: number
+  packedQty: number
+  lines: KartonPozycja[]
+}
+
+export interface PulaPozycja {
+  producedDate: string; clientName: string; recipeName: string
+  productTypeName: string; tuleja: string; kgPerUnit: number; qty: number
+}
+
+export type WynikPakowania =
+  | 'ACTIVE' | 'OTHER' | 'ALREADY' | 'NO_PLACE' | 'NOT_PRODUCED' | 'INVALID'
+
+export interface SkanPakowania {
+  result: WynikPakowania
+  /** „YALCIN · KIRMIZI 15 kg" — opis sztuki z etykiety. */
+  unit: string
+  container: OtwartyKarton | null
+  full?: boolean
+  activeClosed?: boolean
+  where?: string
+  sameCarton?: boolean
+  status?: string
+}
+
+export interface PodsumowanieMagazynu {
+  kartony: {
+    otwarte: number; sztukDoSpakowania: number; zalegle: number; brakujeWKartonach: number
+    dni?: { data: string; sztuk: number; zalegle: boolean }[]
+  }
+  wydanie: { zamowien: number; kg: number; lista?: { klient: string; kg: number }[] }
+  mroznia: { palet: number; lista?: { klient: string; palet: number }[] }
+}
+
+export const magazynApi = {
+  podsumowanie: () => get<PodsumowanieMagazynu>('/magazyn/podsumowanie'),
+  pakowanie: () => get<{ kontenery: OtwartyKarton[]; pula: PulaPozycja[] }>('/magazyn/pakowanie'),
+  skan: (code: string, activeId: string | null) =>
+    post<SkanPakowania>('/magazyn/pakowanie/skan', { code, active_id: activeId }),
+}
+
 // ─── Health ───────────────────────────────────────────────────
 export const healthApi = {
   check: () => get<any>('/health'),

@@ -238,3 +238,14 @@ def test_kolejnosc_kandydatow_czysta():
     assert [k["id"] for k in kolejnosc_kandydatow(unit, kont, None)] == ["yal", "mag"]
     # Aktywny „na magazyn" wygrywa z imiennym.
     assert [k["id"] for k in kolejnosc_kandydatow(unit, kont, "mag")] == ["mag", "yal"]
+
+
+def test_podglad_kafli_niesie_dni_klientow_i_mroznie(db):
+    _receptury()
+    _paleta("o1", "YALCIN", qty=4, kg=15.0)
+    execute("UPDATE order_pallets SET status='cold_storage' WHERE id='o1-p1'")
+    _sztuka("u1", produced=_dzien(5)); _sztuka("u2", produced=_dzien(1))
+    k = podsumowanie_kafli(DZIS)
+    assert [d["zalegle"] for d in k["kartony"]["dni"]] == [True, False]
+    assert k["wydanie"]["lista"] == [{"klient": "YALCIN", "kg": 60.0}]
+    assert k["mroznia"] == {"palet": 1, "lista": [{"klient": "YALCIN", "palet": 1}]}

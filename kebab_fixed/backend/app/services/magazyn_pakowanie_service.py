@@ -361,15 +361,43 @@ def podsumowanie_kafli(dzis: Optional[date] = None) -> Dict[str, Any]:
              AND COALESCE(o.status,'') NOT IN ('done','cancelled')""",
         (dzis.isoformat(),),
     ) or {}
-    mroz = query_one(
-        "SELECT COUNT(*) AS n FROM order_pallets WHERE status='cold_storage'") or {}
+    wydanie_lista = query_all(
+        """SELECT o.client_name, COALESCE(SUM(COALESCE(l.total_kg, l.qty * l.kg_per_unit)), 0) AS kg
+           FROM client_orders o
+           LEFT JOIN client_order_lines l ON l.order_id = o.id
+           WHERE NULLIF(o.delivery_date::text, '')::date = %s
+             AND COALESCE(o.status,'') NOT IN ('done','cancelled')
+           GROUP BY o.id, o.client_name
+           ORDER BY kg DESC LIMIT 4""",
+        (dzis.isoformat(),),
+    )
+    mroz_lista = query_all(
+        """SELECT o.client_name, COUNT(*) AS n
+           FROM order_pallets p JOIN client_orders o ON o.id = p.order_id
+           WHERE p.status = 'cold_storage'
+           GROUP BY o.client_name ORDER BY n DESC, o.client_name LIMIT 4""",
+    )
+    # Dni puli — ten sam podział co na ekranie KARTONY, tu tylko sumy.
+    dni: Dict[str, int] = {}
+    for p in pula:
+        dni[p["producedDate"]] = dni.get(p["producedDate"], 0) + p["qty"]
     return {
         "kartony": {
             "otwarte": len(kont),
             "sztukDoSpakowania": sum(p["qty"] for p in pula),
             "zalegle": zalegle,
             "brakujeWKartonach": sum(max(0, k["targetQty"] - k["packedQty"]) for k in kont),
+            "dni": [{"data": d, "sztuk": n, "zalegle": bool(d) and d not in wczoraj_i_dzis}
+                    for d, n in list(dni.items())[:4]],
         },
-        "wydanie": {"zamowien": int(wydanie.get("n") or 0), "kg": float(wydanie.get("kg") or 0)},
-        "mroznia": {"palet": int(mroz.get("n") or 0)},
+        "wydanie": {
+            "zamowien": int(wydanie.get("n") or 0), "kg": float(wydanie.get("kg") or 0),
+            "lista": [{"klient": r.get("client_name") or "", "kg": float(r.get("kg") or 0)}
+                      for r in wydanie_lista],
+        },
+        "mroznia": {
+            "palet": int((query_one(
+                "SELECT COUNT(*) AS n FROM order_pallets WHERE status='cold_storage'") or {}).get("n") or 0),
+            "lista": [{"klient": r.get("client_name") or "", "palet": int(r["n"])} for r in mroz_lista],
+        },
     }
