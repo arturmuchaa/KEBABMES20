@@ -125,3 +125,12 @@ describe('kod sztuki i kartonu — po kształcie, nie po „|"', () => {
     expect(idKartonu(`U|${ID}`)).toBeNull()
   })
 })
+
+describe('kod ze śmieciami doklejonymi przez skaner', () => {
+  const ID = 'ac82b8f61e2545a4867b'
+  it('prefiks AIM „]Q1" i znaki sterujące są zdejmowane', () => {
+    expect(czyKompletnyKodSztuki(`]Q1U|${ID}`)).toBe(true)
+    expect(idKartonu(`]Q1SCARTON|${ID}`)).toBe(ID)
+    expect(idKartonu(`\u0002SCARTON|${ID}\u0003`)).toBe(ID)
+  })
+})

@@ -25,7 +25,12 @@ def unit_qr(unit_id: str) -> str:
 # Kod wystukany przez skaner HID w innym układzie klawiatury: `U` (albo `u`
 # przy CapsLocku), dowolny JEDEN znak nie-alfanumeryczny zamiast `|` albo
 # żaden, i 20 znaków hex identyfikatora (`cuid()`), w dowolnej wielkości.
+_AIM = re.compile(r"^\][A-Za-z][0-9A-Za-z]")
 _UNIT_LUZNY = re.compile(r"^[uU][^0-9A-Za-z]?([0-9a-fA-F]{20})$")
+# Ostatnia deska: kod sztuki OTOCZONY śmieciami (prefiks symbologii skanera
+# typu „]Q1", znaki sterujące, sufiks). Szukamy go w środku napisu, ale tylko
+# jako samodzielnego tokenu — 20 hex nie może być fragmentem dłuższego ciągu.
+_UNIT_W_SRODKU = re.compile(r"(?<![0-9A-Za-z])[uU][^0-9A-Za-z]?([0-9a-fA-F]{20})(?![0-9A-Za-z])")
 
 
 def parse_unit_qr(code: Optional[str]) -> Optional[str]:
@@ -38,11 +43,13 @@ def parse_unit_qr(code: Optional[str]) -> Optional[str]:
     """
     if not code:
         return None
-    s = code.strip()
+    # Prefiks identyfikatora symbologii AIM („]Q1" dla QR), który skaner
+    # potrafi doklejać przed każdym kodem — zdejmujemy go przed rozpoznaniem.
+    s = _AIM.sub("", code.strip()).strip()
     if s.startswith(_PREFIX):
         unit_id = s[len(_PREFIX):]
         return unit_id or None
-    m = _UNIT_LUZNY.match(s)
+    m = _UNIT_LUZNY.match(s) or _UNIT_W_SRODKU.search(s)
     return m.group(1).lower() if m else None
 
 

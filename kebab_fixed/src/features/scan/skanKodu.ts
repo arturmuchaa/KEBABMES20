@@ -41,14 +41,22 @@ export function czyKompletnyKodPalety(wartosc: string): boolean {
 const SZTUKA = /^[uU][^0-9A-Za-z]?[0-9a-fA-F]{20}$/
 const KARTON = /^SCARTON[^0-9A-Za-z]?([0-9a-fA-F]{20})$/i
 
+/** Zdejmuje to, co skaner potrafi dokleić do kodu: prefiks symbologii AIM
+ *  („]Q1" dla QR) i znaki sterujące (STX/ETX, Tab). Ta sama reguła żyje
+ *  w backendzie (`unit_codes._AIM`). */
+export function oczyscKod(wartosc: string): string {
+  // eslint-disable-next-line no-control-regex
+  return (wartosc ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().replace(/^\][A-Za-z][0-9A-Za-z]/, '').trim()
+}
+
 export function czyKompletnyKodSztuki(wartosc: string): boolean {
-  return SZTUKA.test((wartosc ?? '').trim())
+  return SZTUKA.test(oczyscKod(wartosc))
 }
 
 /** Id kartonu magazynowego z kodu karty kartonu; null, gdy to nie karton. */
 export function idKartonu(wartosc: string): string | null {
-  const s = (wartosc ?? '').trim()
-  const dokladny = /^SCARTON\|(.+)$/i.exec(s)
+  const s = oczyscKod(wartosc)
+  const dokladny = /^SCARTON\|([0-9A-Za-z]+)$/i.exec(s)
   if (dokladny) return dokladny[1].trim()
   const m = KARTON.exec(s)
   return m ? m[1].toLowerCase() : null

@@ -22,13 +22,13 @@ logger = get_logger(__name__)
 
 
 def _parse_stock_carton(code: str):
-    s = (code or "").strip()
-    m = re.match(r"^SCARTON\|(.+)$", s, re.IGNORECASE)
+    s = re.sub(r"^\][A-Za-z][0-9A-Za-z]", "", (code or "").strip())
+    m = re.match(r"^SCARTON\|([0-9A-Za-z]+)", s, re.IGNORECASE)
     if m:
         return m.group(1)
     # Separator przekręcony przez układ klawiatury skanera (jak w kodzie
     # sztuki, `unit_codes.parse_unit_qr`) — rozpoznajemy po kształcie id.
-    m = re.match(r"^SCARTON[^0-9A-Za-z]?([0-9a-fA-F]{20})$", s, re.IGNORECASE)
+    m = re.search(r"SCARTON[^0-9A-Za-z]?([0-9a-fA-F]{20})(?![0-9A-Za-z])", s, re.IGNORECASE)
     return m.group(1).lower() if m else None
 
 

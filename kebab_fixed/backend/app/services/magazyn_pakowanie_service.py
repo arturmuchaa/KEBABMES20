@@ -363,10 +363,13 @@ def skanuj_sztuke(code: str, aktywny_id: Optional[str] = None) -> Dict[str, Any]
     odpowiedź 200, nie wyjątek: panel ma pokazać powód, a nie „błąd serwera".
     """
     unit_id = parse_unit_qr(code or "")
-    if not unit_id:
-        return _wynik("INVALID", None)
-    unit = _sztuka(unit_id)
+    unit = _sztuka(unit_id) if unit_id else None
     if not unit:
+        # Hala 25.09.2026: panel magazynu dostawał „nieznany kod" na etykietach,
+        # które na produkcji przechodzą. Bez surowego kodu w logu nie da się
+        # zobaczyć, co skaner tego stanowiska faktycznie wystukuje.
+        logger.info("magazyn.pakowanie.nieznany_kod",
+                    extra={"kod_surowy": repr(code)[:120], "unit_id": unit_id or ""})
         return _wynik("INVALID", None)
 
     kontenery = otwarte_kontenery()

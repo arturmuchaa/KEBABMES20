@@ -21,7 +21,7 @@ import '@/features/hmi-theme/hmi-font.css'
 import { useAuth } from '@/features/auth/AuthContext'
 import { useServiceHold, ServiceMenuModal, serviceSections } from '@/features/deboning/ServiceMenu'
 import { isOfflineError, magazynApi, palletsApi, type PodsumowanieMagazynu } from '@/lib/api'
-import { czyKompletnyKodPalety, czyKompletnyKodSztuki, idKartonu } from '@/features/scan/skanKodu'
+import { czyKompletnyKodPalety, idKartonu } from '@/features/scan/skanKodu'
 import { useSkanGlobalny } from '@/features/magazyn/useSkanGlobalny'
 import { grajBlad } from '@/features/magazyn/dzwiek'
 import { Kafel } from '@/features/magazyn/components/Kafel'
@@ -112,12 +112,10 @@ export function MagazynHmiPage() {
         return blad('TEN KARTON NIE JEST OTWARTY',
           'Karton jest pełny albo zamknięty — nie ma do czego pakować. Załadunek i mroźnia mają swoje kafle.')
       }
-      if (czyKompletnyKodSztuki(kod)) {
-        setPierwszySkan(kod)
-        setEkran('kartony-praca')
-        return
-      }
-      blad('NIEZNANY KOD', 'Zeskanuj kartę kartonu albo etykietę sztuki.')
+      // Wszystko inne traktujemy jak sztukę: o tym, czy kod jest znany,
+      // rozstrzyga serwer (i zapisuje w logu surowy kod, gdy nie jest).
+      setPierwszySkan(kod)
+      setEkran('kartony-praca')
     } catch (e) {
       blad(isOfflineError(e) ? 'BRAK POŁĄCZENIA' : 'NIE ROZPOZNANO KODU',
         isOfflineError(e) ? 'Skan nie doszedł do serwera. Spróbuj za chwilę.' : 'Zeskanuj kartę kartonu jeszcze raz.')

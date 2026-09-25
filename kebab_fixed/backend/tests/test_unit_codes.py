@@ -137,3 +137,16 @@ def test_parse_unit_qr_nie_zgaduje_na_sile():
     assert parse_unit_qr(f"X|{ID}") is None            # inny prefiks
     assert parse_unit_qr("Uzzzzzzzzzzzzzzzzzzzz") is None       # nie hex
     assert parse_unit_qr(f"PAL|{ID}|1") is None
+
+
+@pytest.mark.parametrize("kod", [
+    f"]Q1U|{ID}",              # prefiks symbologii AIM ze skanera
+    f"\x02U|{ID}\x03",          # STX/ETX
+    f"U|{ID}\t",
+])
+def test_parse_unit_qr_kod_otoczony_smieciami(kod):
+    assert parse_unit_qr(kod) == ID
+
+
+def test_parse_unit_qr_nie_wycina_z_dluzszego_ciagu():
+    assert parse_unit_qr(f"XU|{ID}abc") is None
