@@ -63,6 +63,16 @@ DEPARTMENT_PREFIXES = {
     # z podkreśleniem nigdy nie pasował do trasy i cicho nic nie robił.
     "pakowanie": ("/api/packaging",),
     "wydanie": ("/api/dispatches",),
+    # Kiosk magazynu (`magazyn.html`) — pakowanie i wydanie z jednego PIN-u.
+    # Własnych ścieżek nie ma: dostęp daje DZIAŁ_OBEJMUJE niżej.
+    "magazyn": (),
+}
+
+# Dział-parasol: operator z kluczem ma też uprawnienia działów z wartości.
+# Magazynier przy panelu pakuje karton i za chwilę ładuje auto — przelogowanie
+# między jednym a drugim byłoby robotą dla systemu, nie dla człowieka.
+DZIAL_OBEJMUJE = {
+    "magazyn": ("pakowanie", "wydanie"),
 }
 
 
@@ -181,6 +191,10 @@ def permission_for_path(path: str, method: str = "GET") -> str:
     # wybiera z niej tuleję pozycji), zmieniać — tylko pakowanie i biuro.
     if _matches(path, "/api/packaging"):
         return "any" if method == "GET" else "pakowanie"
+    # Lista aut: skaner załadunku wybiera z niej pojazd. Kartoteka aut
+    # (dodanie, edycja, usunięcie) zostaje w biurze.
+    if _matches(path, "/api/vehicles"):
+        return "wydanie" if method == "GET" else "office"
     for dept, prefixes in DEPARTMENT_PREFIXES.items():
         for p in prefixes:
             if _matches(path, p):
@@ -210,6 +224,8 @@ def can_access(subject: Optional[dict], required: str) -> bool:
     # „any" byłoby za szerokie, bo to zapis stanu, nie odczyt.
     wymagane = [r for r in required.split("|") if r]
     dzialy = set(subject.get("departments") or [])
+    for d in list(dzialy):
+        dzialy.update(DZIAL_OBEJMUJE.get(d, ()))
     if wymagane and all(r in DEPARTMENT_PREFIXES for r in wymagane):
         return bool(dzialy.intersection(wymagane))
     return False

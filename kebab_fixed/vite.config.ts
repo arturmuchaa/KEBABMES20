@@ -22,6 +22,10 @@ const produkcjaVersion = JSON.parse(
 const masowanieVersion = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, 'src-tauri/tauri.masowanie.conf.json'), 'utf-8')
 ).version as string
+// Magazyn — czwarty kiosk hali, osobny kanał aktualizacji.
+const magazynVersion = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, 'src-tauri/tauri.magazyn.conf.json'), 'utf-8')
+).version as string
 
 export default defineConfig({
   plugins: [react()],
@@ -30,6 +34,7 @@ export default defineConfig({
     __ROZBIOR_V11_VERSION__: JSON.stringify(rozbiorV11Version),
     __PRODUKCJA_VERSION__: JSON.stringify(produkcjaVersion),
     __MASOWANIE_VERSION__: JSON.stringify(masowanieVersion),
+    __MAGAZYN_VERSION__: JSON.stringify(magazynVersion),
   },
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
@@ -52,6 +57,8 @@ export default defineConfig({
         // Masownia — dwa tory pracy (przyprawy do pojemnika / załadunek
         // masownicy) i bramka partii wskazanych przez biuro
         'masowanie': path.resolve(__dirname, 'masowanie.html'),
+        // Stanowisko magazynowe — kartony, wydanie, mroźnia (przyjęcie wkrótce)
+        'magazyn': path.resolve(__dirname, 'magazyn.html'),
       },
       output: {
         // Podział na paczki wg biblioteki.

@@ -232,3 +232,39 @@ def test_usuniecie_wpisu_z_biura_tylko_dla_biura():
     operator = {"kind": "operator", "departments": ["rozbior"]}
     assert not can_access(operator, permission_for_path(
         "/api/deboning/entries/abc/office-delete", "POST"))
+
+
+# Kiosk magazynu (panel przy rampie, 2026-09-25) robi pakowanie ORAZ wydanie
+# z jednego PIN-u — magazynier nie przelogowuje się między kartonem a autem.
+# Dział `magazyn` jest więc parasolem nad `pakowanie` i `wydanie`, a nie
+# trzecim, osobnym zestawem ścieżek.
+def test_magazyn_obejmuje_pakowanie_i_wydanie():
+    magazynier = {"kind": "operator", "departments": ["magazyn"]}
+    for sciezka, metoda in (
+        ("/api/stock-cartons/c1/scan", "POST"),
+        ("/api/stock-cartons/open", "GET"),
+        ("/api/pallets/to-pack", "GET"),
+        ("/api/pallets/p1/pack", "POST"),
+        ("/api/pallets/scan", "POST"),
+        ("/api/pallets/in-cold-storage", "GET"),
+        ("/api/pallets/vehicle-state/v1", "GET"),
+        ("/api/finished-units/lookup", "GET"),
+        ("/api/vehicles", "GET"),
+    ):
+        assert can_access(magazynier, permission_for_path(sciezka, metoda)), sciezka
+
+
+def test_magazyn_nie_zaklada_kartonow_ani_aut():
+    """Kartony definiuje biuro; kartoteka aut też zostaje w biurze."""
+    magazynier = {"kind": "operator", "departments": ["magazyn"]}
+    assert not can_access(magazynier, permission_for_path("/api/stock-cartons", "POST"))
+    assert not can_access(magazynier, permission_for_path("/api/vehicles", "POST"))
+    assert not can_access(magazynier, permission_for_path(
+        "/api/production-plans/p1/lines/l1/progress", "PATCH"))
+
+
+def test_lista_aut_do_odczytu_dla_wydania():
+    kierowca_skanera = {"kind": "operator", "departments": ["wydanie"]}
+    assert can_access(kierowca_skanera, permission_for_path("/api/vehicles", "GET"))
+    assert not can_access({"kind": "operator", "departments": ["rozbior"]},
+                          permission_for_path("/api/vehicles", "GET"))
