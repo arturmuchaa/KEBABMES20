@@ -191,6 +191,12 @@ def permission_for_path(path: str, method: str = "GET") -> str:
     # wybiera z niej tuleję pozycji), zmieniać — tylko pakowanie i biuro.
     if _matches(path, "/api/packaging"):
         return "any" if method == "GET" else "pakowanie"
+    # Kiosk magazynu: pakowanie kartonów i stan pod kaflami. Podsumowanie
+    # czyta i pakowacz, i załadowca — obaj stoją przy tym samym panelu.
+    if _matches(path, "/api/magazyn/pakowanie"):
+        return "pakowanie"
+    if _matches(path, "/api/magazyn"):
+        return "pakowanie|wydanie" if method == "GET" else "office"
     # Lista aut: skaner załadunku wybiera z niej pojazd. Kartoteka aut
     # (dodanie, edycja, usunięcie) zostaje w biurze.
     if _matches(path, "/api/vehicles"):

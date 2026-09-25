@@ -250,6 +250,9 @@ def test_magazyn_obejmuje_pakowanie_i_wydanie():
         ("/api/pallets/vehicle-state/v1", "GET"),
         ("/api/finished-units/lookup", "GET"),
         ("/api/vehicles", "GET"),
+        ("/api/magazyn/podsumowanie", "GET"),
+        ("/api/magazyn/pakowanie", "GET"),
+        ("/api/magazyn/pakowanie/skan", "POST"),
     ):
         assert can_access(magazynier, permission_for_path(sciezka, metoda)), sciezka
 

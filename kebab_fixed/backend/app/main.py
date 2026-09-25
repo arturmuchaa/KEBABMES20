@@ -155,6 +155,7 @@ def create_app() -> FastAPI:
         containers,
         wz,
         stock_cartons,
+        magazyn,
         haccp_forms,
     )
     # Aliasujemy: app.routes.settings koliduje z app.config.settings używanym wyżej
@@ -227,6 +228,7 @@ def create_app() -> FastAPI:
         containers,
         wz,
         stock_cartons,
+        magazyn,
         haccp_forms,
         settings_route,
         integrity,
