@@ -383,3 +383,29 @@ def list_cartons() -> List[Dict]:
             continue  # wyjechało → znika
         out.append(_attach_lines(r))
     return out
+
+
+def delete_empty_carton(carton_id: str) -> Dict[str, Any]:
+    """Usuń karton, do którego nie spakowano ANI JEDNEJ sztuki.
+
+    Właściciel 25.09.2026: stary, pusty karton (MEPA, nr 000009 z lipca)
+    wisiał na panelu magazynu jako „otwarty". Karton z choćby jedną sztuką
+    zostaje — tam jest traceability; takiego się nie kasuje, tylko pakuje.
+    """
+    with transaction() as conn:
+        carton = cx_query_one(
+            conn, "SELECT * FROM stock_cartons WHERE id=%s FOR UPDATE", (carton_id,))
+        if not carton:
+            raise HTTPException(404, "Karton nie znaleziony")
+        sztuk = cx_query_one(
+            conn, "SELECT COUNT(*) AS n FROM finished_units WHERE carton_id=%s", (carton_id,))
+        if int(sztuk["n"]) > 0 or int(carton.get("packed_qty") or 0) > 0:
+            raise HTTPException(
+                409, "Karton ma spakowane sztuki — usunąć można tylko pusty karton")
+        if carton.get("linked_order_id"):
+            raise HTTPException(409, "Karton jest powiązany z zamówieniem")
+        cx_execute(conn, "DELETE FROM stock_carton_lines WHERE carton_id=%s", (carton_id,))
+        cx_execute(conn, "DELETE FROM stock_cartons WHERE id=%s", (carton_id,))
+    logger.info("stock_cartons.deleted_empty",
+                extra={"carton_id": carton_id, "carton_no": carton.get("carton_no")})
+    return {"ok": True, "cartonNo": format_carton_no(carton.get("carton_no"))}

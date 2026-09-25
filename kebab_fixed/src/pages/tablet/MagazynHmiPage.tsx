@@ -20,7 +20,10 @@ import { HMI_FONT, HMI_VARS } from '@/features/hmi-theme/vars'
 import '@/features/hmi-theme/hmi-font.css'
 import { useAuth } from '@/features/auth/AuthContext'
 import { useServiceHold, ServiceMenuModal, serviceSections } from '@/features/deboning/ServiceMenu'
-import { magazynApi, type PodsumowanieMagazynu } from '@/lib/api'
+import { isOfflineError, magazynApi, palletsApi, type PodsumowanieMagazynu } from '@/lib/api'
+import { czyKompletnyKodPalety, czyKompletnyKodSztuki, idKartonu } from '@/features/scan/skanKodu'
+import { useSkanGlobalny } from '@/features/magazyn/useSkanGlobalny'
+import { grajBlad } from '@/features/magazyn/dzwiek'
 import { Kafel } from '@/features/magazyn/components/Kafel'
 import { Alarm } from '@/features/magazyn/components/Alarm'
 import { EkranKartonow } from '@/features/magazyn/EkranKartonow'
@@ -66,6 +69,8 @@ export function MagazynHmiPage() {
   const [ekran, setEkran] = useState<EkranMagazynu>('kafle')
   const [pojazdId, setPojazdId] = useState('')
   const [aktywnyKarton, setAktywnyKarton] = useState<string | null>(null)
+  // Sztuka zeskanowana na menu — pakowanie przyjmuje ją zaraz po wejściu.
+  const [pierwszySkan, setPierwszySkan] = useState<string | null>(null)
   const [alarm, setAlarm] = useState<StanAlarmu | null>(null)
   const [stan, setStan] = useState<PodsumowanieMagazynu | null>(null)
   const [teraz, setTeraz] = useState(() => new Date())
@@ -77,6 +82,41 @@ export function MagazynHmiPage() {
     setAlarm(pelny)
     setTimeout(() => setAlarm(x => (x && x.ts === pelny.ts ? null : x)), ALARM_MS)
   }, [])
+
+  /** Skan na ekranie bez pola skanu (menu, lista kartonów, wybór auta).
+   *  Właściciel 25.09.2026: karta kartonu ma od razu otwierać pakowanie
+   *  TEGO kartonu — bez szukania go na liście. */
+  const skanPozaPolem = useCallback(async (kod: string) => {
+    const blad = (naglowek: string, szczegol: string) => {
+      grajBlad('L')
+      pokazAlarm({ skaner: 'L', ton: 'blad', naglowek, szczegol })
+    }
+    try {
+      let id = idKartonu(kod)
+      if (!id && czyKompletnyKodPalety(kod)) id = String((await palletsApi.lookup(kod))?.id ?? '') || null
+      if (id) {
+        const s = await magazynApi.pakowanie()
+        if (s.kontenery.some(k => k.id === id)) {
+          setAktywnyKarton(id)
+          setEkran('kartony-praca')
+          return
+        }
+        return blad('TEN KARTON NIE JEST OTWARTY',
+          'Karton jest pełny albo zamknięty — nie ma do czego pakować. Załadunek i mroźnia mają swoje kafle.')
+      }
+      if (czyKompletnyKodSztuki(kod)) {
+        setPierwszySkan(kod)
+        setEkran('kartony-praca')
+        return
+      }
+      blad('NIEZNANY KOD', 'Zeskanuj kartę kartonu albo etykietę sztuki.')
+    } catch (e) {
+      blad(isOfflineError(e) ? 'BRAK POŁĄCZENIA' : 'NIE ROZPOZNANO KODU',
+        isOfflineError(e) ? 'Skan nie doszedł do serwera. Spróbuj za chwilę.' : 'Zeskanuj kartę kartonu jeszcze raz.')
+    }
+  }, [pokazAlarm])
+
+  useSkanGlobalny(ekran === 'kafle' || ekran === 'kartony' || ekran === 'wydanie-auta', kod => { void skanPozaPolem(kod) })
 
   useEffect(() => {
     const t = setInterval(() => setTeraz(new Date()), 15000)
@@ -166,7 +206,8 @@ export function MagazynHmiPage() {
       ) : null}
 
       {ekran === 'kartony-praca' ? (
-        <EkranPakowania aktywnyId={aktywnyKarton} onAktywny={setAktywnyKarton} onAlarm={pokazAlarm} />
+        <EkranPakowania aktywnyId={aktywnyKarton} onAktywny={setAktywnyKarton} onAlarm={pokazAlarm}
+          pierwszySkan={pierwszySkan} onPierwszySkan={() => setPierwszySkan(null)} />
       ) : null}
 
       {ekran === 'wydanie-auta' ? (

@@ -11,23 +11,27 @@
  * z wózka. Skan ETYKIETY kartonu (SCARTON|… albo kod palety zamówienia)
  * przełącza aktywny karton — bez dotykania ekranu.
  */
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { isOfflineError, magazynApi, palletsApi, type OtwartyKarton } from '@/lib/api'
 import { czyKompletnyKodPalety, idKartonu } from '@/features/scan/skanKodu'
 import { usePakowanie } from './usePakowanie'
 import { werdyktPakowania, type Uwaga } from './pakowanieWerdykt'
 import { grajBlad, grajInny } from './dzwiek'
 import { brakuje, dokadKarton, skladKartonu, opisPozycji } from './opisKartonu'
+import { kgTxt } from './pula'
 import { Karta, Znacznik } from './components/Karta'
 import { PasSkanowania } from './components/PasSkanowania'
 import type { PokazAlarm } from './magazynTypes'
 
 interface Wpis { ts: number; opis: string; gdzie: string; ton: 'cisza' | 'inny' | 'blad' }
 
-export function EkranPakowania({ aktywnyId, onAktywny, onAlarm }: {
+export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, pierwszySkan, onPierwszySkan }: {
   aktywnyId: string | null
   onAktywny: (id: string | null) => void
   onAlarm: PokazAlarm
+  /** Sztuka zeskanowana jeszcze na menu — przyjmujemy ją od razu po wejściu. */
+  pierwszySkan?: string | null
+  onPierwszySkan?: () => void
 }) {
   const { kontenery, odswiez } = usePakowanie()
   const [uwaga, setUwaga] = useState<Uwaga | null>(null)
@@ -86,7 +90,19 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm }: {
     }
   }
 
+  const zuzyty = useRef(false)
+  useEffect(() => {
+    if (!pierwszySkan || zuzyty.current) return
+    zuzyty.current = true
+    onPierwszySkan?.()
+    void skanuj(pierwszySkan)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pierwszySkan])
+
   const b = aktywny ? brakuje(aktywny) : 0
+  const wagi = aktywny ? [...new Set(aktywny.lines.map(l => l.kgPerUnit))].sort((x, y) => x - y) : []
+  const kgSpak = aktywny ? aktywny.lines.reduce((s, l) => s + l.packedQty * l.kgPerUnit, 0) : 0
+  const kgCel = aktywny ? aktywny.lines.reduce((s, l) => s + l.targetQty * l.kgPerUnit, 0) : 0
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -109,21 +125,39 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm }: {
               </div>
               <div className="text-[15px]" style={{ color: 'var(--mut)' }}>{skladKartonu(aktywny)}</div>
 
-              <div className="mt-4 flex items-end gap-8">
+              {/* WAGA SZTUKI — właściciel 25.09.2026: sztuki i klient były
+                  widoczne, kilogramy ginęły. Przy wózku mieszanym 10 kg
+                  od 15 kg odróżnia się tylko po tej liczbie. */}
+              <div className="mt-4 flex flex-wrap items-end gap-x-10 gap-y-4">
+                <div>
+                  <div className="text-[12px] font-extrabold uppercase tracking-[0.12em]" style={{ color: 'var(--mut)' }}>
+                    {wagi.length > 1 ? 'Wagi sztuk' : 'Waga sztuki'}
+                  </div>
+                  <div data-testid="waga-sztuki" className="hmi-v10-mono font-bold leading-none"
+                    style={{ fontSize: wagi.length > 1 ? 'clamp(40px, 4.6vw, 72px)' : 'clamp(64px, 8vw, 128px)',
+                             color: 'var(--ink)' }}>
+                    {wagi.map(kgTxt).join(' + ')}<span style={{ fontSize: '.45em', color: 'var(--mut)' }}> kg</span>
+                  </div>
+                </div>
                 <div>
                   <div className="text-[12px] font-extrabold uppercase tracking-[0.12em]" style={{ color: 'var(--mut)' }}>
                     Brakuje
                   </div>
                   <div className="hmi-v10-mono font-bold leading-none"
                     style={{ fontSize: 'clamp(64px, 8vw, 128px)', color: b ? 'var(--accent)' : 'var(--success)' }}>
-                    {b}
+                    {b}<span style={{ fontSize: '.35em', color: 'var(--mut)' }}> szt</span>
                   </div>
                 </div>
-                <div className="pb-3">
-                  <div className="hmi-v10-mono text-[28px] font-bold leading-none">
-                    {aktywny.packedQty}<span style={{ color: '#9AA3B0' }}>/{aktywny.targetQty}</span>
-                  </div>
-                  <div className="mt-1 text-[13px]" style={{ color: 'var(--mut)' }}>sztuk w kartonie</div>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-baseline gap-x-8 gap-y-1">
+                <div className="hmi-v10-mono text-[26px] font-bold leading-none">
+                  {aktywny.packedQty}<span style={{ color: '#9AA3B0' }}>/{aktywny.targetQty}</span>
+                  <span className="ml-2 text-[14px] font-semibold" style={{ color: 'var(--mut)' }}>szt</span>
+                </div>
+                <div data-testid="kg-kartonu" className="hmi-v10-mono text-[26px] font-bold leading-none">
+                  {kgTxt(kgSpak)}<span style={{ color: '#9AA3B0' }}>/{kgTxt(kgCel)}</span>
+                  <span className="ml-2 text-[14px] font-semibold" style={{ color: 'var(--mut)' }}>kg w kartonie</span>
                 </div>
               </div>
               <div className="mt-2 h-3 overflow-hidden rounded-full" style={{ background: '#fff' }}>

@@ -264,3 +264,23 @@ def test_assign_rejects_other_client(db):
     with pytest.raises(HTTPException) as exc:
         assign_carton_to_order(c["id"], "ord1")
     assert exc.value.status_code == 409
+
+
+# ── Usuwanie pustego kartonu (25.09.2026, stary karton MEPA na panelu) ──
+from app.services.stock_cartons_service import delete_empty_carton  # noqa: E402
+
+
+def test_pusty_karton_mozna_usunac(db):
+    c = create_stock_carton(_dto())
+    assert delete_empty_carton(c["id"])["ok"] is True
+    assert query_one("SELECT 1 FROM stock_cartons WHERE id=%s", (c["id"],)) is None
+    assert query_one("SELECT 1 FROM stock_carton_lines WHERE carton_id=%s", (c["id"],)) is None
+
+
+def test_karton_ze_sztuka_zostaje(db):
+    c = create_stock_carton(_dto())
+    _seed_unit("ud9"); scan_unit_into_carton(c["id"], unit_qr("ud9"))
+    with pytest.raises(HTTPException) as exc:
+        delete_empty_carton(c["id"])
+    assert exc.value.status_code == 409
+    assert query_one("SELECT 1 FROM stock_cartons WHERE id=%s", (c["id"],)) is not None

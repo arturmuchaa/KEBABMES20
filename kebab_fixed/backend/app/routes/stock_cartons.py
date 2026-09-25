@@ -55,3 +55,9 @@ def get(carton_id: str):
 def scan(carton_id: str, body: dict):
     code = (body or {}).get("code") or ""
     return svc.scan_unit_into_carton(carton_id, code)
+
+
+@router.delete("/{carton_id}")
+def delete_empty(carton_id: str):
+    """Biuro: usuń PUSTY karton (bez żadnej spakowanej sztuki)."""
+    return svc.delete_empty_carton(carton_id)

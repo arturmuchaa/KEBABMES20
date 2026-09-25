@@ -53,14 +53,37 @@ function skan(kod: string) {
 describe('pakowanie na kiosku', () => {
   it('„brakuje" aktywnego kartonu jest na ekranie', async () => {
     render(<EkranPakowania aktywnyId="k1" onAktywny={vi.fn()} onAlarm={vi.fn()} />)
-    expect(await screen.findByText('32')).toBeTruthy()          // 60 − 28
+    expect(await screen.findByText(/^32/)).toBeTruthy()          // 60 − 28
     expect(screen.getByText('YALCIN')).toBeTruthy()
+  })
+
+  it('kilogramy widać: waga sztuki i kg w kartonie (28×15 z 60×15)', async () => {
+    render(<EkranPakowania aktywnyId="k1" onAktywny={vi.fn()} onAlarm={vi.fn()} />)
+    await screen.findByText(/^32/)
+    expect(screen.getByTestId('waga-sztuki').textContent).toMatch(/^15\s*kg/)
+    expect(screen.getByTestId('kg-kartonu').textContent).toMatch(/420\/900/)
+  })
+
+  it('karton mieszany pokazuje obie wagi', async () => {
+    const m = K('k1', '000318', 'YALCIN')
+    m.lines = [...m.lines, { ...m.lines[0], kgPerUnit: 25, targetQty: 10, packedQty: 0 }]
+    s.kontenery = [m]
+    render(<EkranPakowania aktywnyId="k1" onAktywny={vi.fn()} onAlarm={vi.fn()} />)
+    await waitFor(() => expect(screen.getByTestId('waga-sztuki').textContent).toMatch(/15 \+ 25/))
+  })
+
+  it('sztuka zeskanowana jeszcze na menu jest przyjmowana po wejściu', async () => {
+    const zuzyty = vi.fn()
+    render(<EkranPakowania aktywnyId={null} onAktywny={vi.fn()} onAlarm={vi.fn()}
+      pierwszySkan="U|ac82b8f61e2545a4867b" onPierwszySkan={zuzyty} />)
+    await waitFor(() => expect(s.skany).toEqual([['U|ac82b8f61e2545a4867b', null]]))
+    expect(zuzyty).toHaveBeenCalledOnce()
   })
 
   it('sztuka do aktywnego: cisza — bez alarmu i bez dźwięku', async () => {
     const onAlarm = vi.fn()
     render(<EkranPakowania aktywnyId="k1" onAktywny={vi.fn()} onAlarm={onAlarm} />)
-    await screen.findByText('32')
+    await screen.findByText(/^32/)
     skan('UNIT|u1')
     await waitFor(() => expect(s.skany).toEqual([['UNIT|u1', 'k1']]))
     expect(onAlarm).not.toHaveBeenCalled()
@@ -71,7 +94,7 @@ describe('pakowanie na kiosku', () => {
     s.wynik = { result: 'OTHER', unit: 'DEMS · YAPRAK 25 kg', container: K('k3', '000320', 'DEMS', 13, 20) }
     const onAktywny = vi.fn()
     render(<EkranPakowania aktywnyId="k1" onAktywny={onAktywny} onAlarm={vi.fn()} />)
-    await screen.findByText('32')
+    await screen.findByText(/^32/)
     skan('UNIT|u2')
     expect(await screen.findByText('POSZŁA DO INNEGO KARTONU')).toBeTruthy()
     expect(screen.getAllByText(/karton 000320/).length).toBeGreaterThan(0)
@@ -83,7 +106,7 @@ describe('pakowanie na kiosku', () => {
     s.wynik = { result: 'NO_PLACE', unit: 'BULLI · KIRMIZI 10 kg', container: null }
     const onAlarm = vi.fn()
     render(<EkranPakowania aktywnyId="k1" onAktywny={vi.fn()} onAlarm={onAlarm} />)
-    await screen.findByText('32')
+    await screen.findByText(/^32/)
     skan('UNIT|u3')
     await waitFor(() => expect(onAlarm).toHaveBeenCalled())
     expect(onAlarm.mock.calls[0][0].ton).toBe('blad')
@@ -93,7 +116,7 @@ describe('pakowanie na kiosku', () => {
   it('skan karty kartonu przełącza aktywny bez zapisu sztuki', async () => {
     const onAktywny = vi.fn()
     render(<EkranPakowania aktywnyId="k1" onAktywny={onAktywny} onAlarm={vi.fn()} />)
-    await screen.findByText('32')
+    await screen.findByText(/^32/)
     skan('SCARTON|k3')
     await waitFor(() => expect(onAktywny).toHaveBeenCalledWith('k3'))
     expect(s.skany).toEqual([])

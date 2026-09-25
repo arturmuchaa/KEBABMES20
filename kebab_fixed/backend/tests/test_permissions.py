@@ -271,3 +271,9 @@ def test_lista_aut_do_odczytu_dla_wydania():
     assert can_access(kierowca_skanera, permission_for_path("/api/vehicles", "GET"))
     assert not can_access({"kind": "operator", "departments": ["rozbior"]},
                           permission_for_path("/api/vehicles", "GET"))
+
+
+def test_usuniecie_kartonu_tylko_biuro():
+    p = permission_for_path("/api/stock-cartons/c1", "DELETE")
+    assert p == "office"
+    assert not can_access({"kind": "operator", "departments": ["magazyn"]}, p)

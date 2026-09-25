@@ -3887,6 +3887,8 @@ export const stockCartonsApi = {
   // Biuro: dorzuć N uprawnionych sztuk z magazynu do pozycji (FIFO)
   addToLine: (cartonId: string, lineId: string, qty: number) =>
     post<{ ok: boolean; added: number }>(`/stock-cartons/${cartonId}/lines/${lineId}/add`, { qty }),
+  // Biuro: usuń PUSTY karton (serwer odmawia, gdy jest w nim choć jedna sztuka)
+  removeEmpty: (id: string) => del<{ ok: boolean; cartonNo: string }>(`/stock-cartons/${id}`),
 }
 
 // ─── Kiosk magazynu: pakowanie kartonów ─────────────────────────

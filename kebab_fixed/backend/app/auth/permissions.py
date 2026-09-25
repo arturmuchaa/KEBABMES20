@@ -95,6 +95,9 @@ def permission_for_path(path: str, method: str = "GET") -> str:
     if path.startswith("/api/stock-cartons"):
         if method == "POST" and path == "/api/stock-cartons":
             return "office"
+        # Usunięcie pustego kartonu — decyzja biura, nie hali.
+        if method == "DELETE":
+            return "office"
         if path.endswith("/add") and "/lines/" in path:
             return "office"
         return "pakowanie"

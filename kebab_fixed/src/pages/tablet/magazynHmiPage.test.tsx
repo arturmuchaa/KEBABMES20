@@ -5,12 +5,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 
-const stan = vi.hoisted(() => ({ podsumowanie: null as any }))
+const stan = vi.hoisted(() => ({ podsumowanie: null as any, kontenery: [] as any[] }))
 
 vi.mock('@/lib/api', () => ({
   magazynApi: {
     podsumowanie: () => Promise.resolve(stan.podsumowanie),
-    pakowanie: () => Promise.resolve({ kontenery: [], pula: [] }),
+    pakowanie: () => Promise.resolve({ kontenery: stan.kontenery, pula: [] }),
     skan: vi.fn(),
   },
   vehiclesApi: { list: () => Promise.resolve([
@@ -34,6 +34,7 @@ vi.mock('@/features/deboning/ServiceMenu', () => ({
 import { MagazynHmiPage } from './MagazynHmiPage'
 
 beforeEach(() => {
+  stan.kontenery = []
   stan.podsumowanie = {
     kartony: { otwarte: 3, sztukDoSpakowania: 43, zalegle: 11, brakujeWKartonach: 80 },
     wydanie: { zamowien: 3, kg: 1840 },
@@ -78,5 +79,30 @@ describe('kiosk magazynu — menu czynności', () => {
     fireEvent.click(screen.getByText('Kartony').closest('button')!)
     expect(await screen.findByText('Otwarte kartony')).toBeTruthy()
     expect(screen.getByText('Do spakowania')).toBeTruthy()
+  })
+})
+
+// Właściciel 25.09.2026: „skan QR na kartce kartonu ma przenosić do pakowania
+// tego kartonu — teraz muszę wejść ręcznie".
+describe('skan karty kartonu z menu', () => {
+  const ID = 'ac82b8f61e2545a4867b'
+  const wystukaj = (t: string) => { for (const ch of t) fireEvent.keyDown(document.body, { key: ch }) }
+
+  it('otwiera pakowanie TEGO kartonu, bez dotykania ekranu', async () => {
+    stan.kontenery = [{ kind: 'stock', id: ID, cartonNo: '000318', clientName: 'YALCIN', orderNo: '',
+      palletNo: 0, deliveryDate: '', openedAt: '', targetQty: 60, packedQty: 28,
+      lines: [{ productTypeName: 'UDO', recipeName: 'KIRMIZI', packagingName: 'METAL 80',
+                kgPerUnit: 15, targetQty: 60, packedQty: 28 }] }]
+    render(<MagazynHmiPage />)
+    wystukaj(`SCARTON|${ID}`)
+    expect(await screen.findByText('Pakowanie')).toBeTruthy()
+    expect(await screen.findByText('YALCIN')).toBeTruthy()
+  })
+
+  it('karta kartonu, którego nie ma wśród otwartych — alarm, zostajemy w menu', async () => {
+    render(<MagazynHmiPage />)
+    wystukaj(`SCARTON|${ID}`)
+    expect(await screen.findByText('TEN KARTON NIE JEST OTWARTY')).toBeTruthy()
+    expect(screen.getByText('Stanowisko magazynowe')).toBeTruthy()
   })
 })
