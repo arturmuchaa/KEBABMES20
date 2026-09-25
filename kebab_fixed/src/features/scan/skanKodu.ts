@@ -31,6 +31,35 @@ export function czyKompletnyKodPalety(wartosc: string): boolean {
   return TOKEN.test(s) || ADRES.test(s)
 }
 
+/** Kod sztuki (`U|<20 hex>`) i kartonu magazynowego (`SCARTON|<20 hex>`)
+ *  — rozpoznawane po KSZTAŁCIE identyfikatora, nie po `|`.
+ *
+ *  Hala 25.09.2026: skaner wystukiwał `|` jako inny znak (układ klawiatury
+ *  skanera ≠ układ Windows), a CapsLock odwraca wielkość liter. Stąd jeden
+ *  dowolny znak nie-alfanumeryczny zamiast `|` albo żaden. Ta sama reguła
+ *  żyje w backendzie (`unit_codes.parse_unit_qr`). */
+const SZTUKA = /^[uU][^0-9A-Za-z]?[0-9a-fA-F]{20}$/
+const KARTON = /^SCARTON[^0-9A-Za-z]?([0-9a-fA-F]{20})$/i
+
+export function czyKompletnyKodSztuki(wartosc: string): boolean {
+  return SZTUKA.test((wartosc ?? '').trim())
+}
+
+/** Id kartonu magazynowego z kodu karty kartonu; null, gdy to nie karton. */
+export function idKartonu(wartosc: string): string | null {
+  const s = (wartosc ?? '').trim()
+  const dokladny = /^SCARTON\|(.+)$/i.exec(s)
+  if (dokladny) return dokladny[1].trim()
+  const m = KARTON.exec(s)
+  return m ? m[1].toLowerCase() : null
+}
+
+/** Kod, który wolno wysłać bez Entera: paleta, sztuka albo karton. */
+export function czyKompletnyKod(wartosc: string): boolean {
+  return czyKompletnyKodPalety(wartosc) || czyKompletnyKodSztuki(wartosc)
+    || idKartonu(wartosc) !== null
+}
+
 /**
  * Strażnik: ten sam kod nie leci dwa razy pod rząd.
  *
@@ -81,12 +110,17 @@ export function utworzStraznikaWysylki(oknoMs = 2000) {
  * a żaden kod w zakładzie nie jest tak krótki.
  */
 export const MIN_ZNAKOW_SKANU = 8
-export const MAX_MS_SKANU = 250
+/** Średni odstęp między znakami, poniżej którego to skaner. Skaner kablowy
+ *  ~1 ms/znak, bezprzewodowy (Bluetooth) 10–30 ms/znak; szybki człowiek
+ *  ≥ 80 ms/znak. Do 25.09.2026 próg był na CAŁY kod (250 ms) i skaner
+ *  bezprzewodowy z 22-znakowym kodem sztuki się w nim nie mieścił —
+ *  kod stał w polu i czekał na Enter. */
+export const MAX_MS_NA_ZNAK = 40
 
 export function czyWpisalSkaner(
   dlugosc: number,
   czasTrwaniaMs: number,
 ): boolean {
   if (dlugosc < MIN_ZNAKOW_SKANU) return false
-  return czasTrwaniaMs <= MAX_MS_SKANU
+  return czasTrwaniaMs <= dlugosc * MAX_MS_NA_ZNAK
 }

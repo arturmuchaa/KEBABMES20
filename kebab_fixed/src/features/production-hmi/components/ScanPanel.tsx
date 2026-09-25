@@ -1,8 +1,11 @@
 /**
  * Skanowanie gotowych kebabów — sztuka wchodzi na magazyn wyrobu gotowego.
  *
- * Skaner na hali zachowuje się jak klawiatura: wystukuje kod i wciska Enter.
- * Dlatego całe wejście to jedno pole, które samo trzyma kursor i samo się
+ * Skaner na hali zachowuje się jak klawiatura: wystukuje kod — i Entera
+ * często NIE wciska (brak sufiksu w konfiguracji skanera). Hala 25.09.2026:
+ * „kod się pojawia, trzeba klikać Enter". Dlatego pole wysyła kompletny kod
+ * sam, przez wspólny `useSkanAutoSubmit` (ten sam co załadunek i magazyn);
+ * Enter, jeśli przyjdzie, jest bezczynny. Całe wejście to jedno pole, które samo trzyma kursor i samo się
  * czyści — operator ma zajęte ręce i nie będzie klikał w ekran między
  * sztukami. Dźwięk po każdym skanie jest ważniejszy niż komunikat: kebab
  * zwykle patrzy w wózek, nie w monitor.
@@ -15,6 +18,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { beepErr, beepOk } from '@/features/pwa/beep'
+import { useSkanAutoSubmit } from '@/features/scan/useSkanAutoSubmit'
 import { scanOf, type ScanMap } from '../scanProgress'
 import type { PlanLineView } from './PlanList'
 
@@ -72,32 +76,53 @@ export function ScanPanel({ lines, scans, initialLineId, onScan, onClose }: Scan
     setOstatni(null)
   }
 
-  const wyslij = async (surowy: string) => {
-    const code = surowy.trim()
-    if (!code || zajety || !pozycja) return
+  // Kolejka skanów: operator skanuje wózek szybciej, niż wraca odpowiedź.
+  // Dawniej skan w trakcie poprzedniego był po cichu gubiony (`zajety`),
+  // a przy auto-wysyłce nic by go już nie ponowiło.
+  const kolejka = useRef<string[]>([])
+  const wTrakcie = useRef(false)
+
+  const przetworz = async () => {
+    if (wTrakcie.current || !pozycja) return
+    wTrakcie.current = true
     setZajety(true)
     try {
-      const wynik = await onScan(code, pozycja.id)
-      setOstatni({
-        ok: true,
-        tekst: [wynik.clientName, wynik.batchNo, wynik.weightKg != null ? `${wynik.weightKg} kg` : '']
-          .filter(Boolean).join(' · '),
-        wynik,
-      })
-      setIle(n => n + 1)
-      beepOk()
-    } catch (e: any) {
-      setOstatni({
-        ok: false,
-        tekst: czyDubel(e) ? 'Ta sztuka jest już zeskanowana' : (e?.message || 'Nie udało się zeskanować'),
-      })
-      beepErr()
+      while (kolejka.current.length) {
+        const code = kolejka.current.shift()!
+        try {
+          const wynik = await onScan(code, pozycja.id)
+          setOstatni({
+            ok: true,
+            tekst: [wynik.clientName, wynik.batchNo, wynik.weightKg != null ? `${wynik.weightKg} kg` : '']
+              .filter(Boolean).join(' · '),
+            wynik,
+          })
+          setIle(n => n + 1)
+          beepOk()
+        } catch (e: any) {
+          setOstatni({
+            ok: false,
+            tekst: czyDubel(e) ? 'Ta sztuka jest już zeskanowana' : (e?.message || 'Nie udało się zeskanować'),
+          })
+          beepErr()
+        }
+      }
     } finally {
+      wTrakcie.current = false
       setZajety(false)
-      setKod('')
       wroc()
     }
   }
+
+  const wyslij = (surowy: string) => {
+    const code = surowy.trim()
+    setKod('')
+    if (!code || !pozycja) return
+    kolejka.current.push(code)
+    void przetworz()
+  }
+
+  const { zatwierdz } = useSkanAutoSubmit(kod, wyslij)
 
   const ramka = ostatni
     ? (ostatni.ok
@@ -192,7 +217,7 @@ export function ScanPanel({ lines, scans, initialLineId, onScan, onClose }: Scan
           </div>
         ) : (
           <>
-            <form onSubmit={e => { e.preventDefault(); wyslij(kod) }}>
+            <form onSubmit={e => { e.preventDefault(); zatwierdz(kod) }}>
               <input ref={pole} data-testid="pole-skanu" value={kod} onChange={e => setKod(e.target.value)}
                 placeholder="Zeskanuj kod QR sztuki" autoFocus autoComplete="off" spellCheck={false}
                 className="w-full hmi-v10-mono text-[22px] font-bold"

@@ -204,3 +204,50 @@ describe('ScanPanel — skan wybranej pozycji', () => {
     expect(await screen.findByText(/Pozycja potwierdzona/i)).toBeTruthy()
   })
 })
+
+// Hala 25.09.2026: „skany się nie zatwierdzają, trzeba klikać Enter, tylko
+// kod się pojawia". Skaner bez sufiksu Enter wpisuje kod w pole i na tym
+// koniec — panel musi rozpoznać kompletny kod sam.
+describe('ScanPanel — auto-zatwierdzanie bez Entera', () => {
+  it('kompletny kod sztuki wysyła się sam', async () => {
+    const onScan = vi.fn().mockResolvedValue(wynik())
+    naPozycji(onScan)
+    const pole = screen.getByTestId('pole-skanu') as HTMLInputElement
+    fireEvent.change(pole, { target: { value: 'U|ac82b8f61e2545a4867b' } })
+    await waitFor(() => expect(onScan).toHaveBeenCalledWith('U|ac82b8f61e2545a4867b', 'l1'))
+    await waitFor(() => expect(pole.value).toBe(''))
+  })
+
+  it('kod z przekręconym separatorem też się wysyła — decyduje serwer', async () => {
+    const onScan = vi.fn().mockResolvedValue(wynik())
+    naPozycji(onScan)
+    fireEvent.change(screen.getByTestId('pole-skanu'), { target: { value: 'U<ac82b8f61e2545a4867b' } })
+    await waitFor(() => expect(onScan).toHaveBeenCalledTimes(1))
+  })
+
+  it('Enter po auto-wysyłce NIE wysyła drugi raz', async () => {
+    const onScan = vi.fn().mockResolvedValue(wynik())
+    naPozycji(onScan)
+    const pole = screen.getByTestId('pole-skanu') as HTMLInputElement
+    fireEvent.change(pole, { target: { value: 'U|ac82b8f61e2545a4867b' } })
+    fireEvent.submit(pole.closest('form')!)
+    await new Promise(r => setTimeout(r, 300))
+    expect(onScan).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ScanPanel — szybki wózek', () => {
+  it('skan w trakcie poprzedniego NIE ginie — czeka w kolejce', async () => {
+    let puść: (v: any) => void = () => {}
+    const onScan = vi.fn()
+      .mockImplementationOnce(() => new Promise(r => { puść = r }))
+      .mockResolvedValue(wynik())
+    naPozycji(onScan)
+    skanuj('U|aaaaaaaaaaaaaaaaaaaa')
+    skanuj('U|bbbbbbbbbbbbbbbbbbbb')
+    expect(onScan).toHaveBeenCalledTimes(1)
+    puść(wynik())
+    await waitFor(() => expect(onScan).toHaveBeenCalledTimes(2))
+    expect(onScan.mock.calls[1][0]).toBe('U|bbbbbbbbbbbbbbbbbbbb')
+  })
+})

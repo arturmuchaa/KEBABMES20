@@ -5,8 +5,8 @@
  * nie działo — paleta zostawała `created`, bo żądanie nie wychodziło.
  */
 import { describe, it, expect } from 'vitest'
-import { czyKompletnyKodPalety, czyWpisalSkaner, MAX_MS_SKANU, MIN_ZNAKOW_SKANU,
-         utworzStraznikaWysylki } from './skanKodu'
+import { czyKompletnyKod, czyKompletnyKodPalety, czyKompletnyKodSztuki, czyWpisalSkaner,
+         idKartonu, MAX_MS_NA_ZNAK, MIN_ZNAKOW_SKANU, utworzStraznikaWysylki } from './skanKodu'
 
 describe('rozpoznanie kompletnego kodu palety', () => {
   it('token z kartki', () => {
@@ -94,8 +94,34 @@ describe('rozpoznanie skanera po tempie', () => {
     expect(czyWpisalSkaner(7, 10)).toBe(false)
   })
 
+  it('skaner BEZPRZEWODOWY (~20 ms/znak) też jest skanerem', () => {
+    // Hala 25.09.2026: kod sztuki 22 znaki w ~450 ms stał w polu i czekał
+    // na Enter, bo próg był 250 ms na cały kod.
+    expect(czyWpisalSkaner(22, 450)).toBe(true)
+  })
+
   it('granice są jawne, nie magiczne', () => {
-    expect(czyWpisalSkaner(MIN_ZNAKOW_SKANU, MAX_MS_SKANU)).toBe(true)
-    expect(czyWpisalSkaner(MIN_ZNAKOW_SKANU, MAX_MS_SKANU + 1)).toBe(false)
+    const n = MIN_ZNAKOW_SKANU
+    expect(czyWpisalSkaner(n, n * MAX_MS_NA_ZNAK)).toBe(true)
+    expect(czyWpisalSkaner(n, n * MAX_MS_NA_ZNAK + 1)).toBe(false)
+  })
+})
+
+describe('kod sztuki i kartonu — po kształcie, nie po „|"', () => {
+  const ID = 'ac82b8f61e2545a4867b'
+  it.each([`U|${ID}`, `u|${ID.toUpperCase()}`, `U<${ID}`, `U#${ID}`, `U${ID}`])(
+    'sztuka %s jest kompletnym kodem', kod => {
+      expect(czyKompletnyKodSztuki(kod)).toBe(true)
+      expect(czyKompletnyKod(kod)).toBe(true)
+    })
+
+  it('sztuka w trakcie wpisywania nie odpala się', () => {
+    expect(czyKompletnyKodSztuki(`U|${ID.slice(0, 19)}`)).toBe(false)
+  })
+
+  it('karta kartonu: dokładna i z przekręconym separatorem', () => {
+    expect(idKartonu(`SCARTON|${ID}`)).toBe(ID)
+    expect(idKartonu(`scarton<${ID.toUpperCase()}`)).toBe(ID)
+    expect(idKartonu(`U|${ID}`)).toBeNull()
   })
 })

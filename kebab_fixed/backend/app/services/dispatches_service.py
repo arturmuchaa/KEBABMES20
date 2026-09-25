@@ -22,8 +22,14 @@ logger = get_logger(__name__)
 
 
 def _parse_stock_carton(code: str):
-    m = re.match(r"^SCARTON\|(.+)$", (code or "").strip(), re.IGNORECASE)
-    return m.group(1) if m else None
+    s = (code or "").strip()
+    m = re.match(r"^SCARTON\|(.+)$", s, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    # Separator przekręcony przez układ klawiatury skanera (jak w kodzie
+    # sztuki, `unit_codes.parse_unit_qr`) — rozpoznajemy po kształcie id.
+    m = re.match(r"^SCARTON[^0-9A-Za-z]?([0-9a-fA-F]{20})$", s, re.IGNORECASE)
+    return m.group(1).lower() if m else None
 
 
 def scan_carton_into_dispatch(dispatch_id: str, code: str) -> Dict[str, Any]:

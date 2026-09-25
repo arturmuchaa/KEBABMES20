@@ -13,7 +13,7 @@
  */
 import { useState } from 'react'
 import { isOfflineError, magazynApi, palletsApi, type OtwartyKarton } from '@/lib/api'
-import { czyKompletnyKodPalety } from '@/features/scan/skanKodu'
+import { czyKompletnyKodPalety, idKartonu } from '@/features/scan/skanKodu'
 import { usePakowanie } from './usePakowanie'
 import { werdyktPakowania, type Uwaga } from './pakowanieWerdykt'
 import { grajBlad, grajInny } from './dzwiek'
@@ -56,8 +56,8 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm }: {
 
   async function skanuj(kod: string) {
     try {
-      const karton = /^SCARTON\|(.+)$/i.exec(kod)
-      if (karton) return await skanKartonu(karton[1].trim())
+      const karton = idKartonu(kod)
+      if (karton) return await skanKartonu(karton)
       if (czyKompletnyKodPalety(kod)) {
         const p = await palletsApi.lookup(kod)
         return await skanKartonu(String(p?.id ?? ''))

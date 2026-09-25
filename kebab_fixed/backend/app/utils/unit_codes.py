@@ -5,6 +5,7 @@ Statusy sztuki: planned → produced → packed → shipped.
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -21,15 +22,28 @@ def unit_qr(unit_id: str) -> str:
     return f"{_PREFIX}{unit_id}"
 
 
+# Kod wystukany przez skaner HID w innym układzie klawiatury: `U` (albo `u`
+# przy CapsLocku), dowolny JEDEN znak nie-alfanumeryczny zamiast `|` albo
+# żaden, i 20 znaków hex identyfikatora (`cuid()`), w dowolnej wielkości.
+_UNIT_LUZNY = re.compile(r"^[uU][^0-9A-Za-z]?([0-9a-fA-F]{20})$")
+
+
 def parse_unit_qr(code: Optional[str]) -> Optional[str]:
-    """Wyciąga unit_id z tokenu 'U|<id>'. Zwraca None gdy to nie token sztuki."""
+    """Wyciąga unit_id z tokenu 'U|<id>'. Zwraca None gdy to nie token sztuki.
+
+    Hala 25.09.2026: etykiety wydrukowane z systemu odbijały się 400, bo
+    skaner wystukiwał `|` jako inny znak (układ klawiatury skanera ≠ układ
+    Windows), a CapsLock odwraca wielkość liter. Dokładny token idzie
+    pierwszy; potem luźny wzorzec po kształcie identyfikatora.
+    """
     if not code:
         return None
     s = code.strip()
-    if not s.startswith(_PREFIX):
-        return None
-    unit_id = s[len(_PREFIX):]
-    return unit_id or None
+    if s.startswith(_PREFIX):
+        unit_id = s[len(_PREFIX):]
+        return unit_id or None
+    m = _UNIT_LUZNY.match(s)
+    return m.group(1).lower() if m else None
 
 
 def next_produced_status(current: str) -> str:

@@ -4,6 +4,7 @@ import { ArrowLeft, Camera, CheckCircle2, AlertTriangle, Package, PackageOpen, X
 import { palletsApi, stockCartonsApi, type PalletPackResult, type PalletBatchRow, type StockCartonLine } from '@/lib/api'
 import { useApi } from '@/hooks/useApi'
 import { useSkanAutoSubmit } from '@/features/scan/useSkanAutoSubmit'
+import { idKartonu } from '@/features/scan/skanKodu'
 import { QrScannerModal } from '@/components/scan/QrScannerModal'
 import { beepOk, beepErr } from '@/features/pwa/beep'
 import { useClientNames } from '@/lib/clientNames'
@@ -34,10 +35,8 @@ interface ActivePallet {
   lines?: StockCartonLine[]
 }
 
-function parseStockCarton(code: string): string | null {
-  const m = code.trim().match(/^SCARTON\|(.+)$/i)
-  return m ? m[1] : null
-}
+// Karta kartonu także z przekręconym separatorem (układ klawiatury skanera).
+const parseStockCarton = idKartonu
 
 interface ScanFeedback {
   ok: boolean

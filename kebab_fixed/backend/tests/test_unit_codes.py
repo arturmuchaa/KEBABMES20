@@ -111,3 +111,29 @@ def test_validate_pack_carton_full():
     ok, reason = validate_pack(unit, carton)
     assert ok is False
     assert "pełny" in reason.lower() or "pelny" in reason.lower()
+
+
+# Hala 25.09.2026: trzy skany etykiet wydrukowanych z systemu odbiły się
+# 400 „Nieprawidłowy kod". Kod w bazie był dobry — skaner HID wystukał go
+# INACZEJ: `|` zależy od układu klawiatury skanera, a CapsLock odwraca
+# wielkość liter. Identyfikator ma stały kształt (20 znaków hex), więc
+# rozpoznajemy go po nim, a nie po jednym kruchym znaku.
+ID = "ac82b8f61e2545a4867b"
+
+
+@pytest.mark.parametrize("kod", [
+    f"U|{ID}",                 # wzorzec
+    f"u|{ID.upper()}",         # CapsLock — odwrócona wielkość liter
+    f"U<{ID}",                 # `|` z niemieckiego układu
+    f"U>{ID}", f"U#{ID}", f"U§{ID}", f"U'{ID}", f"U\\{ID}",
+    f"U{ID}",                  # separator zgubiony
+    f"  U|{ID}\r\n",           # sufiks Enter / CR
+])
+def test_parse_unit_qr_odporny_na_uklad_klawiatury(kod):
+    assert parse_unit_qr(kod) == ID
+
+
+def test_parse_unit_qr_nie_zgaduje_na_sile():
+    assert parse_unit_qr(f"X|{ID}") is None            # inny prefiks
+    assert parse_unit_qr("Uzzzzzzzzzzzzzzzzzzzz") is None       # nie hex
+    assert parse_unit_qr(f"PAL|{ID}|1") is None
