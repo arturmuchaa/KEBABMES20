@@ -6,8 +6,14 @@ wtedy „Nikt nie ma włączonego rozliczenia": wyglądało na brak konfiguracji
 a było awarią.
 
 Testy tras wołały funkcje modułu WPROST (`route.karta("c1")`), więc nie
-dotykały rejestracji. Ten test patrzy na `app.routes` — czyli na to, co
-naprawdę obsłuży żądanie.
+dotykały rejestracji. Ten test patrzy na schemat OpenAPI aplikacji — czyli
+na trasy, które naprawdę obsłużą żądanie.
+
+Czemu nie `app.routes`: od FastAPI 0.14x każdy podłączony router siedzi tam
+jako jeden obiekt `_IncludedRouter` BEZ atrybutu `path`. Lokalnie (0.111)
+test przechodził, w CI (0.141) padał przy działającej aplikacji — sprawdzał
+wewnętrzną strukturę biblioteki, nie zachowanie. Schemat jest publicznym
+kontraktem i nie zależy od tego, jak router trzyma trasy w środku.
 """
 from __future__ import annotations
 
@@ -15,7 +21,7 @@ from app.main import app
 
 
 def _sciezki() -> set:
-    return {getattr(r, "path", "") for r in app.routes}
+    return set(app.openapi()["paths"])
 
 
 def test_lista_rozrachunkow_jest_dostepna_po_http():
