@@ -32,6 +32,7 @@ from app.db import execute, query_all, query_one
 from app.logging_config import get_logger
 from app.services import pallets_service, stock_cartons_service
 from app.services.stock_cartons_service import pick_line_for_unit
+from app.utils.client_aliases import nazwy_klienta
 from app.utils.ids import format_carton_no
 from app.utils.unit_codes import (
     PRODUCED, _client_matches, pallet_line_key, parse_unit_qr,
@@ -54,7 +55,7 @@ def pasuje_do_kontenera(unit: Dict[str, Any], k: Dict[str, Any]) -> bool:
     packed_qty. Palety zamówień nie pilnują tulei (pozycja zamówienia jej nie
     rozróżnia) — kartony magazynowe tak, jak `pick_line_for_unit`.
     """
-    if not _client_matches(unit.get("client_name"), k.get("clientName")):
+    if not _client_matches(unit.get("client_name"), k.get("_nazwy") or k.get("clientName")):
         return False
     if k.get("kind") == "stock":
         return pick_line_for_unit(unit, k.get("lines") or []) is not None
@@ -83,7 +84,8 @@ def kolejnosc_kandydatow(unit: Dict[str, Any], kontenery: List[Dict[str, Any]],
 
     def waga(k: Dict[str, Any]):
         aktywny = 0 if aktywny_id and k.get("id") == aktywny_id else 1
-        ten_klient = 0 if klient and (k.get("clientName") or "").strip().lower() == klient else 1
+        nazwy = {n.strip().lower() for n in (k.get("_nazwy") or [k.get("clientName") or ""])}
+        ten_klient = 0 if klient and klient in nazwy else 1
         return (aktywny, ten_klient, int(k.get("cartonNoInt") or 0), str(k.get("id")))
 
     return sorted(pasujace, key=waga)
@@ -160,7 +162,7 @@ def otwarte_kontenery() -> List[Dict[str, Any]]:
     """
     palety = query_all(
         """SELECT p.id, p.order_id, p.pallet_no, p.carton_no, p.status, p.created_at,
-                  o.order_no, o.client_name, o.delivery_date
+                  o.order_no, o.client_id, o.client_name, o.delivery_date
            FROM order_pallets p
            JOIN client_orders o ON o.id = p.order_id
            WHERE p.status IN ('created','packing')
@@ -175,6 +177,7 @@ def otwarte_kontenery() -> List[Dict[str, Any]]:
             "cartonNoInt": int(p.get("carton_no") or 0),
             "cartonNo": format_carton_no(p.get("carton_no")) if p.get("carton_no") else "",
             "clientName": p.get("client_name") or "",
+            "_nazwy": sorted(nazwy_klienta(p.get("client_id"), p.get("client_name"))),
             "orderNo": p.get("order_no") or "",
             "palletNo": int(p.get("pallet_no") or 0),
             "deliveryDate": str(p.get("delivery_date") or "")[:10],
@@ -193,6 +196,7 @@ def otwarte_kontenery() -> List[Dict[str, Any]]:
             "cartonNoInt": int(c.get("carton_no") or 0),
             "cartonNo": format_carton_no(c.get("carton_no")) if c.get("carton_no") else "",
             "clientName": c.get("client_name") or "",
+            "_nazwy": sorted(nazwy_klienta(c.get("client_id"), c.get("client_name"))),
             "orderNo": c.get("linked_order_no") or "",
             "palletNo": 0,
             "deliveryDate": "",
@@ -206,7 +210,7 @@ def otwarte_kontenery() -> List[Dict[str, Any]]:
 
 
 def publiczny(k: Dict[str, Any]) -> Dict[str, Any]:
-    return {kk: v for kk, v in k.items() if kk != "lines"} | {
+    return {kk: v for kk, v in k.items() if kk != "lines" and not kk.startswith("_")} | {
         "lines": [_linia_publiczna(x) for x in k.get("lines") or []],
     }
 

@@ -13,6 +13,7 @@ from app.services.wz_service import (_insert_wz, _seller_block, build_goods_wz_l
                                      naming_context)
 from app.utils.ids import cuid, format_carton_no, now_iso
 from app.utils.stock import create_stock_movement
+from app.utils.client_aliases import nazwy_klienta
 from app.utils.unit_codes import (
     PACKED, SHIPPED, _client_matches, group_units_by_goods, parse_unit_qr,
     validate_loose_dispatch,
@@ -49,7 +50,8 @@ def scan_carton_into_dispatch(dispatch_id: str, code: str) -> Dict[str, Any]:
         if not carton:
             raise HTTPException(404, "Karton nie znaleziony")
         disp_client = (disp.get("client_name") or "").strip()
-        if disp_client and not _client_matches(carton.get("client_name"), disp_client):
+        if disp_client and not _client_matches(
+                carton.get("client_name"), nazwy_klienta(disp.get("client_id"), disp_client)):
             raise HTTPException(409, "Karton należy do innego klienta niż wydanie")
         units = cx_query_all(
             conn,
@@ -110,7 +112,8 @@ def scan_into_dispatch(dispatch_id: str, code: str) -> Dict[str, Any]:
         if not unit:
             raise HTTPException(404, "Sztuka nie znaleziona")
 
-        ok, reason = validate_loose_dispatch(unit, disp.get("client_name"))
+        ok, reason = validate_loose_dispatch(
+            unit, nazwy_klienta(disp.get("client_id"), disp.get("client_name")) or disp.get("client_name"))
         if not ok:
             qty = cx_query_one(conn, "SELECT COUNT(*) AS c FROM finished_units WHERE dispatch_id=%s", (dispatch_id,))
             return {"ok": False, "reason": reason, "qty": int(qty["c"] if qty else 0),

@@ -150,3 +150,11 @@ def test_parse_unit_qr_kod_otoczony_smieciami(kod):
 
 def test_parse_unit_qr_nie_wycina_z_dluzszego_ciagu():
     assert parse_unit_qr(f"XU|{ID}abc") is None
+
+
+def test_klient_pasuje_po_dowolnej_nazwie_z_kartoteki():
+    from app.utils.unit_codes import _client_matches
+    assert _client_matches("OKAYTEKIN KG", {"OKAYTEKIN KG", "ZAGROS"})
+    assert _client_matches("zagros", ["OKAYTEKIN KG", "ZAGROS"])
+    assert not _client_matches("YAZGI KG", {"OKAYTEKIN KG", "ZAGROS"})
+    assert _client_matches("na magazyn", {"ZAGROS"})

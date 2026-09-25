@@ -299,3 +299,50 @@ def test_kafel_liczy_kartony_do_spakowania_i_do_dokonczenia(db):
     assert kart["doDokonczenia"] == 1         # YALCIN 1/3
     assert kart["zaczete"][0]["klient"] == "YALCIN"
     assert kart["zaczete"][0]["packedQty"] == 1
+
+
+# Hala 25.09.2026: karton ZAGROS 40×20 kg, dziś wyprodukowane 40×20 kg — panel
+# „nie pasuje do tego kartonu". W kartotece klient ma name „OKAYTEKIN KG"
+# i display_name „ZAGROS": sztuka niosła pełną nazwę, zamówienie skróconą,
+# a porównanie szło po NAPISIE. Klient to tożsamość z kartoteki, nie tekst.
+def _klient_z_dwiema_nazwami(cid, nazwa, wyswietlana):
+    execute("INSERT INTO clients (id, code, name, display_name) VALUES (%s,%s,%s,%s) "
+            "ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, display_name=EXCLUDED.display_name",
+            (cid, cid.upper(), nazwa, wyswietlana))
+
+
+def test_sztuka_z_pelna_nazwa_firmy_wchodzi_na_palete_skrotu(db):
+    _receptury()
+    _klient_z_dwiema_nazwami("zagros", "OKAYTEKIN KG", "ZAGROS")
+    pid = _paleta("o1", "ZAGROS", qty=40, kg=20.0)   # client_id='zagros'
+    _sztuka("u1", client="OKAYTEKIN KG", kg=20.0)
+    w = skanuj_sztuke(unit_qr("u1"), pid)
+    assert w["result"] == "ACTIVE", w
+    assert query_one("SELECT pallet_id FROM finished_units WHERE id='u1'")["pallet_id"] == pid
+
+
+def test_sztuka_z_pelna_nazwa_wchodzi_do_kartonu_magazynowego(db):
+    _receptury()
+    _klient_z_dwiema_nazwami("nazar", "YAZGI KG", "NAZAR")
+    k = _karton("NAZAR", qty=4, kg=15.0, client_id="nazar")
+    _sztuka("u1", client="YAZGI KG")
+    assert skanuj_sztuke(unit_qr("u1"), k["id"])["result"] == "ACTIVE"
+
+
+def test_inny_klient_dalej_odbity(db):
+    _receptury()
+    _klient_z_dwiema_nazwami("zagros", "OKAYTEKIN KG", "ZAGROS")
+    _klient_z_dwiema_nazwami("nazar", "YAZGI KG", "NAZAR")
+    pid = _paleta("o1", "ZAGROS", qty=40, kg=20.0)
+    _sztuka("u1", client="YAZGI KG", kg=20.0)
+    assert skanuj_sztuke(unit_qr("u1"), pid)["result"] == "NO_PLACE"
+
+
+def test_pakowanie_z_telefonu_tez_rozumie_dwie_nazwy(db):
+    """Ta sama reguła na ścieżce telefonu (`pack_unit_into_pallet`)."""
+    from app.services.pallets_service import pack_unit_into_pallet
+    _receptury()
+    _klient_z_dwiema_nazwami("zagros", "OKAYTEKIN KG", "ZAGROS")
+    pid = _paleta("o1", "ZAGROS", qty=40, kg=20.0)
+    _sztuka("u1", client="OKAYTEKIN KG", kg=20.0)
+    assert pack_unit_into_pallet(pid, unit_qr("u1"))["ok"] is True

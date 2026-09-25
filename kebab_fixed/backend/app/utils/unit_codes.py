@@ -112,10 +112,18 @@ def _is_stock(client) -> bool:
 
 
 def _client_matches(unit_client, pallet_client) -> bool:
-    """Klient sztuki pasuje do klienta palety (magazynowy = wildcard, bez wielkości liter)."""
-    if _is_stock(unit_client) or _is_stock(pallet_client):
+    """Klient sztuki pasuje do klienta palety (magazynowy = wildcard, bez wielkości liter).
+
+    `pallet_client` może być jedną nazwą albo ZBIOREM nazw tego samego klienta
+    (`client_aliases.nazwy_klienta`) — kartoteka ma pełną nazwę firmy i skrót,
+    a sztuka i zamówienie potrafią nieść różne z nich.
+    """
+    nazwy = [pallet_client] if isinstance(pallet_client, str) or pallet_client is None \
+        else list(pallet_client)
+    if _is_stock(unit_client) or any(_is_stock(n) for n in nazwy) or not nazwy:
         return True
-    return (unit_client or "").strip().lower() == (pallet_client or "").strip().lower()
+    u = (unit_client or "").strip().lower()
+    return any(u == (n or "").strip().lower() for n in nazwy)
 
 
 def validate_loose_dispatch(unit: Dict, dispatch_client: Optional[str]) -> Tuple[bool, str]:

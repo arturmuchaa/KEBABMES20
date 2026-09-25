@@ -13,6 +13,7 @@ from app.db import cx_execute, cx_query_all, cx_query_one, query_all, query_one,
 from app.logging_config import get_logger
 from app.models.orders import PalletDto
 from app.utils.ids import cuid, next_seq
+from app.utils.client_aliases import nazwy_klienta
 from app.utils.unit_codes import (
     PACKED, pallet_line_key, parse_unit_qr, validate_pack_to_pallet,
 )
@@ -810,15 +811,17 @@ def reset_pallet(order_id: str, pallet_no: int) -> Dict:
 # ── Pakowanie sztuk do palety ─────────────────────────────────────
 
 def _pallet_pack_state(conn, pallet_id):
-    """Zwróć (pallet_row, order_id, pallet_client, planned_by_key, packed_by_key)."""
+    """Zwróć (pallet_row, order_id, pallet_client, planned_by_key, packed_by_key, nazwy_klienta)."""
     pallet = cx_query_one(
         conn, "SELECT * FROM order_pallets WHERE id=%s FOR UPDATE", (pallet_id,))
     if not pallet:
         raise HTTPException(404, "Paleta nie znaleziona")
     order_id = pallet["order_id"]
     order = cx_query_one(
-        conn, "SELECT client_name FROM client_orders WHERE id=%s", (order_id,))
+        conn, "SELECT client_id, client_name FROM client_orders WHERE id=%s", (order_id,))
     pallet_client = (order or {}).get("client_name") or ""
+    # Wszystkie nazwy klienta z kartoteki (pełna + skrót) — patrz client_aliases.
+    pallet_client_nazwy = nazwy_klienta((order or {}).get("client_id"), pallet_client)
 
     lines = cx_query_all(
         conn,
@@ -844,7 +847,7 @@ def _pallet_pack_state(conn, pallet_id):
         k = pallet_line_key(u["product_type_id"], u["recipe_id"], u["weight_kg"])
         packed_by_key[k] = packed_by_key.get(k, 0) + 1
 
-    return pallet, order_id, pallet_client, planned_by_key, packed_by_key
+    return pallet, order_id, pallet_client, planned_by_key, packed_by_key, pallet_client_nazwy
 
 
 def pack_unit_into_pallet(pallet_id: str, code: str) -> Dict:
@@ -854,14 +857,15 @@ def pack_unit_into_pallet(pallet_id: str, code: str) -> Dict:
         raise HTTPException(400, "Nieprawidłowy kod QR sztuki")
 
     with transaction() as conn:
-        pallet, order_id, pallet_client, planned_by_key, packed_by_key = _pallet_pack_state(conn, pallet_id)
+        (pallet, order_id, pallet_client, planned_by_key, packed_by_key,
+         pallet_client_nazwy) = _pallet_pack_state(conn, pallet_id)
         unit = cx_query_one(
             conn, "SELECT * FROM finished_units WHERE id=%s FOR UPDATE", (unit_id,))
         if not unit:
             raise HTTPException(404, "Sztuka nie znaleziona")
 
         ok, reason, _key = validate_pack_to_pallet(
-            unit, pallet_client, planned_by_key, packed_by_key)
+            unit, pallet_client_nazwy or pallet_client, planned_by_key, packed_by_key)
 
         planned_total = sum(planned_by_key.values())
         packed_total = sum(packed_by_key.values())
