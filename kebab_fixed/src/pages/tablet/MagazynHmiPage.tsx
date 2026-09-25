@@ -32,7 +32,6 @@ import { EkranWyboruAuta } from '@/features/magazyn/EkranWyboruAuta'
 import { EkranZaladunku } from '@/features/magazyn/EkranZaladunku'
 import { EkranMrozni } from '@/features/magazyn/EkranMrozni'
 import type { EkranMagazynu, StanAlarmu } from '@/features/magazyn/magazynTypes'
-import { etykietaDnia, krotkaData } from '@/features/magazyn/pula'
 
 declare const __MAGAZYN_VERSION__: string
 
@@ -48,6 +47,13 @@ const TYTULY: Record<EkranMagazynu, { t: string; p: string; back: EkranMagazynu 
 /** Jak długo alarm zasłania ekran. Znika sam — magazynier wraca do roboty,
  *  a nie do zamykania okienek. */
 const ALARM_MS = 3400
+
+/** 1 karton, 2–4 kartony, 5+ kartonów (12–14 też „kartonów"). */
+export function kartonow(n: number): string {
+  if (n === 1) return 'karton'
+  const r10 = n % 10, r100 = n % 100
+  return r10 >= 2 && r10 <= 4 && (r100 < 12 || r100 > 14) ? 'kartony' : 'kartonów'
+}
 
 function hhmm(d: Date) {
   return d.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })
@@ -96,7 +102,9 @@ export function MagazynHmiPage() {
       if (!id && czyKompletnyKodPalety(kod)) id = String((await palletsApi.lookup(kod))?.id ?? '') || null
       if (id) {
         const s = await magazynApi.pakowanie()
-        if (s.kontenery.some(k => k.id === id)) {
+        // Otwarty — pakujemy; pełny — ten sam ekran pokaże go na zielono
+        // z poleceniem mroźni, a kolejny skan kartki wstawi go do mroźni.
+        if (s.kontenery.some(k => k.id === id) || (s.spakowane ?? []).some(k => k.id === id)) {
           setAktywnyKarton(id)
           setEkran('kartony-praca')
           return
@@ -171,17 +179,21 @@ export function MagazynHmiPage() {
 
       {ekran === 'kafle' ? (
         <main className="grid min-h-0 flex-1 grid-cols-2 gap-4 p-5 px-6" style={{ gridAutoRows: '1fr' }}>
+          {/* Właściciel 25.09.2026: kafel liczy KARTONY z biura — nietknięte
+              „do spakowania" i zaczęte „do dokończenia", np. 14 · 2. */}
           <Kafel nazwa="Kartony" czynnosc="Spakuj sztuki do kartonu" glif="▣"
-            licznik={k ? String(k.sztukDoSpakowania) : '—'} jednostka="szt do spakowania"
+            licznik={k ? String(k.doSpakowania ?? k.otwarte) : '—'}
+            jednostka={k ? `${kartonow(k.doSpakowania ?? k.otwarte)} do spakowania` : ''}
             stan={k
-              ? (k.zalegle
-                  ? `${k.zalegle} szt zaległych z poprzednich dni · ${k.otwarte} otwartych kartonów`
-                  : `${k.otwarte} otwartych kartonów · brakuje w nich ${k.brakujeWKartonach} szt`)
+              ? [
+                  `do dokończenia: ${k.doDokonczenia ?? 0}`,
+                  k.zalegle ? `${k.zalegle} szt zaległych z poprzednich dni` : `${k.sztukDoSpakowania} szt z produkcji czeka`,
+                ].join(' · ')
               : 'wczytuję stan…'}
-            podglad={(k?.dni ?? []).map(d => ({
-              lewo: `${krotkaData(d.data)} · ${etykietaDnia(d.data, teraz).etykieta}`,
-              prawo: `${d.sztuk} szt`, wyrozniony: d.zalegle }))}
-            wariant={k?.zalegle ? 'pilne' : k && k.otwarte > 0 && k.sztukDoSpakowania === 0 ? 'gotowe' : 'zwykly'}
+            podglad={(k?.zaczete ?? []).map(z => ({
+              lewo: `${z.cartonNo} · ${z.klient || 'na magazyn'}`,
+              prawo: `${z.packedQty}/${z.targetQty} szt`, wyrozniony: true }))}
+            wariant={k?.zalegle ? 'pilne' : k && k.otwarte === 0 ? 'gotowe' : 'zwykly'}
             onClick={() => setEkran('kartony')} />
           <Kafel nazwa="Wydanie" czynnosc="Załaduj auto" glif="⇥"
             licznik={w ? String(w.zamowien) : '—'} jednostka={w?.zamowien === 1 ? 'zamówienie na dziś' : 'zamówień na dziś'}
@@ -190,8 +202,8 @@ export function MagazynHmiPage() {
             podglad={(w?.lista ?? []).map(z => ({
               lewo: z.klient, prawo: `${Math.round(z.kg).toLocaleString('pl-PL')} kg` }))}
             onClick={() => setEkran('wydanie-auta')} />
-          <Kafel nazwa="Mroźnia" czynnosc="Wstaw pełną paletę" glif="❄"
-            licznik={stan ? String(stan.mroznia.palet) : '—'} jednostka="palet w mroźni"
+          <Kafel nazwa="Mroźnia" czynnosc="Wstaw spakowany karton" glif="❄"
+            licznik={stan ? String(stan.mroznia.palet) : '—'} jednostka={`${kartonow(stan?.mroznia.palet ?? 0)} w mroźni`}
             stan="czeka na załadunek"
             podglad={(stan?.mroznia.lista ?? []).map(m => ({
               lewo: m.klient, prawo: `${m.palet} pal.` }))}

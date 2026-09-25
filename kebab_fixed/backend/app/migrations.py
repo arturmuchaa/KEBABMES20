@@ -117,6 +117,11 @@ _DDL: list[str] = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_stock_cartons_status ON stock_cartons(status)",
     "CREATE INDEX IF NOT EXISTS idx_stock_cartons_client ON stock_cartons(client_id)",
+    # Karton magazynowy w mroźni (25.09.2026). Osobna kolumna, NIE nowy status:
+    # `status` open/packed czyta pokrycie zamówień i dopasowanie kartonów,
+    # a mroźnia to miejsce, nie etap pakowania. Pełny karton znika z widoku
+    # pakowania dopiero, gdy tu jest znacznik czasu.
+    "ALTER TABLE stock_cartons ADD COLUMN IF NOT EXISTS cold_storage_at TIMESTAMPTZ",
     # ── Ważenie zbiorcze mięsa: równe palety i wózki dla masowni.
     #    To OPIS ułożenia, nie stan — mięso jest na stanie od rozbioru, więc
     #    ten zapis NIE generuje żadnych ruchów magazynowych.

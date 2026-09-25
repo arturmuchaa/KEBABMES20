@@ -198,6 +198,9 @@ def permission_for_path(path: str, method: str = "GET") -> str:
     # czyta i pakowacz, i załadowca — obaj stoją przy tym samym panelu.
     if _matches(path, "/api/magazyn/pakowanie"):
         return "pakowanie"
+    # Mroźnia to robota wydania (ta sama co skan palety do mroźni).
+    if _matches(path, "/api/magazyn/mroznia"):
+        return "wydanie"
     if _matches(path, "/api/magazyn"):
         return "pakowanie|wydanie" if method == "GET" else "office"
     # Lista aut: skaner załadunku wybiera z niej pojazd. Kartoteka aut

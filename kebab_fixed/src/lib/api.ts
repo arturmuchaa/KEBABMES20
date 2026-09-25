@@ -3938,6 +3938,8 @@ export interface PodsumowanieMagazynu {
   kartony: {
     otwarte: number; sztukDoSpakowania: number; zalegle: number; brakujeWKartonach: number
     dni?: { data: string; sztuk: number; zalegle: boolean }[]
+    doSpakowania?: number; doDokonczenia?: number
+    zaczete?: { cartonNo: string; klient: string; packedQty: number; targetQty: number }[]
   }
   wydanie: { zamowien: number; kg: number; lista?: { klient: string; kg: number }[] }
   mroznia: { palet: number; lista?: { klient: string; palet: number }[] }
@@ -3945,9 +3947,17 @@ export interface PodsumowanieMagazynu {
 
 export const magazynApi = {
   podsumowanie: () => get<PodsumowanieMagazynu>('/magazyn/podsumowanie'),
-  pakowanie: () => get<{ kontenery: OtwartyKarton[]; pula: PulaPozycja[] }>('/magazyn/pakowanie'),
+  /** `spakowane` — pełne kartony, które jeszcze nie wjechały do mroźni. */
+  pakowanie: () => get<{ kontenery: OtwartyKarton[]; spakowane?: OtwartyKarton[]; pula: PulaPozycja[] }>('/magazyn/pakowanie'),
   skan: (code: string, activeId: string | null) =>
     post<SkanPakowania>('/magazyn/pakowanie/skan', { code, active_id: activeId }),
+  /** Karta PEŁNEGO kartonu magazynowego = wjazd do mroźni. */
+  mrozniaKarton: (code: string) =>
+    post<{ result: 'SUCCESS' | 'ALREADY_SCANNED' | 'NOT_FULL' | 'INVALID'; cartonNo?: string; clientName?: string }>(
+      '/magazyn/mroznia/karton', { code }),
+  mrozniaKartony: () =>
+    get<{ id: string; cartonNo: string; clientName: string; packedQty: number; kg: number; coldStorageAt: string }[]>(
+      '/magazyn/mroznia/kartony'),
 }
 
 // ─── Health ───────────────────────────────────────────────────

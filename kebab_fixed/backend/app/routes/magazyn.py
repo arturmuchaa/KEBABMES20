@@ -31,3 +31,18 @@ def pakowanie():
 @router.post("/pakowanie/skan")
 def pakowanie_skan(body: SkanSztuki):
     return svc.skanuj_sztuke(body.code, body.active_id)
+
+
+class SkanKodu(BaseModel):
+    code: str
+
+
+@router.post("/mroznia/karton")
+def mroznia_karton(body: SkanKodu):
+    """Karta pełnego kartonu magazynowego = wjazd do mroźni."""
+    return svc.wstaw_karton_do_mrozni(body.code)
+
+
+@router.get("/mroznia/kartony")
+def mroznia_kartony():
+    return svc.kartony_w_mrozni()

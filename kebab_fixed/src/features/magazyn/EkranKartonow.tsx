@@ -18,7 +18,7 @@ import { brakuje, dokadKarton, skladKartonu } from './opisKartonu'
 import { Karta, Znacznik } from './components/Karta'
 
 export function EkranKartonow({ onWybor }: { onWybor: (kartonId: string | null) => void }) {
-  const { kontenery, pula, ladowanie, blad } = usePakowanie()
+  const { kontenery, spakowane, pula, ladowanie, blad } = usePakowanie()
   const dni = useMemo(() => pulaPoDniach(pula, new Date()), [pula])
   const zalegle = dni.filter(d => d.zalegle).reduce((s, d) => s + d.sztuk, 0)
   const doSpakowania = dni.reduce((s, d) => s + d.sztuk, 0)
@@ -73,6 +73,31 @@ export function EkranKartonow({ onWybor }: { onWybor: (kartonId: string | null) 
               </button>
             )
           })}
+          {spakowane.length ? (
+            <div data-testid="spakowane" className="mt-2 flex flex-col gap-2">
+              <div className="text-[11px] font-extrabold uppercase tracking-[0.1em]" style={{ color: 'var(--success)' }}>
+                Spakowane — do mroźni · {spakowane.length}
+              </div>
+              {spakowane.map(k => (
+                <button key={k.id} type="button" onClick={() => onWybor(k.id)}
+                  className="flex w-full items-center gap-4 rounded-xl px-4 py-3 text-left"
+                  style={{ background: 'var(--successSoft)', border: '1.5px solid var(--successLine)', color: 'var(--ink)' }}>
+                  <span className="hmi-v10-mono grid shrink-0 place-items-center rounded-lg text-[13px] font-bold"
+                    style={{ width: 74, height: 46, background: '#fff', color: 'var(--success)',
+                             border: '1.5px solid var(--successLine)' }}>{k.cartonNo || '—'}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[19px] font-extrabold leading-tight">✓ {k.clientName || 'na magazyn'}</span>
+                    <span className="block truncate text-[13px]" style={{ color: '#166534' }}>
+                      ❄ zeskanuj kartkę i wjedź do mroźni
+                    </span>
+                  </span>
+                  <span className="hmi-v10-mono shrink-0 text-[20px] font-bold" style={{ color: 'var(--success)' }}>
+                    {k.packedQty}/{k.targetQty}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : null}
           {!kontenery.length && !ladowanie ? (
             <div className="rounded-xl p-6 text-center text-[15px]"
               style={{ border: '1.5px dashed var(--line)', color: 'var(--mut)' }}>

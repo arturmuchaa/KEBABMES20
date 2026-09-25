@@ -10,7 +10,8 @@
  * przycisk „Cofnij" na ekranie załadunku. Udany skan = cisza.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { errCode, isOfflineError, palletScanApi, type ColdStoragePallet, type ScanResultCode } from '@/lib/api'
+import { errCode, isOfflineError, magazynApi, palletScanApi, type ColdStoragePallet, type ScanResultCode } from '@/lib/api'
+import { idKartonu } from '@/features/scan/skanKodu'
 import { komunikatSkanu } from '@/features/loading/scanMessages'
 import { PasSkanowania } from './components/PasSkanowania'
 import { Karta } from './components/Karta'
@@ -19,11 +20,15 @@ import type { PokazAlarm } from './magazynTypes'
 
 export function EkranMrozni({ onAlarm }: { onAlarm: PokazAlarm }) {
   const [lista, setLista] = useState<ColdStoragePallet[]>([])
+  // Kartony magazynowe (bez zamówienia) — w mroźni od 25.09.2026.
+  const [kartony, setKartony] = useState<Awaited<ReturnType<typeof magazynApi.mrozniaKartony>>>([])
   const [ostatnia, setOstatnia] = useState<string>('')
 
   const wczytaj = useCallback(async () => {
-    try { setLista(await palletScanApi.inColdStorage()) }
-    catch { /* lista jest podglądem — brak sieci nie blokuje skanowania */ }
+    try {
+      const [p, k] = await Promise.all([palletScanApi.inColdStorage(), magazynApi.mrozniaKartony()])
+      setLista(p); setKartony(Array.isArray(k) ? k : [])
+    } catch { /* lista jest podglądem — brak sieci nie blokuje skanowania */ }
   }, [])
 
   useEffect(() => {
@@ -33,6 +38,25 @@ export function EkranMrozni({ onAlarm }: { onAlarm: PokazAlarm }) {
   }, [wczytaj])
 
   async function skanuj(kod: string) {
+    if (idKartonu(kod)) {
+      try {
+        const w = await magazynApi.mrozniaKarton(kod)
+        if (w.result === 'SUCCESS' || w.result === 'ALREADY_SCANNED') {
+          setOstatnia(`Karton ${w.cartonNo ?? ''} · ${w.clientName ?? ''}`)
+        } else {
+          grajBlad('L')
+          onAlarm({ skaner: 'L', ton: 'blad',
+            naglowek: w.result === 'NOT_FULL' ? 'KARTON NIE JEST PEŁNY' : 'NIEZNANY KARTON',
+            szczegol: w.result === 'NOT_FULL'
+              ? 'Do mroźni wjeżdża karton spakowany do końca. Dopakuj go na kaflu KARTONY.'
+              : 'Zeskanuj kartę kartonu jeszcze raz.' })
+        }
+      } catch {
+        grajBlad('L')
+        onAlarm({ skaner: 'L', ton: 'blad', naglowek: 'SKAN NIE ZAPISANY', szczegol: 'Brak połączenia — spróbuj za chwilę.' })
+      }
+      return void wczytaj()
+    }
     try {
       const w = await palletScanApi.scan(kod, 'cold_storage')
       if (w.result !== 'SUCCESS') {
@@ -51,7 +75,7 @@ export function EkranMrozni({ onAlarm }: { onAlarm: PokazAlarm }) {
     await wczytaj()
   }
 
-  const kg = lista.reduce((s, p) => s + Number(p.totalKg || 0), 0)
+  const kg = lista.reduce((s, p) => s + Number(p.totalKg || 0), 0) + kartony.reduce((s, k) => s + k.kg, 0)
   const posortowane = [...lista].sort((a, b) =>
     String(a.deliveryDate ?? '9999').localeCompare(String(b.deliveryDate ?? '9999')))
 
@@ -61,9 +85,9 @@ export function EkranMrozni({ onAlarm }: { onAlarm: PokazAlarm }) {
         <div className="flex flex-col gap-3">
           <section className="rounded-2xl p-6" style={{ background: 'var(--accentSoft)', border: '1.5px solid var(--accentLine)' }}>
             <div className="text-[12px] font-extrabold uppercase tracking-[0.12em]" style={{ color: 'var(--mut)' }}>W mroźni</div>
-            <div className="hmi-v10-mono font-bold leading-none" style={{ fontSize: 88, color: 'var(--accent)' }}>{lista.length}</div>
+            <div className="hmi-v10-mono font-bold leading-none" style={{ fontSize: 88, color: 'var(--accent)' }}>{lista.length + kartony.length}</div>
             <div className="mt-1 text-[15px]" style={{ color: 'var(--mut)' }}>
-              palet · {Math.round(kg).toLocaleString('pl-PL')} kg
+              palet i kartonów · {Math.round(kg).toLocaleString('pl-PL')} kg
             </div>
           </section>
           {ostatnia ? (
@@ -75,7 +99,7 @@ export function EkranMrozni({ onAlarm }: { onAlarm: PokazAlarm }) {
           <div className="rounded-xl px-4 py-3 text-[13px] leading-relaxed"
             style={{ background: 'var(--panel)', border: '1px dashed var(--line)', color: 'var(--mut)' }}>
             <b style={{ color: 'var(--ink)' }}>Mroźnia łączy pakowanie z załadunkiem.</b> Zeskanuj kartkę
-            pełnej palety, gdy wjeżdża do mroźni. Wyjazd zalicza skan na aucie.
+            pełnej palety albo kartę pełnego kartonu, gdy wjeżdża do mroźni. Wyjazd zalicza skan na aucie.
           </div>
         </div>
 
@@ -98,7 +122,20 @@ export function EkranMrozni({ onAlarm }: { onAlarm: PokazAlarm }) {
               </span>
             </div>
           ))}
-          {!lista.length ? (
+          {kartony.map(k => (
+            <div key={k.id} className="flex items-center gap-3 px-4 py-3" style={{ borderTop: '1px solid var(--lineSoft)' }}>
+              <span className="grid shrink-0 place-items-center rounded-full text-[14px]"
+                style={{ width: 34, height: 34, background: '#fff', border: '2px solid var(--accentLine)', color: 'var(--accent)' }}>❄</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[15.5px] font-extrabold">{k.clientName || 'na magazyn'}</span>
+                <span className="hmi-v10-mono block truncate text-[12px]" style={{ color: 'var(--mut)' }}>
+                  karton {k.cartonNo} · magazyn · {k.packedQty} szt
+                </span>
+              </span>
+              <span className="hmi-v10-mono shrink-0 text-[15px] font-bold">{Math.round(k.kg)} kg</span>
+            </div>
+          ))}
+          {!lista.length && !kartony.length ? (
             <div className="p-6 text-center text-[14px]" style={{ color: 'var(--mut)' }}>Mroźnia pusta.</div>
           ) : null}
         </Karta>

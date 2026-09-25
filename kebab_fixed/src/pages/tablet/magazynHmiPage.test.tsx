@@ -36,7 +36,8 @@ import { MagazynHmiPage } from './MagazynHmiPage'
 beforeEach(() => {
   stan.kontenery = []
   stan.podsumowanie = {
-    kartony: { otwarte: 3, sztukDoSpakowania: 43, zalegle: 11, brakujeWKartonach: 80 },
+    kartony: { otwarte: 16, sztukDoSpakowania: 43, zalegle: 11, brakujeWKartonach: 80, doSpakowania: 14, doDokonczenia: 2,
+      zaczete: [{ cartonNo: '000318', klient: 'YALCIN', packedQty: 28, targetQty: 60 }] },
     wydanie: { zamowien: 3, kg: 1840 },
     mroznia: { palet: 12 },
   }
@@ -53,7 +54,10 @@ describe('kiosk magazynu — menu czynności', () => {
 
   it('pod kaflami żywy stan z serwera — zaległe podbijają kafel KARTONY', async () => {
     const { container } = render(<MagazynHmiPage />)
-    expect(await screen.findByText('43')).toBeTruthy()
+    expect(await screen.findByText('14')).toBeTruthy()
+    expect(screen.getByText('kartonów do spakowania')).toBeTruthy()
+    expect(screen.getByText(/do dokończenia: 2/)).toBeTruthy()
+    expect(screen.getByText('000318 · YALCIN')).toBeTruthy()
     expect(screen.getByText(/11 szt zaległych/)).toBeTruthy()
     expect(screen.getByText(/1\s?840 kg do wydania dziś/)).toBeTruthy()
     expect(container.querySelector('[data-wariant="pilne"]')).toBeTruthy()
@@ -104,5 +108,12 @@ describe('skan karty kartonu z menu', () => {
     wystukaj(`SCARTON|${ID}`)
     expect(await screen.findByText('TEN KARTON NIE JEST OTWARTY')).toBeTruthy()
     expect(screen.getByText('Stanowisko magazynowe')).toBeTruthy()
+  })
+})
+
+describe('odmiana „karton"', () => {
+  it('1 karton, 2 kartony, 5 kartonów, 12 kartonów, 22 kartony', async () => {
+    const { kartonow } = await import('./MagazynHmiPage')
+    expect([1, 2, 5, 12, 22].map(kartonow)).toEqual(['karton', 'kartony', 'kartonów', 'kartonów', 'kartony'])
   })
 })

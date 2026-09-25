@@ -249,3 +249,53 @@ def test_podglad_kafli_niesie_dni_klientow_i_mroznie(db):
     assert [d["zalegle"] for d in k["kartony"]["dni"]] == [True, False]
     assert k["wydanie"]["lista"] == [{"klient": "YALCIN", "kg": 60.0}]
     assert k["mroznia"] == {"palet": 1, "lista": [{"klient": "YALCIN", "palet": 1}]}
+
+
+# Właściciel 25.09.2026: pełny karton ma się zrobić zielony z poleceniem
+# „zeskanuj i wjedź do mroźni" — nie może po prostu zniknąć z ekranu.
+def test_pelna_paleta_czeka_na_mroznie_do_skanu(db):
+    _receptury()
+    pid = _paleta("o1", "YALCIN", qty=1)
+    _sztuka("u1")
+    w = skanuj_sztuke(unit_qr("u1"), pid)
+    assert w["full"] is True
+    s = stan_pakowania()
+    assert [k["id"] for k in s["kontenery"]] == []
+    assert [k["id"] for k in s["spakowane"]] == [pid]
+    assert s["spakowane"][0]["packedQty"] == 1
+    execute("UPDATE order_pallets SET status='cold_storage' WHERE id=%s", (pid,))
+    assert stan_pakowania()["spakowane"] == []
+
+
+def test_pelny_karton_magazynowy_zielony_do_mrozni_potem_znika(db):
+    """Właściciel 25.09.2026: po zakończeniu zielony, po wjeździe do mroźni
+    znika z widoku pakowania i jest widoczny w mroźni."""
+    from app.services.magazyn_pakowanie_service import (
+        kartony_w_mrozni, wstaw_karton_do_mrozni)
+    _receptury()
+    k = _karton("YALCIN", qty=1)
+    _sztuka("u1")
+    assert wstaw_karton_do_mrozni(f"SCARTON|{k['id']}")["result"] == "NOT_FULL"
+    skanuj_sztuke(unit_qr("u1"), k["id"])
+    assert [x["id"] for x in stan_pakowania()["spakowane"]] == [k["id"]]
+
+    assert wstaw_karton_do_mrozni(f"SCARTON|{k['id']}")["result"] == "SUCCESS"
+    assert stan_pakowania()["spakowane"] == []
+    assert [x["id"] for x in kartony_w_mrozni()] == [k["id"]]
+    assert kartony_w_mrozni()[0]["kg"] == 15.0
+    assert wstaw_karton_do_mrozni(f"SCARTON|{k['id']}")["result"] == "ALREADY_SCANNED"
+    assert podsumowanie_kafli(DZIS)["mroznia"]["palet"] == 1
+
+
+def test_kafel_liczy_kartony_do_spakowania_i_do_dokonczenia(db):
+    _receptury()
+    k1 = _karton("YALCIN", qty=3)
+    _karton("DEMS", qty=2)
+    _paleta("o1", "TRUVA", qty=2)
+    _sztuka("u1")
+    skanuj_sztuke(unit_qr("u1"), k1["id"])
+    kart = podsumowanie_kafli(DZIS)["kartony"]
+    assert kart["doSpakowania"] == 2          # DEMS + paleta TRUVA, nietknięte
+    assert kart["doDokonczenia"] == 1         # YALCIN 1/3
+    assert kart["zaczete"][0]["klient"] == "YALCIN"
+    assert kart["zaczete"][0]["packedQty"] == 1

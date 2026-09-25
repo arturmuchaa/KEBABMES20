@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.db import query_all, query_one
+from app.db import execute, query_all, query_one
 from app.logging_config import get_logger
 from app.services import pallets_service, stock_cartons_service
 from app.services.stock_cartons_service import pick_line_for_unit
@@ -245,9 +245,60 @@ def pula_do_spakowania() -> List[Dict[str, Any]]:
     } for r in rows]
 
 
+def spakowane_do_mrozni() -> List[Dict[str, Any]]:
+    """Kartony pełne, które jeszcze NIE wjechały do mroźni (spec §6: mroźnia
+    to przegub między pakowaniem a załadunkiem).
+
+    Właściciel 25.09.2026: spakowany karton ma się zrobić zielony z poleceniem
+    „zeskanuj i wjedź do mroźni", a po wjeździe ZNIKNĄĆ z widoku pakowania
+    i być widoczny w mroźni. Palety zamówień: status `packed` do skanu mroźni.
+    Karton magazynowy: `cold_storage_at IS NULL` (patrz `wstaw_karton_do_mrozni`).
+    """
+    palety = query_all(
+        """SELECT p.id, p.pallet_no, p.carton_no, p.created_at, o.order_no, o.client_name
+           FROM order_pallets p JOIN client_orders o ON o.id = p.order_id
+           WHERE p.status = 'packed'
+             AND COALESCE(o.status,'') NOT IN ('done','cancelled')""",
+    )
+    linie = _linie_palet([p["id"] for p in palety])
+    out: List[Dict[str, Any]] = []
+    for p in palety:
+        ln = linie.get(p["id"], [])
+        out.append({
+            "kind": "order", "id": p["id"],
+            "cartonNoInt": int(p.get("carton_no") or 0),
+            "cartonNo": format_carton_no(p.get("carton_no")) if p.get("carton_no") else "",
+            "clientName": p.get("client_name") or "", "orderNo": p.get("order_no") or "",
+            "palletNo": int(p.get("pallet_no") or 0), "deliveryDate": "",
+            "openedAt": str(p.get("created_at") or "")[:10], "lines": ln,
+            "targetQty": sum(x["target_qty"] for x in ln),
+            "packedQty": sum(x["packed_qty"] for x in ln),
+        })
+    for c in query_all(
+        """SELECT * FROM stock_cartons
+           WHERE status = 'packed' AND cold_storage_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM finished_units fu
+                             WHERE fu.carton_id = stock_cartons.id AND fu.status = 'shipped')"""):
+        ln = query_all(
+            "SELECT * FROM stock_carton_lines WHERE carton_id=%s ORDER BY kg_per_unit", (c["id"],))
+        out.append({
+            "kind": "stock", "id": c["id"],
+            "cartonNoInt": int(c.get("carton_no") or 0),
+            "cartonNo": format_carton_no(c.get("carton_no")) if c.get("carton_no") else "",
+            "clientName": c.get("client_name") or "", "orderNo": c.get("linked_order_no") or "",
+            "palletNo": 0, "deliveryDate": "",
+            "openedAt": str(c.get("created_at") or "")[:10], "lines": ln,
+            "targetQty": sum(int(x.get("target_qty") or 0) for x in ln),
+            "packedQty": sum(int(x.get("packed_qty") or 0) for x in ln),
+        })
+    out.sort(key=lambda k: (k["cartonNoInt"], k["id"]))
+    return out
+
+
 def stan_pakowania() -> Dict[str, Any]:
     return {
         "kontenery": [publiczny(k) for k in otwarte_kontenery()],
+        "spakowane": [publiczny(k) for k in spakowane_do_mrozni()],
         "pula": pula_do_spakowania(),
     }
 
@@ -387,6 +438,13 @@ def podsumowanie_kafli(dzis: Optional[date] = None) -> Dict[str, Any]:
             "sztukDoSpakowania": sum(p["qty"] for p in pula),
             "zalegle": zalegle,
             "brakujeWKartonach": sum(max(0, k["targetQty"] - k["packedQty"]) for k in kont),
+            # Właściciel 25.09.2026: kafel liczy KARTONY — przygotowane przez
+            # biuro i nietknięte vs zaczęte, do dokończenia.
+            "doSpakowania": sum(1 for k in kont if k["packedQty"] == 0),
+            "doDokonczenia": sum(1 for k in kont if 0 < k["packedQty"] < k["targetQty"]),
+            "zaczete": [{"cartonNo": k["cartonNo"], "klient": k["clientName"],
+                         "packedQty": k["packedQty"], "targetQty": k["targetQty"]}
+                        for k in kont if 0 < k["packedQty"] < k["targetQty"]][:4],
             "dni": [{"data": d, "sztuk": n, "zalegle": bool(d) and d not in wczoraj_i_dzis}
                     for d, n in list(dni.items())[:4]],
         },
@@ -397,7 +455,57 @@ def podsumowanie_kafli(dzis: Optional[date] = None) -> Dict[str, Any]:
         },
         "mroznia": {
             "palet": int((query_one(
-                "SELECT COUNT(*) AS n FROM order_pallets WHERE status='cold_storage'") or {}).get("n") or 0),
+                "SELECT COUNT(*) AS n FROM order_pallets WHERE status='cold_storage'") or {}).get("n") or 0)
+                     + len(kartony_w_mrozni()),
             "lista": [{"klient": r.get("client_name") or "", "palet": int(r["n"])} for r in mroz_lista],
         },
     }
+
+
+def wstaw_karton_do_mrozni(code: str) -> Dict[str, Any]:
+    """Skan karty PEŁNEGO kartonu magazynowego = wjazd do mroźni.
+
+    Idempotentnie: karton już w mroźni zwraca ALREADY_SCANNED, bez zmiany
+    znacznika czasu (liczy się pierwszy wjazd). Niepełny karton — odmowa,
+    bo w mroźni ma stać to, co czeka na załadunek, nie to, co się pakuje.
+    """
+    from app.services.dispatches_service import _parse_stock_carton
+    cid = _parse_stock_carton(code)
+    if not cid:
+        return {"result": "INVALID"}
+    c = query_one("SELECT * FROM stock_cartons WHERE id=%s", (cid,))
+    if not c:
+        return {"result": "INVALID"}
+    opis = {"cartonNo": format_carton_no(c.get("carton_no")) if c.get("carton_no") else "",
+            "clientName": c.get("client_name") or ""}
+    if c.get("status") != "packed":
+        return {"result": "NOT_FULL", **opis}
+    if c.get("cold_storage_at"):
+        return {"result": "ALREADY_SCANNED", **opis}
+    execute("UPDATE stock_cartons SET cold_storage_at=now() WHERE id=%s AND cold_storage_at IS NULL",
+            (cid,))
+    logger.info("magazyn.karton.mroznia", extra={"carton_id": cid})
+    return {"result": "SUCCESS", **opis}
+
+
+def kartony_w_mrozni() -> List[Dict[str, Any]]:
+    """Kartony magazynowe stojące w mroźni (do wyjazdu). Znikają, gdy ich
+    sztuki wyjadą — tak jak w sekcji „Spakowane kebaby" biura."""
+    rows = query_all(
+        """SELECT sc.*,
+                  (SELECT COALESCE(SUM(l.packed_qty * l.kg_per_unit), 0)
+                     FROM stock_carton_lines l WHERE l.carton_id = sc.id) AS kg
+           FROM stock_cartons sc
+           WHERE sc.cold_storage_at IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM finished_units fu
+                             WHERE fu.carton_id = sc.id AND fu.status = 'shipped')
+           ORDER BY sc.cold_storage_at""",
+    )
+    return [{
+        "id": r["id"],
+        "cartonNo": format_carton_no(r.get("carton_no")) if r.get("carton_no") else "",
+        "clientName": r.get("client_name") or "",
+        "packedQty": int(r.get("packed_qty") or 0),
+        "kg": float(r.get("kg") or 0),
+        "coldStorageAt": str(r.get("cold_storage_at") or ""),
+    } for r in rows]

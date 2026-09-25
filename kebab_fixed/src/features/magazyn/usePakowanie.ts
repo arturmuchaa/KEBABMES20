@@ -14,6 +14,7 @@ export const POLL_PAKOWANIA_MS = 4000
 export function usePakowanie() {
   const [kontenery, setKontenery] = useState<OtwartyKarton[]>([])
   const [pula, setPula] = useState<PulaPozycja[]>([])
+  const [spakowane, setSpakowane] = useState<OtwartyKarton[]>([])
   const [ladowanie, setLadowanie] = useState(true)
   const [blad, setBlad] = useState(false)
   const ostatnia = useRef('')
@@ -28,6 +29,7 @@ export function usePakowanie() {
         ostatnia.current = j
         setKontenery(s?.kontenery ?? [])
         setPula(s?.pula ?? [])
+        setSpakowane(s?.spakowane ?? [])
       }
       setBlad(false)
     } catch {
@@ -44,5 +46,5 @@ export function usePakowanie() {
     return () => { zywy.current = false; clearInterval(t) }
   }, [odswiez])
 
-  return { kontenery, pula, ladowanie, blad, odswiez }
+  return { kontenery, spakowane, pula, ladowanie, blad, odswiez }
 }
