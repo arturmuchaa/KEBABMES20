@@ -32,6 +32,10 @@ interface WzRow {
   source_id?: string
   sourceId?: string
   source_type?: string
+  /** 'calosc' (WM) / 'wz_klienta' — dokumenty podziału; brak = bez podziału. */
+  split_scope?: string | null
+  loaded_at?: string | null
+  loading_status?: string | null
 }
 
 const anulowany = (d: WzRow) => (d.status || '') === 'anulowany'
@@ -50,6 +54,20 @@ const anulowany = (d: WzRow) => (d.status || '') === 'anulowany'
  */
 export function sladDostepny(d: WzRow): boolean {
   return Boolean(d.source_id || d.sourceId)
+}
+
+/**
+ * Czy pokazać „Anuluj" (25.09.2026, WZ/91/09/26 dla SAS ISSA cofane ręcznie
+ * w bazie). Lustro strażnika `cancel_wz` w backendzie: ręczne WZ albo WZ
+ * z zamówienia BEZ podziału i przed załadunkiem. Dokumenty podziału
+ * anuluje się kompletem z zamówienia. Resztę (pozycje bez śladu partii,
+ * istniejące HDI) rozstrzyga serwer i odsyła powód.
+ */
+export function anulowanieDostepne(d: WzRow): boolean {
+  if (anulowany(d)) return false
+  if (d.source_type === 'manual') return true
+  if (d.source_type !== 'order') return false
+  return !d.split_scope && !d.loaded_at && !d.loading_status
 }
 
 /** Dokument BEZ serii to WZ sprzed podziału wysyłki (przed 09.2026) — z

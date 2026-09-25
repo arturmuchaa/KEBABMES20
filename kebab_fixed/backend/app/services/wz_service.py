@@ -1291,27 +1291,89 @@ def update_wz_lines(wz_id: str, edits: List[Dict[str, Any]]) -> Dict[str, Any]:
     return get_wz(wz_id)
 
 
+def _odmow_anulowania_z_zamowienia(conn, row: Dict[str, Any],
+                                   lines: List[Dict[str, Any]]) -> None:
+    """Czy WZ z zamówienia da się anulować UCZCIWIE — jeśli nie, 409.
+
+    25.09.2026: biuro wystawiło dla SAS ISSA najpierw WZ/91/09/26 i nie
+    mogło potem wystawić HDI, a przycisk „Anuluj" był tylko przy ręcznych
+    WZ. Cofanie szło ręcznie w bazie — drugi raz (ANUL WZ/68/08/26).
+
+    Cztery warunki, każdy z konkretnego powodu:
+    * nie z podziału — te anuluje się kompletem, bo WM i WZ klienta
+      opisują jedną dostawę;
+    * nie załadowany — po załadunku towar jest na naczepie, zwrot opisałby
+      magazyn, którego nie ma;
+    * każda pozycja ma `stock_id` — bez niego pętla zwrotu ją pominie,
+      a status i tak zmieni się na „anulowany" (towar znika z księgi);
+    * brak HDI z tego WZ — papier klienta zostałby bez źródła.
+    Sprawdzane na wierszu zablokowanym `FOR UPDATE`, w tej samej transakcji
+    co zwrot: równoległy załadunek nie wejdzie między odczyt a zwroty.
+    """
+    if row.get("split_scope"):
+        raise HTTPException(
+            409, "To dokument podziału — anuluj komplet dokumentów z zamówienia")
+    if row.get("loaded_at") or row.get("loading_status"):
+        raise HTTPException(
+            409, "WZ jest już załadowany na auto — po załadunku nie da się go anulować")
+    for line in lines:
+        if float(line.get("qty") or 0) > 0 and not line.get("stock_id"):
+            raise HTTPException(
+                409, "Ten WZ nie wie, z której partii zeszedł towar — "
+                     "anulowanie nie zwróciłoby go na magazyn. Zawołaj serwis.")
+    hdi = cx_query_one(
+        conn,
+        "SELECT number FROM hdi_documents WHERE wz_id=%s "
+        "AND COALESCE(status,'')<>'anulowany' LIMIT 1",
+        (row["id"],))
+    if hdi:
+        raise HTTPException(
+            409, f"Do tego WZ jest już HDI {hdi['number']} — najpierw usuń HDI")
+
+
+def _otworz_zamowienie_po_anulowaniu(conn, order_id: str) -> None:
+    """Zamówienie zamknięte wydaniem wraca do „potwierdzonych".
+
+    `close_shipped_orders` stawia `done` po wystawieniu WZ, a `generate_hdi`
+    dla zamkniętego zamówienia oddaje dokument zamrożony. Bez tego kroku
+    biuro po anulowaniu WZ dalej nie mogło wystawić HDI (SAS ISSA,
+    25.09.2026). Tylko `done` — anulowanego zamówienia nie wskrzeszamy —
+    i tylko gdy żaden INNY aktywny dokument wydania go nie trzyma.
+    """
+    cx_execute(
+        conn,
+        "UPDATE client_orders SET status='confirmed' WHERE id=%s AND status='done' "
+        "AND NOT EXISTS (SELECT 1 FROM wz_documents w WHERE w.source_type='order' "
+        "  AND w.source_id=%s AND COALESCE(w.status,'')<>'anulowany')",
+        (order_id, order_id))
+
+
 def cancel_wz(wz_id: str) -> Dict[str, Any]:
     """Anuluj WZ: zwraca WSZYSTKIE pozycje na magazyn w całości (kg/szt +
     pojemniki grzbietów/kości) i oznacza dokument jako 'anulowany' —
     dokument NIE jest usuwany, zostaje ślad w dokumentacji.
 
-    Tylko ręczne WZ (jak w update_wz_lines) — WZ z zamówienia wiąże się
-    z całym łańcuchem zamówienie→produkcja→HDI, którego cofnięcie stąd
-    byłoby niebezpieczne (edytuj/anuluj przez samo zamówienie)."""
+    Ręczne WZ i — od 25.09.2026 — WZ z zamówienia BEZ podziału, pod
+    warunkami z `_odmow_anulowania_z_zamowienia`. Dokumenty podziału
+    anuluje się kompletem (`anuluj_dokumenty_podzialu`)."""
     with transaction() as conn:
         row = cx_query_one(
-            conn, "SELECT id, status, source_type, lines FROM wz_documents WHERE id=%s FOR UPDATE",
+            conn,
+            "SELECT id, status, source_type, source_id, split_scope, loaded_at, "
+            "loading_status, lines FROM wz_documents WHERE id=%s FOR UPDATE",
             (wz_id,))
         if not row:
             raise HTTPException(404, "Dokument WZ nie istnieje")
-        if (row.get("source_type") or "") != "manual":
-            raise HTTPException(409, "Anulować można tylko ręczne WZ (sprzedaż z magazynu)")
         if row.get("status") == "anulowany":
             raise HTTPException(409, "WZ jest już anulowany")
         lines = row.get("lines")
         if not isinstance(lines, list):
             lines = json.loads(lines or "[]")
+        zrodlo = row.get("source_type") or ""
+        if zrodlo == "order":
+            _odmow_anulowania_z_zamowienia(conn, row, lines)
+        elif zrodlo != "manual":
+            raise HTTPException(409, "Anulować można tylko ręczne WZ albo WZ z zamówienia")
 
         for line in lines:
             stype, sid = line.get("stock_type"), line.get("stock_id")
@@ -1363,6 +1425,8 @@ def cancel_wz(wz_id: str) -> Dict[str, Any]:
         wyprowadz_wz_poza_serie_cx(conn, wz_id)
         # Nośniki wracają na saldo odbiorcy — dokument już nic nie wydaje.
         _rebook_wz_containers(conn, wz_id, zero=True)
+        if zrodlo == "order" and row.get("source_id"):
+            _otworz_zamowienie_po_anulowaniu(conn, row["source_id"])
 
         # Potrącenie z tego WZ: oczekujące anulujemy razem z dokumentem,
         # ROZLICZONEGO nie ruszamy — pieniądze są już na pasku, więc cicha

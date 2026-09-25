@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 
-import { filterWz, rodzajDokumentu, sladDostepny, wzRodzajCounts, wzTabCounts,
+import { anulowanieDostepne, filterWz, rodzajDokumentu, sladDostepny, wzRodzajCounts, wzTabCounts,
          type WzTab } from './wzListView'
 
 /**
@@ -120,5 +120,34 @@ describe('sladDostepny', () => {
 
   it('czyta też zapis camelCase z API', () => {
     expect(sladDostepny({ doc_series: 'WM', sourceId: 'ord1' })).toBe(true)
+  })
+})
+
+// 25.09.2026: WZ/91/09/26 dla SAS ISSA trzeba było cofać ręcznie w bazie,
+// bo „Anuluj" był tylko przy ręcznych WZ. Backend jest ostatecznym sędzią
+// (pozycje bez śladu partii, HDI) — tu tylko nie pokazujemy przycisku tam,
+// gdzie odmowa jest pewna.
+describe('anulowanieDostepne', () => {
+  const zZamowienia = { source_type: 'order', status: 'wstepny' }
+
+  it('ręczne WZ — tak', () => {
+    expect(anulowanieDostepne({ source_type: 'manual', status: 'wstepny' })).toBe(true)
+  })
+  it('WZ z zamówienia bez podziału — tak', () => {
+    expect(anulowanieDostepne(zZamowienia)).toBe(true)
+  })
+  it('już anulowany — nie', () => {
+    expect(anulowanieDostepne({ ...zZamowienia, status: 'anulowany' })).toBe(false)
+  })
+  it('dokument podziału — nie (anuluje się kompletem)', () => {
+    expect(anulowanieDostepne({ ...zZamowienia, split_scope: 'calosc' })).toBe(false)
+    expect(anulowanieDostepne({ ...zZamowienia, split_scope: 'wz_klienta' })).toBe(false)
+  })
+  it('po załadunku — nie', () => {
+    expect(anulowanieDostepne({ ...zZamowienia, loaded_at: '2026-09-25T04:00:00Z' })).toBe(false)
+    expect(anulowanieDostepne({ ...zZamowienia, loading_status: 'ok' })).toBe(false)
+  })
+  it('inne źródło — nie', () => {
+    expect(anulowanieDostepne({ source_type: 'loading', status: 'wstepny' })).toBe(false)
   })
 })

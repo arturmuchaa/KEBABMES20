@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SladSkanowania } from '@/features/wz/SladSkanowania'
-import { filterWz, sladDostepny, wzRodzajCounts, wzTabCounts,
+import { anulowanieDostepne, filterWz, sladDostepny, wzRodzajCounts, wzTabCounts,
          type RodzajWydania, type WzTab } from '@/features/wz/wzListView'
 import { fmtMoneyPl } from '@/features/wz/rowMath'
 import {
@@ -291,7 +291,7 @@ export function WzDocumentsPage() {
 
   const cancelWz = async (d: WzDoc) => {
     if (!window.confirm(
-      `Anulować WZ ${d.number} (${d.buyer_name || 'brak odbiorcy'})?\n\nWszystkie pozycje wrócą na magazyn w całości (kg/szt i pojemniki). Dokument NIE zostanie usunięty — zmieni tylko status na „Anulowany".`
+      `Anulować WZ ${d.number} (${d.buyer_name || 'brak odbiorcy'})?\n\nWszystkie pozycje wrócą na magazyn w całości (kg/szt i pojemniki), a numer wróci do puli. Dokument NIE zostanie usunięty — zmieni tylko status na „Anulowany".`
     )) return
     setCancellingId(d.id)
     try {
@@ -541,7 +541,7 @@ export function WzDocumentsPage() {
                             HDI
                           </Button>
                         )}
-                        {!cancelled && (d as any).source_type === 'manual' && (
+                        {anulowanieDostepne(d as any) && (
                           <Button variant="outline" size="sm"
                                   className="h-7 text-[11px] gap-1 text-red-700 border-red-200 hover:bg-red-50"
                                   disabled={cancellingId === d.id}
