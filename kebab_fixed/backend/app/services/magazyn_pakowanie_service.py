@@ -396,6 +396,8 @@ def skanuj_sztuke(code: str, aktywny_id: Optional[str] = None) -> Dict[str, Any]
         return _wynik("ACTIVE" if do_aktywnego else "OTHER", unit, k_wynik,
                       full=pelny, activeClosed=aktywny_zamkniety)
 
+    logger.info("magazyn.pakowanie.brak_kartonu",
+                extra={"unit_id": unit_id, "klient": unit.get("client_name") or ""})
     return _wynik("NO_PLACE", unit, None, activeClosed=aktywny_zamkniety)
 
 

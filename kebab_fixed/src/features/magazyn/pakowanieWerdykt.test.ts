@@ -48,6 +48,7 @@ describe('werdykt pakowania', () => {
     expect(w.alarm?.ton).toBe('blad')
     expect(w.alarm?.szczegol).toContain('BULLI')
     expect(w.alarm?.gdzie).toMatch(/biuro/i)
+    expect(w.alarm?.naglowek).toBe('BRAK KARTONU DLA TEJ SZTUKI')
   })
 
   it('już spakowana w innym kartonie mówi W KTÓRYM', () => {

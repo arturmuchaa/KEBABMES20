@@ -67,9 +67,12 @@ export function werdyktPakowania(w: SkanPakowania, aktywny: string | null): Werd
         alarm: blad('JUŻ SPAKOWANA', `${w.unit} leży już w innym kartonie.`,
           w.where ? `KARTON ${w.where}` : undefined) }
     case 'NO_PLACE':
+      // Hala 25.09.2026: „nie ma gdzie" brzmiało jak nierozpoznany kod, a to
+      // sztuka rozpoznana — tylko biuro nie założyło dla niej kartonu.
       return { ...baza, dzwiek: 'blad',
-        alarm: blad('NIE MA GDZIE', `${w.unit} — żaden otwarty karton tego nie przyjmuje.`,
-          'Odłóż sztukę i zawołaj biuro') }
+        alarm: blad('BRAK KARTONU DLA TEJ SZTUKI',
+          `${w.unit} — nie ma otwartego kartonu dla tego klienta i tej wagi.`,
+          'Odłóż sztukę · biuro musi założyć karton') }
     case 'NOT_PRODUCED':
       return { ...baza, dzwiek: 'blad',
         alarm: blad('NIE ZESZŁA Z PRODUKCJI',
