@@ -15,12 +15,13 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { isOfflineError, vehicleLoadingApi, type VehicleState } from '@/lib/api'
+import { vehicleLoadingApi, type VehicleState } from '@/lib/api'
 
 /** Co ile dopytujemy serwer o stan auta. */
 export const POLL_MS = 4000
 
 export interface UseVehicleLoading {
+  aktualizacja: Date | null
   stan: VehicleState | null
   /** Pierwsze ładowanie — dopiero wtedy wolno pokazać „pusto". */
   ladowanie: boolean
@@ -48,6 +49,8 @@ export function useVehicleLoading(vehicleId: string): UseVehicleLoading {
   const [stan, setStan] = useState<VehicleState | null>(null)
   const [ladowanie, setLadowanie] = useState(true)
   const [online, setOnline] = useState(true)
+  const [aktualizacja, setAktualizacja] = useState<Date | null>(null)
+  const numer = useRef(0)
   // Żywotność komponentu — polling nie może pisać po odmontowaniu.
   const zywy = useRef(true)
   // Ostatnia migawka poza stanem Reacta — do porównania bez re-renderu.
@@ -55,31 +58,35 @@ export function useVehicleLoading(vehicleId: string): UseVehicleLoading {
 
   const odswiez = useCallback(async (): Promise<VehicleState | null> => {
     if (!vehicleId) return null
+    const n = ++numer.current
     try {
       const s = await vehicleLoadingApi.state(vehicleId)
-      if (!zywy.current) return s
+      if (!zywy.current || n !== numer.current) return null
       if (inna(ostatnia.current, s)) {
         ostatnia.current = s
         setStan(s)
       }
       setOnline(true)
+      setAktualizacja(new Date())
       return s
     } catch (e) {
       // Zerwana sieć NIE kasuje ostatniej znanej migawki — magazynier ma
       // dalej widzieć, co ma na aucie. Zmienia się tylko znacznik OFFLINE,
       // żeby wiedział, że patrzy na dane sprzed chwili.
-      if (zywy.current && isOfflineError(e)) setOnline(false)
+      if (zywy.current && n === numer.current) setOnline(false)
       return null
     } finally {
-      if (zywy.current) setLadowanie(false)
+      if (zywy.current && n === numer.current) setLadowanie(false)
     }
   }, [vehicleId])
 
   const przyjmij = useCallback((s: VehicleState) => {
     if (!zywy.current) return
+    numer.current++
     ostatnia.current = s
     setStan(s)
     setOnline(true)
+    setAktualizacja(new Date())
   }, [])
 
   useEffect(() => {
@@ -94,11 +101,12 @@ export function useVehicleLoading(vehicleId: string): UseVehicleLoading {
     window.addEventListener('online', naWidocznosc)
     return () => {
       zywy.current = false
+      numer.current++
       clearInterval(t)
       document.removeEventListener('visibilitychange', naWidocznosc)
       window.removeEventListener('online', naWidocznosc)
     }
   }, [odswiez])
 
-  return { stan, ladowanie, online, odswiez, przyjmij }
+  return { stan, ladowanie, online, aktualizacja, odswiez, przyjmij }
 }

@@ -2264,6 +2264,7 @@ export interface ColdStoragePart {
 }
 
 export interface ColdStoragePallet {
+  cartonNo?: string
   orderId:       string
   orderNo:       string
   clientName:    string
@@ -2285,6 +2286,7 @@ function mapColdStoragePallet(r: any): ColdStoragePallet {
       })).filter((p: ColdStoragePart) => p.qty > 0)
     : []
   return {
+    cartonNo: r.carton_no ? String(r.carton_no).padStart(6, '0') : '',
     orderId:       r.order_id ?? '',
     orderNo:       r.order_no ?? '',
     clientName:    r.client_name ?? '',
@@ -2345,6 +2347,8 @@ export type ScanResultCode =
   | 'WRONG_ORDER' | 'ON_OTHER_VEHICLE' | 'ALREADY_COMPLETED' | 'ERROR'
 
 export interface VehicleStatePallet {
+  cartonNo?: string
+  scanCode?: string
   id: string
   palletNo: number
   status: string
@@ -2395,6 +2399,8 @@ function mapVehicleState(raw: any): VehicleState {
       orderStatus:  o.order_status ?? '',
       position:     Number(o.position ?? 0),
       pallets: (o.pallets ?? []).map((p: any): VehicleStatePallet => ({
+        cartonNo: p.carton_no ? String(p.carton_no).padStart(6, '0') : '',
+        scanCode: p.scan_code || `PAL|${o.id}|${p.pallet_no}`,
         id:        p.id ?? '',
         palletNo:  Number(p.pallet_no ?? 0),
         status:    p.status ?? 'created',
@@ -2493,20 +2499,21 @@ export const palletScanApi = {
         createdPallets: Number(r.created_pallets ?? 0),
       })),
     ),
-  finalizeLoading: (vehicleId: string, orderIds: string[], plate?: string) =>
+  finalizeLoading: (vehicleId: string, orderIds: string[], plate?: string, requestId?: string, expectedIds?: string[]) =>
     post<{
       ok: boolean; vehicle_id: string; plate?: string
+      loading_id?: string | null
       orders: Array<{
         order_id: string; order_no: string; client_name: string; pallets: number
         units?: number; skipped?: string
         wz_id?: string; wz_number?: string
-        wz_status?: 'potwierdzony' | 'rozjazd'
+        wz_status?: 'potwierdzony' | 'rozjazd' | 'do_wystawienia'
         diff?: WzLoadingDiff[]
         hdi_number?: string | null; hdi_error?: string | null
       }>
     }>(
       '/pallets/finalize-loading',
-      { vehicle_id: vehicleId, order_ids: orderIds, plate: plate || '' },
+      { vehicle_id: vehicleId, order_ids: orderIds, plate: plate || '', request_id: requestId, expected_ids: expectedIds },
     ),
   loadingDocument: (vehicleId: string, orderIds: string[]) =>
     post<any>('/pallets/loading-document', { vehicle_id: vehicleId, order_ids: orderIds }),
@@ -3946,6 +3953,8 @@ export interface PodsumowanieMagazynu {
 }
 
 export const magazynApi = {
+  cofnij: (code: string, containerId: string) =>
+    post<{ ok: boolean }>('/magazyn/pakowanie/cofnij', { code, container_id: containerId }),
   podsumowanie: () => get<PodsumowanieMagazynu>('/magazyn/podsumowanie'),
   /** `spakowane` — pełne kartony, które jeszcze nie wjechały do mroźni. */
   pakowanie: () => get<{ kontenery: OtwartyKarton[]; spakowane?: OtwartyKarton[]; pula: PulaPozycja[] }>('/magazyn/pakowanie'),

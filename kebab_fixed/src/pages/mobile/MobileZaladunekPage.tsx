@@ -179,7 +179,7 @@ function statusZamowienia(t: VehicleStateOrder['totals']) {
 function PalletRow({ p, orderId, onCofnij, cofanaId }: {
   p: VehicleStatePallet
   orderId: string
-  onCofnij: (orderId: string, palletNo: number) => void
+  onCofnij: (orderId: string, pallet: VehicleStatePallet) => void
   cofanaId: string | null
 }) {
   const label = opisPozycji(p.items)
@@ -192,7 +192,7 @@ function PalletRow({ p, orderId, onCofnij, cofanaId }: {
       <StatusBadge paleta={p} />
       <div className="min-w-0 flex-1">
         <div className="text-base font-semibold text-slate-900 xl:text-2xl">
-          P{p.palletNo}
+          {p.cartonNo ? `Karton ${p.cartonNo}` : `P${p.palletNo}`}
           {label && <span className="ml-2 font-normal text-slate-600 xl:ml-4">· {label}</span>}
         </div>
       </div>
@@ -205,9 +205,9 @@ function PalletRow({ p, orderId, onCofnij, cofanaId }: {
       {mozna && (
         <button
           type="button"
-          onClick={() => onCofnij(orderId, p.palletNo)}
+          onClick={() => onCofnij(orderId, p)}
           disabled={wTrakcie}
-          aria-label={`Zdejmij paletę P${p.palletNo} z samochodu`}
+          aria-label={`Zdejmij ${p.cartonNo ? `karton ${p.cartonNo}` : `paletę P${p.palletNo}`} z samochodu`}
           title="Zdejmij z samochodu"
           className="shrink-0 rounded-lg border border-slate-300 p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40 xl:p-4"
         >
@@ -261,7 +261,8 @@ export function MobileZaladunekPage() {
   function pokazBlad(e: unknown, domyslny: WynikSkanu = 'ERROR', ctx = {}) {
     const kod = (isOfflineError(e) ? 'OFFLINE' : (errCode(e) || domyslny)) as WynikSkanu
     setToast({
-      ...komunikatSkanu(kod, { ...ctx, wiadomosc: e instanceof Error ? e.message : undefined }),
+      ...(kod === 'ERROR' ? komunikatOdmowy(e, false)
+        : komunikatSkanu(kod, { ...ctx, wiadomosc: e instanceof Error ? e.message : undefined })),
       ts: Date.now(),
     })
     try { navigator.vibrate?.([60, 40, 60]) } catch {}
@@ -362,17 +363,15 @@ export function MobileZaladunekPage() {
 
   /** Zdejmij paletę z samochodu — cofnięcie omyłkowego skanu.
    *  Backend odsyła ją tam, skąd przyszła: do mroźni, jeśli w niej była. */
-  async function cofnijPalete(orderId: string, palletNo: number) {
+  async function cofnijPalete(orderId: string, paleta: VehicleStatePallet) {
     if (cofanaId !== null) return
-    const paleta = zamowienia.find((o) => o.id === orderId)
-      ?.pallets.find((p) => p.palletNo === palletNo)
-    setCofanaId(paleta?.id ?? `${orderId}-${palletNo}`)
+    setCofanaId(paleta.id)
     try {
-      await palletScanApi.scan(`PAL|${orderId}|${palletNo}`, 'undo')
+      await palletScanApi.scan(paleta.scanCode || `PAL|${orderId}|${paleta.palletNo}`, 'undo', '', vehicleId)
       setToast({
         ok: true,
         naglowek: 'PALETA ZDJĘTA',
-        szczegol: `P${palletNo} wróciła z samochodu.`,
+        szczegol: `${paleta.cartonNo ? `Karton ${paleta.cartonNo} zdjęty` : `P${paleta.palletNo} zdjęta`} z samochodu.`,
         ts: Date.now(),
       })
       try { navigator.vibrate?.(60) } catch {}

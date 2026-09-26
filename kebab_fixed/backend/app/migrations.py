@@ -122,6 +122,13 @@ _DDL: list[str] = [
     # a mroźnia to miejsce, nie etap pakowania. Pełny karton znika z widoku
     # pakowania dopiero, gdy tu jest znacznik czasu.
     "ALTER TABLE stock_cartons ADD COLUMN IF NOT EXISTS cold_storage_at TIMESTAMPTZ",
+    "ALTER TABLE stock_cartons ADD COLUMN IF NOT EXISTS loaded_vehicle_id TEXT",
+    "ALTER TABLE stock_cartons ADD COLUMN IF NOT EXISTS loaded_at TIMESTAMPTZ",
+    "ALTER TABLE stock_cartons ADD COLUMN IF NOT EXISTS shipped_at TIMESTAMPTZ",
+    """CREATE TABLE IF NOT EXISTS warehouse_events (
+        id TEXT PRIMARY KEY, container_id TEXT NOT NULL, unit_id TEXT,
+        action TEXT NOT NULL, operator TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now()
+    )""",
     # ── Ważenie zbiorcze mięsa: równe palety i wózki dla masowni.
     #    To OPIS ułożenia, nie stan — mięso jest na stanie od rozbioru, więc
     #    ten zapis NIE generuje żadnych ruchów magazynowych.
@@ -387,6 +394,7 @@ _DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_finished_units_planline ON finished_units(plan_line_id)",
     "CREATE INDEX IF NOT EXISTS idx_finished_units_carton   ON finished_units(carton_id) WHERE carton_id IS NOT NULL",
     "ALTER TABLE finished_units ADD COLUMN IF NOT EXISTS pallet_id TEXT",
+    "ALTER TABLE finished_units ADD COLUMN IF NOT EXISTS packing_previous JSONB",
     "CREATE INDEX IF NOT EXISTS idx_finished_units_pallet ON finished_units(pallet_id) WHERE pallet_id IS NOT NULL",
 
     """CREATE TABLE IF NOT EXISTS dispatches (
@@ -524,6 +532,9 @@ _DDL: list[str] = [
     )
     """,
     "ALTER TABLE loading_orders ADD COLUMN IF NOT EXISTS pozycje JSONB NOT NULL DEFAULT '[]'::jsonb",
+    "ALTER TABLE loadings ADD COLUMN IF NOT EXISTS request_id TEXT",
+    "ALTER TABLE loadings ADD COLUMN IF NOT EXISTS response JSONB",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_loadings_request ON loadings(request_id) WHERE request_id IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_loadings_do_wydruku ON loadings(printed_at) WHERE printed_at IS NULL",
     # Wlasna nazwa receptury dla odbiorcy — u POLATA „BEYAZ AFIYET" ma schodzic
     # na dokument jako samo „BEYAZ". Rodzaj zostaje wspolny, zmienia sie tylko

@@ -137,6 +137,8 @@ def scan_unit_into_carton(carton_id: str, code: str) -> Dict[str, Any]:
         )
         if not carton:
             raise HTTPException(404, "Karton nie znaleziony")
+        if carton.get("loaded_vehicle_id") or carton.get("shipped_at") or carton.get("cold_storage_at"):
+            raise HTTPException(409, "Karton opuścił pakowanie — nie można zmieniać zawartości")
         lines = cx_query_all(
             conn,
             "SELECT * FROM stock_carton_lines WHERE carton_id=%s ORDER BY kg_per_unit",
@@ -182,8 +184,9 @@ def scan_unit_into_carton(carton_id: str, code: str) -> Dict[str, Any]:
             )
         cx_execute(
             conn,
-            "UPDATE finished_units SET carton_id=%s, status='packed' WHERE id=%s",
-            (carton_id, unit_id),
+            "UPDATE finished_units SET packing_previous=jsonb_build_object('order_id',order_id,'client_name',client_name), "
+            "carton_id=%s, status='packed', order_id=%s WHERE id=%s",
+            (carton_id, carton.get("linked_order_id"), unit_id),
         )
         cx_execute(
             conn,

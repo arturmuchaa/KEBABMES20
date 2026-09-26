@@ -57,7 +57,7 @@ export function werdyktPakowania(w: SkanPakowania, aktywny: string | null): Werd
         dzwiek: 'inny',
         pelny: w.full && k ? k.cartonNo : null,
         uwaga: {
-          naglowek: 'POSZŁA DO INNEGO KARTONU',
+          naglowek: `ODŁÓŻ DO KARTONU ${k?.cartonNo ?? '?'}`,
           szczegol: `${w.unit} → karton ${k?.cartonNo ?? '?'} · ${k?.clientName ?? ''}`.trim(),
         },
       }

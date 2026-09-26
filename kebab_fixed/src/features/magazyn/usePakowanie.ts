@@ -17,13 +17,16 @@ export function usePakowanie() {
   const [spakowane, setSpakowane] = useState<OtwartyKarton[]>([])
   const [ladowanie, setLadowanie] = useState(true)
   const [blad, setBlad] = useState(false)
+  const [aktualizacja, setAktualizacja] = useState<Date | null>(null)
+  const numer = useRef(0)
   const ostatnia = useRef('')
   const zywy = useRef(true)
 
   const odswiez = useCallback(async () => {
+    const n = ++numer.current
     try {
       const s = await magazynApi.pakowanie()
-      if (!zywy.current) return
+      if (!zywy.current || n !== numer.current) return
       const j = JSON.stringify(s)
       if (j !== ostatnia.current) {
         ostatnia.current = j
@@ -32,10 +35,11 @@ export function usePakowanie() {
         setSpakowane(s?.spakowane ?? [])
       }
       setBlad(false)
+      setAktualizacja(new Date())
     } catch {
-      if (zywy.current) setBlad(true)
+      if (zywy.current && n === numer.current) setBlad(true)
     } finally {
-      if (zywy.current) setLadowanie(false)
+      if (zywy.current && n === numer.current) setLadowanie(false)
     }
   }, [])
 
@@ -43,8 +47,8 @@ export function usePakowanie() {
     zywy.current = true
     void odswiez()
     const t = setInterval(() => { void odswiez() }, POLL_PAKOWANIA_MS)
-    return () => { zywy.current = false; clearInterval(t) }
+    return () => { zywy.current = false; numer.current++; clearInterval(t) }
   }, [odswiez])
 
-  return { kontenery, spakowane, pula, ladowanie, blad, odswiez }
+  return { kontenery, spakowane, pula, ladowanie, blad, aktualizacja, odswiez }
 }

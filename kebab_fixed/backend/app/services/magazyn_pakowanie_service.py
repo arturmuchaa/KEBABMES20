@@ -28,12 +28,13 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.db import execute, query_all, query_one
+from app.db import execute, query_all, query_one, transaction, cx_query_one, cx_execute
 from app.logging_config import get_logger
 from app.services import pallets_service, stock_cartons_service
 from app.services.stock_cartons_service import pick_line_for_unit
 from app.utils.client_aliases import nazwy_klienta
 from app.utils.ids import format_carton_no
+from app.utils.pallet_packing import counted_lines, line_accepts
 from app.utils.unit_codes import (
     PRODUCED, _client_matches, pallet_line_key, parse_unit_qr,
 )
@@ -62,8 +63,7 @@ def pasuje_do_kontenera(unit: Dict[str, Any], k: Dict[str, Any]) -> bool:
     klucz = pallet_line_key(unit.get("product_type_id"), unit.get("recipe_id"),
                             unit.get("weight_kg"))
     for ln in k.get("lines") or []:
-        if pallet_line_key(ln.get("product_type_id"), ln.get("recipe_id"),
-                           ln.get("kg_per_unit")) != klucz:
+        if not line_accepts(unit, ln):
             continue
         if int(ln.get("packed_qty") or 0) < int(ln.get("target_qty") or 0):
             return True
@@ -117,30 +117,13 @@ def _linie_palet(ids: List[str]) -> Dict[str, List[Dict]]:
         (ids,),
     )
     spak = query_all(
-        """SELECT pallet_id, product_type_id, recipe_id, weight_kg, COUNT(*) AS n
+        """SELECT pallet_id, product_type_id, recipe_id, weight_kg, tuleja, COUNT(*) AS n
            FROM finished_units WHERE pallet_id = ANY(%s)
-           GROUP BY pallet_id, product_type_id, recipe_id, weight_kg""",
+           GROUP BY pallet_id, product_type_id, recipe_id, weight_kg, tuleja""",
         (ids,),
     )
-    spak_by = {(r["pallet_id"], pallet_line_key(r["product_type_id"], r["recipe_id"],
-                                                r["weight_kg"])): int(r["n"]) for r in spak}
-    out: Dict[str, List[Dict]] = {}
-    for r in rows:
-        k = (r["pallet_id"], pallet_line_key(r["product_type_id"], r["recipe_id"],
-                                             r["kg_per_unit"]))
-        out.setdefault(r["pallet_id"], []).append({
-            "product_type_id": r.get("product_type_id") or "",
-            "product_type_name": r.get("product_type_name") or "",
-            "recipe_id": r.get("recipe_id") or "",
-            "recipe_name": r.get("recipe_name") or "",
-            "packaging_name": r.get("packaging_name") or "",
-            "kg_per_unit": _kg(r.get("kg_per_unit")),
-            "target_qty": int(r.get("target_qty") or 0),
-            # Rozpis palety bywa na pozycjach o tym samym kluczu — pierwsza
-            # dostaje całe „spakowane", co wystarcza do liczenia wolnego miejsca.
-            "packed_qty": spak_by.pop(k, 0),
-        })
-    return out
+    return {pid: counted_lines([r for r in rows if r["pallet_id"] == pid],
+                               [u for u in spak if u["pallet_id"] == pid]) for pid in ids}
 
 
 def _linia_publiczna(ln: Dict) -> Dict:
@@ -281,6 +264,7 @@ def spakowane_do_mrozni() -> List[Dict[str, Any]]:
     for c in query_all(
         """SELECT * FROM stock_cartons
            WHERE status = 'packed' AND cold_storage_at IS NULL
+             AND loaded_vehicle_id IS NULL AND shipped_at IS NULL
              AND NOT EXISTS (SELECT 1 FROM finished_units fu
                              WHERE fu.carton_id = stock_cartons.id AND fu.status = 'shipped')"""):
         ln = query_all(
@@ -482,17 +466,20 @@ def wstaw_karton_do_mrozni(code: str) -> Dict[str, Any]:
     cid = _parse_stock_carton(code)
     if not cid:
         return {"result": "INVALID"}
-    c = query_one("SELECT * FROM stock_cartons WHERE id=%s", (cid,))
-    if not c:
-        return {"result": "INVALID"}
-    opis = {"cartonNo": format_carton_no(c.get("carton_no")) if c.get("carton_no") else "",
-            "clientName": c.get("client_name") or ""}
-    if c.get("status") != "packed":
-        return {"result": "NOT_FULL", **opis}
-    if c.get("cold_storage_at"):
-        return {"result": "ALREADY_SCANNED", **opis}
-    execute("UPDATE stock_cartons SET cold_storage_at=now() WHERE id=%s AND cold_storage_at IS NULL",
-            (cid,))
+    with transaction() as conn:
+        c = cx_query_one(conn, "SELECT * FROM stock_cartons WHERE id=%s FOR UPDATE", (cid,))
+        if not c:
+            return {"result": "INVALID"}
+        opis = {"cartonNo": format_carton_no(c.get("carton_no")) if c.get("carton_no") else "",
+                "clientName": c.get("client_name") or ""}
+        if c.get("loaded_vehicle_id") or c.get("shipped_at") or cx_query_one(conn,
+            "SELECT id FROM finished_units WHERE carton_id=%s AND (status='shipped' OR dispatch_id IS NOT NULL) LIMIT 1", (cid,)):
+            raise HTTPException(409, "Karton jest na aucie lub został wydany")
+        if c.get("status") != "packed":
+            return {"result": "NOT_FULL", **opis}
+        if c.get("cold_storage_at"):
+            return {"result": "ALREADY_SCANNED", **opis}
+        cx_execute(conn, "UPDATE stock_cartons SET cold_storage_at=now() WHERE id=%s", (cid,))
     logger.info("magazyn.karton.mroznia", extra={"carton_id": cid})
     return {"result": "SUCCESS", **opis}
 
@@ -506,6 +493,7 @@ def kartony_w_mrozni() -> List[Dict[str, Any]]:
                      FROM stock_carton_lines l WHERE l.carton_id = sc.id) AS kg
            FROM stock_cartons sc
            WHERE sc.cold_storage_at IS NOT NULL
+             AND sc.loaded_vehicle_id IS NULL AND sc.shipped_at IS NULL
              AND NOT EXISTS (SELECT 1 FROM finished_units fu
                              WHERE fu.carton_id = sc.id AND fu.status = 'shipped')
            ORDER BY sc.cold_storage_at""",

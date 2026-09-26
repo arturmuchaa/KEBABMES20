@@ -28,9 +28,12 @@ import { brakuje, dokadKarton, skladKartonu, opisPozycji } from './opisKartonu'
 import { kgTxt } from './pula'
 import { Karta, Znacznik } from './components/Karta'
 import { PasSkanowania } from './components/PasSkanowania'
+import { StanPolaczenia } from './components/StanPolaczenia'
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { HMI_VARS } from '@/features/hmi-theme/vars'
 import type { PokazAlarm } from './magazynTypes'
 
-interface Wpis { ts: number; opis: string; gdzie: string; ton: 'cisza' | 'inny' | 'blad' }
+interface Wpis { ts: number; opis: string; gdzie: string; ton: 'cisza' | 'inny' | 'blad'; kod?: string; containerId?: string }
 
 export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, pierwszySkan, onPierwszySkan }: {
   aktywnyId: string | null
@@ -40,7 +43,10 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, pierwszySkan, on
   pierwszySkan?: string | null
   onPierwszySkan?: () => void
 }) {
-  const { kontenery, spakowane, odswiez } = usePakowanie()
+  const { kontenery, spakowane, odswiez, blad, aktualizacja, ladowanie } = usePakowanie()
+  const [korekta, setKorekta] = useState<Wpis | null>(null)
+  const [cofa, setCofa] = useState(false)
+  const [skanuje, setSkanuje] = useState(false)
   const [uwaga, setUwaga] = useState<Uwaga | null>(null)
   const [wMrozni, setWMrozni] = useState<string | null>(null)
   const [dziennik, setDziennik] = useState<Wpis[]>([])
@@ -113,6 +119,8 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, pierwszySkan, on
         opis: w.unit || kod,
         gdzie: w.container ? `karton ${w.container.cartonNo}` : (v.alarm?.naglowek ?? ''),
         ton: v.dzwiek,
+        ...((w.result === 'ACTIVE' || w.result === 'OTHER') && w.container
+          ? { kod, containerId: w.container.id } : {}),
       })
       await odswiez()
     } catch (e) {
@@ -133,6 +141,21 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, pierwszySkan, on
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pierwszySkan])
 
+  async function cofnij() {
+    if (!korekta?.kod || !korekta.containerId || cofa) return
+    setCofa(true)
+    try {
+      await magazynApi.cofnij(korekta.kod, korekta.containerId)
+      setDziennik(d => d.map(w => w.kod === korekta.kod ? { ...w, kod: undefined, gdzie: 'wyjęta z kartonu' } : w))
+      onAktywny(korekta.containerId)
+      setUwaga(null)
+      setKorekta(null)
+      await odswiez()
+    } catch (e) {
+      alarm('NIE COFNIĘTO PAKOWANIA', e instanceof Error ? e.message : 'Odśwież stan i spróbuj ponownie.')
+    } finally { setCofa(false) }
+  }
+
   const b = aktywny ? brakuje(aktywny) : 0
   // Pozycje: niedokończone na górze, dalej jak na kartce — receptura, waga.
   const pozycje = aktywny
@@ -146,18 +169,19 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, pierwszySkan, on
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <StanPolaczenia blad={blad} aktualizacja={aktualizacja} ladowanie={ladowanie} />
       <div className="grid min-h-0 flex-1 gap-3 p-4 px-6"
         style={{ gridTemplateColumns: 'minmax(0, 1.1fr) minmax(0, 1fr)' }}>
 
         {/* ── Aktywny karton — czytelny z wózka ─────────────────────── */}
-        <div className="flex min-h-0 flex-col gap-3">
+        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
           {aktywny ? (
-            <section data-testid={pelny ? 'karton-pelny' : 'karton-aktywny'} className="flex flex-col gap-2 rounded-2xl p-6"
+            <section data-testid={pelny ? 'karton-pelny' : 'karton-aktywny'} className="flex shrink-0 flex-col gap-2 rounded-2xl p-4 lg:p-6"
               style={pelny
                 ? { background: 'var(--successSoft)', border: '2px solid var(--success)' }
                 : { background: 'var(--accentSoft)', border: '1.5px solid var(--accentLine)' }}>
               <div className="flex items-center gap-3">
-                <span className="hmi-v10-mono text-[14px] font-bold tracking-[0.06em]" style={{ color: 'var(--mut)' }}>
+                <span className="hmi-v10-mono text-[28px] font-bold" style={{ color: 'var(--accent)' }}>
                   KARTON {aktywny.cartonNo}
                 </span>
                 <Znacznik ton={aktywny.kind === 'order' ? 'akcja' : 'szary'}>{dokadKarton(aktywny)}</Znacznik>
@@ -267,7 +291,7 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, pierwszySkan, on
           )}
 
 
-          <Karta tytul="Ostatnie skany" className="flex-1" tresc={false}
+          <Karta tytul="Ostatnie skany" className="min-h-[160px] shrink-0" tresc={false}
             prawo={<span>w tej sesji · {dziennik.length}</span>}>
             {dziennik.map((w, i) => (
               <div key={`${w.ts}-${i}`} className="flex items-center gap-3 px-4 py-2"
@@ -280,6 +304,8 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, pierwszySkan, on
                   style={{ color: w.ton === 'blad' ? 'var(--red)' : w.ton === 'inny' ? 'var(--amb)' : 'var(--success)' }}>
                   {w.gdzie}
                 </span>
+                {w.kod ? <button className="min-h-11 rounded-lg border px-3 text-sm font-bold"
+                  disabled={skanuje || blad} onClick={() => setKorekta(w)}>Wyjmij</button> : null}
               </div>
             ))}
             {!dziennik.length ? (
@@ -290,7 +316,7 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, pierwszySkan, on
 
         {/* ── Werdykt ostatniego skanu + pozostałe kartony ───────────── */}
         <div className="flex min-h-0 flex-col gap-3">
-          {wMrozni ? (
+          {blad || ladowanie ? null : wMrozni ? (
             <div role="status" data-testid="w-mrozni" className="flex items-center gap-3 rounded-xl px-5 py-4"
               style={{ background: 'var(--success)', color: '#fff' }}>
               <span className="text-[26px] leading-none">❄</span>
@@ -304,7 +330,7 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, pierwszySkan, on
               style={{ background: 'var(--ambSoft)', border: '2px solid var(--ambLine)' }}>
               <span className="text-[26px] font-extrabold leading-none" style={{ color: 'var(--amb)' }}>!</span>
               <span>
-                <span className="block text-[18px] font-extrabold leading-tight" style={{ color: 'var(--amb)' }}>
+                <span className="block text-[26px] font-extrabold leading-tight" style={{ color: 'var(--amb)' }}>
                   {uwaga.naglowek}
                 </span>
                 <span className="mt-1 block text-[14.5px]" style={{ color: '#92400E' }}>{uwaga.szczegol}</span>
@@ -323,7 +349,7 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, pierwszySkan, on
               <button key={k.id} type="button" onClick={() => ustawAktywny(k)}
                 className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-[var(--accentSoft)]"
                 style={{ borderTop: '1px solid var(--lineSoft)', color: 'var(--ink)' }}>
-                <span className="hmi-v10-mono shrink-0 text-[12.5px] font-bold" style={{ color: 'var(--mut)', width: 58 }}>
+                <span className="hmi-v10-mono shrink-0 text-[20px] font-bold" style={{ color: 'var(--accent)' }}>
                   {k.cartonNo}
                 </span>
                 <span className="min-w-0 flex-1">
@@ -350,7 +376,20 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, pierwszySkan, on
       </div>
 
       <PasSkanowania placeholder="Skanuj sztukę albo kartę kartonu…" onSkan={skanuj}
+        disabled={!!korekta || cofa || ladowanie} onPendingChange={setSkanuje}
         podpis="Pasuje — cisza. Inny karton — krótki ton. Nie pasuje — alarm." />
+      <Dialog open={!!korekta} onOpenChange={open => { if (!open && !cofa) setKorekta(null) }}>
+        <DialogContent style={HMI_VARS} onInteractOutside={e => e.preventDefault()}>
+          <DialogTitle>Wyjąć sztukę z kartonu?</DialogTitle>
+          <DialogDescription>{korekta?.opis} · {korekta?.gdzie}. Wyjmij fizycznie tę sztukę. Korekta zapisze operatora.</DialogDescription>
+          <div className="flex gap-3">
+            <button className="min-h-12 flex-1 rounded-xl border p-3 font-bold" disabled={cofa} onClick={() => setKorekta(null)}>Wróć</button>
+            <button className="min-h-12 flex-1 rounded-xl bg-red-700 p-3 font-bold text-white" disabled={cofa} onClick={cofnij}>
+              {cofa ? 'Zapisuję…' : 'Wyjmij sztukę'}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -1,5 +1,6 @@
 """Globalne endpointy palet — skan QR, lookup po kodzie, aktywne zamówienia."""
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
+from app.auth.audit import _subject_label
 
 from app.models.orders import PackUnitRequest, PalletScanRequest
 from app.services import loading_service, pallets_service, vehicle_loading_service
@@ -8,14 +9,16 @@ router = APIRouter(prefix="/api/pallets", tags=["pallets"])
 
 
 @router.post("/finalize-loading")
-def finalize_loading(body: dict):
+def finalize_loading(body: dict, request: Request):
     """Zamknięcie załadunku pojazdu: sztuki→shipped, WZ (weryfikacja
     istniejącego albo utworzenie + rozchód), HDI z nr rejestracyjnym."""
     return loading_service.finalize_loading(
         vehicle_id=(body.get("vehicle_id") or "").strip(),
         order_ids=[str(x) for x in (body.get("order_ids") or []) if x],
-        operator=body.get("operator") or "",
+        operator=_subject_label(getattr(request.state, "subject", None)) or "",
         plate=body.get("plate") or "",
+        request_id=body.get("request_id") or None,
+        expected_ids=body.get("expected_ids"),
     )
 
 
@@ -29,11 +32,11 @@ def loading_document(body: dict):
 
 
 @router.post("/scan")
-def scan(body: PalletScanRequest):
+def scan(body: PalletScanRequest, request: Request):
     return pallets_service.scan(
         body.code,
         body.action,
-        operator=body.operator or "",
+        operator=_subject_label(getattr(request.state, "subject", None)) or "",
         vehicle_id=body.vehicle_id or None,
     )
 

@@ -13,35 +13,50 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSkanAutoSubmit } from '@/features/scan/useSkanAutoSubmit'
 
-export function PasSkanowania({ placeholder, onSkan, podpis, disabled = false }: {
+export function PasSkanowania({ placeholder, onSkan, podpis, disabled = false, onPendingChange }: {
   placeholder: string
   onSkan: (kod: string) => void | Promise<void>
   /** Krótka linia obok pola — co tu się skanuje. */
   podpis?: string
   disabled?: boolean
+  onPendingChange?: (pending: boolean) => void
 }) {
   const [wartosc, setWartosc] = useState('')
   const pole = useRef<HTMLInputElement>(null)
+  const kolejka = useRef(Promise.resolve())
+  const oczekuje = useRef(0)
+  const callback = useRef(onSkan)
+  callback.current = onSkan
+  const pendingCallback = useRef(onPendingChange)
+  pendingCallback.current = onPendingChange
 
   function wyslij(kod: string) {
     const t = kod.trim()
     setWartosc('')
-    if (!t) return
-    return onSkan(t)
+    if (!t || disabled) return
+    oczekuje.current++
+    pendingCallback.current?.(true)
+    const zadanie = kolejka.current.then(() => callback.current(t)).then(() => {})
+    kolejka.current = zadanie.catch(() => {})
+    return zadanie.finally(() => {
+      oczekuje.current--
+      pendingCallback.current?.(oczekuje.current > 0)
+    })
   }
 
   const { zatwierdz } = useSkanAutoSubmit(wartosc, wyslij)
 
   useEffect(() => {
+    if (disabled) { setWartosc(''); return }
     pole.current?.focus()
     const wroc = (e: MouseEvent) => {
       const t = e.target as HTMLElement | null
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return
+      if (t && (t.closest('[role="dialog"]') || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return
       setTimeout(() => pole.current?.focus(), 0)
     }
     document.addEventListener('click', wroc)
     return () => document.removeEventListener('click', wroc)
-  }, [])
+  }, [disabled])
 
   return (
     <div className="shrink-0 px-5 pb-4 pt-3"

@@ -23,6 +23,7 @@ if TEST_DATABASE_URL:
 
 # Tabele czyszczone przed każdym testem integracyjnym (CASCADE łapie zależne).
 _TRUNCATE = [
+    "warehouse_events",
     # Nośniki zwrotne — od ruchów w stronę partnerów (FK), żeby CASCADE
     # nie zostawił sierot po dokumentach.
     "container_movements", "container_docs", "container_partner_links", "container_partners",

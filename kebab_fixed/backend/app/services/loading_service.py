@@ -100,12 +100,17 @@ def verify_wz_against_loaded(
 
 
 def _loaded_pallets(conn, vehicle_id: str, order_id: str) -> List[Dict[str, Any]]:
-    return cx_query_all(
+    pallets = cx_query_all(
         conn,
-        """SELECT id, pallet_no FROM order_pallets
+        """SELECT id, pallet_no, 'order' AS kind FROM order_pallets
            WHERE order_id=%s AND status='loaded' AND loaded_vehicle_id=%s
-           ORDER BY pallet_no""",
+           ORDER BY pallet_no FOR UPDATE""",
         (order_id, vehicle_id))
+    cartons = cx_query_all(conn,
+        """SELECT id, 0 AS pallet_no, 'stock' AS kind FROM stock_cartons
+           WHERE linked_order_id=%s AND loaded_vehicle_id=%s AND shipped_at IS NULL
+           ORDER BY id FOR UPDATE""", (order_id, vehicle_id))
+    return pallets + cartons
 
 
 def _units_on_pallets(conn, pallet_ids: List[str]) -> List[Dict[str, Any]]:
@@ -114,11 +119,13 @@ def _units_on_pallets(conn, pallet_ids: List[str]) -> List[Dict[str, Any]]:
     return cx_query_all(
         conn,
         """SELECT fu.id, fu.recipe_id, fu.weight_kg, fu.batch_no, fu.status,
+                  COALESCE(fu.pallet_id,fu.carton_id) AS container_id,
                   fu.source_finished_goods_id, r.name AS recipe_name
            FROM finished_units fu
            LEFT JOIN recipes r ON r.id = fu.recipe_id
-           WHERE fu.pallet_id = ANY(%s)""",
-        (pallet_ids,))
+           WHERE fu.pallet_id = ANY(%s) OR fu.carton_id = ANY(%s)
+           FOR UPDATE OF fu""",
+        (pallet_ids, pallet_ids))
 
 
 def _linie_dokumentu(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -282,6 +289,8 @@ def finalize_loading(
     order_ids: List[str],
     operator: str = "",
     plate: str = "",
+    request_id: Optional[str] = None,
+    expected_ids: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Zamknij załadunek pojazdu dla wskazanych zamówień (atomowo per całość):
     sztuki z załadowanych palet → shipped; WZ: weryfikacja istniejącego
@@ -295,7 +304,21 @@ def finalize_loading(
 
     results: List[Dict[str, Any]] = []
     with transaction() as conn:
-        for order_id in order_ids:
+        cx_query_one(conn, "SELECT id FROM vehicles WHERE id=%s FOR UPDATE", (vehicle_id,))
+        if request_id:
+            previous = cx_query_one(conn, "SELECT vehicle_id, response FROM loadings WHERE request_id=%s", (request_id,))
+            if previous:
+                if previous["vehicle_id"] != vehicle_id:
+                    raise HTTPException(409, "Identyfikator zapisu należy do innego auta")
+                return previous["response"]
+        if expected_ids is not None:
+            actual = cx_query_all(conn,
+                """SELECT id FROM order_pallets WHERE loaded_vehicle_id=%s AND status='loaded'
+                   UNION ALL SELECT id FROM stock_cartons WHERE loaded_vehicle_id=%s AND shipped_at IS NULL""",
+                (vehicle_id, vehicle_id))
+            if set(expected_ids) != {p["id"] for p in actual}:
+                raise HTTPException(409, "Zawartość auta zmieniła się. Sprawdź odświeżoną listę i potwierdź ponownie")
+        for order_id in sorted(set(order_ids)):
             order = cx_query_one(
                 conn, "SELECT id, order_no, client_name, client_id FROM client_orders WHERE id=%s",
                 (order_id,))
@@ -380,12 +403,28 @@ def finalize_loading(
             # * nie ma dokumentu — nikt jeszcze nic nie wydał, więc partie
             #   dobiera magazyn tą samą regułą co „Wystaw WZ" z zamówienia:
             #   stempel tego zamówienia, potem NAJSTARSZE.
-            if units_all:
+            # Decyzja QR/rozpis jest per karton, nie per całe zamówienie:
+            # karton magazynowy z QR może jechać razem z paletą bez sztuk QR.
+            with_units = {u["container_id"] for u in units_all}
+            without_units = [p["id"] for p in pallets if p["id"] not in with_units and p["kind"] == "order"]
+            if not without_units:
                 z_rozpisu = []
             elif wm:
-                z_rozpisu = picks_z_dokumentu(pallet_ids, _linie_dokumentu(wm))
+                document_lines = _linie_dokumentu(wm)
+                # Odejmij sztuki QR od dokumentu zanim przypiszesz jego partie
+                # do pozostałych palet, aby ta sama porcja nie pokryła obu.
+                remaining_qr = aggregate_loaded_units(units_all)
+                document_lines = [dict(l) for l in document_lines]
+                for line in document_lines:
+                    key = _line_key(line.get('recipe_id'), line.get('kg_per_unit'), line.get('batch_no'))
+                    qr = remaining_qr.get(key)
+                    if qr:
+                        take = min(int(line.get('qty') or 0), qr['qty'])
+                        line['qty'] = int(line.get('qty') or 0) - take
+                        qr['qty'] -= take
+                z_rozpisu = picks_z_dokumentu(without_units, document_lines)
             else:
-                z_rozpisu = picks_for_pallets(order_id, pallet_ids)
+                z_rozpisu = picks_for_pallets(order_id, without_units)
                 # Magazyn musi pokryć CAŁY rozpis zeskanowanych palet.
                 # `picks_for_pallets` dobiera tylko to, co leży, więc przy
                 # niedoborze dokument wyszedłby po cichu zaniżony — magazynier
@@ -397,7 +436,9 @@ def finalize_loading(
                 # partii), a niezgodność wychodzi rozjazdem — czyli sygnałem,
                 # który opisuje ją celniej i nie zatrzymuje reszty pojazdu.
                 if z_rozpisu:
-                    _sprawdz_pokrycie_rozpisu(conn, order, pallet_ids, z_rozpisu)
+                    _sprawdz_pokrycie_rozpisu(conn, order, without_units, z_rozpisu)
+                elif units_all:
+                    raise HTTPException(409, "Brak pokrycia części załadunku bez skanów sztuk — sprawdź stan w biurze")
 
             if not units_all and not z_rozpisu:
                 results.append({"order_id": order_id, "order_no": order.get("order_no"),
@@ -405,8 +446,11 @@ def finalize_loading(
                                 "pallets": len(pallets), "skipped": "brak załadowanych sztuk"})
                 continue
 
-            loaded_agg = (aggregate_loaded_units(units_all) if units_all
-                          else aggregate_picks(z_rozpisu))
+            loaded_agg = aggregate_loaded_units(units_all)
+            for key, value in aggregate_picks(z_rozpisu).items():
+                target = loaded_agg.setdefault(key, {"qty": 0, "kg": 0.0})
+                target["qty"] += value["qty"]
+                target["kg"] += value["kg"]
 
             pozycje_kursu: List[Dict[str, Any]] = []
             if existing:
@@ -440,9 +484,11 @@ def finalize_loading(
                             "powiązania z wyrobem gotowym (dzień produkcji niezamknięty?). "
                             "Zatwierdź produkcję w biurze i spróbuj ponownie.")
                 else:
-                    # Bez sztuk QR: partie dobrane z magazynu wg rozpisu palet.
-                    groups = {p["fg"]["id"]: {"count": int(p["take"] or 0)}
-                              for p in z_rozpisu if p.get("fg") and int(p.get("take") or 0) > 0}
+                    groups = {}
+                for picked in z_rozpisu:
+                    if picked.get("fg") and int(picked.get("take") or 0) > 0:
+                        group = groups.setdefault(picked["fg"]["id"], {"count": 0})
+                        group["count"] += int(picked["take"])
                 goods_with_counts = []
                 for gid in sorted(groups):
                     fg = cx_query_one(
@@ -505,6 +551,8 @@ def finalize_loading(
                     conn,
                     "UPDATE order_pallets SET status='shipped' WHERE id = ANY(%s)",
                     ([p["id"] for p in pallets],))
+                cx_execute(conn, "UPDATE stock_cartons SET shipped_at=now() WHERE id=ANY(%s)",
+                           ([p["id"] for p in pallets],))
 
             # Zdejmij zamówienie ze WSPÓLNEJ listy pojazdu — w TEJ SAMEJ
             # transakcji, co wydanie towaru.
@@ -529,23 +577,27 @@ def finalize_loading(
                 "pozycje": pozycje_kursu,
             })
 
+        # Towar, zwolnienie auta i kurs commitują razem.
+        kurs = _zapisz_kurs(conn, vehicle_id, effective_plate, operator, results, request_id)
+        response = {"ok": bool(kurs), "vehicle_id": vehicle_id, "plate": effective_plate,
+                    "loading_id": kurs, "orders": results}
+        if kurs:
+            cx_execute(conn, "UPDATE loadings SET response=%s::jsonb WHERE id=%s", (json.dumps(response), kurs))
+
     # HDI poza transakcją rozchodu (best-effort, własne transakcje).
     for r in results:
         if r.get("skipped"):
             continue
         r.update(_ensure_hdi(r["order_id"], effective_plate))
 
-    kurs = _zapisz_kurs(vehicle_id, effective_plate, operator, results)
-
     logger.info("loading.finalized", extra={
         "vehicle_id": vehicle_id, "orders": len(results),
         "rozjazd": sum(1 for r in results if r.get("wz_status") == "rozjazd")})
-    return {"ok": True, "vehicle_id": vehicle_id, "plate": effective_plate,
-            "loading_id": kurs, "orders": results}
+    return response
 
 
-def _zapisz_kurs(vehicle_id: str, plate: str, operator: str,
-                 results: List[Dict[str, Any]]) -> Optional[str]:
+def _zapisz_kurs(conn, vehicle_id: str, plate: str, operator: str,
+                 results: List[Dict[str, Any]], request_id: Optional[str] = None) -> Optional[str]:
     """Zapisz KURS — ślad po załadunku jako zdarzeniu, dla powiadomienia biura.
 
     Magazynier nie ma drukarki ani uprawnień, więc papiery drukuje biuro —
@@ -563,18 +615,15 @@ def _zapisz_kurs(vehicle_id: str, plate: str, operator: str,
     if not wzięte:
         return None
     kurs_id = cuid()
-    with transaction() as conn:
-        cx_execute(
-            conn,
-            "INSERT INTO loadings (id, vehicle_id, plate, finished_by) "
-            "VALUES (%s,%s,%s,%s)", (kurs_id, vehicle_id, plate, operator or ""))
-        for r in wzięte:
-            cx_execute(
-                conn,
-                "INSERT INTO loading_orders (loading_id, order_id, wz_id, wz_status, "
-                " pozycje) VALUES (%s,%s,%s,%s,%s::jsonb) ON CONFLICT DO NOTHING",
-                (kurs_id, r.get("order_id"), r.get("wz_id"), r.get("wz_status"),
-                 json.dumps(r.get("pozycje") or [])))
+    cx_execute(conn,
+        "INSERT INTO loadings (id, vehicle_id, plate, finished_by, request_id) "
+        "VALUES (%s,%s,%s,%s,%s)", (kurs_id, vehicle_id, plate, operator or "", request_id))
+    for r in wzięte:
+        cx_execute(conn,
+            "INSERT INTO loading_orders (loading_id, order_id, wz_id, wz_status, "
+            " pozycje) VALUES (%s,%s,%s,%s,%s::jsonb)",
+            (kurs_id, r.get("order_id"), r.get("wz_id"), r.get("wz_status"),
+             json.dumps(r.get("pozycje") or [])))
     return kurs_id
 
 

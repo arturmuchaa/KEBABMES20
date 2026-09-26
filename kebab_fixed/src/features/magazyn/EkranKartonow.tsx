@@ -98,7 +98,7 @@ export function EkranKartonow({ onWybor }: { onWybor: (kartonId: string | null) 
               ))}
             </div>
           ) : null}
-          {!kontenery.length && !ladowanie ? (
+          {!kontenery.length && !ladowanie && !blad ? (
             <div className="rounded-xl p-6 text-center text-[15px]"
               style={{ border: '1.5px dashed var(--line)', color: 'var(--mut)' }}>
               Biuro nie otworzyło żadnego kartonu. Kartony zakłada się przy zamówieniu
@@ -153,7 +153,7 @@ export function EkranKartonow({ onWybor }: { onWybor: (kartonId: string | null) 
               ))}
             </div>
           ))}
-          {!dni.length && !ladowanie ? (
+          {!dni.length && !ladowanie && !blad ? (
             <div className="p-6 text-center text-[14px]" style={{ color: 'var(--mut)' }}>
               Wszystko, co zeszło z produkcji, leży już w kartonach.
             </div>

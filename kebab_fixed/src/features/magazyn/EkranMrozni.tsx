@@ -14,6 +14,7 @@ import { errCode, isOfflineError, magazynApi, palletScanApi, type ColdStoragePal
 import { idKartonu } from '@/features/scan/skanKodu'
 import { komunikatSkanu } from '@/features/loading/scanMessages'
 import { PasSkanowania } from './components/PasSkanowania'
+import { StanPolaczenia } from './components/StanPolaczenia'
 import { Karta } from './components/Karta'
 import { grajBlad } from './dzwiek'
 import type { PokazAlarm } from './magazynTypes'
@@ -23,12 +24,15 @@ export function EkranMrozni({ onAlarm }: { onAlarm: PokazAlarm }) {
   // Kartony magazynowe (bez zamówienia) — w mroźni od 25.09.2026.
   const [kartony, setKartony] = useState<Awaited<ReturnType<typeof magazynApi.mrozniaKartony>>>([])
   const [ostatnia, setOstatnia] = useState<string>('')
+  const [blad, setBlad] = useState(false)
+  const [aktualizacja, setAktualizacja] = useState<Date | null>(null)
 
   const wczytaj = useCallback(async () => {
     try {
       const [p, k] = await Promise.all([palletScanApi.inColdStorage(), magazynApi.mrozniaKartony()])
       setLista(p); setKartony(Array.isArray(k) ? k : [])
-    } catch { /* lista jest podglądem — brak sieci nie blokuje skanowania */ }
+      setBlad(false); setAktualizacja(new Date())
+    } catch { setBlad(true) }
   }, [])
 
   useEffect(() => {
@@ -51,9 +55,10 @@ export function EkranMrozni({ onAlarm }: { onAlarm: PokazAlarm }) {
               ? 'Do mroźni wjeżdża karton spakowany do końca. Dopakuj go na kaflu KARTONY.'
               : 'Zeskanuj kartę kartonu jeszcze raz.' })
         }
-      } catch {
+      } catch (e) {
         grajBlad('L')
-        onAlarm({ skaner: 'L', ton: 'blad', naglowek: 'SKAN NIE ZAPISANY', szczegol: 'Brak połączenia — spróbuj za chwilę.' })
+        onAlarm({ skaner: 'L', ton: 'blad', naglowek: 'SKAN NIE ZAPISANY',
+          szczegol: isOfflineError(e) ? 'Brak połączenia — spróbuj za chwilę.' : e instanceof Error ? e.message : 'Sprawdź stan kartonu.' })
       }
       return void wczytaj()
     }
@@ -81,6 +86,7 @@ export function EkranMrozni({ onAlarm }: { onAlarm: PokazAlarm }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <StanPolaczenia blad={blad} aktualizacja={aktualizacja} ladowanie={!aktualizacja && !blad} />
       <div className="grid min-h-0 flex-1 gap-3 p-4 px-6" style={{ gridTemplateColumns: '360px minmax(0, 1fr)' }}>
         <div className="flex flex-col gap-3">
           <section className="rounded-2xl p-6" style={{ background: 'var(--accentSoft)', border: '1.5px solid var(--accentLine)' }}>
@@ -111,7 +117,7 @@ export function EkranMrozni({ onAlarm }: { onAlarm: PokazAlarm }) {
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[15.5px] font-extrabold">{p.clientName}</span>
                 <span className="hmi-v10-mono block truncate text-[12px]" style={{ color: 'var(--mut)' }}>
-                  {p.orderNo} · P{p.palletNo}
+                  {p.orderNo} · {p.cartonNo ? `Karton ${p.cartonNo}` : `P${p.palletNo}`}
                 </span>
               </span>
               <span className="shrink-0 text-right">
@@ -135,7 +141,7 @@ export function EkranMrozni({ onAlarm }: { onAlarm: PokazAlarm }) {
               <span className="hmi-v10-mono shrink-0 text-[15px] font-bold">{Math.round(k.kg)} kg</span>
             </div>
           ))}
-          {!lista.length && !kartony.length ? (
+          {!blad && aktualizacja && !lista.length && !kartony.length ? (
             <div className="p-6 text-center text-[14px]" style={{ color: 'var(--mut)' }}>Mroźnia pusta.</div>
           ) : null}
         </Karta>

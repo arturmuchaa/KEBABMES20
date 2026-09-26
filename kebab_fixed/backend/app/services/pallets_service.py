@@ -14,6 +14,7 @@ from app.logging_config import get_logger
 from app.models.orders import PalletDto
 from app.utils.ids import cuid, next_seq
 from app.utils.client_aliases import nazwy_klienta
+from app.utils.pallet_packing import counted_lines, line_accepts
 from app.utils.unit_codes import (
     PACKED, pallet_line_key, parse_unit_qr, validate_pack_to_pallet,
 )
@@ -356,7 +357,15 @@ def _poza_kolejnoscia(vehicle_id: str, order_id: str) -> Optional[Dict]:
                                     THEN 1 ELSE 0 END), 0)::int AS loaded
              FROM vehicle_loading_orders vlo
              JOIN client_orders o ON o.id = vlo.order_id
-             LEFT JOIN order_pallets p
+             LEFT JOIN (
+                 SELECT id, order_id, status, loaded_vehicle_id FROM order_pallets
+                 UNION ALL
+                 SELECT id, linked_order_id AS order_id,
+                        CASE WHEN shipped_at IS NOT NULL THEN 'shipped'
+                             WHEN loaded_vehicle_id IS NOT NULL THEN 'loaded'
+                             ELSE 'created' END AS status, loaded_vehicle_id
+                 FROM stock_cartons WHERE linked_order_id IS NOT NULL
+             ) p
                     ON p.order_id = vlo.order_id AND p.status <> 'shipped'
             WHERE vlo.vehicle_id = %s AND vlo.position < %s
             GROUP BY vlo.position, o.order_no, o.client_name
@@ -409,7 +418,7 @@ def lookup(code: str) -> Dict:
     return _pallet_with_items(order_id, pallet_no)
 
 
-def _cofnij_skan(code: str, operator: str = "") -> Dict[str, Any]:
+def _cofnij_skan(code: str, operator: str = "", vehicle_id: str = None) -> Dict[str, Any]:
     """Cofnij OSTATNI skan palety — „wróć paletę".
 
     Biuro (2026-09-09): „zeskanowałem palety na samochód przez przypadek,
@@ -431,14 +440,21 @@ def _cofnij_skan(code: str, operator: str = "") -> Dict[str, Any]:
     order_id, pallet_no = parse_code(code)
 
     with transaction() as conn:
+        before = cx_query_one(conn, "SELECT loaded_vehicle_id FROM order_pallets WHERE order_id=%s AND pallet_no=%s",
+                              (order_id, pallet_no)) or {}
+        vid = vehicle_id or before.get("loaded_vehicle_id")
+        if vid:
+            cx_query_one(conn, "SELECT id FROM vehicles WHERE id=%s FOR UPDATE", (vid,))
         paleta = cx_query_one(
             conn,
-            "SELECT id, status, cold_storage_at FROM order_pallets "
+            "SELECT id, status, cold_storage_at, loaded_vehicle_id FROM order_pallets "
             "WHERE order_id=%s AND pallet_no=%s FOR UPDATE", (order_id, pallet_no))
         if not paleta:
             _odmow("INVALID", f"Paleta P{pallet_no} nie istnieje dla tego zamówienia", 404)
 
         stan = paleta.get("status") or "created"
+        if stan == "loaded" and paleta.get("loaded_vehicle_id") != vid:
+            _odmow("ON_OTHER_VEHICLE", "Paleta jest już na innym aucie — odśwież listę", 409)
         if stan == "shipped":
             _odmow(
                 "ALREADY_COMPLETED",
@@ -500,8 +516,16 @@ def scan(code: str, action: str, operator: str = "", vehicle_id: str | None = No
     skaner czeka na wierszu, a po wejściu widzi już stan po pierwszym i dostaje
     uczciwe ALREADY_SCANNED zamiast cichego nadpisania.
     """
+    from app.services.dispatches_service import _parse_stock_carton
+    carton_id = _parse_stock_carton(code)
+    if carton_id:
+        from app.services.stock_loading_service import scan_carton
+        result = scan_carton(carton_id, action, vehicle_id, operator)
+        if action == 'loaded' and result['result'] == 'SUCCESS':
+            result['out_of_sequence'] = _poza_kolejnoscia(vehicle_id, result['order']['id'])
+        return result
     if action == "undo":
-        return _cofnij_skan(code, operator=operator)
+        return _cofnij_skan(code, operator=operator, vehicle_id=vehicle_id)
     if action not in _TRANSITIONS:
         _odmow("ERROR", f"Nieznana akcja skanu: {action}", 400)
 
@@ -516,6 +540,8 @@ def scan(code: str, action: str, operator: str = "", vehicle_id: str | None = No
 
     juz_bylo = False
     with transaction() as conn:
+        if veh_id:
+            cx_query_one(conn, "SELECT id FROM vehicles WHERE id=%s FOR UPDATE", (veh_id,))
         pallet = cx_query_one(
             conn,
             "SELECT id, status, loaded_vehicle_id FROM order_pallets "
@@ -680,7 +706,7 @@ def pallets_in_cold_storage() -> List[Dict]:
             o.client_name,
             o.delivery_date,
             p.id   AS pallet_id,
-            p.pallet_no,
+            p.pallet_no, p.carton_no,
             p.cold_storage_at,
             p.notes,
             COALESCE(SUM(pi.qty * COALESCE(l.kg_per_unit,0)), 0)::float AS total_kg,
@@ -744,7 +770,16 @@ def active_orders_for_loading(include_done: bool = False) -> List[Dict]:
                   SUM(CASE WHEN p.status = 'cold_storage' THEN 1 ELSE 0 END)::int AS cold_pallets,
                   SUM(CASE WHEN p.status = 'created'      THEN 1 ELSE 0 END)::int AS created_pallets
            FROM client_orders o
-           JOIN order_pallets p ON p.order_id = o.id
+           JOIN (
+               SELECT id, order_id, status FROM order_pallets
+               UNION ALL
+               SELECT id, linked_order_id AS order_id,
+                      CASE WHEN shipped_at IS NOT NULL THEN 'shipped'
+                           WHEN loaded_vehicle_id IS NOT NULL THEN 'loaded'
+                           WHEN cold_storage_at IS NOT NULL THEN 'cold_storage'
+                           ELSE status END AS status
+                 FROM stock_cartons WHERE linked_order_id IS NOT NULL
+           ) p ON p.order_id = o.id
            {filtr}
            GROUP BY o.id
            HAVING SUM(CASE WHEN p.status NOT IN ('loaded','shipped') THEN 1 ELSE 0 END) > 0
@@ -777,7 +812,12 @@ def orders_on_vehicle(vehicle_id: str) -> List[Dict]:
                   o.status AS order_status,
                   COUNT(p.id)::int AS loaded_pallets
            FROM client_orders o
-           JOIN order_pallets p ON p.order_id = o.id
+           JOIN (
+               SELECT id, order_id, status, loaded_vehicle_id FROM order_pallets
+               UNION ALL
+               SELECT id, linked_order_id AS order_id, 'loaded' AS status, loaded_vehicle_id
+               FROM stock_cartons WHERE shipped_at IS NULL AND loaded_vehicle_id IS NOT NULL
+           ) p ON p.order_id = o.id
            WHERE p.status = 'loaded' AND p.loaded_vehicle_id = %s
            GROUP BY o.id
            ORDER BY o.delivery_date NULLS LAST, o.order_no""",
@@ -825,7 +865,7 @@ def _pallet_pack_state(conn, pallet_id):
 
     lines = cx_query_all(
         conn,
-        """SELECT pi.qty, l.product_type_id, l.recipe_id, l.kg_per_unit
+        """SELECT pi.qty, l.product_type_id, l.recipe_id, l.kg_per_unit, l.packaging_name
            FROM order_pallet_items pi
            JOIN client_order_lines l ON l.id = pi.order_line_id
            WHERE pi.pallet_id = %s""",
@@ -838,7 +878,7 @@ def _pallet_pack_state(conn, pallet_id):
 
     packed_rows = cx_query_all(
         conn,
-        """SELECT product_type_id, recipe_id, weight_kg
+        """SELECT product_type_id, recipe_id, weight_kg, tuleja
            FROM finished_units WHERE pallet_id = %s""",
         (pallet_id,),
     )
@@ -847,6 +887,7 @@ def _pallet_pack_state(conn, pallet_id):
         k = pallet_line_key(u["product_type_id"], u["recipe_id"], u["weight_kg"])
         packed_by_key[k] = packed_by_key.get(k, 0) + 1
 
+    pallet["_pack_lines"] = counted_lines(lines, packed_rows)
     return pallet, order_id, pallet_client, planned_by_key, packed_by_key, pallet_client_nazwy
 
 
@@ -866,6 +907,13 @@ def pack_unit_into_pallet(pallet_id: str, code: str) -> Dict:
 
         ok, reason, _key = validate_pack_to_pallet(
             unit, pallet_client_nazwy or pallet_client, planned_by_key, packed_by_key)
+        if pallet.get("status") not in ("created", "packing"):
+            ok, reason = False, "Karton opuścił pakowanie albo jest pełny"
+        if unit.get("carton_id") or unit.get("pallet_id") or unit.get("dispatch_id"):
+            ok, reason = False, "Sztuka jest już przypisana"
+        if ok and not any(line_accepts(unit, l) and l["packed_qty"] < l["target_qty"]
+                          for l in pallet["_pack_lines"]):
+            ok, reason = False, "Brak wolnej pozycji dla tej tulei"
 
         planned_total = sum(planned_by_key.values())
         packed_total = sum(packed_by_key.values())
@@ -876,7 +924,8 @@ def pack_unit_into_pallet(pallet_id: str, code: str) -> Dict:
 
         cx_execute(
             conn,
-            "UPDATE finished_units SET status=%s, pallet_id=%s, order_id=%s, client_name=%s WHERE id=%s",
+            "UPDATE finished_units SET packing_previous=jsonb_build_object('order_id',order_id,'client_name',client_name), "
+            "status=%s, pallet_id=%s, order_id=%s, client_name=%s WHERE id=%s",
             (PACKED, pallet_id, order_id, pallet_client, unit_id),
         )
         packed_total += 1

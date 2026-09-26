@@ -106,6 +106,12 @@ def remove_order(vehicle_id: str, order_id: str, operator: str = "") -> Dict[str
             "najpierw zdejmij je przyciskiem cofnięcia przy palecie")
 
     with transaction() as conn:
+        cx_query_one(conn, "SELECT id FROM vehicles WHERE id=%s FOR UPDATE", (vehicle_id,))
+        if cx_query_one(conn,
+            """SELECT id FROM order_pallets WHERE order_id=%s AND status='loaded' AND loaded_vehicle_id=%s
+               UNION ALL SELECT id FROM stock_cartons WHERE linked_order_id=%s AND loaded_vehicle_id=%s AND shipped_at IS NULL LIMIT 1""",
+            (order_id, vehicle_id, order_id, vehicle_id)):
+            raise HTTPException(409, "Na aucie jest towar tego zamówienia — najpierw cofnij załadunek")
         cx_execute(
             conn,
             "DELETE FROM vehicle_loading_orders WHERE vehicle_id=%s AND order_id=%s",
@@ -140,6 +146,12 @@ def clear_vehicle(vehicle_id: str, operator: str = "") -> Dict[str, Any]:
             f"Na aucie stoi {zaladowane['c']} załadowanych palet — "
             "zdejmij je albo zakończ załadunek")
     with transaction() as conn:
+        cx_query_one(conn, "SELECT id FROM vehicles WHERE id=%s FOR UPDATE", (vehicle_id,))
+        if cx_query_one(conn,
+            """SELECT id FROM order_pallets WHERE status='loaded' AND loaded_vehicle_id=%s
+               UNION ALL SELECT id FROM stock_cartons WHERE loaded_vehicle_id=%s AND shipped_at IS NULL LIMIT 1""",
+            (vehicle_id, vehicle_id)):
+            raise HTTPException(409, "Na aucie jest towar — cofnij go albo zakończ załadunek")
         cx_execute(conn, "DELETE FROM vehicle_loading_orders WHERE vehicle_id=%s", (vehicle_id,))
     logger.info("vehicle_loading.clear", extra={
         "vehicle_id": vehicle_id, "operator": operator or "-"})
@@ -197,7 +209,7 @@ def vehicle_state(vehicle_id: str) -> Dict[str, Any]:
         if ids:
             palety = cx_query_all(
                 conn,
-                """SELECT p.id, p.order_id, p.pallet_no, p.status, p.notes,
+                """SELECT p.id, p.order_id, p.pallet_no, p.carton_no, p.status, p.notes,
                           p.loaded_vehicle_id, p.cold_storage_at, p.loaded_at,
                           COALESCE(SUM(pi.qty), 0)::int AS total_qty,
                           COALESCE(SUM(pi.qty * COALESCE(l.kg_per_unit, 0)), 0)::float AS total_kg
@@ -225,6 +237,22 @@ def vehicle_state(vehicle_id: str) -> Dict[str, Any]:
                 (id_palet,)) if id_palet else []
         else:
             pozycje = []
+
+        if ids:
+            cartons = cx_query_all(conn,
+                """SELECT sc.id, sc.linked_order_id AS order_id, 0 AS pallet_no,
+                          sc.carton_no, sc.loaded_vehicle_id, sc.cold_storage_at,
+                          'SCARTON|' || sc.id AS scan_code,
+                          CASE WHEN sc.shipped_at IS NOT NULL THEN 'shipped'
+                               WHEN sc.loaded_vehicle_id IS NOT NULL THEN 'loaded'
+                               WHEN sc.cold_storage_at IS NOT NULL THEN 'cold_storage'
+                               ELSE sc.status END AS status,
+                          COALESCE(SUM(l.target_qty),0)::int AS total_qty,
+                          COALESCE(SUM(l.target_qty*l.kg_per_unit),0)::float AS total_kg
+                   FROM stock_cartons sc LEFT JOIN stock_carton_lines l ON l.carton_id=sc.id
+                   WHERE sc.linked_order_id=ANY(%s)
+                   GROUP BY sc.id ORDER BY sc.carton_no""", (ids,))
+            palety.extend(cartons)
 
     wg_palety: Dict[str, List[Dict[str, Any]]] = {}
     for poz in pozycje:

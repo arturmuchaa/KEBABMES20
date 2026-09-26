@@ -5,7 +5,9 @@ Zapis sztuki idzie przez istniejące ścieżki (`pack_unit_into_pallet`,
 """
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+from app.auth.audit import _subject_label
+from app.services.packing_correction_service import undo_pack
 from pydantic import BaseModel
 
 from app.services import magazyn_pakowanie_service as svc
@@ -35,6 +37,17 @@ def pakowanie_skan(body: SkanSztuki):
 
 class SkanKodu(BaseModel):
     code: str
+
+
+class KorektaPakowania(BaseModel):
+    code: str
+    container_id: str
+
+
+@router.post("/pakowanie/cofnij")
+def cofnij_pakowanie(body: KorektaPakowania, request: Request):
+    return undo_pack(body.code, body.container_id,
+                     _subject_label(getattr(request.state, "subject", None)) or "")
 
 
 @router.post("/mroznia/karton")

@@ -15,11 +15,14 @@ const s = vi.hoisted(() => ({
   wynik: null as any,
   skany: [] as Array<[string, string | null]>,
   dzwieki: [] as string[],
+  offline: false,
+  cofnij: vi.fn(),
 }))
 
 vi.mock('@/lib/api', () => ({
   magazynApi: {
-    pakowanie: () => Promise.resolve({ kontenery: s.kontenery, spakowane: s.spakowane, pula: [] }),
+    pakowanie: () => s.offline ? Promise.reject(new Error('offline')) : Promise.resolve({ kontenery: s.kontenery, spakowane: s.spakowane, pula: [] }),
+    cofnij: s.cofnij,
     skan: (kod: string, akt: string | null) => { s.skany.push([kod, akt]); return Promise.resolve(s.wynik) },
     mrozniaKarton: (kod: string) => { s.mroznia.push(`karton:${kod}`); return Promise.resolve({ result: 'SUCCESS' }) },
   },
@@ -45,6 +48,7 @@ const K = (id: string, nr: string, klient: string, packed = 28, target = 60) => 
 })
 
 beforeEach(() => {
+  s.offline = false; s.cofnij.mockReset(); s.cofnij.mockResolvedValue({ ok: true })
   s.kontenery = [K('k1', '000318', 'YALCIN'), K('k3', '000320', 'DEMS', 12, 20)]
   s.skany = []; s.dzwieki = []; s.spakowane = []; s.mroznia = []
   s.wynik = { result: 'ACTIVE', unit: 'YALCIN · KIRMIZI 15 kg', container: K('k1', '000318', 'YALCIN', 29) }
@@ -58,6 +62,26 @@ function skan(kod: string) {
 }
 
 describe('pakowanie na kiosku', () => {
+  it('błąd odczytu pokazuje brak aktualnych danych zamiast zielonego zapewnienia', async () => {
+    s.offline = true
+    render(<EkranPakowania aktywnyId="k1" onAktywny={vi.fn()} onAlarm={vi.fn()} />)
+    await screen.findByText(/Brak aktualnych danych/)
+    expect(screen.queryByText(/Cisza — sztuki idą/)).toBeNull()
+  })
+
+  it('wyjęcie sztuki wymaga potwierdzenia i wysyła konkretny kod oraz karton', async () => {
+    render(<EkranPakowania aktywnyId="k1" onAktywny={vi.fn()} onAlarm={vi.fn()} />)
+    await screen.findByText(/^32/)
+    skan('U|unit123')
+    const wyjmij = await screen.findByText('Wyjmij', { exact: true })
+    await waitFor(() => expect((wyjmij as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(wyjmij)
+    expect((screen.getByLabelText('Pole skanowania') as HTMLInputElement).disabled).toBe(true)
+    expect(s.cofnij).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByText('Wyjmij sztukę', { exact: true }))
+    await waitFor(() => expect(s.cofnij).toHaveBeenCalledWith('U|unit123', 'k1'))
+    expect(await screen.findByText('wyjęta z kartonu')).toBeTruthy()
+  })
   it('„brakuje" aktywnego kartonu jest na ekranie', async () => {
     render(<EkranPakowania aktywnyId="k1" onAktywny={vi.fn()} onAlarm={vi.fn()} />)
     expect(await screen.findByText(/^32/)).toBeTruthy()          // 60 − 28
@@ -142,7 +166,7 @@ describe('pakowanie na kiosku', () => {
     render(<EkranPakowania aktywnyId="k1" onAktywny={onAktywny} onAlarm={vi.fn()} />)
     await screen.findByText(/^32/)
     skan('UNIT|u2')
-    expect(await screen.findByText('POSZŁA DO INNEGO KARTONU')).toBeTruthy()
+    expect(await screen.findByText('ODŁÓŻ DO KARTONU 000320')).toBeTruthy()
     expect(screen.getAllByText(/karton 000320/).length).toBeGreaterThan(0)
     expect(s.dzwieki).toEqual(['inny'])
     expect(onAktywny).not.toHaveBeenCalled()                    // aktywny zostaje

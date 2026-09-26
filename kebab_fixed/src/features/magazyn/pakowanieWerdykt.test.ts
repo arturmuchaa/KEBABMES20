@@ -37,7 +37,7 @@ describe('werdykt pakowania', () => {
       container: K('k3', '000320', "DEM`S") }), 'k1')
     expect(w.dzwiek).toBe('inny')
     expect(w.aktywny).toBe('k1')
-    expect(w.uwaga?.naglowek).toMatch(/INNEGO KARTONU/)
+    expect(w.uwaga?.naglowek).toBe('ODŁÓŻ DO KARTONU 000320')
     expect(w.uwaga?.szczegol).toContain('000320')
     expect(w.alarm).toBeNull()
   })

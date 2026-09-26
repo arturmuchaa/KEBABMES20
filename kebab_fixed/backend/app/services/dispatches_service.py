@@ -46,9 +46,11 @@ def scan_carton_into_dispatch(dispatch_id: str, code: str) -> Dict[str, Any]:
             raise HTTPException(404, "Wydanie nie znalezione")
         if disp.get("status") != "open":
             raise HTTPException(409, "Wydanie zamknięte")
-        carton = cx_query_one(conn, "SELECT * FROM stock_cartons WHERE id=%s", (carton_id,))
+        carton = cx_query_one(conn, "SELECT * FROM stock_cartons WHERE id=%s FOR UPDATE", (carton_id,))
         if not carton:
             raise HTTPException(404, "Karton nie znaleziony")
+        if carton.get("loaded_vehicle_id") or carton.get("shipped_at"):
+            raise HTTPException(409, "Karton jest już na aucie lub został wydany")
         disp_client = (disp.get("client_name") or "").strip()
         if disp_client and not _client_matches(
                 carton.get("client_name"), nazwy_klienta(disp.get("client_id"), disp_client)):

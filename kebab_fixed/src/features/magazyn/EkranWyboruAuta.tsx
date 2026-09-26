@@ -18,10 +18,14 @@ export function EkranWyboruAuta({ onWybor }: { onWybor: (vehicleId: string) => v
   const [ladowanie, setLadowanie] = useState(true)
 
   useEffect(() => {
-    vehiclesApi.list()
-      .then(r => setPojazdy(r.filter(v => v.active).sort((a, b) => a.sortOrder - b.sortOrder)))
-      .catch(() => setBlad('Nie udało się wczytać listy aut — sprawdź sieć.'))
-      .finally(() => setLadowanie(false))
+    let zywy = true
+    const wczytaj = () => vehiclesApi.list()
+      .then(r => { if (zywy) { setPojazdy(r.filter(v => v.active).sort((a, b) => a.sortOrder - b.sortOrder)); setBlad('') } })
+      .catch(() => { if (zywy) setBlad('Nie udało się wczytać listy aut — sprawdź sieć. Ponawiam…') })
+      .finally(() => { if (zywy) setLadowanie(false) })
+    void wczytaj()
+    const timer = setInterval(wczytaj, 10000)
+    return () => { zywy = false; clearInterval(timer) }
   }, [])
 
   return (

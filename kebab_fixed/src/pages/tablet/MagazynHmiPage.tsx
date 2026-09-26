@@ -78,7 +78,9 @@ export function MagazynHmiPage() {
   // Sztuka zeskanowana na menu — pakowanie przyjmuje ją zaraz po wejściu.
   const [pierwszySkan, setPierwszySkan] = useState<string | null>(null)
   const [alarm, setAlarm] = useState<StanAlarmu | null>(null)
+  const [ostatniBlad, setOstatniBlad] = useState<StanAlarmu | null>(null)
   const [stan, setStan] = useState<PodsumowanieMagazynu | null>(null)
+  const [stanBlad, setStanBlad] = useState(false)
   const [teraz, setTeraz] = useState(() => new Date())
   const [menuSerwisowe, setMenuSerwisowe] = useState(false)
   const { holdProps } = useServiceHold(() => setMenuSerwisowe(true))
@@ -86,6 +88,7 @@ export function MagazynHmiPage() {
   const pokazAlarm = useCallback((a: Omit<StanAlarmu, 'ts'>) => {
     const pelny: StanAlarmu = { ...a, ts: Date.now() }
     setAlarm(pelny)
+    if (a.ton === 'blad') setOstatniBlad(pelny)
     setTimeout(() => setAlarm(x => (x && x.ts === pelny.ts ? null : x)), ALARM_MS)
   }, [])
 
@@ -122,7 +125,7 @@ export function MagazynHmiPage() {
     }
   }, [pokazAlarm])
 
-  useSkanGlobalny(ekran === 'kafle' || ekran === 'kartony' || ekran === 'wydanie-auta', kod => { void skanPozaPolem(kod) })
+  useSkanGlobalny(!menuSerwisowe && (ekran === 'kafle' || ekran === 'kartony' || ekran === 'wydanie-auta'), kod => { void skanPozaPolem(kod) })
 
   useEffect(() => {
     const t = setInterval(() => setTeraz(new Date()), 15000)
@@ -134,8 +137,8 @@ export function MagazynHmiPage() {
     if (ekran !== 'kafle') return
     let zywy = true
     const wczytaj = () => magazynApi.podsumowanie()
-      .then(s => { if (zywy) setStan(s) })
-      .catch(() => { /* kafle działają i bez liczb */ })
+      .then(s => { if (zywy) { setStan(s); setStanBlad(false) } })
+      .catch(() => { if (zywy) setStanBlad(true) })
     void wczytaj()
     const t = setInterval(wczytaj, 10000)
     return () => { zywy = false; clearInterval(t) }
@@ -174,6 +177,15 @@ export function MagazynHmiPage() {
           Wyloguj
         </button>
       </header>
+      {ekran === 'kafle' && stanBlad ? <div role="status" className="shrink-0 px-6 py-2 font-bold"
+        style={{ background: 'var(--redSoft)', color: 'var(--red)' }}>Brak aktualnych danych — liczby na kaflach mogą być nieaktualne.</div> : null}
+
+      {ostatniBlad && !alarm ? <div className="flex shrink-0 items-center gap-4 px-6 py-2"
+        style={{ background: 'var(--redSoft)', color: 'var(--red)' }} role="status">
+        <div className="min-w-0 flex-1"><b>Ostatni błąd: {ostatniBlad.naglowek}</b>
+          <div className="text-sm">{ostatniBlad.szczegol} {ostatniBlad.gdzie}</div></div>
+        <button className="min-h-11 rounded-lg border px-4 font-bold" onClick={() => setOstatniBlad(null)}>Przeczytane</button>
+      </div> : null}
 
       {ekran === 'kafle' ? (
         <main className="grid min-h-0 flex-1 grid-cols-2 gap-4 p-5 px-6" style={{ gridAutoRows: '1fr' }}>

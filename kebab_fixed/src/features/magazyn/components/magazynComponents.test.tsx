@@ -7,7 +7,7 @@
  * ekran przyjmujący dane operatora dostaje test na to, CO WIDZI człowiek.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { Kafel } from './Kafel'
 import { Alarm } from './Alarm'
 import { PasSkanowania } from './PasSkanowania'
@@ -79,13 +79,13 @@ describe('Alarm', () => {
 })
 
 describe('Pas skanowania', () => {
-  it('Enter wysyła kod i czyści pole', () => {
+  it('Enter wysyła kod i czyści pole', async () => {
     const fn = vi.fn()
     render(<PasSkanowania placeholder="Skanuj kod…" onSkan={fn} />)
     const pole = screen.getByPlaceholderText('Skanuj kod…') as HTMLInputElement
     fireEvent.change(pole, { target: { value: 'PAL|o1|1' } })
     fireEvent.keyDown(pole, { key: 'Enter' })
-    expect(fn).toHaveBeenCalledWith('PAL|o1|1')
+    await waitFor(() => expect(fn).toHaveBeenCalledWith('PAL|o1|1'))
     expect(pole.value).toBe('')
   })
 
