@@ -12,19 +12,18 @@
  * historia to wąski panel boczny. Skan KARTKI kartonu (SCARTON|… albo kod
  * palety zamówienia) przełącza aktywny karton — bez dotykania ekranu.
  *
- * PEŁNY KARTON NIE ZNIKA (właściciel 25.09.2026): robi się zielony
- * z poleceniem „zeskanuj kartkę i wjedź do mroźni". Skan kartki AKTYWNEGO
- * pełnego kartonu wstawia go do mroźni. Kartka INNEGO pełnego kartonu
- * najpierw go tylko wybiera (tak samo jak z menu: „otwórz karton") — wjazd
- * do mroźni to osobny, następny skan. Po wjeździe karton ZNIKA z pakowania.
+ * PEŁNY KARTON NIE ZNIKA (właściciel 25.09.2026): robi się zielony.
+ * DO MROŹNI NIE WJEŻDŻA STĄD (właściciel 29.09.2026): „następny skan wejdzie
+ * do mroźni" wpuszczał kartony bez ważenia. Operator wraca, wybiera kafel
+ * MROŹNIA → Wjedź, skanuje kartkę i wjeżdża na wagę. Kartka kartonu, który
+ * już jest gotowy (mroźnia, auto), otwiera KARTĘ KARTONU, nie czerwony błąd.
  *
  * AKTUALNY KARTON W REFIE: skany idą kolejką, a kolejny skan startuje, zanim
  * React przerysuje ekran. Gdyby sztuka brała id kartonu z propsów, szybkie
  * „kartka → sztuka" poszłoby jeszcze do POPRZEDNIEGO kartonu.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { isOfflineError, magazynApi, palletScanApi, palletsApi } from '@/lib/api'
-import { komunikatSkanu } from '@/features/loading/scanMessages'
+import { isOfflineError, magazynApi, palletsApi } from '@/lib/api'
 import { kodKartki, type KodKartki } from '@/features/scan/skanKodu'
 import { usePakowanie } from './usePakowanie'
 import { werdyktPakowania, type Uwaga } from './pakowanieWerdykt'
@@ -44,7 +43,7 @@ interface Wpis { ts: number; opis: string; gdzie: string; ton: 'cisza' | 'inny' 
  *  Tyle samo co blokada powtórki w polu skanu (`utworzStraznikaWysylki`). */
 export const POWTORKA_KARTKI_MS = 2000
 
-export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, oczekujace, onPrzejeto, ostatniaKartka, zablokowany = false }: {
+export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, oczekujace, onPrzejeto, ostatniaKartka, zablokowany = false, onKartaKartonu }: {
   aktywnyId: string | null
   onAktywny: (id: string | null) => void
   onAlarm: PokazAlarm
@@ -55,6 +54,8 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, oczekujace, onPr
   ostatniaKartka?: OstatniaKartka | null
   /** Menu serwisowe otwarte — skaner w tle nic nie zapisuje. */
   zablokowany?: boolean
+  /** Kartka kartonu gotowego (mroźnia, auto) → karta kartonu. */
+  onKartaKartonu?: (kod: string) => void
 }) {
   const { kontenery, spakowane, odswiez, blad, aktualizacja, ladowanie } = usePakowanie()
   const [korekta, setKorekta] = useState<Wpis | null>(null)
@@ -136,7 +137,7 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, oczekujace, onPr
   function powtorkaKartki() {
     const pelnyWybrany = dane.current.spakowane.some(x => x.id === aktywnyRef.current)
     setUwaga({ naglowek: 'KARTON JEST WYBRANY',
-      szczegol: `Ta sama kartka przyszła dwa razy — nic nie zapisano.${pelnyWybrany ? ' Do mroźni: zeskanuj ją jeszcze raz.' : ''}` })
+      szczegol: `Ta sama kartka przyszła dwa razy — nic nie zapisano.${pelnyWybrany ? ' Do mroźni: kafel MROŹNIA → Wjedź.' : ''}` })
   }
 
   /** `teraz` — chwila ODCZYTU kartki (nie koniec lookupu), `pok` — pokolenie
@@ -162,6 +163,8 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, oczekujace, onPr
     }
     const p = pel.find(x => x.id === id)
     if (!p) {
+      // Gotowy karton (mroźnia, auto) — pokazujemy, co w nim jest.
+      if (onKartaKartonu) return onKartaKartonu(kartka.kod)
       return alarm('TEN KARTON NIE JEST OTWARTY', 'Karton jest już w mroźni albo zamknięty. Weź kartkę innego kartonu.')
     }
     if (aktywnyRef.current !== id) {
@@ -171,29 +174,12 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, oczekujace, onPr
       return wybierz(id)
     }
     if (powtorka) return powtorkaKartki()
-    // Ostatnia bramka przed zapisem: nowy POST tylko w tym samym kontekście.
-    if (!aktualny(pok)) return przerwany()
-    // Kartka aktywnego pełnego kartonu = „wjeżdżam do mroźni". Ta sama akcja
-    // co na kaflu MROŹNIA, więc ta sama ścieżka backendu i te same kody wyniku.
-    if (p.kind === 'order') {
-      const w = await palletScanApi.scan(kartka.kod, 'cold_storage')
-      if (w.result !== 'SUCCESS') {
-        const m = komunikatSkanu(w.result, { palletNo: w.palletNo })
-        return alarm(m.naglowek, m.szczegol)
-      }
-    } else {
-      const w = await magazynApi.mrozniaKarton(kartka.kod)
-      if (w.result !== 'SUCCESS' && w.result !== 'ALREADY_SCANNED') {
-        return alarm('KARTON NIE WSZEDŁ DO MROŹNI', 'Zeskanuj kartkę kartonu jeszcze raz albo zawołaj biuro.')
-      }
-    }
-    kartkaRef.current = null
-    // Zapis już się stał i o nim mówimy; ale ekran, który w tym czasie
-    // zniknął albo dostał ręczny wybór, nie zmienia już aktywnego kartonu.
-    if (aktualny(pok)) wybierz(null)
-    setWMrozni(`Karton ${p.cartonNo} · ${p.clientName || 'na magazyn'}`)
-    zapisz({ ts: Date.now(), opis: `Karton ${p.cartonNo} · ${p.clientName || 'na magazyn'}`, gdzie: 'mroźnia', ton: 'cisza' })
-    void odswiez()
+    // Kartka aktywnego PEŁNEGO kartonu: do mroźni tylko przez kafel MROŹNIA,
+    // z ważeniem (właściciel 29.09.2026). Nic nie zapisujemy.
+    kartkaRef.current = { id, kod: kartka.kod, ts: teraz }
+    grajInny('L')
+    setUwaga({ naglowek: 'DO MROŹNI PRZEZ KAFEL MROŹNIA',
+      szczegol: `Karton ${p.cartonNo} jest pełny. Wróć, wybierz MROŹNIA → Wjedź do mroźni, zeskanuj kartkę i wjedź na wagę.` })
   }
 
   async function skanuj(kod: string, meta?: SkanMeta) {
@@ -345,10 +331,10 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, oczekujace, onPr
                   <div data-testid="polecenie-mroznia" className="rounded-xl px-5 py-4 text-white"
                     style={{ background: 'var(--success)' }}>
                     <span className="block font-extrabold leading-tight" style={{ fontSize: 'clamp(22px, 2.3vw, 34px)' }}>
-                      ❄ Zeskanuj kartkę i wjedź do mroźni
+                      ❄ Do mroźni przez kafel MROŹNIA
                     </span>
                     <span className="mt-1 block text-[15px] font-semibold" style={{ opacity: .92 }}>
-                      Karton jest wybrany. Następny skan TEJ kartki zapisze wjazd do mroźni.
+                      Wróć, wybierz MROŹNIA → Wjedź do mroźni, zeskanuj kartkę i wjedź kartonem na wagę.
                     </span>
                   </div>
                 </div>

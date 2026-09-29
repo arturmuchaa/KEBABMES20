@@ -113,3 +113,14 @@ def mroznia_ostatnie_wazenie(container_id: str):
     if not w:
         raise HTTPException(404, "Ten karton nie był ważony")
     return w
+
+
+@router.post("/mroznia/wyjazd")
+def mroznia_wyjazd(body: SkanKodu, request: Request):
+    """Wyjazd kartonu z mroźni do pakowania (poprawki)."""
+    return mroznia_wazenie_service.wyjedz_z_mrozni(body.code, _operator(request))
+
+
+@router.get("/mroznia/wazenia")
+def mroznia_wazenia():
+    return mroznia_wazenie_service.wazenia_w_mrozni()

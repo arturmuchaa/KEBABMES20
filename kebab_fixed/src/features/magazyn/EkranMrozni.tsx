@@ -15,9 +15,8 @@
  * bez sztuk idą starą ścieżką — nie ma z czym porównać wagi.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { errCode, isOfflineError, magazynApi, palletScanApi, type ColdStoragePallet, type KartonDoWazenia, type PaletaMrozni, type ScanResultCode, type WazenieMrozni } from '@/lib/api'
+import { isOfflineError, magazynApi, palletScanApi, type ColdStoragePallet, type KartonDoWazenia, type PaletaMrozni, type WazenieMrozni } from '@/lib/api'
 import { idKartonu } from '@/features/scan/skanKodu'
-import { komunikatSkanu } from '@/features/loading/scanMessages'
 import { PasSkanowania } from './components/PasSkanowania'
 import { StanPolaczenia } from './components/StanPolaczenia'
 import { Karta } from './components/Karta'
@@ -27,11 +26,21 @@ import { drukujEtykieteWagi } from './drukEtykietyWagi'
 import { kgPl, roznicaPl } from './wazenieMrozni'
 import type { PokazAlarm } from './magazynTypes'
 
-export function EkranMrozni({ onAlarm, onOtworzKarton }: {
+/** Co robi skan na tym ekranie. Właściciel 29.09.2026: operator WYBIERA —
+ *  wjazd (z ważeniem) albo wyjazd (karton wraca do pakowania na poprawki). */
+export type TrybMrozni = 'wjazd' | 'wyjazd'
+
+export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowany = false }: {
   onAlarm: PokazAlarm
   /** Kartka kartonu w trakcie pakowania → pakowanie TEGO kartonu (29.09.2026). */
   onOtworzKarton?: (id: string) => void
+  /** Karton gotowy (w mroźni, na aucie) → karta kartonu zamiast błędu. */
+  onKartaKartonu?: (kod: string) => void
+  /** Nad ekranem otwarta karta kartonu — skaner tu nic nie robi. */
+  zablokowany?: boolean
 }) {
+  const [tryb, setTryb] = useState<TrybMrozni | null>(null)
+  const [wazenia, setWazenia] = useState<Awaited<ReturnType<typeof magazynApi.mrozniaWazenia>>>({})
   const [lista, setLista] = useState<ColdStoragePallet[]>([])
   // Kartony magazynowe (bez zamówienia) — w mroźni od 25.09.2026.
   const [kartony, setKartony] = useState<Awaited<ReturnType<typeof magazynApi.mrozniaKartony>>>([])
@@ -110,8 +119,9 @@ export function EkranMrozni({ onAlarm, onOtworzKarton }: {
 
   const wczytaj = useCallback(async () => {
     try {
-      const [p, k] = await Promise.all([palletScanApi.inColdStorage(), magazynApi.mrozniaKartony()])
-      setLista(p); setKartony(Array.isArray(k) ? k : [])
+      const [p, k, w] = await Promise.all([palletScanApi.inColdStorage(), magazynApi.mrozniaKartony(),
+        magazynApi.mrozniaWazenia().catch(() => ({}))])
+      setLista(p); setKartony(Array.isArray(k) ? k : []); setWazenia(w && typeof w === 'object' ? (w as typeof wazenia) : {})
       setBlad(false); setAktualizacja(new Date())
     } catch { setBlad(true) }
   }, [])
@@ -122,53 +132,104 @@ export function EkranMrozni({ onAlarm, onOtworzKarton }: {
     return () => clearInterval(t)
   }, [wczytaj])
 
-  async function skanuj(kod: string) {
-    const karton = idKartonu(kod)
+  function alarmBlad(naglowek: string, szczegol: string) {
+    grajBlad('L')
+    onAlarm({ skaner: 'L', ton: 'blad', naglowek, szczegol })
+  }
+
+  function alarmSieci(e: unknown) {
+    alarmBlad('SKAN NIE ZAPISANY',
+      isOfflineError(e) ? 'Brak połączenia — spróbuj za chwilę.' : e instanceof Error ? e.message : 'Spróbuj ponownie.')
+  }
+
+  /** Wjazd BEZ ważenia: „Zważ później" albo rozpisana paleta bez sztuk. */
+  async function wstawBezWazenia(k: KartonDoWazenia): Promise<boolean> {
+    if (!k.code) return false
     try {
-      if (await otworzWazenie(karton ? `SCARTON|${karton}` : kod)) return
+      if (k.kind === 'stock') {
+        const w = await magazynApi.mrozniaKarton(k.code)
+        if (w.result !== 'SUCCESS' && w.result !== 'ALREADY_SCANNED') {
+          alarmBlad(w.result === 'NOT_FULL' ? 'KARTON NIE JEST PEŁNY' : 'KARTON NIE WJECHAŁ',
+            w.result === 'NOT_FULL' ? 'Do mroźni wjeżdża karton spakowany do końca. Dopakuj go na kaflu KARTONY.'
+              : 'Zeskanuj kartkę kartonu jeszcze raz.')
+          return false
+        }
+      } else {
+        const w = await palletScanApi.scan(k.code, 'cold_storage')
+        if (w.result !== 'SUCCESS' && w.result !== 'ALREADY_SCANNED') {
+          alarmBlad('KARTON NIE WJECHAŁ', 'Zeskanuj kartkę jeszcze raz albo zawołaj biuro.')
+          return false
+        }
+      }
+      return true
     } catch (e) {
+      alarmSieci(e)
+      return false
+    } finally {
+      void wczytaj()
+    }
+  }
+
+  async function wyjedz(k: KartonDoWazenia) {
+    try {
+      const w = await magazynApi.mrozniaWyjazd(k.code ?? '')
+      if (w.result === 'SUCCESS') {
+        setOstatnia(`Wyjechał: karton ${w.cartonNo ?? ''} · ${w.clientName || 'magazyn'} — do poprawek`)
+      } else {
+        alarmBlad(w.result === 'GONE' ? 'KARTON JEST NA AUCIE' : 'KARTONU NIE MA W MROŹNI',
+          w.result === 'GONE' ? 'Zdejmij go z auta na ekranie załadunku.' : 'Nic nie zmieniono.')
+      }
+    } catch (e) { alarmSieci(e) }
+    void wczytaj()
+  }
+
+  async function skanuj(kod: string) {
+    if (!tryb) {
       grajBlad('L')
-      onAlarm({ skaner: 'L', ton: 'blad', naglowek: 'SKAN NIE ZAPISANY',
-        szczegol: isOfflineError(e) ? 'Brak połączenia — spróbuj za chwilę.' : e instanceof Error ? e.message : 'Spróbuj ponownie.' })
+      onAlarm({ skaner: 'L', ton: 'uwaga', naglowek: 'WYBIERZ: WJAZD CZY WYJAZD',
+        szczegol: 'Dotknij „Wjedź do mroźni" albo „Wyjedź z mroźni" i zeskanuj kartkę jeszcze raz.' })
       return
     }
-    if (karton) {
-      try {
-        // Postać kanoniczna — kartka zeskanowana z CapsLockiem też wjeżdża.
-        const w = await magazynApi.mrozniaKarton(`SCARTON|${karton}`)
-        if (w.result === 'SUCCESS' || w.result === 'ALREADY_SCANNED') {
-          setOstatnia(`Karton ${w.cartonNo ?? ''} · ${w.clientName ?? ''}`)
-        } else {
-          grajBlad('L')
-          onAlarm({ skaner: 'L', ton: 'blad',
-            naglowek: w.result === 'NOT_FULL' ? 'KARTON NIE JEST PEŁNY' : 'NIEZNANY KARTON',
-            szczegol: w.result === 'NOT_FULL'
-              ? 'Do mroźni wjeżdża karton spakowany do końca. Dopakuj go na kaflu KARTONY.'
-              : 'Zeskanuj kartę kartonu jeszcze raz.' })
-        }
-      } catch (e) {
-        grajBlad('L')
-        onAlarm({ skaner: 'L', ton: 'blad', naglowek: 'SKAN NIE ZAPISANY',
-          szczegol: isOfflineError(e) ? 'Brak połączenia — spróbuj za chwilę.' : e instanceof Error ? e.message : 'Sprawdź stan kartonu.' })
-      }
-      return void wczytaj()
-    }
+    const karton = idKartonu(kod)
+    const kanon = karton ? `SCARTON|${karton}` : kod
+    let k: KartonDoWazenia
     try {
-      const w = await palletScanApi.scan(kod, 'cold_storage')
-      if (w.result !== 'SUCCESS') {
-        const k = komunikatSkanu(w.result, { palletNo: w.palletNo })
-        grajBlad('L')
-        onAlarm({ skaner: 'L', ton: 'blad', naglowek: k.naglowek, szczegol: k.szczegol })
-      } else {
-        setOstatnia(`${w.order.clientName} · P${w.palletNo} · ${Math.round(w.totalKg)} kg`)
-      }
-    } catch (e) {
-      const kod2 = (isOfflineError(e) ? 'OFFLINE' : (errCode(e) || 'ERROR')) as ScanResultCode | 'OFFLINE'
-      const k = komunikatSkanu(kod2, { wiadomosc: e instanceof Error ? e.message : undefined })
-      grajBlad('L')
-      onAlarm({ skaner: 'L', ton: 'blad', naglowek: k.naglowek, szczegol: k.szczegol })
+      k = await magazynApi.mrozniaSprawdz(kanon)
+    } catch (e) { return alarmSieci(e) }
+    if (k.result === 'INVALID') {
+      return alarmBlad('NIEZNANA KARTKA', 'Tej kartki nie ma w systemie. Weź kartkę z kartonu albo zawołaj biuro.')
     }
-    await wczytaj()
+
+    if (tryb === 'wyjazd') {
+      if (k.status === 'cold_storage') return void wyjedz(k)
+      // Nie stoi w mroźni — pokazujemy, gdzie jest, zamiast błędu.
+      if (onKartaKartonu) return onKartaKartonu(kanon)
+      return alarmBlad('KARTONU NIE MA W MROŹNI', 'Nic nie zmieniono.')
+    }
+
+    // WJAZD
+    switch (k.status) {
+      case 'full':
+        return void otworzWazenie(kanon)
+      case 'packing':
+        if (onOtworzKarton && k.id) return onOtworzKarton(k.id)
+        return alarmBlad('KARTON NIE JEST PEŁNY', 'Do mroźni wjeżdża karton spakowany do końca. Dopakuj go na kaflu KARTONY.')
+      case 'planned':
+        // Rozpisana paleta bez skanu sztuk — nie ma czego ważyć (decyzja 09.09).
+        if (await wstawBezWazenia(k)) setOstatnia(`${k.clientName} · karton ${k.cartonNo} (bez skanu sztuk)`)
+        return
+      default:
+        // W mroźni / na aucie / wydany — karta kartonu, nie czerwony ekran.
+        if (onKartaKartonu) return onKartaKartonu(kanon)
+        return alarmBlad(k.status === 'cold_storage' ? 'KARTON JUŻ JEST W MROŹNI' : 'KARTON JEST NA AUCIE', 'Nic nie zmieniono.')
+    }
+  }
+
+  async function zwazPozniej(k: KartonDoWazenia) {
+    setDoWazenia(null)
+    if (await wstawBezWazenia(k)) {
+      setOstatnia(`Karton ${k.cartonNo} · ${k.clientName || 'magazyn'} — DO ZWAŻENIA`)
+    }
   }
 
   const kg = lista.reduce((s, p) => s + Number(p.totalKg || 0), 0) + kartony.reduce((s, k) => s + k.kg, 0)
@@ -180,6 +241,17 @@ export function EkranMrozni({ onAlarm, onOtworzKarton }: {
       <StanPolaczenia blad={blad} aktualizacja={aktualizacja} ladowanie={!aktualizacja && !blad} />
       <div className="grid min-h-0 flex-1 gap-3 p-4 px-6" style={{ gridTemplateColumns: '360px minmax(0, 1fr)' }}>
         <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-2">
+            {([['wjazd', '❄ Wjedź do mroźni'], ['wyjazd', '↩ Wyjedź z mroźni']] as const).map(([t, napis]) => (
+              <button key={t} type="button" aria-pressed={tryb === t} onClick={() => setTryb(t)}
+                className="rounded-2xl px-3 py-5 text-[17px] font-extrabold leading-tight"
+                style={{
+                  background: tryb === t ? 'var(--accent)' : 'var(--panel)',
+                  color: tryb === t ? '#fff' : 'var(--ink)',
+                  border: `2px solid ${tryb === t ? 'var(--accent)' : 'var(--line)'}`,
+                }}>{napis}</button>
+            ))}
+          </div>
           <section className="rounded-2xl p-6" style={{ background: 'var(--accentSoft)', border: '1.5px solid var(--accentLine)' }}>
             <div className="text-[12px] font-extrabold uppercase tracking-[0.12em]" style={{ color: 'var(--mut)' }}>W mroźni</div>
             <div className="hmi-v10-mono font-bold leading-none" style={{ fontSize: 88, color: 'var(--accent)' }}>{lista.length + kartony.length}</div>
@@ -190,13 +262,17 @@ export function EkranMrozni({ onAlarm, onOtworzKarton }: {
           {ostatnia ? (
             <div className="rounded-xl px-4 py-3 text-[14px] font-bold"
               style={{ background: 'var(--successSoft)', border: '1px dashed var(--successLine)', color: '#166534' }}>
-              ✓ Wstawiona: {ostatnia}
+              {ostatnia}
             </div>
           ) : null}
           <div className="rounded-xl px-4 py-3 text-[13px] leading-relaxed"
             style={{ background: 'var(--panel)', border: '1px dashed var(--line)', color: 'var(--mut)' }}>
-            <b style={{ color: 'var(--ink)' }}>Mroźnia łączy pakowanie z załadunkiem.</b> Zeskanuj kartkę
-            pełnej palety albo kartę pełnego kartonu, gdy wjeżdża do mroźni. Wyjazd zalicza skan na aucie.
+            <b style={{ color: 'var(--ink)' }}>{tryb === 'wyjazd' ? 'Wyjazd na poprawki.' : tryb === 'wjazd' ? 'Wjazd z ważeniem.' : 'Wybierz, co robisz.'}</b>{' '}
+            {tryb === 'wyjazd'
+              ? 'Zeskanuj kartkę kartonu — wróci do pakowania. Do mroźni wjedzie znowu z ważeniem.'
+              : tryb === 'wjazd'
+                ? 'Zeskanuj kartkę pełnego kartonu i wjedź nim na wagę. Karton na aucie wyjeżdża skanem załadunku.'
+                : 'Wjazd — pełny karton na wagę i do mroźni. Wyjazd — karton wraca do pakowania.'}
           </div>
         </div>
 
@@ -217,8 +293,10 @@ export function EkranMrozni({ onAlarm, onOtworzKarton }: {
                   {p.deliveryDate ? `wydanie ${String(p.deliveryDate).slice(8, 10)}.${String(p.deliveryDate).slice(5, 7)}` : 'bez terminu'}
                 </span>
               </span>
+              <ZnacznikWagi w={wazenia[p.palletId]} />
               <PrzyciskiWagi onDodruk={() => void dodruk(p.palletId)}
-                onZwaz={() => void zwazPonownie(`PAL|${p.orderId}|${p.palletNo}`)} />
+                onZwaz={() => void zwazPonownie(`PAL|${p.orderId}|${p.palletNo}`)}
+                onWyjazd={() => void wyjedz({ result: 'OK', code: `PAL|${p.orderId}|${p.palletNo}` })} />
             </div>
           ))}
           {kartony.map(k => (
@@ -232,7 +310,9 @@ export function EkranMrozni({ onAlarm, onOtworzKarton }: {
                 </span>
               </span>
               <span className="hmi-v10-mono shrink-0 text-[15px] font-bold">{Math.round(k.kg)} kg</span>
-              <PrzyciskiWagi onDodruk={() => void dodruk(k.id)} onZwaz={() => void zwazPonownie(`SCARTON|${k.id}`)} />
+              <ZnacznikWagi w={wazenia[k.id]} />
+              <PrzyciskiWagi onDodruk={() => void dodruk(k.id)} onZwaz={() => void zwazPonownie(`SCARTON|${k.id}`)}
+                onWyjazd={() => void wyjedz({ result: 'OK', code: `SCARTON|${k.id}` })} />
             </div>
           ))}
           {!blad && aktualizacja && !lista.length && !kartony.length ? (
@@ -241,21 +321,32 @@ export function EkranMrozni({ onAlarm, onOtworzKarton }: {
         </Karta>
       </div>
 
-      <PasSkanowania placeholder="Skanuj kartkę palety…" onSkan={skanuj} disabled={!!doWazenia}
-        podpis="Pełny karton: skan → paleta → waga → etykieta → mroźnia." />
+      <PasSkanowania placeholder="Skanuj kartkę palety…" onSkan={skanuj} disabled={!!doWazenia || zablokowany}
+        podpis={tryb === 'wyjazd' ? 'Skan kartki: karton WYJEŻDŻA z mroźni do pakowania.'
+          : tryb === 'wjazd' ? 'Skan kartki: pełny karton → waga → etykieta → mroźnia.'
+            : 'Najpierw wybierz: wjazd albo wyjazd.'} />
 
       {doWazenia ? (
         <WazenieKartonu karton={doWazenia} palety={palety} onGotowe={poWazeniu}
-          onAnuluj={() => setDoWazenia(null)} />
+          onAnuluj={() => setDoWazenia(null)}
+          onPozniej={doWazenia.inColdStorage ? undefined : () => void zwazPozniej(doWazenia)} />
       ) : null}
     </div>
   )
 }
 
-function PrzyciskiWagi({ onDodruk, onZwaz }: { onDodruk: () => void; onZwaz: () => void }) {
+/** Czy karton w mroźni był ważony — „do zważenia" po „Zważ później". */
+function ZnacznikWagi({ w }: { w?: { ok: boolean } }) {
+  const [t, kolor] = !w ? ['do zważenia', '#92400e'] : w.ok ? ['✓ waga', '#166534'] : ['niezgodna', '#991b1b']
+  return <span className="shrink-0 rounded-md px-2 py-1 text-[11.5px] font-extrabold uppercase"
+    style={{ color: kolor, border: `1px solid ${kolor}` }}>{t}</span>
+}
+
+function PrzyciskiWagi({ onDodruk, onZwaz, onWyjazd }: { onDodruk: () => void; onZwaz: () => void; onWyjazd: () => void }) {
   const styl = { border: '1px solid var(--line)', color: 'var(--ink)' }
   return (
     <span className="flex shrink-0 gap-1.5">
+      <button type="button" className="rounded-lg px-2.5 py-1.5 text-[12px] font-bold" style={styl} onClick={onWyjazd}>Wyjedź</button>
       <button type="button" className="rounded-lg px-2.5 py-1.5 text-[12px] font-bold" style={styl} onClick={onZwaz}>Zważ</button>
       <button type="button" className="rounded-lg px-2.5 py-1.5 text-[12px] font-bold" style={styl} onClick={onDodruk}>Etykieta</button>
     </span>

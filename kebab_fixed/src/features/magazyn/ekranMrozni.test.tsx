@@ -14,6 +14,7 @@ const s = vi.hoisted(() => ({
   druki: [] as string[],
   alarmy: [] as any[],
   ok: true,
+  wyjazdy: [] as string[],
 }))
 
 const PALETY = [
@@ -24,9 +25,11 @@ const PALETY = [
 vi.mock('@/lib/api', () => ({
   magazynApi: {
     mrozniaKartony: () => Promise.resolve([]),
+    mrozniaWazenia: () => Promise.resolve({}),
+    mrozniaWyjazd: (kod: string) => { s.wyjazdy.push(kod); return Promise.resolve({ result: 'SUCCESS', cartonNo: '000123', clientName: 'YALCIN' }) },
     paletyMrozni: () => Promise.resolve(PALETY),
     mrozniaSprawdz: () => Promise.resolve(s.sprawdz),
-    mrozniaKarton: (kod: string) => { s.stare.push(kod); return Promise.resolve({ result: 'NOT_FULL' }) },
+    mrozniaKarton: (kod: string) => { s.stare.push(kod); return Promise.resolve({ result: 'SUCCESS', cartonNo: '000123', clientName: 'YALCIN' }) },
     mrozniaWazenie: (b: any) => {
       s.wazenia.push(b)
       return Promise.resolve({
@@ -57,10 +60,13 @@ vi.mock('./dzwiek', () => ({ grajBlad: () => {} }))
 import { EkranMrozni } from './EkranMrozni'
 
 const PELNY = {
-  result: 'OK', kind: 'stock', id: 'c1', code: 'SCARTON|0123456789abcdef0123', cartonNo: '000123',
+  result: 'OK', status: 'full', kind: 'stock', id: 'c1', code: 'SCARTON|0123456789abcdef0123', cartonNo: '000123',
   clientName: 'YALCIN', orderNo: '', palletNo: 0, full: true, inColdStorage: false, netKg: 750, qty: 15,
   lines: [{ qty: 15, kgPerUnit: 50, recipeName: 'ZAGROS', productTypeName: '' }], lastWeighing: null,
 }
+
+function wjazd() { fireEvent.click(screen.getByRole('button', { name: /Wjedź do mroźni/ })) }
+function wyjazd() { fireEvent.click(screen.getByRole('button', { name: /Wyjedź z mroźni/ })) }
 
 function skanuj(kod: string) {
   const pole = screen.getByPlaceholderText('Skanuj kartkę palety…')
@@ -70,7 +76,7 @@ function skanuj(kod: string) {
 }
 
 beforeEach(() => {
-  s.sprawdz = PELNY; s.wazenia = []; s.stare = []; s.druki = []; s.alarmy = []; s.ok = true
+  s.sprawdz = PELNY; s.wazenia = []; s.stare = []; s.druki = []; s.alarmy = []; s.ok = true; s.wyjazdy = []
   try { localStorage.clear() } catch { /* */ }
 })
 afterEach(() => { cleanup(); (window as any).__scaleSim?.(null) })
@@ -78,6 +84,7 @@ afterEach(() => { cleanup(); (window as any).__scaleSim?.(null) })
 describe('mroźnia — ważenie pełnego kartonu', () => {
   it('skan → EURO → waga 780 → ZGODNA → zapis, etykieta, bez alarmu', async () => {
     render(<EkranMrozni onAlarm={a => s.alarmy.push(a)} />)
+    wjazd()
     skanuj('SCARTON|0123456789abcdef0123')
     await screen.findByRole('dialog', { name: 'Ważenie kartonu' })
     act(() => { (window as any).__scaleSim(780) })
@@ -95,6 +102,7 @@ describe('mroźnia — ważenie pełnego kartonu', () => {
 
   it('waga niestabilna — nie da się zatwierdzić', async () => {
     render(<EkranMrozni onAlarm={a => s.alarmy.push(a)} />)
+    wjazd()
     skanuj('SCARTON|0123456789abcdef0123')
     await screen.findByRole('dialog')
     act(() => { (window as any).__scaleSim(700, false) })
@@ -106,6 +114,7 @@ describe('mroźnia — ważenie pełnego kartonu', () => {
   it('niezgodna wjeżdża, ale podnosi ostrzeżenie', async () => {
     s.ok = false
     render(<EkranMrozni onAlarm={a => s.alarmy.push(a)} />)
+    wjazd()
     skanuj('SCARTON|0123456789abcdef0123')
     await screen.findByRole('dialog')
     act(() => { (window as any).__scaleSim(825) })
@@ -120,6 +129,7 @@ describe('mroźnia — ważenie pełnego kartonu', () => {
 
   it('bez wagi — brutto wpisane ręcznie', async () => {
     render(<EkranMrozni onAlarm={a => s.alarmy.push(a)} />)
+    wjazd()
     skanuj('SCARTON|0123456789abcdef0123')
     await screen.findByRole('dialog')
     fireEvent.click(screen.getByRole('button', { name: /Jednorazowa/ }))
@@ -129,23 +139,65 @@ describe('mroźnia — ważenie pełnego kartonu', () => {
     expect(s.wazenia[0]).toMatchObject({ palletTypeId: 'jednorazowa', grossKg: 775.5, mode: 'manual' })
   })
 
-  it('niepełny karton — bez ważenia, stara ścieżka', async () => {
-    s.sprawdz = { ...PELNY, full: false }
+  it('niepełny karton (bez przejścia do pakowania) — alarm, nic nie wjeżdża', async () => {
+    s.sprawdz = { ...PELNY, full: false, status: 'packing' }
     render(<EkranMrozni onAlarm={a => s.alarmy.push(a)} />)
+    wjazd()
     skanuj('SCARTON|0123456789abcdef0123')
-    await waitFor(() => expect(s.stare).toEqual(['SCARTON|0123456789abcdef0123']))
+    await waitFor(() => expect(s.alarmy[0]?.naglowek).toBe('KARTON NIE JEST PEŁNY'))
+    expect(s.stare).toEqual([])
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 })
 
 describe('mroźnia — kartka niedopakowanego kartonu', () => {
   it('otwiera ten karton do pakowania zamiast alarmu', async () => {
-    s.sprawdz = { ...PELNY, full: false, open: true }
+    s.sprawdz = { ...PELNY, full: false, open: true, status: 'packing' }
     const otworz = vi.fn()
     render(<EkranMrozni onAlarm={a => s.alarmy.push(a)} onOtworzKarton={otworz} />)
+    wjazd()
     skanuj('SCARTON|0123456789abcdef0123')
     await waitFor(() => expect(otworz).toHaveBeenCalledWith('c1'))
     expect(s.stare).toEqual([])
     expect(s.alarmy).toEqual([])
+  })
+})
+
+
+describe('mroźnia — tryb wjazd / wyjazd (29.09.2026)', () => {
+  it('bez wybranego trybu skan nic nie robi, tylko mówi „wybierz"', async () => {
+    render(<EkranMrozni onAlarm={a => s.alarmy.push(a)} />)
+    skanuj('SCARTON|0123456789abcdef0123')
+    await waitFor(() => expect(s.alarmy[0]?.naglowek).toBe('WYBIERZ: WJAZD CZY WYJAZD'))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('„Zważ później": karton wjeżdża bez ważenia', async () => {
+    render(<EkranMrozni onAlarm={a => s.alarmy.push(a)} />)
+    wjazd()
+    skanuj('SCARTON|0123456789abcdef0123')
+    fireEvent.click(await screen.findByRole('button', { name: 'Zważ później' }))
+    await waitFor(() => expect(s.stare).toEqual([PELNY.code]))
+    expect(s.wazenia).toEqual([])
+    expect(await screen.findByText(/DO ZWAŻENIA/)).toBeTruthy()
+  })
+
+  it('wjazd: karton już w mroźni → karta kartonu, nie czerwony alarm', async () => {
+    s.sprawdz = { ...PELNY, status: 'cold_storage', inColdStorage: true }
+    const karta = vi.fn()
+    render(<EkranMrozni onAlarm={a => s.alarmy.push(a)} onKartaKartonu={karta} />)
+    wjazd()
+    skanuj('SCARTON|0123456789abcdef0123')
+    await waitFor(() => expect(karta).toHaveBeenCalledWith('SCARTON|0123456789abcdef0123'))
+    expect(s.alarmy).toEqual([])
+  })
+
+  it('wyjazd: karton z mroźni wraca do pakowania', async () => {
+    s.sprawdz = { ...PELNY, status: 'cold_storage', inColdStorage: true }
+    render(<EkranMrozni onAlarm={a => s.alarmy.push(a)} />)
+    wyjazd()
+    skanuj('SCARTON|0123456789abcdef0123')
+    await waitFor(() => expect(s.wyjazdy).toEqual([PELNY.code]))
+    expect(await screen.findByText(/Wyjechał: karton 000123/)).toBeTruthy()
   })
 })

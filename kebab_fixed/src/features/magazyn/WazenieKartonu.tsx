@@ -21,12 +21,14 @@ function pamietana(): string {
   try { return localStorage.getItem(OSTATNIA_PALETA) ?? '' } catch { return '' }
 }
 
-export function WazenieKartonu({ karton, palety, onGotowe, onAnuluj }: {
+export function WazenieKartonu({ karton, palety, onGotowe, onAnuluj, onPozniej }: {
   karton: KartonDoWazenia
   palety: PaletaMrozni[]
   /** Po zapisie; `bladDruku` = zapisane, ale etykieta nie wyszła. */
   onGotowe: (w: WazenieMrozni, bladDruku: string | null) => void
   onAnuluj: () => void
+  /** „Zważ później" — karton wjeżdża bez ważenia, na liście „do zważenia". */
+  onPozniej?: () => void
 }) {
   const waga = useScale()
   const [paletaId, setPaletaId] = useState(() => {
@@ -83,7 +85,7 @@ export function WazenieKartonu({ karton, palety, onGotowe, onAnuluj }: {
       <header className="flex items-center gap-4 px-6 py-4" style={{ borderBottom: '1px solid var(--line)' }}>
         <div className="min-w-0 flex-1">
           <div className="text-[12px] font-extrabold uppercase tracking-[0.12em]" style={{ color: 'var(--mut)' }}>
-            Ważenie przed mroźnią · karton {karton.cartonNo}
+            Wjedź kartonem na wagę · karton {karton.cartonNo}
           </div>
           <div className="truncate text-[26px] font-extrabold">{karton.clientName || 'na magazyn'}</div>
           <div className="hmi-v10-mono truncate text-[14px]" style={{ color: 'var(--mut)' }}>
@@ -176,6 +178,12 @@ export function WazenieKartonu({ karton, palety, onGotowe, onAnuluj }: {
               className="rounded-2xl px-6 py-5 text-[18px] font-bold" style={{ border: '1px solid var(--line)' }}>
               Anuluj
             </button>
+            {onPozniej ? (
+              <button type="button" onClick={onPozniej} disabled={zapis}
+                className="rounded-2xl px-6 py-5 text-[18px] font-bold" style={{ border: '1px solid var(--line)' }}>
+                Zważ później
+              </button>
+            ) : null}
             <button type="button" onClick={() => void zatwierdz()} disabled={!mozna}
               className="flex-1 rounded-2xl px-6 py-5 text-[24px] font-extrabold"
               style={{ background: mozna ? 'var(--accent)' : 'var(--line)', color: '#fff' }}>

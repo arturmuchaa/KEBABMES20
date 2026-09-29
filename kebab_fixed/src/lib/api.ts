@@ -3977,6 +3977,13 @@ export const magazynApi = {
   mrozniaWazenie: (b: { code: string; palletTypeId: string; grossKg: number; mode: 'auto' | 'manual' }) =>
     post<WazenieMrozni>('/magazyn/mroznia/wazenie',
       { code: b.code, pallet_type_id: b.palletTypeId, gross_kg: b.grossKg, mode: b.mode }),
+  /** Wyjazd kartonu z mroźni do pakowania — poprawki (29.09.2026). */
+  mrozniaWyjazd: (code: string) =>
+    post<{ result: 'SUCCESS' | 'NOT_IN_COLD' | 'GONE' | 'INVALID'; cartonNo?: string; clientName?: string }>(
+      '/magazyn/mroznia/wyjazd', { code }),
+  /** Ostatnie ważenie każdego kartonu w mroźni; brak klucza = niezważony. */
+  mrozniaWazenia: () =>
+    get<Record<string, { ok: boolean; grossKg: number; diffKg: number }>>('/magazyn/mroznia/wazenia'),
   mrozniaOstatnieWazenie: (containerId: string) =>
     get<WazenieMrozni>(`/magazyn/mroznia/wazenie/${encodeURIComponent(containerId)}`),
 }
@@ -3997,6 +4004,8 @@ export interface PartiaWKartonie { batchNo: string; qty: number }
 
 export interface KartonDoWazenia {
   result: 'OK' | 'INVALID' | 'GONE'
+  /** Gdzie karton jest w procesie — do karty kartonu. */
+  status?: 'planned' | 'packing' | 'full' | 'cold_storage' | 'loaded' | 'shipped'
   kind?: 'order' | 'stock'
   id?: string
   code?: string

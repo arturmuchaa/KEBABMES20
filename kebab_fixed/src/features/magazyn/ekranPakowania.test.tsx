@@ -148,32 +148,41 @@ describe('pakowanie na kiosku', () => {
     s.spakowane = [{ ...K('p9', '000241', 'POLAT', 60, 60), kind: 'order', orderNo: 'POLAT/Z/2' }]
     render(<EkranPakowania aktywnyId="p9" onAktywny={vi.fn()} onAlarm={vi.fn()} />)
     expect(await screen.findByTestId('karton-pelny')).toBeTruthy()
-    expect(screen.getByTestId('polecenie-mroznia').textContent).toMatch(/Zeskanuj kartkę i wjedź do mroźni/)
+    expect(screen.getByTestId('polecenie-mroznia').textContent).toMatch(/Do mroźni przez kafel MROŹNIA/)
   })
 
-  it('skan kartki pełnej palety wstawia ją do mroźni', async () => {
+  it('skan kartki pełnej palety NIE wstawia jej do mroźni — polecenie kafla MROŹNIA', async () => {
+    // Właściciel 29.09.2026: do mroźni tylko przez kafel MROŹNIA, z ważeniem.
     s.kontenery = []
     s.spakowane = [{ ...K('p9', '000241', 'POLAT', 60, 60), kind: 'order', orderNo: 'POLAT/Z/2' }]
     const onAktywny = vi.fn()
     render(<EkranPakowania aktywnyId="p9" onAktywny={onAktywny} onAlarm={vi.fn()} />)
     await screen.findByTestId('karton-pelny')
     skan('PAL|pelna|1')
-    expect(await screen.findByTestId('w-mrozni')).toBeTruthy()
-    expect(s.mroznia).toEqual(['cold_storage:PAL|pelna|1'])
-    expect(onAktywny).toHaveBeenCalledWith(null)
+    expect(await screen.findByText('DO MROŹNI PRZEZ KAFEL MROŹNIA')).toBeTruthy()
+    expect(s.mroznia).toEqual([])
+    expect(onAktywny).not.toHaveBeenCalledWith(null)
   })
 
-  it('karta pełnego kartonu MAGAZYNOWEGO też wstawia go do mroźni i znika z pakowania', async () => {
+  it('karta pełnego kartonu MAGAZYNOWEGO też nie wjeżdża stąd do mroźni', async () => {
     const ID = 'ac82b8f61e2545a4867b'
     s.kontenery = []
     s.spakowane = [K(ID, '000242', 'TRUVA', 40, 40)]
-    const onAktywny = vi.fn()
-    render(<EkranPakowania aktywnyId={ID} onAktywny={onAktywny} onAlarm={vi.fn()} />)
+    render(<EkranPakowania aktywnyId={ID} onAktywny={vi.fn()} onAlarm={vi.fn()} />)
     await screen.findByTestId('karton-pelny')
     skan(`SCARTON|${ID}`)
-    expect(await screen.findByTestId('w-mrozni')).toBeTruthy()
-    expect(s.mroznia).toEqual([`karton:SCARTON|${ID}`])
-    expect(onAktywny).toHaveBeenCalledWith(null)
+    expect(await screen.findByText('DO MROŹNI PRZEZ KAFEL MROŹNIA')).toBeTruthy()
+    expect(s.mroznia).toEqual([])
+  })
+
+  it('kartka kartonu, który już jest w mroźni — karta kartonu zamiast czerwonego alarmu', async () => {
+    const ID = 'ac82b8f61e2545a4867b'
+    const onKarta = vi.fn(); const onAlarm = vi.fn()
+    render(<EkranPakowania aktywnyId="k1" onAktywny={vi.fn()} onAlarm={onAlarm} onKartaKartonu={onKarta} />)
+    await screen.findByText(/^32/)
+    skan(`SCARTON|${ID}`)
+    await waitFor(() => expect(onKarta).toHaveBeenCalledWith(`SCARTON|${ID}`))
+    expect(onAlarm).not.toHaveBeenCalled()
   })
 
   it('sztuka zeskanowana jeszcze na menu jest przyjmowana po wejściu — przez kolejkę pola', async () => {
@@ -333,10 +342,10 @@ describe('menu serwisowe i korekta blokują skaner', () => {
   })
 })
 
-describe('pełny INNY karton: najpierw wybór, mroźnia osobnym skanem', () => {
+describe('pełny INNY karton: skan tylko wybiera, do mroźni przez kafel', () => {
   const ID = 'ac82b8f61e2545a4867b'
 
-  it('pierwszy skan tylko wybiera (bez mroźni), kolejny świadomy skan — mroźnia', async () => {
+  it('pierwszy skan wybiera, kolejny skan — polecenie kafla MROŹNIA, nic nie wjeżdża', async () => {
     let teraz = 1_000_000
     vi.spyOn(Date, 'now').mockImplementation(() => teraz)
     s.spakowane = [K(ID, '000242', 'TRUVA', 40, 40)]
@@ -347,11 +356,11 @@ describe('pełny INNY karton: najpierw wybór, mroźnia osobnym skanem', () => {
     expect(await screen.findByTestId('karton-pelny')).toBeTruthy()
     expect(onAktywny).toHaveBeenCalledWith(ID)
     expect(s.mroznia).toEqual([])
-    expect(screen.getByTestId('polecenie-mroznia').textContent).toMatch(/Następny skan TEJ kartki/)
+    expect(screen.getByTestId('polecenie-mroznia').textContent).toMatch(/kafel MROŹNIA/)
     teraz += 3000
     skan(`SCARTON|${ID}`)
-    expect(await screen.findByTestId('w-mrozni')).toBeTruthy()
-    expect(s.mroznia).toEqual([`karton:SCARTON|${ID}`])
+    expect(await screen.findByText('DO MROŹNI PRZEZ KAFEL MROŹNIA')).toBeTruthy()
+    expect(s.mroznia).toEqual([])
   })
 
   it('ta sama kartka odczytana zaraz drugi raz (inna wielkość liter) — nic nie wjeżdża', async () => {
@@ -481,7 +490,7 @@ describe('kartka czekająca na serwer, a ekran się zmienił', () => {
 })
 
 describe('duplikat kartki pełnego kartonu przy wolnym serwerze', () => {
-  it('liczy się chwila ODCZYTU: druga forma tej samej kartki nie wjeżdża; świadomy skan po oknie — wjeżdża', async () => {
+  it('liczy się chwila ODCZYTU: druga forma tej samej kartki to powtórka; kolejny skan — polecenie kafla', async () => {
     let teraz = 1_000_000
     vi.spyOn(Date, 'now').mockImplementation(() => teraz)
     s.spakowane = [{ ...K('p9', '000241', 'POLAT', 60, 60), kind: 'order', orderNo: 'POLAT/Z/2' }]
@@ -498,11 +507,11 @@ describe('duplikat kartki pełnego kartonu przy wolnym serwerze', () => {
     await zwolnijLookup()
     expect(await screen.findByText('KARTON JEST WYBRANY')).toBeTruthy()
     expect(s.mroznia).toEqual([])
-    // Świadomy, kolejny skan AKTYWNEGO pełnego po oknie → mroźnia.
+    // Kolejny skan AKTYWNEGO pełnego po oknie → tylko polecenie kafla MROŹNIA.
     s.lookupRecznie = false
     teraz += 3000
     skan('PAL|pelna|1')
-    expect(await screen.findByTestId('w-mrozni')).toBeTruthy()
-    expect(s.mroznia).toEqual(['cold_storage:PAL|pelna|1'])
+    expect(await screen.findByText('DO MROŹNI PRZEZ KAFEL MROŹNIA')).toBeTruthy()
+    expect(s.mroznia).toEqual([])
   })
 })

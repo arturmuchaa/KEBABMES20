@@ -20,7 +20,7 @@ import { HMI_FONT, HMI_VARS } from '@/features/hmi-theme/vars'
 import '@/features/hmi-theme/hmi-font.css'
 import { useAuth } from '@/features/auth/AuthContext'
 import { useServiceHold, ServiceMenuModal, serviceSections } from '@/features/deboning/ServiceMenu'
-import { isOfflineError, magazynApi, palletsApi, type PodsumowanieMagazynu } from '@/lib/api'
+import { isOfflineError, magazynApi, palletsApi, type KartonDoWazenia, type PodsumowanieMagazynu } from '@/lib/api'
 import { kodKartki } from '@/features/scan/skanKodu'
 import { useSkanGlobalny } from '@/features/magazyn/useSkanGlobalny'
 import { grajBlad, grajInny } from '@/features/magazyn/dzwiek'
@@ -31,6 +31,8 @@ import { EkranPakowania } from '@/features/magazyn/EkranPakowania'
 import { EkranWyboruAuta } from '@/features/magazyn/EkranWyboruAuta'
 import { EkranZaladunku } from '@/features/magazyn/EkranZaladunku'
 import { EkranMrozni } from '@/features/magazyn/EkranMrozni'
+import { KartaKartonu } from '@/features/magazyn/KartaKartonu'
+import { drukujEtykieteWagi } from '@/features/magazyn/drukEtykietyWagi'
 import type { EkranMagazynu, OstatniaKartka, SkanOczekujacy, StanAlarmu } from '@/features/magazyn/magazynTypes'
 
 declare const __MAGAZYN_VERSION__: string
@@ -93,6 +95,8 @@ export function MagazynHmiPage() {
   const [stanBlad, setStanBlad] = useState(false)
   const [teraz, setTeraz] = useState(() => new Date())
   const [menuSerwisowe, setMenuSerwisowe] = useState(false)
+  // Karta kartonu — skan gotowego kartonu (np. w mroźni) pokazuje, co w nim jest.
+  const [karta, setKarta] = useState<KartonDoWazenia | null>(null)
 
   const pokazAlarm = useCallback((a: Omit<StanAlarmu, 'ts'>) => {
     const pelny: StanAlarmu = { ...a, ts: Date.now() }
@@ -138,6 +142,46 @@ export function MagazynHmiPage() {
     uniewaznij()
     setEkran(e)
   }, [setEkran, uniewaznij])
+
+  /** Właściciel 29.09.2026: skan gotowego kartonu (w mroźni, na aucie) to nie
+   *  błąd — system wchodzi w karton i pokazuje status, skład i partie. */
+  const pokazKarte = useCallback(async (kod: string) => {
+    try {
+      const k = await magazynApi.mrozniaSprawdz(kod)
+      if (k.result === 'INVALID') {
+        grajBlad('L')
+        pokazAlarm({ skaner: 'L', ton: 'blad', naglowek: 'NIEZNANA KARTKA',
+          szczegol: 'Tej kartki nie ma w systemie. Weź kartkę z kartonu albo zawołaj biuro.' })
+        return
+      }
+      setKarta(k)
+    } catch (err) {
+      grajBlad('L')
+      pokazAlarm({ skaner: 'L', ton: 'blad', naglowek: 'BRAK POŁĄCZENIA',
+        szczegol: isOfflineError(err) ? 'Nie udało się odczytać kartonu — spróbuj za chwilę.' : 'Zeskanuj kartkę jeszcze raz.' })
+    }
+  }, [pokazAlarm])
+
+  async function wyjazdZKarty(k: KartonDoWazenia) {
+    if (!k.code) return
+    try {
+      const w = await magazynApi.mrozniaWyjazd(k.code)
+      if (w.result === 'SUCCESS') {
+        grajInny('L')
+        pokazAlarm({ skaner: 'L', ton: 'uwaga', naglowek: `KARTON ${w.cartonNo ?? ''} WYJECHAŁ Z MROŹNI`,
+          szczegol: 'Popraw karton na kaflu KARTONY. Do mroźni wraca przez kafel MROŹNIA → Wjedź (z ważeniem).' })
+        setKarta(await magazynApi.mrozniaSprawdz(k.code))
+      } else {
+        grajBlad('L')
+        pokazAlarm({ skaner: 'L', ton: 'blad', naglowek: w.result === 'GONE' ? 'KARTON JEST NA AUCIE' : 'KARTONU NIE MA W MROŹNI',
+          szczegol: w.result === 'GONE' ? 'Zdejmij go z auta na ekranie załadunku.' : 'Nic nie zmieniono.' })
+      }
+    } catch (err) {
+      grajBlad('L')
+      pokazAlarm({ skaner: 'L', ton: 'blad', naglowek: 'WYJAZD NIE ZAPISANY',
+        szczegol: isOfflineError(err) ? 'Brak połączenia — spróbuj za chwilę.' : err instanceof Error ? err.message : '' })
+    }
+  }
 
   const { holdProps } = useServiceHold(() => { uniewaznij(); setMenuSerwisowe(true) })
 
@@ -199,8 +243,8 @@ export function MagazynHmiPage() {
         setEkran('kartony-praca')
         return
       }
-      blad('TEN KARTON NIE JEST OTWARTY',
-        'Karton jest już w mroźni albo zamknięty — nie ma do czego pakować. Załadunek i mroźnia mają swoje kafle.')
+      // Karton gotowy (w mroźni, na aucie) — karta kartonu zamiast błędu.
+      await pokazKarte(kartka.kod)
     } catch (err) {
       if (pok !== pokolenie.current) return nieaktualny()
       blad(isOfflineError(err) ? 'BRAK POŁĄCZENIA' : 'NIE ROZPOZNANO KODU',
@@ -208,7 +252,7 @@ export function MagazynHmiPage() {
     } finally {
       if (nr === szukamNr.current && zywy.current) setSzukam(false)
     }
-  }, [pokazAlarm, przerwany, doPakowania, setEkran])
+  }, [pokazAlarm, przerwany, doPakowania, setEkran, pokazKarte])
 
   const naSkanGlobalny = useCallback((kod: string) => {
     const ts = Date.now()
@@ -219,7 +263,7 @@ export function MagazynHmiPage() {
   // Na pakowaniu słuchamy też: skan, który trafi obok pola (przejście
   // ekranu, otwarty dialog), idzie do kolejki pakowania, a ta — jeśli nie
   // może go przyjąć — mówi, że trzeba powtórzyć. W polu tekstowym hook milczy.
-  useSkanGlobalny(!menuSerwisowe && (EKRANY_SKANU_KARTKI.includes(ekran) || ekran === 'kartony-praca'), naSkanGlobalny)
+  useSkanGlobalny(!menuSerwisowe && !karta && (EKRANY_SKANU_KARTKI.includes(ekran) || ekran === 'kartony-praca'), naSkanGlobalny)
 
   useEffect(() => {
     const t = setInterval(() => setTeraz(new Date()), 15000)
@@ -332,7 +376,7 @@ export function MagazynHmiPage() {
             podglad={(w?.lista ?? []).map(z => ({
               lewo: z.klient, prawo: `${Math.round(z.kg).toLocaleString('pl-PL')} kg` }))}
             onClick={() => przejdz('wydanie-auta')} />
-          <Kafel nazwa="Mroźnia" czynnosc="Wstaw spakowany karton" glif="❄"
+          <Kafel nazwa="Mroźnia" czynnosc="Wjazd z ważeniem · wyjazd" glif="❄"
             licznik={stan ? String(stan.mroznia.palet) : '—'} jednostka={`${kartonow(stan?.mroznia.palet ?? 0)} w mroźni`}
             stan="czeka na załadunek"
             podglad={(stan?.mroznia.lista ?? []).map(m => ({
@@ -349,7 +393,8 @@ export function MagazynHmiPage() {
 
       {ekran === 'kartony-praca' ? (
         <EkranPakowania aktywnyId={aktywnyKarton} onAktywny={setAktywnyKarton} onAlarm={pokazAlarm}
-          oczekujace={oczekujace} ostatniaKartka={ostatniaKartka} zablokowany={menuSerwisowe}
+          oczekujace={oczekujace} ostatniaKartka={ostatniaKartka} zablokowany={menuSerwisowe || !!karta}
+          onKartaKartonu={pokazKarte}
           onPrzejeto={nr => setOczekujace(oczekujaceRef.current.filter(s => s.nr !== nr))} />
       ) : null}
 
@@ -361,8 +406,22 @@ export function MagazynHmiPage() {
         <EkranZaladunku vehicleId={pojazdId} onAlarm={pokazAlarm} onKoniec={() => przejdz('kafle')} />
       ) : null}
 
-      {ekran === 'mroznia' ? <EkranMrozni onAlarm={pokazAlarm}
+      {ekran === 'mroznia' ? <EkranMrozni onAlarm={pokazAlarm} zablokowany={!!karta}
+        onKartaKartonu={pokazKarte}
         onOtworzKarton={id => { setAktywnyKarton(id); przejdz('kartony-praca') }} /> : null}
+
+      {karta ? (
+        <KartaKartonu karton={karta} onZamknij={() => setKarta(null)}
+          onWyjazd={karta.status === 'cold_storage' ? () => void wyjazdZKarty(karta) : undefined}
+          onDodruk={karta.lastWeighing ? () => {
+            void drukujEtykieteWagi(karta.lastWeighing!).then(b => {
+              if (b) pokazAlarm({ skaner: 'L', ton: 'blad', naglowek: 'ETYKIETA NIE WYDRUKOWANA', szczegol: b })
+            })
+          } : undefined}
+          onPakuj={(karta.status === 'packing' || karta.status === 'full') && karta.id ? () => {
+            setAktywnyKarton(karta.id!); setKarta(null); przejdz('kartony-praca')
+          } : undefined} />
+      ) : null}
 
       <Alarm alarm={alarm} />
 

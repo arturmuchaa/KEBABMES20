@@ -15,6 +15,7 @@ const stan = vi.hoisted(() => ({
   skan: null as any,
   lookup: null as any,
   mrozniaKarton: null as any,
+  wyjazd: null as any,
   otworzSerwis: null as null | (() => void),
   buildLabel: '' as string,
 }))
@@ -29,6 +30,12 @@ vi.mock('@/lib/api', () => ({
     },
     skan: (...a: unknown[]) => stan.skan(...a),
     mrozniaKarton: (...a: unknown[]) => stan.mrozniaKarton(...a),
+    mrozniaSprawdz: (kod: string) => Promise.resolve({
+      result: 'OK', status: 'cold_storage', kind: 'stock', id: 'x', code: kod, cartonNo: '000777',
+      clientName: 'ZAGROS', orderNo: '', full: true, inColdStorage: true, netKg: 750, qty: 15,
+      lines: [{ qty: 15, kgPerUnit: 50, recipeName: 'ZAGROS', productTypeName: '' }],
+      batches: [{ batchNo: '290926 591', qty: 3 }, { batchNo: '290926 592', qty: 12 }], lastWeighing: null }),
+    mrozniaWyjazd: (...a: unknown[]) => stan.wyjazd(...a),
   },
   vehiclesApi: { list: () => Promise.resolve([
     { id: 'v1', name: 'SOLÓWKA', plate: 'KR 8842L', kind: 'own', vehicleType: 'solo', sortOrder: 0, notes: '', active: true },
@@ -201,12 +208,24 @@ describe('skan kartki kartonu z menu', () => {
     expect(stan.lookup).toHaveBeenCalledWith(url)
   })
 
-  it('karta kartonu, którego nie ma wśród otwartych — alarm, zostajemy w menu, nic nie zapisane', async () => {
+  it('kartka kartonu z mroźni — KARTA KARTONU (status, skład, partie), bez czerwonego alarmu', async () => {
+    // Właściciel 29.09.2026: gotowy karton to nie błąd — system wchodzi w karton.
     render(<MagazynHmiPage />)
     wystukaj(`SCARTON|${ID}`)
-    expect(await screen.findByText('TEN KARTON NIE JEST OTWARTY')).toBeTruthy()
-    expect(screen.getByText('Stanowisko magazynowe')).toBeTruthy()
+    expect(await screen.findByRole('dialog', { name: 'Karta kartonu' })).toBeTruthy()
+    expect(screen.getByTestId('status-kartonu').textContent).toContain('W MROŹNI')
+    expect(screen.getByTestId('partie-kartonu').textContent).toContain('290926 592')
+    expect(screen.queryByText('TEN KARTON NIE JEST OTWARTY')).toBeNull()
     expect(stan.skan).not.toHaveBeenCalled()
+  })
+
+  it('z karty kartonu: wyjazd z mroźni na poprawki', async () => {
+    stan.wyjazd = vi.fn().mockResolvedValue({ result: 'SUCCESS', cartonNo: '000777', clientName: 'ZAGROS' })
+    render(<MagazynHmiPage />)
+    wystukaj(`SCARTON|${ID}`)
+    fireEvent.click(await screen.findByRole('button', { name: /Wyjedź z mroźni/ }))
+    await waitFor(() => expect(stan.wyjazd).toHaveBeenCalledWith(`SCARTON|${ID}`))
+    expect(await screen.findByText(/WYJECHAŁ Z MROŹNI/)).toBeTruthy()
   })
 
   it('nieznana kartka palety — alarm, bez przejścia i bez zapisu', async () => {

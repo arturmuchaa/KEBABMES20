@@ -47,7 +47,7 @@ export function werdyktPakowania(w: SkanPakowania, aktywny: string | null, kod =
       if (w.full && k) {
         out.pelny = k.cartonNo
         out.uwaga = { naglowek: `KARTON ${k.cartonNo} PEŁNY`,
-          szczegol: 'Komplet sztuk. Zaklej karton i wstaw go do mroźni.' }
+          szczegol: 'Komplet sztuk. Zaklej karton — do mroźni przez kafel MROŹNIA (z ważeniem).' }
       }
       return out
     }

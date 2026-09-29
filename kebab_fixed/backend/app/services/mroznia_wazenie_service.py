@@ -127,11 +127,22 @@ def sprawdz(code: str) -> Dict[str, Any]:
         c = query_one("SELECT * FROM stock_cartons WHERE id=%s", (cid,))
         if not c:
             return {"result": "INVALID"}
-        if c.get("loaded_vehicle_id") or c.get("shipped_at"):
-            return {"result": "GONE"}
         lines = _sklad("carton_id", cid)
+        if c.get("shipped_at"):
+            stan = "shipped"
+        elif c.get("loaded_vehicle_id"):
+            stan = "loaded"
+        elif c.get("cold_storage_at"):
+            stan = "cold_storage"
+        elif c.get("status") == "packed":
+            stan = "full"
+        else:
+            stan = "packing"
         return {
-            "result": "OK", "kind": "stock", "id": cid, "code": f"SCARTON|{cid}",
+            # Karton na aucie / wydany: szczegóły idą dalej — karta kartonu je
+            # pokazuje — ale do mroźni już nie wjedzie.
+            "result": "GONE" if stan in ("loaded", "shipped") else "OK", "status": stan,
+            "kind": "stock", "id": cid, "code": f"SCARTON|{cid}",
             "cartonNo": format_carton_no(c["carton_no"]) if c.get("carton_no") else "",
             "clientName": c.get("client_name") or "", "orderNo": c.get("linked_order_no") or "",
             "palletNo": 0,
@@ -156,11 +167,12 @@ def sprawdz(code: str) -> Dict[str, Any]:
     if not p:
         return {"result": "INVALID"}
     status = p.get("status") or "created"
-    if status in ("loaded", "shipped"):
-        return {"result": "GONE"}
     lines = _sklad("pallet_id", p["id"])
+    stan = {"loaded": "loaded", "shipped": "shipped", "cold_storage": "cold_storage",
+            "packed": "full"}.get(status, "packing" if lines else "planned")
     return {
-        "result": "OK", "kind": "order", "id": p["id"], "code": f"PAL|{order_id}|{pallet_no}",
+        "result": "GONE" if stan in ("loaded", "shipped") else "OK", "status": stan,
+        "kind": "order", "id": p["id"], "code": f"PAL|{order_id}|{pallet_no}",
         "cartonNo": format_carton_no(p["carton_no"]) if p.get("carton_no") else "",
         "clientName": p.get("client_name") or "", "orderNo": p.get("order_no") or "",
         "palletNo": int(pallet_no),
@@ -224,3 +236,62 @@ def zwaz_i_wstaw(code: str, pallet_type_id: str, gross_kg: float, mode: str,
         "container_id": info["id"], "carton_no": info["cartonNo"], "gross_kg": w["grossKg"],
         "net_kg": w["netKg"], "diff_kg": w["diffKg"], "zgodna": w["ok"], "tryb": tryb})
     return ostatnie_wazenie(info["id"])  # type: ignore[return-value]
+
+
+def wyjedz_z_mrozni(code: str, operator: str = "") -> Dict[str, Any]:
+    """Wyjazd kartonu z mroźni z powrotem do pakowania — na poprawki.
+
+    Właściciel 29.09.2026: „możliwość wyjechania kartonem z mroźni, jeżeli
+    jakieś poprawki". Karton wraca tam, skąd przyszedł: pełny do „spakowane"
+    (ponowny wjazd = ponowne ważenie), niepełny do otwartych. Historia ważeń
+    zostaje. Karton na aucie / wydany — odmowa (to robota załadunku).
+    """
+    from app.services.dispatches_service import _parse_stock_carton
+    from app.db import cx_execute, cx_query_one, transaction
+    info = sprawdz(code)
+    if info["result"] == "GONE":
+        return {"result": "GONE"}
+    if info["result"] != "OK":
+        return {"result": "INVALID"}
+    opis = {"cartonNo": info["cartonNo"], "clientName": info["clientName"]}
+    if not info["inColdStorage"]:
+        return {"result": "NOT_IN_COLD", **opis}
+    with transaction() as conn:
+        if info["kind"] == "stock":
+            c = cx_query_one(conn, "SELECT * FROM stock_cartons WHERE id=%s FOR UPDATE", (info["id"],))
+            if not c or c.get("loaded_vehicle_id") or c.get("shipped_at"):
+                return {"result": "GONE", **opis}
+            cx_execute(conn, "UPDATE stock_cartons SET cold_storage_at=NULL WHERE id=%s", (info["id"],))
+        else:
+            p = cx_query_one(conn, "SELECT id, status FROM order_pallets WHERE id=%s FOR UPDATE", (info["id"],))
+            if not p or p.get("status") != "cold_storage":
+                return {"result": "GONE", **opis}
+            # Pełna (sztuki do końca) wraca jako spakowana, reszta jako rozpisana.
+            docelowy = "packed" if info["full"] and _paleta_pelna(info["id"]) else "created"
+            cx_execute(conn, "UPDATE order_pallets SET status=%s, cold_storage_at=NULL WHERE id=%s",
+                       (docelowy, info["id"]))
+            cx_execute(conn, "INSERT INTO pallet_scans (id, pallet_id, action, operator, vehicle_id) "
+                             "VALUES (%s,%s,'undo',%s,NULL)", (cuid(), info["id"], operator or ""))
+    logger.info("magazyn.mroznia.wyjazd", extra={"container_id": info["id"], "carton_no": info["cartonNo"]})
+    return {"result": "SUCCESS", **opis}
+
+
+def _paleta_pelna(pallet_id: str) -> bool:
+    from app.services.magazyn_pakowanie_service import _linie_palet
+    ln = _linie_palet([pallet_id]).get(pallet_id, [])
+    return bool(ln) and all(int(x.get("packed_qty") or 0) >= int(x.get("target_qty") or 0) for x in ln)
+
+
+def wazenia_w_mrozni() -> Dict[str, Dict[str, Any]]:
+    """Ostatnie ważenie każdego kontenera stojącego w mroźni. Brak klucza =
+    wjechał bez ważenia („zważ później") — lista mroźni pokazuje „do zważenia"."""
+    rows = query_all(
+        """SELECT DISTINCT ON (w.container_id) w.container_id, w.ok, w.gross_kg, w.diff_kg
+           FROM cold_storage_weighings w
+           WHERE w.container_id IN (
+               SELECT id FROM stock_cartons WHERE cold_storage_at IS NOT NULL
+                  AND loaded_vehicle_id IS NULL AND shipped_at IS NULL
+               UNION SELECT id FROM order_pallets WHERE status = 'cold_storage')
+           ORDER BY w.container_id, w.weighed_at DESC""")
+    return {r["container_id"]: {"ok": bool(r["ok"]), "grossKg": float(r["gross_kg"] or 0),
+                                "diffKg": float(r["diff_kg"] or 0)} for r in rows}

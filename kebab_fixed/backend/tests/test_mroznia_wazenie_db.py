@@ -129,3 +129,69 @@ def test_wykaz_partii_w_kartonie_i_w_wazeniu(db):
     # dodruk czyta zapis z chwili ważenia, nie żywy stan
     execute("UPDATE finished_units SET batch_no='X' WHERE id='u2'")
     assert ostatnie_wazenie(k["id"])["batches"][0]["batchNo"] == "290926 591"
+
+
+# ── Wyjazd z mroźni (cofnięcie na poprawki) — 29.09.2026 ──────────────────
+from app.services.mroznia_wazenie_service import wazenia_w_mrozni, wyjedz_z_mrozni
+
+
+def test_wyjazd_kartonu_magazynowego_wraca_do_pakowania(db):
+    k = _pelny_karton()
+    zwaz_i_wstaw(f"SCARTON|{k['id']}", "euro", 80.0, "auto")
+    w = wyjedz_z_mrozni(f"SCARTON|{k['id']}", "Jan")
+    assert w["result"] == "SUCCESS"
+    assert query_one("SELECT cold_storage_at FROM stock_cartons WHERE id=%s", (k["id"],))["cold_storage_at"] is None
+    # pełny karton poza mroźnią → przy ponownym wjeździe znów ważenie
+    info = sprawdz(f"SCARTON|{k['id']}")
+    assert info["full"] is True and info["inColdStorage"] is False
+
+
+def test_wyjazd_palety_zamowienia_pelnej_wraca_jako_spakowana(db):
+    _receptury()
+    pid = _paleta("o1", "YALCIN", qty=1)
+    _sztuka("p1")
+    skanuj_sztuke(unit_qr("p1"), pid)
+    zwaz_i_wstaw("PAL|o1|1", "euro", 50.0, "auto")
+    assert wyjedz_z_mrozni("http://h/m/p/o1/1")["result"] == "SUCCESS"
+    assert query_one("SELECT status, cold_storage_at FROM order_pallets WHERE id=%s", (pid,)) == \
+        {"status": "packed", "cold_storage_at": None}
+
+
+def test_wyjazd_kartonu_spoza_mrozni_to_NOT_IN(db):
+    k = _pelny_karton()
+    assert wyjedz_z_mrozni(f"SCARTON|{k['id']}")["result"] == "NOT_IN_COLD"
+    assert wyjedz_z_mrozni("cokolwiek")["result"] == "INVALID"
+
+
+def test_wazenia_w_mrozni_mowia_ktory_niezwazony(db):
+    k = _pelny_karton()
+    from app.services.magazyn_pakowanie_service import wstaw_karton_do_mrozni
+    wstaw_karton_do_mrozni(f"SCARTON|{k['id']}")          # „zważ później"
+    assert wazenia_w_mrozni() == {}
+    zwaz_i_wstaw(f"SCARTON|{k['id']}", "euro", 120.0, "auto")
+    stan = wazenia_w_mrozni()
+    assert stan[k["id"]]["ok"] is False and stan[k["id"]]["grossKg"] == 120.0
+
+
+def test_status_kartonu_na_karte(db):
+    """Karta kartonu (skan kartonu z mroźni) pokazuje status, skład i partie."""
+    _receptury()
+    k = _karton("YALCIN", qty=2)
+    assert sprawdz(f"SCARTON|{k['id']}")["status"] == "packing"
+    for i in range(2):
+        _sztuka(f"u{i}")
+        skanuj_sztuke(unit_qr(f"u{i}"), k["id"])
+    assert sprawdz(f"SCARTON|{k['id']}")["status"] == "full"
+    zwaz_i_wstaw(f"SCARTON|{k['id']}", "euro", 65.0, "auto")
+    info = sprawdz(f"SCARTON|{k['id']}")
+    assert info["status"] == "cold_storage" and info["batches"] == [{"batchNo": "200926 1", "qty": 2}]
+    assert info["lastWeighing"]["grossKg"] == 65.0
+    execute("UPDATE stock_cartons SET loaded_vehicle_id='v1' WHERE id=%s", (k["id"],))
+    na_aucie = sprawdz(f"SCARTON|{k['id']}")
+    assert na_aucie["result"] == "GONE" and na_aucie["status"] == "loaded" and na_aucie["qty"] == 2
+
+
+def test_rozpisana_paleta_to_planned(db):
+    _receptury()
+    _paleta("o1", "YALCIN", qty=2)
+    assert sprawdz("PAL|o1|1")["status"] == "planned"
