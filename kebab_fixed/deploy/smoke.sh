@@ -10,66 +10,151 @@
 # Kroki są READ-ONLY: nic nie zapisują, więc można to puścić na produkcji
 # o dowolnej porze.
 #
+# SPRAWDZA SERWER, NA KTÓRYM STOI (29.09.2026): dawniej domyślnie odpytywał
+# publiczny adres produkcji, a porównywał go z LOKALNYM dist i LOKALNĄ bazą.
+# Uruchomiony na starym serwerze (który tylko przekierowuje) dał „SMOKE OK",
+# bo trafił na identyczny build — nie sprawdzając niczego na tej maszynie.
+# Teraz: strażnik hosta na starcie, domyślnie lokalny nginx, a porównanie
+# z dist i odczyt bazy tylko wtedy, gdy adres jest lokalny.
+#
 # Użycie:
-#   deploy/smoke.sh                       # domyślnie produkcja
-#   KEBAB_URL=http://127.0.0.1:8080 deploy/smoke.sh
+#   deploy/smoke.sh                                 # na serwerze produkcyjnym
+#   KEBAB_URL=http://adres:8080 deploy/smoke.sh     # zdalnie: bez dist i bazy
 set -uo pipefail
 
-URL="${KEBAB_URL:-http://91.98.105.107:8080}"
+KATALOG="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=deploy/straznik_hosta.sh
+. "$KATALOG/straznik_hosta.sh"
+
+URL="${KEBAB_URL:-${KEBAB_LOCAL_URL%/}}"
+URL="${URL%/}"
 APP="${KEBAB_APP:-/opt/kebab/app}"
+ENVFILE="${KEBAB_ENV:-/opt/kebab/config/.env}"
 bledy=0
+pominiete=0
 
-ok()   { echo "  ✓ $1"; }
-zle()  { echo "  ✗ $1" >&2; bledy=$((bledy + 1)); }
+ok()     { echo "  ✓ $1"; }
+zle()    { echo "  ✗ $1" >&2; bledy=$((bledy + 1)); }
+pominac() { echo "  – $1"; pominiete=$((pominiete + 1)); }
 
-echo "▶ smoke: $URL"
+# Pierwszy krok, przed jakimkolwiek zapytaniem do strony czy API: serwer,
+# który przekierowuje, nie jest produkcją — nie ma tu czego sprawdzać.
+straznik_hosta
+
+# Lokalny = ten sam serwer, którego dist i bazę możemy porównać.
+host="$(printf '%s' "$URL" | sed -E 's#^[A-Za-z]+://(\[[^]]*\]|[^/:]+).*#\1#')"
+case "$host" in
+  127.*|localhost|\[::1\]) lokalny=1 ;;
+  *)                       lokalny=0 ;;
+esac
+
+echo "▶ smoke: $URL ($([ "$lokalny" = 1 ] && echo "lokalny, $(hostname)" || echo 'zdalny'))"
+
+# Jedno zapytanie bez -L: kod HTTP + treść. Przekierowanie to błąd z adresem,
+# nigdy „OK" z cudzej maszyny.
+pobierz() {  # $1 = ścieżka; ustawia: KOD, TRESC, CEL
+  local plik; plik="$(mktemp)"
+  local w; w="$(curl -s -m 15 -o "$plik" -w '%{http_code} %{redirect_url}' "$URL$1" 2>/dev/null || true)"
+  KOD="${w%% *}"; CEL="${w#* }"; [ "$CEL" = "$KOD" ] && CEL=""
+  TRESC="$(cat "$plik")"; rm -f "$plik"
+  [ -n "$KOD" ] || KOD="000"
+}
+opis_kodu() {
+  case "$KOD" in
+    000) echo "brak odpowiedzi" ;;
+    3??) echo "HTTP $KOD → ${CEL:-?} (przekierowanie — to nie ten serwer)" ;;
+    *)   echo "HTTP $KOD" ;;
+  esac
+}
 
 # 1. Backend żyje.
-if [ "$(curl -s -m 10 "$URL/api/health" || true)" = "true" ]; then
+pobierz /api/health
+if [ "$KOD" = "200" ] && [ "$TRESC" = "true" ]; then
   ok "backend odpowiada"
 else
-  zle "backend NIE odpowiada (/api/health)"
+  zle "backend NIE odpowiada (/api/health: $(opis_kodu), treść: ${TRESC:0:40})"
 fi
 
 # 2. Strona się serwuje.
-kod="$(curl -s -o /dev/null -w '%{http_code}' -m 15 "$URL/" || true)"
-[ "$kod" = "200" ] && ok "strona wstaje (HTTP $kod)" || zle "strona zwraca HTTP $kod"
+pobierz /
+strona_kod="$KOD"; strona="$TRESC"
+if [ "$strona_kod" = "200" ]; then
+  ok "strona wstaje (HTTP 200)"
+else
+  zle "strona NIE wstaje ($(opis_kodu))"
+fi
 
 # 3. Serwowany bundel = ten zbudowany. Deploy bywa „udany", a nginx trzyma
-#    stary plik z cache — wtedy poprawka nie dociera do biura.
-serwowany="$(curl -s -m 15 "$URL/" | grep -oE 'main-[A-Za-z0-9_-]+\.js' | head -1 || true)"
-if [ -d "$APP/dist/assets" ]; then
-  zbudowany="$(basename "$(ls "$APP"/dist/assets/main-*.js 2>/dev/null | head -1)" 2>/dev/null || true)"
-  if [ -n "$serwowany" ] && [ "$serwowany" = "$zbudowany" ]; then
+#    stary plik z cache — wtedy poprawka nie dociera do biura. „Zbudowany"
+#    to bundel, na który wskazuje index.html w dist — nie pierwszy plik
+#    z katalogu assets, w którym mogą leżeć stare.
+serwowany=""
+[ "$strona_kod" = "200" ] && serwowany="$(printf '%s' "$strona" | grep -oE 'main-[A-Za-z0-9_-]+\.js' | head -1 || true)"
+if [ "$strona_kod" != "200" ]; then
+  zle "bundel niesprawdzony — strona nie wstała"
+elif [ -z "$serwowany" ]; then
+  zle "w HTML strony nie ma odwołania do main-*.js"
+elif [ "$lokalny" = 0 ]; then
+  pominac "bundel serwowany: $serwowany — BEZ porównania: adres zdalny, lokalny dist to inna maszyna"
+elif [ ! -f "$APP/dist/index.html" ]; then
+  zle "brak $APP/dist/index.html — nie ma z czym porównać bundla"
+else
+  zbudowany="$(grep -oE 'main-[A-Za-z0-9_-]+\.js' "$APP/dist/index.html" | head -1 || true)"
+  if [ -z "$zbudowany" ]; then
+    zle "$APP/dist/index.html nie wskazuje żadnego main-*.js"
+  elif [ ! -f "$APP/dist/assets/$zbudowany" ]; then
+    zle "dist/index.html wskazuje $zbudowany, ale pliku nie ma w $APP/dist/assets"
+  elif [ "$serwowany" = "$zbudowany" ]; then
     ok "bundel zgodny ($serwowany)"
   else
-    zle "bundel ROZJECHANY — serwowany: ${serwowany:-brak}, na dysku: ${zbudowany:-brak}"
+    zle "bundel ROZJECHANY — serwowany: $serwowany, w dist: $zbudowany (nginx/cache?)"
   fi
-else
-  [ -n "$serwowany" ] && ok "bundel serwowany ($serwowany)" || zle "brak bundla w HTML"
 fi
 
 # 4. Kanał aktualizacji desktopu — biuro aktualizuje się z niego samo.
-wersja="$(curl -s -m 15 "$URL/api/desktop-updates/latest.json" \
-          | python3 -c 'import sys,json;print(json.load(sys.stdin).get("version",""))' 2>/dev/null || true)"
-[ -n "$wersja" ] && ok "kanał aktualizacji: $wersja" || zle "kanał aktualizacji nie odpowiada"
+pobierz /api/desktop-updates/latest.json
+wersja=""
+[ "$KOD" = "200" ] && wersja="$(printf '%s' "$TRESC" \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin).get("version",""))' 2>/dev/null || true)"
+if [ -n "$wersja" ]; then
+  ok "kanał aktualizacji: $wersja"
+else
+  zle "kanał aktualizacji bez wersji ($(opis_kodu))"
+fi
 
 # 5. Baza odpowiada i dokumenty dostaw dają się policzyć. To pierwszy ekran,
 #    który biuro otwiera rano — jeśli tu jest błąd, zakład stoi.
-if command -v psql >/dev/null 2>&1 && [ -f /opt/kebab/config/.env ]; then
-  # shellcheck disable=SC1091
-  set -a; . /opt/kebab/config/.env; set +a
-  ile="$(psql "${DATABASE_URL:-}" -At -c \
-        "SELECT COUNT(*) FROM receptions WHERE received_date >= CURRENT_DATE - 7" 2>/dev/null || true)"
-  [ -n "$ile" ] && ok "baza odpowiada (przyjęć w tygodniu: $ile)" || zle "baza NIE odpowiada"
+#    Tylko dla adresu lokalnego: lokalne .env opisuje bazę TEJ maszyny.
+#    Z .env bierzemy wyłącznie DATABASE_URL — reszta (sekrety) nie jest
+#    potrzebna i nie powinna nadpisywać zmiennych skryptu.
+if [ "$lokalny" = 0 ]; then
+  pominac "baza pominięta — adres zdalny, lokalne .env opisuje bazę innej maszyny"
+elif ! command -v psql >/dev/null 2>&1; then
+  pominac "baza pominięta — brak psql na tej maszynie"
+elif [ ! -f "$ENVFILE" ]; then
+  pominac "baza pominięta — brak $ENVFILE"
 else
-  echo "  – baza pominięta (uruchom na serwerze produkcyjnym)"
+  db_url="$(sed -n -E 's/^DATABASE_URL=["'\'']?([^"'\'']*)["'\'']?$/\1/p' "$ENVFILE" | tail -1)"
+  if [ -z "$db_url" ]; then
+    zle "brak DATABASE_URL w $ENVFILE"
+  else
+    ile="$(psql "$db_url" -At -c \
+          "SELECT COUNT(*) FROM receptions WHERE received_date >= CURRENT_DATE - 7" 2>/dev/null || true)"
+    if [[ "$ile" =~ ^[0-9]+$ ]]; then
+      ok "baza odpowiada (przyjęć w tygodniu: $ile)"
+    else
+      zle "baza NIE odpowiada albo zwróciła coś innego niż liczbę (${ile:0:60})"
+    fi
+  fi
 fi
 
 echo
-if [ "$bledy" -eq 0 ]; then
-  echo "✓ SMOKE OK"
-else
+if [ "$bledy" -gt 0 ]; then
   echo "✗ SMOKE: $bledy błąd(ów) — rozważ deploy/rollback.sh" >&2
+  exit 1
+elif [ "$pominiete" -gt 0 ]; then
+  echo "✓ SMOKE OK — ale $pominiete krok(ów) POMINIĘTO (linie „–\" wyżej); to nie jest pełne potwierdzenie"
+else
+  echo "✓ SMOKE OK"
 fi
-exit "$bledy"
+exit 0

@@ -1,5 +1,6 @@
-# Strażnik hosta — wspólny dla deploy.sh, rollback.sh i proba_generalna.sh.
-# Plik do `source`, nie do uruchamiania.
+# shellcheck shell=bash
+# Strażnik hosta — wspólny dla deploy.sh, rollback.sh, proba_generalna.sh
+# i smoke.sh. Plik do `source`, nie do uruchamiania.
 #
 # POWÓD ISTNIENIA: 29.09.2026 wdrożenie poszło na STARY serwer (Helsinki),
 # który po przenosinach produkcji tylko przekierowuje ruch (nginx: 308 na
