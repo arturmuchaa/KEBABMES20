@@ -68,9 +68,6 @@ export function etykietaWagiZpl(w: WazenieMrozni, { kod }: OpcjeEtykiety): strin
   const nosnik = w.containerKind === 'order'
     ? `ZAMÓWIENIE ${w.orderNo}`.trim()
     : 'MAGAZYN'
-  const tara = w.tareMinKg === w.tareMaxKg
-    ? `${kgPl(w.tareMinKg, 2)} kg`
-    : `${kgPl(w.tareMinKg, 2)}–${kgPl(w.tareMaxKg, 2)} kg`
 
   const body: string[] = [
     t(M, 4, 9, `KARTON ${w.cartonNo}`, W),
@@ -111,7 +108,8 @@ export function etykietaWagiZpl(w: WazenieMrozni, { kod }: OpcjeEtykiety): strin
     t(M, 81.5, 11, `${kgPl(w.netKg)} kg`, 44),
     t(52, 77, 3.5, 'BRUTTO (waga)', 44),
     t(52, 81.5, 11, `${kgPl(w.grossKg)} kg`, 44),
-    t(M, 95, 4, `Paleta ${w.palletTypeName} · tara ${tara}`, W),
+    // Właściciel 29.09.2026: na etykiecie sam rodzaj palety, bez widełek tary.
+    t(M, 94.5, 5, `Paleta ${w.palletTypeName}`, W),
     // Werdykt w negatywie: czarne pole, biały napis — widać z drugiego końca mroźni.
     `^FO${mm(M)},${mm(101)}^GB${mm(W)},${mm(17)},${mm(17)}^FS`,
     t(M + 3, 104, 11, werdykt, W - 6, true),

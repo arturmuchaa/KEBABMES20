@@ -4,20 +4,27 @@
  * Właściciel 29.09.2026: skan kartonu, który stoi w mroźni, dawał duży
  * czerwony ekran „ten karton nie jest otwarty". Karton gotowy to nie błąd —
  * system ma do niego WEJŚĆ i pokazać status, skład, partie i ostatnie ważenie.
- * Z karty: wyjazd z mroźni (poprawki) i dodruk etykiety wagi.
+ *
+ * Wygląd jak ekran pakowania (właściciel, tego samego dnia: „dużo wolnej
+ * przestrzeni, napisy nachodzą na siebie — chcę jak przy pakowaniu"): zielony
+ * karton, pozycje „15 × 50 kg ZAGROS" wierszami, pod spodem partie wierszami
+ * PEŁNYM numerem („290926 591"). Nazwy się zawijają, nic nie jest ucinane.
  */
 import type { KartonDoWazenia } from '@/lib/api'
 import { dataGodzina } from './etykietaWagiZpl'
-import { kgPl, opisPozycji, roznicaPl } from './wazenieMrozni'
+import { kgPl, roznicaPl } from './wazenieMrozni'
+import { Znacznik } from './components/Karta'
 
-const STATUS: Record<NonNullable<KartonDoWazenia['status']>, { t: string; kolor: string }> = {
-  planned: { t: 'ROZPISANY — sztuki nie skanowane', kolor: 'var(--mut)' },
-  packing: { t: 'W PAKOWANIU', kolor: 'var(--accent)' },
-  full: { t: 'SPAKOWANY — czeka na mroźnię', kolor: '#166534' },
-  cold_storage: { t: '❄ W MROŹNI', kolor: 'var(--accent)' },
-  loaded: { t: 'NA AUCIE', kolor: '#92400e' },
-  shipped: { t: 'WYDANY DO KLIENTA', kolor: 'var(--mut)' },
+const STATUS: Record<NonNullable<KartonDoWazenia['status']>, { t: string; zielony: boolean }> = {
+  planned: { t: 'ROZPISANY — sztuki nie skanowane', zielony: false },
+  packing: { t: 'W PAKOWANIU', zielony: false },
+  full: { t: '✓ SPAKOWANY', zielony: true },
+  cold_storage: { t: '❄ W MROŹNI', zielony: true },
+  loaded: { t: 'NA AUCIE', zielony: true },
+  shipped: { t: 'WYDANY DO KLIENTA', zielony: true },
 }
+
+const naglowekSekcji = 'text-[12px] font-extrabold uppercase tracking-[0.12em]'
 
 export function KartaKartonu({ karton, onZamknij, onWyjazd, onDodruk, onPakuj }: {
   karton: KartonDoWazenia
@@ -31,80 +38,149 @@ export function KartaKartonu({ karton, onZamknij, onWyjazd, onDodruk, onPakuj }:
 }) {
   const st = STATUS[karton.status ?? 'planned']
   const w = karton.lastWeighing
+  const kolor = st.zielony ? 'var(--success)' : 'var(--accent)'
+  const pozycje = karton.lines ?? []
+  const partie = karton.batches ?? []
+
   return (
     <div role="dialog" aria-label="Karta kartonu" className="fixed inset-0 z-40 flex flex-col"
       style={{ background: 'var(--bg)' }}>
-      <header className="flex items-start gap-4 px-6 py-4" style={{ borderBottom: '1px solid var(--line)' }}>
-        <div className="min-w-0 flex-1">
-          <div className="text-[12px] font-extrabold uppercase tracking-[0.12em]" style={{ color: 'var(--mut)' }}>
-            Karton {karton.cartonNo} · {karton.orderNo || 'MAGAZYN'}
-          </div>
-          <div className="truncate text-[30px] font-extrabold">{karton.clientName || 'na magazyn'}</div>
-          <div data-testid="status-kartonu" className="text-[24px] font-extrabold" style={{ color: st.kolor }}>{st.t}</div>
-        </div>
-        <div className="text-right">
-          <div className="text-[12px] font-extrabold uppercase tracking-[0.12em]" style={{ color: 'var(--mut)' }}>Netto ze sztuk</div>
-          <div className="hmi-v10-mono text-[40px] font-bold leading-none">{kgPl(karton.netKg ?? 0)} kg</div>
-          <div className="hmi-v10-mono text-[16px]" style={{ color: 'var(--mut)' }}>{karton.qty ?? 0} szt</div>
-        </div>
-      </header>
+      <div className="grid min-h-0 flex-1 gap-3 p-3 px-4 lg:gap-4 lg:px-5"
+        style={{ gridTemplateColumns: 'minmax(0, 2fr) minmax(260px, 1fr)' }}>
 
-      <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-6" style={{ gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)' }}>
-        <section className="rounded-2xl p-5" style={{ background: 'var(--panel)', border: '1px solid var(--line)' }}>
-          <div className="mb-2 text-[12px] font-extrabold uppercase tracking-[0.12em]" style={{ color: 'var(--mut)' }}>Skład</div>
-          {(karton.lines ?? []).length ? (karton.lines ?? []).map((l, i) => (
-            <div key={i} className="hmi-v10-mono text-[22px] font-bold">{opisPozycji(l)}</div>
-          )) : <div className="text-[16px]" style={{ color: 'var(--mut)' }}>Brak zeskanowanych sztuk.</div>}
-
-          <div className="mb-2 mt-5 text-[12px] font-extrabold uppercase tracking-[0.12em]" style={{ color: 'var(--mut)' }}>Partie</div>
-          <table data-testid="partie-kartonu" className="hmi-v10-mono text-[20px]">
-            <tbody>
-              {(karton.batches ?? []).map(b => (
-                <tr key={b.batchNo}>
-                  <td className="pr-6 text-right font-bold">{b.qty} szt</td>
-                  <td>{b.batchNo}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-
-        <section className="rounded-2xl p-5" style={{ background: 'var(--panel)', border: '1px solid var(--line)' }}>
-          <div className="mb-2 text-[12px] font-extrabold uppercase tracking-[0.12em]" style={{ color: 'var(--mut)' }}>Ostatnie ważenie</div>
-          {w ? (
-            <>
-              <div className="text-[28px] font-extrabold" style={{ color: w.ok ? '#166534' : '#991b1b' }}>
-                {w.ok ? 'ZGODNA' : `NIEZGODNA ${roznicaPl(w.diffKg)}`}
-              </div>
-              <div className="hmi-v10-mono text-[18px]">brutto {kgPl(w.grossKg)} kg · paleta {w.palletTypeName}</div>
-              <div className="hmi-v10-mono text-[16px]" style={{ color: 'var(--mut)' }}>
-                {dataGodzina(w.weighedAt)}{w.operator ? ` · ${w.operator}` : ''}{w.weighMode === 'manual' ? ' · RĘCZNIE' : ''}
-              </div>
-            </>
-          ) : (
-            <div className="text-[18px] font-bold" style={{ color: 'var(--mut)' }}>
-              {karton.status === 'cold_storage' ? 'Nie ważony — do zważenia' : 'Nie ważony'}
+        {/* ── Karton: status, skład, partie ───────────────────────────── */}
+        <div className="flex min-h-0 flex-col overflow-y-auto rounded-2xl">
+          <section className="flex flex-col gap-3 rounded-2xl p-4 lg:p-5"
+            style={st.zielony
+              ? { background: 'var(--successSoft)', border: '2px solid var(--success)' }
+              : { background: 'var(--panel)', border: '2px solid var(--accentLine)' }}>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span className={naglowekSekcji} style={{ color: 'var(--mut)' }}>Karton</span>
+              <Znacznik ton={karton.kind === 'order' ? 'akcja' : 'szary'}>
+                {karton.orderNo ? `ZAMÓWIENIE ${karton.orderNo}` : 'MAGAZYN'}
+              </Znacznik>
             </div>
-          )}
-        </section>
-      </div>
+            <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
+              <span className="hmi-v10-mono font-bold leading-none"
+                style={{ color: kolor, fontSize: 'clamp(36px, 4.4vw, 60px)' }}>
+                {karton.cartonNo || '—'}
+              </span>
+              <span className="min-w-0 break-words font-extrabold leading-tight"
+                style={{ fontSize: 'clamp(28px, 3.2vw, 48px)' }}>
+                {karton.clientName || 'na magazyn'}
+              </span>
+            </div>
+            <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1">
+              <span data-testid="status-kartonu" className="font-extrabold leading-none"
+                style={{ color: kolor, fontSize: 'clamp(30px, 3.4vw, 52px)' }}>
+                {st.t}
+              </span>
+              <span className="hmi-v10-mono text-[22px] font-bold" style={{ color: st.zielony ? '#166534' : 'var(--ink)' }}>
+                {karton.qty ?? 0} szt · {kgPl(karton.netKg ?? 0)} kg
+              </span>
+            </div>
 
-      <footer className="flex gap-3 px-6 pb-6">
-        <button type="button" onClick={onZamknij} className="rounded-2xl px-6 py-5 text-[18px] font-bold"
-          style={{ border: '1px solid var(--line)' }}>Zamknij</button>
-        {onDodruk ? (
-          <button type="button" onClick={onDodruk} className="rounded-2xl px-6 py-5 text-[18px] font-bold"
-            style={{ border: '1px solid var(--line)' }}>Etykieta wagi</button>
-        ) : null}
-        {onPakuj ? (
-          <button type="button" onClick={onPakuj} className="flex-1 rounded-2xl px-6 py-5 text-[22px] font-extrabold text-white"
-            style={{ background: 'var(--accent)' }}>Pakuj ten karton</button>
-        ) : null}
-        {onWyjazd ? (
-          <button type="button" onClick={onWyjazd} className="flex-1 rounded-2xl px-6 py-5 text-[22px] font-extrabold text-white"
-            style={{ background: 'var(--accent)' }}>Wyjedź z mroźni (poprawki)</button>
-        ) : null}
-      </footer>
+            {/* SKŁAD — jak na ekranie pakowania: „15 × 50 kg ZAGROS" */}
+            <div data-testid="sklad-kartonu" className="overflow-hidden rounded-xl"
+              style={{ background: 'var(--panel)', border: '1px solid var(--line)' }}>
+              {pozycje.length ? pozycje.map((p, i) => (
+                <div key={i} className="flex items-center gap-4 px-4 py-3"
+                  style={{ borderTop: i ? '1px solid var(--lineSoft)' : undefined,
+                           background: st.zielony ? 'var(--successSoft)' : undefined }}>
+                  <span className="hmi-v10-mono shrink-0 font-bold leading-none"
+                    style={{ fontSize: 'clamp(22px, 2.3vw, 34px)', color: st.zielony ? 'var(--success)' : 'var(--ink)' }}>
+                    {p.qty}<span style={{ color: 'var(--mut)' }}> × </span>{kgPl(p.kgPerUnit, 3)}
+                    <span style={{ fontSize: '.55em', color: 'var(--mut)' }}> kg</span>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block break-words font-extrabold uppercase leading-tight"
+                      style={{ fontSize: 'clamp(19px, 1.9vw, 28px)' }}>{p.recipeName || '—'}</span>
+                    {p.productTypeName ? (
+                      <span className="block break-words text-[14px]" style={{ color: 'var(--mut)' }}>{p.productTypeName}</span>
+                    ) : null}
+                  </span>
+                  {st.zielony ? (
+                    <span className="shrink-0 text-right">
+                      <span className="hmi-v10-mono block text-[22px] font-bold leading-none" style={{ color: 'var(--success)' }}>
+                        ✓ {p.qty}/{p.qty}
+                      </span>
+                      <span className="mt-1 block text-[13px] font-bold" style={{ color: 'var(--success)' }}>spakowane</span>
+                    </span>
+                  ) : null}
+                </div>
+              )) : (
+                <div className="px-4 py-3 text-[16px]" style={{ color: 'var(--mut)' }}>Brak zeskanowanych sztuk.</div>
+              )}
+            </div>
+
+            {/* PARTIE — pełny numer, ile sztuk z której */}
+            {partie.length ? (
+              <div className="flex flex-col gap-1.5">
+                <span className={naglowekSekcji} style={{ color: 'var(--mut)' }}>Partie w kartonie</span>
+                <div data-testid="partie-kartonu" className="overflow-hidden rounded-xl"
+                  style={{ background: 'var(--panel)', border: '1px solid var(--line)' }}>
+                  {partie.map((b, i) => (
+                    <div key={b.batchNo} className="flex items-center gap-4 px-4 py-2.5"
+                      style={{ borderTop: i ? '1px solid var(--lineSoft)' : undefined }}>
+                      <span className="hmi-v10-mono min-w-0 flex-1 break-words font-bold leading-tight"
+                        style={{ fontSize: 'clamp(20px, 2vw, 30px)' }}>{b.batchNo}</span>
+                      <span className="hmi-v10-mono shrink-0 font-bold leading-none"
+                        style={{ fontSize: 'clamp(20px, 2vw, 30px)' }}>
+                        {b.qty}<span style={{ fontSize: '.6em', color: 'var(--mut)' }}> szt</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </section>
+        </div>
+
+        {/* ── Boczny panel: ważenie i akcje ────────────────────────────── */}
+        <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+          <section className="rounded-2xl p-4" style={{ background: 'var(--panel)', border: '1px solid var(--line)' }}>
+            <div className={`${naglowekSekcji} mb-2`} style={{ color: 'var(--mut)' }}>Ostatnie ważenie</div>
+            {w ? (
+              <>
+                <div className="text-[26px] font-extrabold leading-tight" style={{ color: w.ok ? '#166534' : '#991b1b' }}>
+                  {w.ok ? '✓ ZGODNA' : `NIEZGODNA ${roznicaPl(w.diffKg)}`}
+                </div>
+                <div className="hmi-v10-mono mt-1 text-[18px] font-bold">brutto {kgPl(w.grossKg)} kg</div>
+                <div className="text-[15px]" style={{ color: 'var(--mut)' }}>paleta {w.palletTypeName}</div>
+                <div className="hmi-v10-mono mt-1 text-[15px]" style={{ color: 'var(--mut)' }}>
+                  {dataGodzina(w.weighedAt)}
+                </div>
+                {w.operator || w.weighMode === 'manual' ? (
+                  <div className="text-[14px]" style={{ color: 'var(--mut)' }}>
+                    {[w.operator, w.weighMode === 'manual' ? 'RĘCZNIE' : ''].filter(Boolean).join(' · ')}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="text-[18px] font-bold" style={{ color: karton.status === 'cold_storage' ? '#92400e' : 'var(--mut)' }}>
+                {karton.status === 'cold_storage' ? 'Nie ważony — do zważenia' : 'Nie ważony'}
+              </div>
+            )}
+          </section>
+
+          <div className="mt-auto flex flex-col gap-2">
+            {onPakuj ? (
+              <button type="button" onClick={onPakuj} className="rounded-2xl px-5 py-4 text-[20px] font-extrabold text-white"
+                style={{ background: 'var(--accent)' }}>Pakuj ten karton</button>
+            ) : null}
+            {onWyjazd ? (
+              <button type="button" onClick={onWyjazd} className="rounded-2xl px-5 py-4 text-[20px] font-extrabold text-white"
+                style={{ background: 'var(--accent)' }}>Wyjedź z mroźni (poprawki)</button>
+            ) : null}
+            {onDodruk ? (
+              <button type="button" onClick={onDodruk} className="rounded-2xl px-5 py-4 text-[18px] font-bold"
+                style={{ background: 'var(--panel)', border: '1px solid var(--line)' }}>Etykieta wagi</button>
+            ) : null}
+            <button type="button" onClick={onZamknij} className="rounded-2xl px-5 py-4 text-[18px] font-bold"
+              style={{ background: 'var(--panel)', border: '1px solid var(--line)' }}>Zamknij</button>
+          </div>
+        </aside>
+      </div>
     </div>
   )
 }

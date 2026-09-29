@@ -34,10 +34,13 @@ describe('etykieta ważenia 100×150', () => {
   it('treść z przykładu właściciela: skład, netto, brutto, werdykt, godzina', () => {
     const z = etykietaWagiZpl(W, { kod: 'SCARTON|c1' })
     for (const s of ['KARTON 000123', 'YALCIN', 'MAGAZYN', '15 × 50 kg ZAGROS', '750 kg', '780 kg',
-      'Paleta EURO · tara 33,25–36,75 kg', 'ZGODNA', '29.09.2026 10:24', 'Jan', 'QA,SCARTON|c1']) {
+      'Paleta EURO', 'ZGODNA', '29.09.2026 10:24', 'Jan', 'QA,SCARTON|c1']) {
       expect(z).toContain(s)
     }
     expect(z).not.toContain('RĘCZNIE')
+    // bez widełek tary (właściciel 29.09.2026)
+    expect(z).not.toContain('tara')
+    expect(z).not.toContain('33,25')
   })
 
   it('niezgodna z różnicą, ręcznie, zamówienie', () => {

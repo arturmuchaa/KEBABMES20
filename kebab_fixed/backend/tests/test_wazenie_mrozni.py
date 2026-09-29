@@ -72,3 +72,16 @@ def test_normalizacja_przecinki_i_id():
 def test_normalizacja_odrzuca_smieci(zla):
     with pytest.raises(ValueError):
         normalize_pallet_types(zla)
+
+
+
+# ── Pełny numer partii (29.09.2026: karta pokazywała samo „598") ─────────
+from app.services.mroznia_wazenie_service import pelny_numer_partii
+
+
+def test_pelny_numer_partii():
+    assert pelny_numer_partii("598", "2026-09-29", "290926 598") == "290926 598"
+    assert pelny_numer_partii("598", "2026-09-29") == "290926 598"
+    assert pelny_numer_partii("290926 598", "2026-09-29") == "290926 598"
+    assert pelny_numer_partii("", None) == "—"
+    assert pelny_numer_partii("598", None) == "598"

@@ -195,3 +195,21 @@ def test_rozpisana_paleta_to_planned(db):
     _receptury()
     _paleta("o1", "YALCIN", qty=2)
     assert sprawdz("PAL|o1|1")["status"] == "planned"
+
+
+
+def test_partie_pelnym_numerem_gdy_sztuka_ma_sam_numer(db):
+    """Produkcja: finished_units.batch_no = „598", pełny numer z daty produkcji."""
+    k = _pelny_karton(n=2)
+    execute("UPDATE finished_units SET batch_no='598', produced_date='2026-09-29'")
+    assert sprawdz(f"SCARTON|{k['id']}")["batches"] == [{"batchNo": "290926 598", "qty": 2}]
+
+
+
+def test_stare_wazenie_z_krotkim_numerem_dodruk_pelny(db):
+    """Produkcja 29.09: dwa ważenia kartonu 297 zapisały „598" — dodruk ma pełny numer."""
+    k = _pelny_karton(n=2)
+    execute("UPDATE finished_units SET batch_no='598', produced_date='2026-09-29'")
+    zwaz_i_wstaw(f"SCARTON|{k['id']}", "euro", 70.0, "auto")
+    execute("""UPDATE cold_storage_weighings SET batches='[{"qty": 2, "batchNo": "598"}]'::jsonb""")
+    assert ostatnie_wazenie(k["id"])["batches"] == [{"qty": 2, "batchNo": "290926 598"}]

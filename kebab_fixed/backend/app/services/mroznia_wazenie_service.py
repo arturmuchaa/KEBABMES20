@@ -49,21 +49,63 @@ def _sklad(kolumna: str, container_id: str) -> List[Dict[str, Any]]:
     } for r in rows]
 
 
+def pelny_numer_partii(batch_no: Any, produced_date: Any, fg_batch_no: Any = None) -> str:
+    """„290926 591" — pełny numer partii wyrobu.
+
+    Na PRODUKCJI (29.09.2026) sztuka ma w `batch_no` sam numer („598"), a pełny
+    numer z datą („290926 598") trzyma wyrób gotowy. Karta i etykieta pokazywały
+    więc „598". Kolejność: numer z wyrobu gotowego → numer, który już ma datę
+    → data produkcji sztuki (ddmmrr) + numer."""
+    fg = str(fg_batch_no or "").strip()
+    if fg:
+        return fg
+    nr = str(batch_no or "").strip()
+    if not nr:
+        return "—"
+    if " " in nr:
+        return nr
+    d = str(produced_date or "")[:10]
+    if len(d) == 10 and d[4] == "-" and d[7] == "-":
+        return f"{d[8:10]}{d[5:7]}{d[2:4]} {nr}"
+    return nr
+
+
 def _partie(kolumna: str, container_id: str) -> List[Dict[str, Any]]:
     """Ile sztuk z której partii leży w kartonie — „3 szt · 290926 591".
 
-    Właściciel 29.09.2026: wykaz partii na etykiecie ważenia, w słupku.
-    Najstarsza partia pierwsza (numer partii zaczyna się datą ddmmrr, więc
-    sortujemy po dniu produkcji, a nie po napisie)."""
+    Właściciel 29.09.2026: wykaz partii na etykiecie ważenia i na karcie
+    kartonu, w słupku, PEŁNYM numerem. Najstarsza partia pierwsza."""
     rows = query_all(
-        f"""SELECT COALESCE(NULLIF(batch_no, ''), '—') AS batch_no, COUNT(*) AS n,
-                   MIN(produced_date) AS d
-            FROM finished_units WHERE {kolumna} = %s
-            GROUP BY COALESCE(NULLIF(batch_no, ''), '—')
-            ORDER BY MIN(produced_date) NULLS LAST, COALESCE(NULLIF(batch_no, ''), '—')""",
+        f"""SELECT fu.batch_no, fu.produced_date::text AS produced_date,
+                   fg.batch_no AS fg_batch_no, COUNT(*) AS n
+            FROM finished_units fu
+            LEFT JOIN finished_goods fg ON fg.id = fu.source_finished_goods_id
+            WHERE fu.{kolumna} = %s
+            GROUP BY fu.batch_no, fu.produced_date, fg.batch_no""",
         (container_id,),
     )
-    return [{"batchNo": r["batch_no"], "qty": int(r["n"])} for r in rows]
+    suma: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        nr = pelny_numer_partii(r.get("batch_no"), r.get("produced_date"), r.get("fg_batch_no"))
+        x = suma.setdefault(nr, {"batchNo": nr, "qty": 0, "_d": str(r.get("produced_date") or "9999")})
+        x["qty"] += int(r["n"])
+        x["_d"] = min(x["_d"], str(r.get("produced_date") or "9999"))
+    out = sorted(suma.values(), key=lambda x: (x["_d"], x["batchNo"]))
+    return [{"batchNo": x["batchNo"], "qty": x["qty"]} for x in out]
+
+
+def _uzupelnij_numery(batches: List[Dict[str, Any]], kind: str, container_id: str) -> List[Dict[str, Any]]:
+    """Ważenia sprzed 29.09.2026 13:00 zapisały sam numer („598") — przy
+    odczycie (dodruk etykiety) dopełniamy go pełnym numerem z sztuk kartonu."""
+    if all(" " in str(b.get("batchNo") or "") for b in batches):
+        return batches
+    zywe = [b["batchNo"] for b in _partie("carton_id" if kind == "stock" else "pallet_id", container_id)]
+    out = []
+    for b in batches:
+        nr = str(b.get("batchNo") or "")
+        pelny = next((z for z in zywe if " " not in nr and z.endswith(" " + nr)), nr)
+        out.append({**b, "batchNo": pelny})
+    return out
 
 
 def _publiczne(w: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -75,6 +117,7 @@ def _publiczne(w: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     batches = w.get("batches")
     if isinstance(batches, str):
         batches = json.loads(batches)
+    batches = _uzupelnij_numery(batches or [], w["container_kind"], w["container_id"])
     at = w.get("weighed_at")
     if w["container_kind"] == "stock":
         kod = f"SCARTON|{w['container_id']}"
