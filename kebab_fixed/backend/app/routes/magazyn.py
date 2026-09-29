@@ -5,12 +5,13 @@ Zapis sztuki idzie przez istniejące ścieżki (`pack_unit_into_pallet`,
 """
 from typing import Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from app.auth.audit import _subject_label
 from app.services.packing_correction_service import undo_pack
 from pydantic import BaseModel
 
 from app.services import magazyn_pakowanie_service as svc
+from app.services import mroznia_wazenie_service, settings_service
 
 router = APIRouter(prefix="/api/magazyn", tags=["magazyn"])
 
@@ -59,3 +60,56 @@ def mroznia_karton(body: SkanKodu):
 @router.get("/mroznia/kartony")
 def mroznia_kartony():
     return svc.kartony_w_mrozni()
+
+
+# ── Ważenie pełnego kartonu przy wjeździe do mroźni (29.09.2026) ───────────
+
+def _operator(request: Request) -> str:
+    s = getattr(request.state, "subject", None)
+    if isinstance(s, dict) and s.get("name"):
+        return str(s["name"])
+    return _subject_label(s) or ""
+
+
+class ZapisPalet(BaseModel):
+    pallets: list
+
+
+class Wazenie(BaseModel):
+    code: str
+    pallet_type_id: str
+    gross_kg: float
+    mode: str = "auto"
+
+
+@router.get("/mroznia/palety")
+def mroznia_palety():
+    return {"pallets": settings_service.get_pallet_types()}
+
+
+@router.put("/mroznia/palety")
+def mroznia_palety_zapis(body: ZapisPalet):
+    try:
+        return {"pallets": settings_service.save_pallet_types(body.pallets)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.post("/mroznia/sprawdz")
+def mroznia_sprawdz(body: SkanKodu):
+    """Co to za karton, czy pełny (= ważenie obowiązkowe), netto i skład."""
+    return mroznia_wazenie_service.sprawdz(body.code)
+
+
+@router.post("/mroznia/wazenie")
+def mroznia_wazenie(body: Wazenie, request: Request):
+    return mroznia_wazenie_service.zwaz_i_wstaw(
+        body.code, body.pallet_type_id, body.gross_kg, body.mode, _operator(request))
+
+
+@router.get("/mroznia/wazenie/{container_id}")
+def mroznia_ostatnie_wazenie(container_id: str):
+    w = mroznia_wazenie_service.ostatnie_wazenie(container_id)
+    if not w:
+        raise HTTPException(404, "Ten karton nie był ważony")
+    return w

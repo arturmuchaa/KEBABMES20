@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
-import { czyKompletnyKod, czyWpisalSkaner, utworzStraznikaWysylki } from './skanKodu'
+import { czyKompletnyKod, czyWpisalSkaner, opoznienieWysylki, utworzStraznikaWysylki } from './skanKodu'
 
 /**
  * Auto-wysyłka zeskanowanego kodu — MES niezależny od konfiguracji skanera.
@@ -63,7 +63,9 @@ export function useSkanAutoSubmit(
       || czyWpisalSkaner(wartosc.length, teraz - startCzas.current)
     if (!wystarczy) return
 
-    const t = setTimeout(() => probuj(wartosc), opoznienieMs)
+    // Zaczęty, niekompletny kod czeka dłużej — skaner mógł się zająknąć
+    // w połowie (29.09.2026: rozcięte kody = „to nie jest sztuka kebab").
+    const t = setTimeout(() => probuj(wartosc), opoznienieWysylki(wartosc, opoznienieMs))
     return () => clearTimeout(t)
   }, [wartosc, opoznienieMs, probuj])
 

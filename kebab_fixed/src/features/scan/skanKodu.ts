@@ -86,13 +86,56 @@ export function kodKartki(wartosc: string): KodKartki | null {
   const id = idKartonu(wartosc)
   if (id) return { rodzaj: 'stock', id, kod: `SCARTON|${id}` }
   const s = oczyscKod(wartosc)
-  return czyKompletnyKodPalety(s) ? { rodzaj: 'order', kod: s } : null
+  if (czyKompletnyKodPalety(s)) return { rodzaj: 'order', kod: s }
+  const luzna = luznaKartkaPalety(s)
+  return luzna ? { rodzaj: 'order', kod: luzna } : null
+}
+
+/** Kartka palety zniekształcona przez skaner (hala 29.09.2026: „skanuję kartkę
+ *  na paletę, a pokazuje: to nie jest sztuka kebab"). Skaner w innym układzie
+ *  klawiatury / z CapsLockiem psuje „/" i „|" oraz wielkość liter — adres
+ *  `HTTP://TAURI.LOCALHOST/M/P/<ID>/7` nie pasował do `ADRES` i leciał na
+ *  serwer jako sztuka. Rozpoznajemy po KSZTAŁCIE: `m?p?<20 hex>?<nr>` albo
+ *  `PAL?<20 hex>?<nr>`, gdzie `?` to jeden dowolny znak nie-alfanumeryczny.
+ *  Wynik w postaci kanonicznej `PAL|<id małymi>|<nr>` — tę rozumie każdy
+ *  endpoint palet. Ta sama reguła żyje w backendzie (`pallets_service.parse_code`). */
+const PALETA_ADRES_LUZNY = /(?:^|[^0-9A-Za-z])m[^0-9A-Za-z]p[^0-9A-Za-z]([0-9a-f]{20})[^0-9A-Za-z](\d+)$/i
+const PALETA_TOKEN_LUZNY = /^PAL[^0-9A-Za-z]([0-9a-f]{20})[^0-9A-Za-z](\d+)$/i
+
+export function luznaKartkaPalety(wartosc: string): string | null {
+  const s = oczyscKod(wartosc)
+  const m = PALETA_TOKEN_LUZNY.exec(s) || PALETA_ADRES_LUZNY.exec(s)
+  return m ? `PAL|${m[1].toLowerCase()}|${Number(m[2])}` : null
 }
 
 /** Kod, który wolno wysłać bez Entera: paleta, sztuka albo karton. */
 export function czyKompletnyKod(wartosc: string): boolean {
+  // Karton tylko w PEŁNYM kształcie (20 hex): `idKartonu` przyjmuje też stare
+  // krótkie id, więc ucięte „SCARTON|ac82" leciałoby jako gotowy kod.
   return czyKompletnyKodPalety(wartosc) || czyKompletnyKodSztuki(wartosc)
-    || idKartonu(wartosc) !== null
+    || KARTON.test(oczyscKod(wartosc)) || luznaKartkaPalety(wartosc) !== null
+}
+
+/** Początek znanego kodu, który jeszcze nie jest kompletny.
+ *
+ *  Hala 29.09.2026: „to nie jest sztuka kebab" pojawiało się CZASEM na dobrych
+ *  etykietach. Auto-wysyłka po tempie odpalała po 8 szybkich znakach i 150 ms
+ *  ciszy — skaner, który zatnie się w połowie długiego kodu (Bluetooth, adres
+ *  z kartki palety), rozcinał go na dwa „nieznane kody". Kod, który WYGLĄDA
+ *  na zaczęty, dostaje więcej czasu na dokończenie. */
+const POCZATEK_KODU = /^(?:u[^0-9a-z]?[0-9a-f]|scarton|pal[^0-9a-z]|https?[^0-9a-z]|h(?:t(?:t(?:p)?)?)?$|s(?:c(?:a(?:r(?:t(?:o(?:n)?)?)?)?)?)?$|p(?:a(?:l)?)?$)/i
+
+export function czyZaczetyKod(wartosc: string): boolean {
+  const s = oczyscKod(wartosc)
+  if (!s || czyKompletnyKod(s)) return false
+  return POCZATEK_KODU.test(s) || /[^0-9a-z]m[^0-9a-z]p[^0-9a-z]/i.test(s)
+}
+
+/** Ile czekać na dalsze znaki, zanim kod pójdzie bez Entera. */
+export const OPOZNIENIE_ZACZETEGO_MS = 900
+
+export function opoznienieWysylki(wartosc: string, zwykle: number): number {
+  return czyZaczetyKod(wartosc) ? OPOZNIENIE_ZACZETEGO_MS : zwykle
 }
 
 /**

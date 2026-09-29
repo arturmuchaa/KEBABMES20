@@ -19,7 +19,7 @@
  * w `KONTYNUACJA_MS` od ostatniego klawisza, więc jego pisanie zostaje jego.
  */
 import { useEffect, useRef } from 'react'
-import { czyKompletnyKod, czyWpisalSkaner } from '@/features/scan/skanKodu'
+import { czyKompletnyKod, czyWpisalSkaner, czyZaczetyKod, OPOZNIENIE_ZACZETEGO_MS, opoznienieWysylki } from '@/features/scan/skanKodu'
 
 /** Przerwa, po której bufor uznajemy za porzucony (człowiek coś stuknął). */
 const PRZERWA_MS = 400
@@ -54,7 +54,9 @@ export function useSkanGlobalny(aktywny: boolean, onKod: (kod: string) => void) 
         if (e.key !== 'Enter' && e.key.length !== 1) return
         e.preventDefault()
       }
-      if (teraz - ostatni > PRZERWA_MS) { bufor = ''; start = teraz }
+      // Zaczęty kod (np. „U|ac82b8") czeka dłużej, zanim uznamy go za porzucony.
+      const przerwa = czyZaczetyKod(bufor) ? OPOZNIENIE_ZACZETEGO_MS : PRZERWA_MS
+      if (teraz - ostatni > przerwa) { bufor = ''; start = teraz }
       ostatni = teraz
       if (e.key === 'Enter') {
         if (bufor.length >= 8) { e.preventDefault(); wyslij() }
@@ -65,7 +67,7 @@ export function useSkanGlobalny(aktywny: boolean, onKod: (kod: string) => void) 
       bufor += e.key
       if (timer) clearTimeout(timer)
       if (czyKompletnyKod(bufor) || czyWpisalSkaner(bufor.length, teraz - start)) {
-        timer = setTimeout(wyslij, OPOZNIENIE_MS)
+        timer = setTimeout(wyslij, opoznienieWysylki(bufor, OPOZNIENIE_MS))
       }
     }
 

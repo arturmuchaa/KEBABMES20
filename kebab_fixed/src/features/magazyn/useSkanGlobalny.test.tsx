@@ -91,4 +91,32 @@ describe('skaner słuchany bez pola skanu', () => {
     wystukaj('PAL|o1|3'); fireEvent.keyDown(document.body, { key: 'Enter' })
     expect(onKod).not.toHaveBeenCalled()
   })
+
+  describe('skaner zacina się w połowie kodu (29.09.2026)', () => {
+    beforeEach(() => { vi.useFakeTimers() })
+    afterEach(() => { vi.useRealTimers() })
+
+    it('sztuka z przerwą 500 ms w środku przychodzi w CAŁOŚCI, nie w dwóch kawałkach', () => {
+      const onKod = vi.fn()
+      render(<Proba onKod={onKod} />)
+      wystukaj('U|ac82b8f61e')
+      vi.advanceTimersByTime(500)
+      expect(onKod).not.toHaveBeenCalled()
+      wystukaj('2545a4867b')
+      vi.advanceTimersByTime(1000)
+      expect(onKod).toHaveBeenCalledTimes(1)
+      expect(onKod).toHaveBeenCalledWith('U|ac82b8f61e2545a4867b')
+    })
+
+    it('kartka palety WIELKIMI literami z przerwą — też w całości', () => {
+      const onKod = vi.fn()
+      render(<Proba onKod={onKod} />)
+      wystukaj('HTTP://TAURI.LOCALHOST/M/P/6890E86337')
+      vi.advanceTimersByTime(600)
+      wystukaj('6444CEAA10/7')
+      vi.advanceTimersByTime(1000)
+      expect(onKod).toHaveBeenCalledTimes(1)
+      expect(onKod).toHaveBeenCalledWith('HTTP://TAURI.LOCALHOST/M/P/6890E863376444CEAA10/7')
+    })
+  })
 })

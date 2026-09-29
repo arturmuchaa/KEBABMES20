@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
+import { PaletyMrozniCard } from '@/features/magazyn/PaletyMrozniCard'
 
 const emptyCompany: CompanySettings = {
   name: '', nip: '', regon: '', address: '', city: '', postalCode: '', phone: '', email: '',
@@ -265,6 +266,8 @@ export function CompanySettingsPage() {
           </p>
         </CardContent>
       </Card>
+
+      <PaletyMrozniCard />
     </div>
   )
 }

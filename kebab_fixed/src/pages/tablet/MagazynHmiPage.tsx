@@ -361,7 +361,8 @@ export function MagazynHmiPage() {
         <EkranZaladunku vehicleId={pojazdId} onAlarm={pokazAlarm} onKoniec={() => przejdz('kafle')} />
       ) : null}
 
-      {ekran === 'mroznia' ? <EkranMrozni onAlarm={pokazAlarm} /> : null}
+      {ekran === 'mroznia' ? <EkranMrozni onAlarm={pokazAlarm}
+        onOtworzKarton={id => { setAktywnyKarton(id); przejdz('kartony-praca') }} /> : null}
 
       <Alarm alarm={alarm} />
 

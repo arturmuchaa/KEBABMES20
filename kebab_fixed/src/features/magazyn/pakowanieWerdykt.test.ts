@@ -56,10 +56,24 @@ describe('werdykt pakowania', () => {
     expect(w.alarm?.gdzie).toBe('KARTON 000320')
   })
 
-  it('ten sam kod drugi raz do tego samego kartonu to nie jest wpadka', () => {
+  it('ten sam kebab drugi raz do tego samego kartonu: „już spakowana", bez czerwonego alarmu', () => {
+    // Właściciel 29.09.2026: drugi skan tej samej sztuki ma mówić, że już
+    // jest spakowana — wcześniej panel milczał albo mylił to z nieznanym kodem.
     const w = werdyktPakowania(skan({ result: 'ALREADY', where: '000318', sameCarton: true }), 'k1')
     expect(w.alarm).toBeNull()
-    expect(w.dzwiek).toBe('cisza')
+    expect(w.dzwiek).toBe('inny')
+    expect(w.uwaga?.naglowek).toBe('KEBAB JUŻ SPAKOWANY')
+    expect(w.uwaga?.szczegol).toContain('000318')
+  })
+
+  it('już spakowana w innym kartonie — nagłówek mówi to wprost', () => {
+    const w = werdyktPakowania(skan({ result: 'ALREADY', where: '000320', sameCarton: false }), 'k1')
+    expect(w.alarm?.naglowek).toBe('KEBAB JUŻ SPAKOWANY')
+  })
+
+  it('nieznany kod pokazuje, co skaner odczytał', () => {
+    const w = werdyktPakowania(skan({ result: 'INVALID', unit: '' }), 'k1', 'XYZ-123')
+    expect(w.alarm?.szczegol).toContain('XYZ-123')
   })
 
   it('aktywny karton zamknięty przez drugą osobę — wyraźnie to mówimy', () => {

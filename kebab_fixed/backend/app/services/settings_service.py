@@ -165,6 +165,44 @@ def save_cart_tares(values) -> list:
     return tares
 
 
+# ── Palety magazynu: tary do ważenia przy wjeździe do mroźni ─────────────
+# Lista edytowana w biurze; kiosk magazynu tylko czyta. Reguła i domyślne
+# widełki w `app/utils/wazenie_mrozni.py`.
+PALLET_TYPES_KEY = "magazyn_pallet_tares"
+
+
+def get_pallet_types() -> list:
+    from app.utils.wazenie_mrozni import DEFAULT_PALLET_TYPES, normalize_pallet_types
+    row = query_one("SELECT value FROM app_settings WHERE key = %s", (PALLET_TYPES_KEY,))
+    val = row["value"] if row else None
+    if isinstance(val, str):
+        try:
+            val = json.loads(val)
+        except Exception:
+            val = None
+    lista = val.get("pallets") if isinstance(val, dict) else val
+    try:
+        return normalize_pallet_types(lista)
+    except ValueError:
+        return normalize_pallet_types(DEFAULT_PALLET_TYPES)
+
+
+def save_pallet_types(values) -> list:
+    from app.utils.wazenie_mrozni import normalize_pallet_types
+    pallets = normalize_pallet_types(values)
+    execute(
+        """
+        INSERT INTO app_settings (key, value, updated_at)
+        VALUES (%s, %s::jsonb, now())
+        ON CONFLICT (key) DO UPDATE
+        SET value = EXCLUDED.value, updated_at = now()
+        """,
+        (PALLET_TYPES_KEY, json.dumps({"pallets": pallets})),
+    )
+    logger.info("settings.pallet_types.saved", extra={"count": len(pallets)})
+    return pallets
+
+
 # ── Kolejność partii na pasku HMI rozbioru ───────────────────────────────
 # WSPÓLNA dla całej hali: opisuje plan dnia i ustawienie palet w chłodni,
 # a nie preferencję jednego operatora. Powód powstania: gdy na stanie są

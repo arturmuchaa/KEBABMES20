@@ -3967,6 +3967,78 @@ export const magazynApi = {
   mrozniaKartony: () =>
     get<{ id: string; cartonNo: string; clientName: string; packedQty: number; kg: number; coldStorageAt: string }[]>(
       '/magazyn/mroznia/kartony'),
+  /** Tary palet do ważenia przy mroźni (lista z biura). */
+  paletyMrozni: () => get<{ pallets: PaletaMrozni[] }>('/magazyn/mroznia/palety').then(r => r?.pallets ?? []),
+  zapiszPaletyMrozni: (pallets: PaletaMrozni[]) =>
+    put<{ pallets: PaletaMrozni[] }>('/magazyn/mroznia/palety', { pallets }).then(r => r?.pallets ?? []),
+  /** Co to za karton i czy pełny (= ważenie obowiązkowe). */
+  mrozniaSprawdz: (code: string) => post<KartonDoWazenia>('/magazyn/mroznia/sprawdz', { code }),
+  /** Zapis ważenia + wjazd do mroźni. Werdykt liczy serwer. */
+  mrozniaWazenie: (b: { code: string; palletTypeId: string; grossKg: number; mode: 'auto' | 'manual' }) =>
+    post<WazenieMrozni>('/magazyn/mroznia/wazenie',
+      { code: b.code, pallet_type_id: b.palletTypeId, gross_kg: b.grossKg, mode: b.mode }),
+  mrozniaOstatnieWazenie: (containerId: string) =>
+    get<WazenieMrozni>(`/magazyn/mroznia/wazenie/${encodeURIComponent(containerId)}`),
+}
+
+export interface PaletaMrozni {
+  id: string
+  name: string
+  tareMinKg: number
+  tareMaxKg: number
+  /** Zapas netto w % (tuleje, folia, działka wagi). */
+  marginPct: number
+}
+
+export interface PozycjaSkladu { qty: number; kgPerUnit: number; recipeName: string; productTypeName: string }
+
+/** Ile sztuk z której partii leży w kartonie („3 szt · 290926 591"). */
+export interface PartiaWKartonie { batchNo: string; qty: number }
+
+export interface KartonDoWazenia {
+  result: 'OK' | 'INVALID' | 'GONE'
+  kind?: 'order' | 'stock'
+  id?: string
+  code?: string
+  cartonNo?: string
+  clientName?: string
+  orderNo?: string
+  palletNo?: number
+  full?: boolean
+  /** W trakcie pakowania — skan kartki otwiera go do pakowania. */
+  open?: boolean
+  inColdStorage?: boolean
+  netKg?: number
+  qty?: number
+  lines?: PozycjaSkladu[]
+  batches?: PartiaWKartonie[]
+  lastWeighing?: WazenieMrozni | null
+}
+
+export interface WazenieMrozni {
+  id: string
+  /** Kod kartki kartonu (PAL|… / SCARTON|…) — do QR na etykiecie. */
+  code: string
+  containerKind: 'order' | 'stock'
+  containerId: string
+  cartonNo: string
+  clientName: string
+  orderNo: string
+  lines: PozycjaSkladu[]
+  batches: PartiaWKartonie[]
+  palletTypeId: string
+  palletTypeName: string
+  tareMinKg: number
+  tareMaxKg: number
+  tareKg: number
+  marginPct: number
+  grossKg: number
+  netKg: number
+  diffKg: number
+  ok: boolean
+  weighMode: 'auto' | 'manual'
+  operator: string
+  weighedAt: string
 }
 
 // ─── Health ───────────────────────────────────────────────────

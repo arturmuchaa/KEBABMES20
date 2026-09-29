@@ -32,7 +32,7 @@ function blad(naglowek: string, szczegol: string, gdzie?: string): Omit<StanAlar
   return { skaner: 'L', ton: 'blad', naglowek, szczegol, ...(gdzie ? { gdzie } : {}) }
 }
 
-export function werdyktPakowania(w: SkanPakowania, aktywny: string | null): WerdyktPakowania {
+export function werdyktPakowania(w: SkanPakowania, aktywny: string | null, kod = ''): WerdyktPakowania {
   const baza: WerdyktPakowania = { dzwiek: 'cisza', alarm: null, uwaga: null, aktywny, pelny: null }
   const k = w.container
 
@@ -62,9 +62,13 @@ export function werdyktPakowania(w: SkanPakowania, aktywny: string | null): Werd
         },
       }
     case 'ALREADY':
-      if (w.sameCarton) return baza
+      // Właściciel 29.09.2026: drugi skan tej samej sztuki ma to POWIEDZIEĆ.
+      // W tym samym kartonie to nie wpadka — bursztyn, bez czerwonego alarmu.
+      if (w.sameCarton) return { ...baza, dzwiek: 'inny',
+        uwaga: { naglowek: 'KEBAB JUŻ SPAKOWANY',
+          szczegol: `${w.unit} jest już w tym kartonie${w.where ? ` (${w.where})` : ''} — nic nie dopisano.` } }
       return { ...baza, dzwiek: 'blad',
-        alarm: blad('JUŻ SPAKOWANA', `${w.unit} leży już w innym kartonie.`,
+        alarm: blad('KEBAB JUŻ SPAKOWANY', `${w.unit} leży już w innym kartonie.`,
           w.where ? `KARTON ${w.where}` : undefined) }
     case 'NO_PLACE':
       // Hala 25.09.2026: „nie ma gdzie" brzmiało jak nierozpoznany kod, a to
@@ -80,6 +84,9 @@ export function werdyktPakowania(w: SkanPakowania, aktywny: string | null): Werd
     case 'INVALID':
     default:
       return { ...baza, dzwiek: 'blad',
-        alarm: blad('NIEZNANY KOD', 'To nie jest etykieta sztuki kebaba.') }
+        alarm: blad('NIEZNANY KOD',
+          kod
+            ? `Skaner odczytał: „${kod.length > 40 ? `${kod.slice(0, 40)}…` : kod}". To nie jest pełna etykieta sztuki ani kartka kartonu — zeskanuj jeszcze raz.`
+            : 'To nie jest pełna etykieta sztuki ani kartka kartonu — zeskanuj jeszcze raz.') }
   }
 }

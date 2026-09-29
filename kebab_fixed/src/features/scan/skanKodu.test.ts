@@ -6,7 +6,8 @@
  */
 import { describe, it, expect } from 'vitest'
 import { czyKompletnyKod, czyKompletnyKodPalety, czyKompletnyKodSztuki, czyWpisalSkaner,
-         idKartonu, kodKartki, MAX_MS_NA_ZNAK, MIN_ZNAKOW_SKANU, utworzStraznikaWysylki } from './skanKodu'
+         czyZaczetyKod, idKartonu, kodKartki, MAX_MS_NA_ZNAK, MIN_ZNAKOW_SKANU, OPOZNIENIE_ZACZETEGO_MS,
+         opoznienieWysylki, utworzStraznikaWysylki } from './skanKodu'
 
 describe('rozpoznanie kompletnego kodu palety', () => {
   it('token z kartki', () => {
@@ -168,5 +169,49 @@ describe('kod ze śmieciami doklejonymi przez skaner', () => {
     expect(czyKompletnyKodSztuki(`]Q1U|${ID}`)).toBe(true)
     expect(idKartonu(`]Q1SCARTON|${ID}`)).toBe(ID)
     expect(idKartonu(`\u0002SCARTON|${ID}\u0003`)).toBe(ID)
+  })
+})
+
+describe('kartka palety zniekształcona przez skaner (29.09.2026)', () => {
+  // Hala: „skanuję kartkę na paletę, a pokazuje: to nie jest sztuka kebab".
+  // Skaner w innym układzie klawiatury / z CapsLockiem psuje „/" i „|" oraz
+  // wielkość liter — tak samo jak 25.09 przy sztukach i kartonach.
+  const ID = '6890e863376444ceaa10'
+
+  it('adres QR WIELKIMI literami → postać kanoniczna PAL|id|nr', () => {
+    expect(kodKartki(`HTTP://TAURI.LOCALHOST/M/P/${ID.toUpperCase()}/7`))
+      .toEqual({ rodzaj: 'order', kod: `PAL|${ID}|7` })
+  })
+
+  it('inny separator zamiast „/" i „|"', () => {
+    expect(kodKartki(`http:--tauri.localhost-m-p-${ID}-12`)).toEqual({ rodzaj: 'order', kod: `PAL|${ID}|12` })
+    expect(kodKartki(`PAL<${ID}<3`)).toEqual({ rodzaj: 'order', kod: `PAL|${ID}|3` })
+    expect(kodKartki(`pal\\${ID.toUpperCase()}\\3`)).toEqual({ rodzaj: 'order', kod: `PAL|${ID}|3` })
+    expect(czyKompletnyKod(`HTTP://TAURI.LOCALHOST/M/P/${ID.toUpperCase()}/7`)).toBe(true)
+  })
+
+  it('ucięta kartka nie jest kartką', () => {
+    expect(kodKartki(`HTTP://TAURI.LOCALHOST/M/P/${ID.toUpperCase().slice(0, 10)}`)).toBeNull()
+  })
+})
+
+describe('kod zaczęty, ale jeszcze niekompletny — czekamy dłużej', () => {
+  const ID = 'ac82b8f61e2545a4867b'
+  it('początki znanych kodów', () => {
+    expect(czyZaczetyKod('U|ac82b8f6')).toBe(true)
+    expect(czyZaczetyKod('SCARTON|ac82')).toBe(true)
+    expect(czyZaczetyKod('http://tauri.localhost/m/p/68')).toBe(true)
+    expect(czyZaczetyKod('HTTP://TAURI.LOC')).toBe(true)
+    expect(czyZaczetyKod('PAL|6890e8')).toBe(true)
+  })
+  it('kompletny kod i obce napisy — nie', () => {
+    expect(czyZaczetyKod(`U|${ID}`)).toBe(false)
+    expect(czyZaczetyKod(`SCARTON|${ID}`)).toBe(false)
+    expect(czyZaczetyKod('WX12345')).toBe(false)
+  })
+  it('opóźnienie wysyłki: kompletny szybko, zaczęty długo', () => {
+    expect(opoznienieWysylki(`U|${ID}`, 150)).toBe(150)
+    expect(opoznienieWysylki('U|ac82b8f6', 150)).toBe(OPOZNIENIE_ZACZETEGO_MS)
+    expect(opoznienieWysylki('WX12345678', 150)).toBe(150)
   })
 })

@@ -125,6 +125,26 @@ _DDL: list[str] = [
     "ALTER TABLE stock_cartons ADD COLUMN IF NOT EXISTS loaded_vehicle_id TEXT",
     "ALTER TABLE stock_cartons ADD COLUMN IF NOT EXISTS loaded_at TIMESTAMPTZ",
     "ALTER TABLE stock_cartons ADD COLUMN IF NOT EXISTS shipped_at TIMESTAMPTZ",
+    # Ważenie pełnego kartonu przy wjeździe do mroźni (29.09.2026). Jeden wiersz
+    # na ważenie — ponowne ważenie DOPISUJE, ostatnie jest aktualne (dodruk).
+    # Kontener to paleta zamówienia ALBO karton magazynowy; skład zapisany
+    # w chwili ważenia, żeby dodruk etykiety nie zależał od późniejszych zmian.
+    """CREATE TABLE IF NOT EXISTS cold_storage_weighings (
+        id TEXT PRIMARY KEY,
+        container_kind TEXT NOT NULL,
+        container_id TEXT NOT NULL,
+        carton_no TEXT, client_name TEXT, order_no TEXT,
+        lines JSONB NOT NULL DEFAULT '[]'::jsonb,
+        batches JSONB NOT NULL DEFAULT '[]'::jsonb,
+        pallet_type_id TEXT, pallet_type_name TEXT,
+        tare_min_kg NUMERIC, tare_max_kg NUMERIC, margin_pct NUMERIC,
+        gross_kg NUMERIC NOT NULL, net_kg NUMERIC NOT NULL, diff_kg NUMERIC,
+        ok BOOLEAN NOT NULL, weigh_mode TEXT NOT NULL DEFAULT 'auto',
+        operator TEXT, weighed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_cold_weighings_container ON cold_storage_weighings(container_id, weighed_at DESC)",
+    # Wykaz partii na etykiecie ważenia („3 szt 290926 591") — migawka z chwili ważenia.
+    "ALTER TABLE cold_storage_weighings ADD COLUMN IF NOT EXISTS batches JSONB NOT NULL DEFAULT '[]'::jsonb",
     """CREATE TABLE IF NOT EXISTS warehouse_events (
         id TEXT PRIMARY KEY, container_id TEXT NOT NULL, unit_id TEXT,
         action TEXT NOT NULL, operator TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT now()

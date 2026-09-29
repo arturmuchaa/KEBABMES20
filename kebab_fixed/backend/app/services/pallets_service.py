@@ -24,6 +24,16 @@ logger = get_logger(__name__)
 # Token QR: PAL|<order_id>|<pallet_no>
 _PAL_TOKEN_RE = re.compile(r"^PAL\|([^|]+)\|(\d+)$")
 _PAL_URL_RE   = re.compile(r"/m/p/([^/]+)/(\d+)\b")
+# Kartka zniekształcona przez skaner (hala 29.09.2026: „skanuję kartkę na
+# paletę, a pokazuje: to nie jest sztuka kebab"). Inny układ klawiatury psuje
+# „/" i „|", CapsLock odwraca wielkość liter. Po KSZTAŁCIE: jeden dowolny znak
+# nie-alfanumeryczny jako separator i 20 hex id (`cuid()`), id → małe litery.
+# Ta sama reguła żyje we froncie (`skanKodu.luznaKartkaPalety`).
+_PAL_TOKEN_LUZNY = re.compile(r"^PAL[^0-9A-Za-z]([0-9a-fA-F]{20})[^0-9A-Za-z](\d+)$", re.I)
+_PAL_URL_LUZNY = re.compile(
+    r"(?:^|[^0-9A-Za-z])m[^0-9A-Za-z]p[^0-9A-Za-z]([0-9a-fA-F]{20})[^0-9A-Za-z](\d+)$", re.I)
+_STERUJACE = re.compile(r"[\x00-\x1f\x7f]")
+_AIM = re.compile(r"^\][A-Za-z][0-9A-Za-z]")
 
 # Definicje transition status → status. `from` = stany dopuszczalne, `field` = kolumna timestampa.
 # Skąd dokąd wolno przestawić paletę skanem kartki.
@@ -51,15 +61,18 @@ _TRANSITIONS = {
 
 def parse_code(code: str) -> tuple[str, int]:
     """Wyciągnij (order_id, pallet_no) z tokenu lub URL-a QR."""
-    s = (code or "").strip()
+    s = _AIM.sub("", _STERUJACE.sub("", code or "").strip()).strip()
     if not s:
         raise HTTPException(400, "Pusty kod palety")
     m = _PAL_TOKEN_RE.match(s)
     if not m:
         m = _PAL_URL_RE.search(s)
-    if not m:
-        raise HTTPException(400, f"Nieprawidłowy kod palety: {code!r}")
-    return m.group(1), int(m.group(2))
+    if m:
+        return m.group(1), int(m.group(2))
+    m = _PAL_TOKEN_LUZNY.match(s) or _PAL_URL_LUZNY.search(s)
+    if m:
+        return m.group(1).lower(), int(m.group(2))
+    raise HTTPException(400, f"Nieprawidłowy kod palety: {code!r}")
 
 
 def list_pallets(order_id: str) -> List[Dict]:

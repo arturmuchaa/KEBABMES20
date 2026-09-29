@@ -219,7 +219,7 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, oczekujace, onPr
       setWMrozni(null)
       const akt = aktywnyRef.current
       const w = await magazynApi.skan(kod, akt)
-      const v = werdyktPakowania(w, akt)
+      const v = werdyktPakowania(w, akt, kod)
       // Serwer wskazał inny aktywny (pierwsza sztuka, zamknięty karton) —
       // chyba że operator w międzyczasie sam wybrał karton albo wyszedł
       // z ekranu: wtedy stara odpowiedź nie zmienia aktywnego u rodzica.
