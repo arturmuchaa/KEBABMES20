@@ -326,19 +326,81 @@ def _wynik(result: str, unit: Optional[Dict], k: Optional[Dict] = None, **extra)
     }
 
 
-def _zapisz(k: Dict[str, Any], code: str) -> bool:
+def _zapisz(k: Dict[str, Any], code: str) -> Optional[Dict[str, Any]]:
     """Zapis przez ISTNIEJĄCE ścieżki (blokady FOR UPDATE żyją tam).
-    False = w międzyczasie ktoś zajął ostatnie miejsce — próbujemy dalej."""
+
+    Wynik serwisu = sztuka FAKTYCZNIE dopisana. None = nic nie dopisano:
+    odmowa (ktoś zajął ostatnie miejsce ALBO drugie stanowisko spakowało tę
+    samą sztukę) lub idempotentny sukces kartonu magazynowego (`already`).
+    Co z tych rzeczy zaszło, rozstrzyga wołający ponownym odczytem sztuki."""
     if k["kind"] == "order":
         r = pallets_service.pack_unit_into_pallet(k["id"], code)
-        return bool(r.get("ok"))
+        return r if r.get("ok") else None
     try:
-        stock_cartons_service.scan_unit_into_carton(k["id"], code)
-        return True
+        r = stock_cartons_service.scan_unit_into_carton(k["id"], code)
     except HTTPException as e:
         if e.status_code == 409:
-            return False
+            return None
         raise
+    return None if r.get("already") else r
+
+
+def _odmowa_sztuki(unit: Dict[str, Any], aktywny_id: Optional[str]) -> Optional[Dict]:
+    """ALREADY / NOT_PRODUCED dla sztuki, która nie może już nigdzie wejść."""
+    if unit.get("carton_id") or unit.get("pallet_id"):
+        ten = aktywny_id and aktywny_id in (unit.get("carton_id"), unit.get("pallet_id"))
+        return _wynik("ALREADY", unit, None, where=_gdzie_lezy(unit), sameCarton=bool(ten))
+    if unit.get("status") != PRODUCED:
+        return _wynik("NOT_PRODUCED", unit, None, status=unit.get("status") or "")
+    return None
+
+
+def _kontener_po_zapisie(k: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Stan TEGO kartonu po zapisie — wąski odczyt po id i rodzaju, bez filtra
+    statusu: pełny karton znika z `otwarte_kontenery()`, a drugi operator mógł
+    go już przestawić dalej. Kształt jak w `otwarte_kontenery()`."""
+    if k["kind"] == "order":
+        p = query_one(
+            """SELECT p.id, p.pallet_no, p.carton_no, p.created_at,
+                      o.order_no, o.client_name, o.delivery_date
+               FROM order_pallets p JOIN client_orders o ON o.id = p.order_id
+               WHERE p.id = %s""",
+            (k["id"],),
+        )
+        if not p:
+            return None
+        ln = _linie_palet([p["id"]]).get(p["id"], [])
+        return {
+            "kind": "order", "id": p["id"],
+            "cartonNoInt": int(p.get("carton_no") or 0),
+            "cartonNo": format_carton_no(p.get("carton_no")) if p.get("carton_no") else "",
+            "clientName": p.get("client_name") or "",
+            "orderNo": p.get("order_no") or "",
+            "palletNo": int(p.get("pallet_no") or 0),
+            "deliveryDate": str(p.get("delivery_date") or "")[:10],
+            "openedAt": str(p.get("created_at") or "")[:10],
+            "lines": ln,
+            "targetQty": sum(int(x.get("target_qty") or 0) for x in ln),
+            "packedQty": sum(int(x.get("packed_qty") or 0) for x in ln),
+        }
+    c = query_one("SELECT * FROM stock_cartons WHERE id=%s", (k["id"],))
+    if not c:
+        return None
+    ln = query_all(
+        "SELECT * FROM stock_carton_lines WHERE carton_id=%s ORDER BY kg_per_unit", (c["id"],))
+    return {
+        "kind": "stock", "id": c["id"],
+        "cartonNoInt": int(c.get("carton_no") or 0),
+        "cartonNo": format_carton_no(c.get("carton_no")) if c.get("carton_no") else "",
+        "clientName": c.get("client_name") or "",
+        "orderNo": c.get("linked_order_no") or "",
+        "palletNo": 0,
+        "deliveryDate": "",
+        "openedAt": str(c.get("created_at") or "")[:10],
+        "lines": ln,
+        "targetQty": sum(int(x.get("target_qty") or 0) for x in ln),
+        "packedQty": sum(int(x.get("packed_qty") or 0) for x in ln),
+    }
 
 
 def skanuj_sztuke(code: str, aktywny_id: Optional[str] = None) -> Dict[str, Any]:
@@ -364,19 +426,35 @@ def skanuj_sztuke(code: str, aktywny_id: Optional[str] = None) -> Dict[str, Any]
     aktywny = next((k for k in kontenery if k["id"] == aktywny_id), None) if aktywny_id else None
     aktywny_zamkniety = bool(aktywny_id) and aktywny is None
 
-    if unit.get("carton_id") or unit.get("pallet_id"):
-        ten = aktywny_id and aktywny_id in (unit.get("carton_id"), unit.get("pallet_id"))
-        return _wynik("ALREADY", unit, None, where=_gdzie_lezy(unit), sameCarton=bool(ten))
-    if unit.get("status") != PRODUCED:
-        return _wynik("NOT_PRODUCED", unit, None, status=unit.get("status") or "")
+    odmowa = _odmowa_sztuki(unit, aktywny_id)
+    if odmowa:
+        return odmowa
 
     for k in kolejnosc_kandydatow(unit, kontenery, aktywny_id):
-        if not _zapisz(k, code):
+        r = _zapisz(k, code)
+        if r is None:
+            # Nic nie dopisano. Drugie stanowisko mogło w tej chwili spakować
+            # TĘ sztukę (→ ALREADY, gdzie naprawdę leży) — albo zająć ostatnie
+            # miejsce INNĄ sztuką (→ próbujemy kolejnego kartonu).
+            teraz = _sztuka(unit_id)
+            odmowa = _odmowa_sztuki(teraz, aktywny_id) if teraz else None
+            if odmowa:
+                return odmowa
             continue
-        # Stan po zapisie — licznik i ewentualne zamknięcie kartonu.
-        po = next((x for x in otwarte_kontenery() if x["id"] == k["id"]), None)
-        pelny = po is None
-        k_wynik = po or {**k, "packedQty": int(k.get("packedQty") or 0) + 1}
+        # Stan po zapisie — odczyt tego kartonu, nie „stara migawka + 1".
+        po = _kontener_po_zapisie(k)
+        if po is not None:
+            pelny = po["targetQty"] > 0 and po["packedQty"] >= po["targetQty"]
+            k_wynik = po
+        else:
+            # Zapis potwierdzony, ale odczyt po id nie znalazł kartonu. Sumy
+            # z transakcji zapisu; rozpisu pozycji nie znamy — stare `lines`
+            # z migawki byłyby nieaktualne. `lines: []` + `detailsAvailable:
+            # False` znaczy „brak rozpisu", NIE „pusty karton".
+            pelny = bool(r.get("full")) or r.get("palletStatus") == "packed"
+            k_wynik = {**k, "lines": [], "detailsAvailable": False,
+                       "packedQty": int(r.get("packedQty") or 0),
+                       "targetQty": int(r.get("targetQty") or 0)}
         do_aktywnego = (not aktywny_id) or k["id"] == aktywny_id or aktywny_zamkniety
         logger.info("magazyn.pakowanie.skan", extra={
             "unit_id": unit_id, "container_id": k["id"], "kind": k["kind"],

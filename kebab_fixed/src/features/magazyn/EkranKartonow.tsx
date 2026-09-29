@@ -38,18 +38,21 @@ export function EkranKartonow({ onWybor }: { onWybor: (kartonId: string | null) 
           {kontenery.map(k => {
             const b = brakuje(k)
             const proc = k.targetQty ? k.packedQty / k.targetQty : 0
+            const zaczety = k.packedQty > 0
             return (
               <button key={k.id} type="button" onClick={() => onWybor(k.id)}
-                className="flex w-full items-center gap-4 rounded-xl px-4 py-3.5 text-left transition hover:shadow-md"
-                style={{ background: 'var(--panel)', border: '1.5px solid var(--line)', color: 'var(--ink)' }}>
-                <span className="hmi-v10-mono grid shrink-0 place-items-center rounded-lg text-[13px] font-bold"
-                  style={{ width: 74, height: 46, background: 'var(--accentSoft)', color: 'var(--accent)',
+                data-testid="karton-na-liscie" data-stan={zaczety ? 'zaczety' : 'nowy'}
+                className="flex min-h-[64px] w-full items-center gap-4 rounded-xl px-4 py-3.5 text-left transition hover:shadow-md"
+                style={{ background: 'var(--panel)', border: `1.5px solid ${zaczety ? 'var(--accentLine)' : 'var(--line)'}`, color: 'var(--ink)' }}>
+                <span className="hmi-v10-mono grid shrink-0 place-items-center rounded-lg text-[18px] font-bold"
+                  style={{ minWidth: 92, height: 50, padding: '0 8px', background: 'var(--accentSoft)', color: 'var(--accent)',
                            border: '1.5px solid var(--accentLine)' }}>
                   {k.cartonNo || '—'}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-2">
                     <span className="truncate text-[20px] font-extrabold leading-tight">{k.clientName || 'na magazyn'}</span>
+                    <Znacznik ton={zaczety ? 'uwaga' : 'szary'}>{zaczety ? 'zaczęty' : 'nowy'}</Znacznik>
                     <Znacznik ton={k.kind === 'order' ? 'akcja' : 'szary'}>
                       {k.kind === 'order' ? 'zamówienie' : 'magazyn'}
                     </Znacznik>
@@ -80,15 +83,19 @@ export function EkranKartonow({ onWybor }: { onWybor: (kartonId: string | null) 
               </div>
               {spakowane.map(k => (
                 <button key={k.id} type="button" onClick={() => onWybor(k.id)}
-                  className="flex w-full items-center gap-4 rounded-xl px-4 py-3 text-left"
+                  data-testid="karton-na-liscie" data-stan="pelny"
+                  className="flex min-h-[64px] w-full items-center gap-4 rounded-xl px-4 py-3 text-left"
                   style={{ background: 'var(--successSoft)', border: '1.5px solid var(--successLine)', color: 'var(--ink)' }}>
-                  <span className="hmi-v10-mono grid shrink-0 place-items-center rounded-lg text-[13px] font-bold"
-                    style={{ width: 74, height: 46, background: '#fff', color: 'var(--success)',
+                  <span className="hmi-v10-mono grid shrink-0 place-items-center rounded-lg text-[18px] font-bold"
+                    style={{ minWidth: 92, height: 50, padding: '0 8px', background: '#fff', color: 'var(--success)',
                              border: '1.5px solid var(--successLine)' }}>{k.cartonNo || '—'}</span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[19px] font-extrabold leading-tight">✓ {k.clientName || 'na magazyn'}</span>
+                    <span className="flex items-center gap-2">
+                      <span className="truncate text-[19px] font-extrabold leading-tight">✓ {k.clientName || 'na magazyn'}</span>
+                      <Znacznik ton="ok">pełny</Znacznik>
+                    </span>
                     <span className="block truncate text-[13px]" style={{ color: '#166534' }}>
-                      ❄ zeskanuj kartkę i wjedź do mroźni
+                      ❄ otwórz i zeskanuj kartkę, żeby wjechać do mroźni
                     </span>
                   </span>
                   <span className="hmi-v10-mono shrink-0 text-[20px] font-bold" style={{ color: 'var(--success)' }}>
@@ -117,7 +124,7 @@ export function EkranKartonow({ onWybor }: { onWybor: (kartonId: string | null) 
                    cursor: kontenery.length ? 'pointer' : 'not-allowed' }}>
           <span className="block text-[24px] font-extrabold leading-tight">Skanuj od razu</span>
           <span className="mt-1 block text-[14.5px]" style={{ opacity: 0.85 }}>
-            Pierwsza sztuka sama wskaże karton. Każda następna idzie tam, gdzie należy.
+            Bez wybierania kartonu: każda zeskanowana sztuka trafi do swojego kartonu.
           </span>
         </button>
 

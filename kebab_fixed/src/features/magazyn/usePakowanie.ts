@@ -11,6 +11,8 @@ import { magazynApi, type OtwartyKarton, type PulaPozycja } from '@/lib/api'
 
 export const POLL_PAKOWANIA_MS = 4000
 
+export type StanPakowania = Awaited<ReturnType<typeof magazynApi.pakowanie>>
+
 export function usePakowanie() {
   const [kontenery, setKontenery] = useState<OtwartyKarton[]>([])
   const [pula, setPula] = useState<PulaPozycja[]>([])
@@ -22,11 +24,13 @@ export function usePakowanie() {
   const ostatnia = useRef('')
   const zywy = useRef(true)
 
-  const odswiez = useCallback(async () => {
+  /** Zwraca świeżą migawkę (null przy błędzie) — skan kartki sprawdza
+   *  karton jeszcze raz, zanim powie „nie jest otwarty". */
+  const odswiez = useCallback(async (): Promise<StanPakowania | null> => {
     const n = ++numer.current
     try {
       const s = await magazynApi.pakowanie()
-      if (!zywy.current || n !== numer.current) return
+      if (!zywy.current || n !== numer.current) return s
       const j = JSON.stringify(s)
       if (j !== ostatnia.current) {
         ostatnia.current = j
@@ -36,8 +40,10 @@ export function usePakowanie() {
       }
       setBlad(false)
       setAktualizacja(new Date())
+      return s
     } catch {
       if (zywy.current && n === numer.current) setBlad(true)
+      return null
     } finally {
       if (zywy.current && n === numer.current) setLadowanie(false)
     }

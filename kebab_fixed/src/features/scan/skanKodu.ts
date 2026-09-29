@@ -53,13 +53,40 @@ export function czyKompletnyKodSztuki(wartosc: string): boolean {
   return SZTUKA.test(oczyscKod(wartosc))
 }
 
-/** Id kartonu magazynowego z kodu karty kartonu; null, gdy to nie karton. */
+/** Id kartonu magazynowego z kodu karty kartonu; null, gdy to nie karton.
+ *
+ *  Id z backendu to 20 znaków hex małymi literami — CapsLock na skanerze
+ *  daje wielkie, więc takie id sprowadzamy do małych. Inne id (starsze
+ *  kartki, testy) zostają bez zmian: nie wiemy, czy wielkość liter coś
+ *  w nich znaczy. */
 export function idKartonu(wartosc: string): string | null {
   const s = oczyscKod(wartosc)
   const dokladny = /^SCARTON\|([0-9A-Za-z]+)$/i.exec(s)
-  if (dokladny) return dokladny[1].trim()
+  if (dokladny) {
+    const id = dokladny[1]
+    return /^[0-9a-fA-F]{20}$/.test(id) ? id.toLowerCase() : id
+  }
   const m = KARTON.exec(s)
   return m ? m[1].toLowerCase() : null
+}
+
+/** Kartka kartonu: magazynowego (`SCARTON|id`) albo palety zamówienia
+ *  (`PAL|zam|nr` / adres QR `…/m/p/zam/nr`).
+ *
+ *  `kod` to wersja do wysłania na serwer: bez prefiksu AIM i znaków
+ *  sterujących (backend palet ich nie zdejmuje), a karton magazynowy
+ *  w postaci kanonicznej `SCARTON|<id>` — CapsLock nie może zepsuć wjazdu
+ *  do mroźni. Numeru zamówienia i adresu NIE zmieniamy (wielkość liter
+ *  w id zamówienia jest znacząca). */
+export type KodKartki =
+  | { rodzaj: 'stock'; id: string; kod: string }
+  | { rodzaj: 'order'; kod: string }
+
+export function kodKartki(wartosc: string): KodKartki | null {
+  const id = idKartonu(wartosc)
+  if (id) return { rodzaj: 'stock', id, kod: `SCARTON|${id}` }
+  const s = oczyscKod(wartosc)
+  return czyKompletnyKodPalety(s) ? { rodzaj: 'order', kod: s } : null
 }
 
 /** Kod, który wolno wysłać bez Entera: paleta, sztuka albo karton. */

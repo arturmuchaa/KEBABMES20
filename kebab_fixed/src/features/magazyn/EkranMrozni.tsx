@@ -42,9 +42,11 @@ export function EkranMrozni({ onAlarm }: { onAlarm: PokazAlarm }) {
   }, [wczytaj])
 
   async function skanuj(kod: string) {
-    if (idKartonu(kod)) {
+    const karton = idKartonu(kod)
+    if (karton) {
       try {
-        const w = await magazynApi.mrozniaKarton(kod)
+        // Postać kanoniczna — kartka zeskanowana z CapsLockiem też wjeżdża.
+        const w = await magazynApi.mrozniaKarton(`SCARTON|${karton}`)
         if (w.result === 'SUCCESS' || w.result === 'ALREADY_SCANNED') {
           setOstatnia(`Karton ${w.cartonNo ?? ''} · ${w.clientName ?? ''}`)
         } else {

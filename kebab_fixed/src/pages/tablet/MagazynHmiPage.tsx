@@ -15,15 +15,15 @@
  * wprowadza. Kafel WYDANIE liczy z terminów dostawy zamówień — dane, które
  * już są.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { HMI_FONT, HMI_VARS } from '@/features/hmi-theme/vars'
 import '@/features/hmi-theme/hmi-font.css'
 import { useAuth } from '@/features/auth/AuthContext'
 import { useServiceHold, ServiceMenuModal, serviceSections } from '@/features/deboning/ServiceMenu'
 import { isOfflineError, magazynApi, palletsApi, type PodsumowanieMagazynu } from '@/lib/api'
-import { czyKompletnyKodPalety, idKartonu } from '@/features/scan/skanKodu'
+import { kodKartki } from '@/features/scan/skanKodu'
 import { useSkanGlobalny } from '@/features/magazyn/useSkanGlobalny'
-import { grajBlad } from '@/features/magazyn/dzwiek'
+import { grajBlad, grajInny } from '@/features/magazyn/dzwiek'
 import { Kafel } from '@/features/magazyn/components/Kafel'
 import { Alarm } from '@/features/magazyn/components/Alarm'
 import { EkranKartonow } from '@/features/magazyn/EkranKartonow'
@@ -31,9 +31,17 @@ import { EkranPakowania } from '@/features/magazyn/EkranPakowania'
 import { EkranWyboruAuta } from '@/features/magazyn/EkranWyboruAuta'
 import { EkranZaladunku } from '@/features/magazyn/EkranZaladunku'
 import { EkranMrozni } from '@/features/magazyn/EkranMrozni'
-import type { EkranMagazynu, StanAlarmu } from '@/features/magazyn/magazynTypes'
+import type { EkranMagazynu, OstatniaKartka, SkanOczekujacy, StanAlarmu } from '@/features/magazyn/magazynTypes'
 
 declare const __MAGAZYN_VERSION__: string
+
+/** Wersja widoczna na KAŻDYM ekranie i w menu serwisowym — ta sama, co
+ *  wstrzyknął build z `tauri.magazyn.conf.json`. Po cichej aktualizacji
+ *  widać na oko, czy stanowisko ją dostało (wzorzec z rozbioru v10). */
+export const WERSJA_HMI = `HMI Magazyn · ${__MAGAZYN_VERSION__}`
+
+/** Ekrany bez pola skanu, na których kartka kartonu otwiera jego pakowanie. */
+const EKRANY_SKANU_KARTKI: EkranMagazynu[] = ['kafle', 'kartony', 'wydanie-auta']
 
 const TYTULY: Record<EkranMagazynu, { t: string; p: string; back: EkranMagazynu | null }> = {
   'kafle':         { t: 'Magazyn',  p: 'Stanowisko magazynowe',        back: null },
@@ -72,18 +80,19 @@ function Chip({ label, value, accent }: { label: string; value: string; accent?:
 
 export function MagazynHmiPage() {
   const { user, logout } = useAuth()
-  const [ekran, setEkran] = useState<EkranMagazynu>('kafle')
+  const [ekran, setEkranStan] = useState<EkranMagazynu>('kafle')
   const [pojazdId, setPojazdId] = useState('')
   const [aktywnyKarton, setAktywnyKarton] = useState<string | null>(null)
-  // Sztuka zeskanowana na menu — pakowanie przyjmuje ją zaraz po wejściu.
-  const [pierwszySkan, setPierwszySkan] = useState<string | null>(null)
+  // Skany złapane na menu / w przejściu — pakowanie przyjmuje je swoją kolejką.
+  const [oczekujace, setOczekujaceStan] = useState<SkanOczekujacy[]>([])
+  const [ostatniaKartka, setOstatniaKartka] = useState<OstatniaKartka | null>(null)
+  const [szukam, setSzukam] = useState(false)
   const [alarm, setAlarm] = useState<StanAlarmu | null>(null)
   const [ostatniBlad, setOstatniBlad] = useState<StanAlarmu | null>(null)
   const [stan, setStan] = useState<PodsumowanieMagazynu | null>(null)
   const [stanBlad, setStanBlad] = useState(false)
   const [teraz, setTeraz] = useState(() => new Date())
   const [menuSerwisowe, setMenuSerwisowe] = useState(false)
-  const { holdProps } = useServiceHold(() => setMenuSerwisowe(true))
 
   const pokazAlarm = useCallback((a: Omit<StanAlarmu, 'ts'>) => {
     const pelny: StanAlarmu = { ...a, ts: Date.now() }
@@ -92,40 +101,125 @@ export function MagazynHmiPage() {
     setTimeout(() => setAlarm(x => (x && x.ts === pelny.ts ? null : x)), ALARM_MS)
   }, [])
 
-  /** Skan na ekranie bez pola skanu (menu, lista kartonów, wybór auta).
-   *  Właściciel 25.09.2026: karta kartonu ma od razu otwierać pakowanie
-   *  TEGO kartonu — bez szukania go na liście. */
-  const skanPozaPolem = useCallback(async (kod: string) => {
+  // Ekran w refie: skan w kolejce sprawdza, gdzie JESTEŚMY, a nie gdzie
+  // byliśmy, kiedy przyszedł.
+  const ekranRef = useRef(ekran)
+  const setEkran = useCallback((e: EkranMagazynu) => { ekranRef.current = e; setEkranStan(e) }, [])
+  const oczekujaceRef = useRef<SkanOczekujacy[]>([])
+  const setOczekujace = useCallback((q: SkanOczekujacy[]) => { oczekujaceRef.current = q; setOczekujaceStan(q) }, [])
+  // Każde RĘCZNE przejście (Wstecz, kafel, wybór z listy) podbija pokolenie.
+  // Wynik skanu z poprzedniego pokolenia nie może już nikogo przenieść.
+  const pokolenie = useRef(0)
+  const kolejka = useRef(Promise.resolve())
+  const nrSkanu = useRef(0)
+
+  const przerwany = useCallback(() => {
+    grajInny('L')
+    pokazAlarm({ skaner: 'L', ton: 'uwaga', naglowek: 'SKAN PRZERWANY',
+      szczegol: 'Ekran zmienił się, zanim skan się skończył. Nic nie zapisano — zeskanuj jeszcze raz.' })
+  }, [pokazAlarm])
+
+  // Numer odczytu, który trzyma spinner „Szukam kartonu…" — stary odczyt,
+  // kończący się po unieważnieniu, nie gasi spinnera nowego.
+  const szukamNr = useRef(0)
+
+  /** Ręczne przejście, menu serwisowe, wylogowanie: skan w trakcie odczytu
+   *  i skany czekające na pakowanie przepadają (z komunikatem). Nowe skany
+   *  nie czekają za odczytem, który już nic nie zmieni. */
+  const uniewaznij = useCallback(() => {
+    pokolenie.current++
+    kolejka.current = Promise.resolve()
+    szukamNr.current++
+    setSzukam(false)
+    if (oczekujaceRef.current.length) { setOczekujace([]); przerwany() }
+  }, [setOczekujace, przerwany])
+
+  const przejdz = useCallback((e: EkranMagazynu) => {
+    uniewaznij()
+    setEkran(e)
+  }, [setEkran, uniewaznij])
+
+  const { holdProps } = useServiceHold(() => { uniewaznij(); setMenuSerwisowe(true) })
+
+  // Odmontowanie (wylogowanie, zamknięcie kiosku) — spóźniony odczyt
+  // niczego już nie przełącza ani nie ogłasza.
+  const zywy = useRef(true)
+  useEffect(() => {
+    zywy.current = true
+    return () => { zywy.current = false; pokolenie.current++ }
+  }, [])
+
+  const doPakowania = useCallback((kod: string, ts: number) => {
+    setOczekujace([...oczekujaceRef.current, { nr: ++nrSkanu.current, kod, ts }])
+    setEkran('kartony-praca')
+  }, [setEkran, setOczekujace])
+
+  /** Skan złapany poza polem skanu (menu, lista kartonów, wybór auta,
+   *  przejście ekranu). Właściciel 25.09.2026: kartka kartonu ma od razu
+   *  otwierać pakowanie TEGO kartonu — bez szukania go na liście.
+   *  Skany idą PO KOLEI: sztuka zeskanowana zaraz po kartce czeka, aż kartka
+   *  wybierze karton, i idzie już do niego. */
+  const obsluzSkan = useCallback(async (kod: string, ts: number, pok: number) => {
     const blad = (naglowek: string, szczegol: string) => {
       grajBlad('L')
       pokazAlarm({ skaner: 'L', ton: 'blad', naglowek, szczegol })
     }
-    try {
-      let id = idKartonu(kod)
-      if (!id && czyKompletnyKodPalety(kod)) id = String((await palletsApi.lookup(kod))?.id ?? '') || null
-      if (id) {
-        const s = await magazynApi.pakowanie()
-        // Otwarty — pakujemy; pełny — ten sam ekran pokaże go na zielono
-        // z poleceniem mroźni, a kolejny skan kartki wstawi go do mroźni.
-        if (s.kontenery.some(k => k.id === id) || (s.spakowane ?? []).some(k => k.id === id)) {
-          setAktywnyKarton(id)
-          setEkran('kartony-praca')
-          return
-        }
-        return blad('TEN KARTON NIE JEST OTWARTY',
-          'Karton jest pełny albo zamknięty — nie ma do czego pakować. Załadunek i mroźnia mają swoje kafle.')
-      }
-      // Wszystko inne traktujemy jak sztukę: o tym, czy kod jest znany,
-      // rozstrzyga serwer (i zapisuje w logu surowy kod, gdy nie jest).
-      setPierwszySkan(kod)
-      setEkran('kartony-praca')
-    } catch (e) {
-      blad(isOfflineError(e) ? 'BRAK POŁĄCZENIA' : 'NIE ROZPOZNANO KODU',
-        isOfflineError(e) ? 'Skan nie doszedł do serwera. Spróbuj za chwilę.' : 'Zeskanuj kartę kartonu jeszcze raz.')
-    }
-  }, [pokazAlarm])
+    // Po unieważnieniu (serwis, wyjście) — ogłaszamy, o ile strona żyje.
+    const nieaktualny = () => { if (zywy.current) przerwany() }
+    if (pok !== pokolenie.current) return nieaktualny()
+    const e = ekranRef.current
+    if (e === 'kartony-praca') return doPakowania(kod, ts)
+    if (!EKRANY_SKANU_KARTKI.includes(e)) return przerwany()
+    const kartka = kodKartki(kod)
+    // Wszystko inne traktujemy jak sztukę: o tym, czy kod jest znany,
+    // rozstrzyga serwer (i zapisuje w logu surowy kod, gdy nie jest).
+    if (!kartka) return doPakowania(kod, ts)
 
-  useSkanGlobalny(!menuSerwisowe && (ekran === 'kafle' || ekran === 'kartony' || ekran === 'wydanie-auta'), kod => { void skanPozaPolem(kod) })
+    const nr = ++szukamNr.current
+    setSzukam(true)
+    try {
+      let id = kartka.rodzaj === 'stock' ? kartka.id : ''
+      if (kartka.rodzaj === 'order') {
+        try {
+          id = String((await palletsApi.lookup(kartka.kod))?.id ?? '')
+        } catch (err) {
+          if (isOfflineError(err)) throw err
+          id = ''
+        }
+        if (pok !== pokolenie.current) return nieaktualny()
+      }
+      const s = id ? await magazynApi.pakowanie() : null
+      if (pok !== pokolenie.current) return nieaktualny()
+      if (!s) return blad('NIEZNANA KARTKA', 'Tej kartki nie ma w systemie. Weź kartkę z kartonu albo zawołaj biuro.')
+      // Otwarty — pakujemy; pełny — ten sam ekran pokaże go na zielono
+      // z poleceniem mroźni. Do mroźni wjedzie dopiero NASTĘPNY skan kartki.
+      if ((s.kontenery ?? []).some(k => k.id === id) || (s.spakowane ?? []).some(k => k.id === id)) {
+        setAktywnyKarton(id)
+        setOstatniaKartka({ id, kod: kartka.kod, ts })
+        setEkran('kartony-praca')
+        return
+      }
+      blad('TEN KARTON NIE JEST OTWARTY',
+        'Karton jest już w mroźni albo zamknięty — nie ma do czego pakować. Załadunek i mroźnia mają swoje kafle.')
+    } catch (err) {
+      if (pok !== pokolenie.current) return nieaktualny()
+      blad(isOfflineError(err) ? 'BRAK POŁĄCZENIA' : 'NIE ROZPOZNANO KODU',
+        isOfflineError(err) ? 'Skan nie doszedł do serwera. Nic nie otwarto — spróbuj za chwilę.' : 'Zeskanuj kartkę kartonu jeszcze raz.')
+    } finally {
+      if (nr === szukamNr.current && zywy.current) setSzukam(false)
+    }
+  }, [pokazAlarm, przerwany, doPakowania, setEkran])
+
+  const naSkanGlobalny = useCallback((kod: string) => {
+    const ts = Date.now()
+    const pok = pokolenie.current
+    kolejka.current = kolejka.current.then(() => obsluzSkan(kod, ts, pok)).catch(() => {})
+  }, [obsluzSkan])
+
+  // Na pakowaniu słuchamy też: skan, który trafi obok pola (przejście
+  // ekranu, otwarty dialog), idzie do kolejki pakowania, a ta — jeśli nie
+  // może go przyjąć — mówi, że trzeba powtórzyć. W polu tekstowym hook milczy.
+  useSkanGlobalny(!menuSerwisowe && (EKRANY_SKANU_KARTKI.includes(ekran) || ekran === 'kartony-praca'), naSkanGlobalny)
 
   useEffect(() => {
     const t = setInterval(() => setTeraz(new Date()), 15000)
@@ -156,7 +250,7 @@ export function MagazynHmiPage() {
       <header className="flex h-[76px] shrink-0 items-center gap-5 px-6"
         style={{ background: 'var(--barBg)', borderBottom: '1px solid var(--line)' }}>
         {meta.back ? (
-          <button type="button" onClick={() => setEkran(meta.back!)}
+          <button type="button" onClick={() => przejdz(meta.back!)}
             className="h-11 shrink-0 rounded-lg px-4 text-[14px] font-bold"
             style={{ background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)' }}>
             ← Wstecz
@@ -168,10 +262,14 @@ export function MagazynHmiPage() {
             style={{ color: 'var(--mut)' }}>{meta.p}</div>
         </div>
         <Chip label="Operator" value={(user?.name ?? '—').split(' ')[0]} accent />
-        <Chip label="Dzień" value={dzien} />
+        <div className="hidden xl:flex"><Chip label="Dzień" value={dzien} /></div>
         <div className="flex-1" />
-        <div className="hmi-v10-mono text-[26px] font-bold tracking-tight">{hhmm(teraz)}</div>
-        <button type="button" onClick={() => logout()}
+        <span data-testid="wersja-hmi" className="hmi-v10-mono shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-[12.5px] font-bold"
+          style={{ background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)' }}>
+          {WERSJA_HMI}
+        </span>
+        <div className="hmi-v10-mono shrink-0 text-[26px] font-bold tracking-tight">{hhmm(teraz)}</div>
+        <button type="button" onClick={() => { uniewaznij(); logout() }}
           className="h-9 shrink-0 rounded-lg px-4 text-[13px] font-bold"
           style={{ border: '1px solid var(--line)', color: 'var(--mut)', background: 'var(--panel)' }}>
           Wyloguj
@@ -186,6 +284,28 @@ export function MagazynHmiPage() {
           <div className="text-sm">{ostatniBlad.szczegol} {ostatniBlad.gdzie}</div></div>
         <button className="min-h-11 rounded-lg border px-4 font-bold" onClick={() => setOstatniBlad(null)}>Przeczytane</button>
       </div> : null}
+
+      {/* Instrukcja „kartka otwiera (nic nie zapisuje)" jest prawdziwa tylko
+          na menu i liście. Na pakowaniu kartka pełnego kartonu ZAPISUJE
+          mroźnię — tam mówi o tym zielony panel kartonu, nie ten pasek. */}
+      {ekran === 'kafle' || ekran === 'kartony' || (szukam && EKRANY_SKANU_KARTKI.includes(ekran)) ? (
+        <div data-testid="instrukcja-kartki" role="status" className="flex shrink-0 items-center gap-4 px-6 py-2.5"
+          style={{ background: 'var(--accentSoft)', borderBottom: '1px solid var(--accentLine)' }}>
+          <span className="grid shrink-0 place-items-center rounded-xl text-[22px]" aria-hidden
+            style={{ width: 44, height: 44, background: 'var(--panel)', color: 'var(--accent)', border: '1.5px solid var(--accentLine)' }}>
+            {szukam ? '…' : '⌁'}
+          </span>
+          <div className="min-w-0">
+            <div className="text-[18px] font-extrabold leading-tight" style={{ color: szukam ? 'var(--accent)' : 'var(--ink)' }}>
+              {szukam ? 'Szukam kartonu z tej kartki…' : 'Zeskanuj QR z kartki kartonu — otworzę jego pakowanie'}
+            </div>
+            <div className="text-[13.5px] leading-snug" style={{ color: 'var(--mut)' }}>
+              <b style={{ color: 'var(--ink)' }}>Kartka kartonu</b> otwiera karton (nic nie zapisuje).{' '}
+              <b style={{ color: 'var(--ink)' }}>Etykieta sztuki</b> od razu pakuje sztukę do jej kartonu.
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {ekran === 'kafle' ? (
         <main className="grid min-h-0 flex-1 grid-cols-2 gap-4 p-5 px-6" style={{ gridAutoRows: '1fr' }}>
@@ -204,40 +324,41 @@ export function MagazynHmiPage() {
               lewo: `${z.cartonNo} · ${z.klient || 'na magazyn'}`,
               prawo: `${z.packedQty}/${z.targetQty} szt`, wyrozniony: true }))}
             wariant={k?.zalegle ? 'pilne' : k && k.otwarte === 0 ? 'gotowe' : 'zwykly'}
-            onClick={() => setEkran('kartony')} />
+            onClick={() => przejdz('kartony')} />
           <Kafel nazwa="Wydanie" czynnosc="Załaduj auto" glif="⇥"
             licznik={w ? String(w.zamowien) : '—'} jednostka={w?.zamowien === 1 ? 'zamówienie na dziś' : 'zamówień na dziś'}
             stan={w ? (w.zamowien ? `${Math.round(w.kg).toLocaleString('pl-PL')} kg do wydania dziś` : 'na dziś nic nie czeka')
                     : 'wczytuję stan…'}
             podglad={(w?.lista ?? []).map(z => ({
               lewo: z.klient, prawo: `${Math.round(z.kg).toLocaleString('pl-PL')} kg` }))}
-            onClick={() => setEkran('wydanie-auta')} />
+            onClick={() => przejdz('wydanie-auta')} />
           <Kafel nazwa="Mroźnia" czynnosc="Wstaw spakowany karton" glif="❄"
             licznik={stan ? String(stan.mroznia.palet) : '—'} jednostka={`${kartonow(stan?.mroznia.palet ?? 0)} w mroźni`}
             stan="czeka na załadunek"
             podglad={(stan?.mroznia.lista ?? []).map(m => ({
               lewo: m.klient, prawo: `${m.palet} pal.` }))}
-            onClick={() => setEkran('mroznia')} />
+            onClick={() => przejdz('mroznia')} />
           <Kafel nazwa="Przyjęcie" czynnosc="Przyjmij dostawę z rampy" glif="⤓"
             licznik="—" stan="w kolejnym wydaniu panelu" disabled onClick={() => {}} />
         </main>
       ) : null}
 
       {ekran === 'kartony' ? (
-        <EkranKartonow onWybor={id => { setAktywnyKarton(id); setEkran('kartony-praca') }} />
+        <EkranKartonow onWybor={id => { setAktywnyKarton(id); przejdz('kartony-praca') }} />
       ) : null}
 
       {ekran === 'kartony-praca' ? (
         <EkranPakowania aktywnyId={aktywnyKarton} onAktywny={setAktywnyKarton} onAlarm={pokazAlarm}
-          pierwszySkan={pierwszySkan} onPierwszySkan={() => setPierwszySkan(null)} />
+          oczekujace={oczekujace} ostatniaKartka={ostatniaKartka} zablokowany={menuSerwisowe}
+          onPrzejeto={nr => setOczekujace(oczekujaceRef.current.filter(s => s.nr !== nr))} />
       ) : null}
 
       {ekran === 'wydanie-auta' ? (
-        <EkranWyboruAuta onWybor={id => { setPojazdId(id); setEkran('wydanie-praca') }} />
+        <EkranWyboruAuta onWybor={id => { setPojazdId(id); przejdz('wydanie-praca') }} />
       ) : null}
 
       {ekran === 'wydanie-praca' ? (
-        <EkranZaladunku vehicleId={pojazdId} onAlarm={pokazAlarm} onKoniec={() => setEkran('kafle')} />
+        <EkranZaladunku vehicleId={pojazdId} onAlarm={pokazAlarm} onKoniec={() => przejdz('kafle')} />
       ) : null}
 
       {ekran === 'mroznia' ? <EkranMrozni onAlarm={pokazAlarm} /> : null}
@@ -246,7 +367,7 @@ export function MagazynHmiPage() {
 
       <ServiceMenuModal open={menuSerwisowe} onClose={() => setMenuSerwisowe(false)}
         channel="magazyn" version={__MAGAZYN_VERSION__}
-        buildLabel={`Magazyn · ${__MAGAZYN_VERSION__}`}
+        buildLabel={WERSJA_HMI}
         sections={serviceSections('magazyn')} />
     </div>
   )

@@ -157,6 +157,8 @@ def test_scan_same_unit_into_same_carton_is_idempotent(db):
     r1 = scan_unit_into_carton(c["id"], unit_qr("uidem"))
     r2 = scan_unit_into_carton(c["id"], unit_qr("uidem"))
     assert r1["packedQty"] == 1 and r2["packedQty"] == 1
+    # Marker odróżnia idempotencję od faktycznego zapisu (routing kiosku → ALREADY).
+    assert "already" not in r1 and r2["already"] is True
     cc = query_one("SELECT packed_qty FROM stock_cartons WHERE id=%s", (c["id"],))
     assert cc["packed_qty"] == 1
 

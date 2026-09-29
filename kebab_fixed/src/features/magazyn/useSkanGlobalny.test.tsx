@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { useSkanGlobalny } from './useSkanGlobalny'
 
@@ -37,6 +37,52 @@ describe('skaner słuchany bez pola skanu', () => {
     fireEvent.keyDown(getByTestId('pole'), { key: 'Enter' })
     await new Promise(r => setTimeout(r, 250))
     expect(onKod).not.toHaveBeenCalled()
+  })
+
+  describe('fokus przeskakuje do pola w połowie kodu', () => {
+    let teraz = 0
+    beforeEach(() => { teraz = 1_000_000; vi.spyOn(Date, 'now').mockImplementation(() => teraz) })
+    afterEach(() => vi.restoreAllMocks())
+
+    /** Znak idzie do AKTUALNIE aktywnego elementu, jak z klawiatury. Pole
+     *  dostaje znak tylko, gdy nikt nie zablokował keydown. */
+    const klawisz = (ch: string, krokMs = 5) => {
+      teraz += krokMs
+      const cel = (document.activeElement ?? document.body) as HTMLElement
+      const puszczony = fireEvent.keyDown(cel, { key: ch })
+      if (puszczony && cel instanceof HTMLInputElement && ch.length === 1) {
+        fireEvent.change(cel, { target: { value: cel.value + ch } })
+      }
+    }
+
+    it('kod zaczęty na body kończy się w całości, nic nie wpada do pola', () => {
+      const onKod = vi.fn()
+      const { getByTestId } = render(<Proba onKod={onKod} />)
+      const pole = getByTestId('pole') as HTMLInputElement
+      const KOD = 'U|bc82b8f61e2545a4867b'
+      for (const ch of KOD.slice(0, 8)) klawisz(ch)
+      pole.focus()                                         // ekran pakowania oddał fokus polu
+      expect(document.activeElement).toBe(pole)
+      for (const ch of KOD.slice(8)) klawisz(ch)
+      klawisz('Enter')
+      expect(onKod).toHaveBeenCalledTimes(1)
+      expect(onKod).toHaveBeenCalledWith(KOD)
+      expect(pole.value).toBe('')
+    })
+
+    it('człowiek: kilka klawiszy na body, potem pisze w polu — pole zostaje jego', async () => {
+      const onKod = vi.fn()
+      const { getByTestId } = render(<Proba onKod={onKod} />)
+      const pole = getByTestId('pole') as HTMLInputElement
+      for (const ch of 'ab') klawisz(ch, 200)
+      pole.focus()
+      klawisz('K', 400)                                   // ręka przeszła do pola
+      for (const ch of 'R 8842') klawisz(ch, 150)
+      klawisz('Enter', 150)
+      await new Promise(r => setTimeout(r, 200))
+      expect(onKod).not.toHaveBeenCalled()
+      expect(pole.value).toBe('KR 8842')
+    })
   })
 
   it('wyłączony nic nie słyszy', () => {

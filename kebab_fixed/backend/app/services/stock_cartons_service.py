@@ -150,7 +150,8 @@ def scan_unit_into_carton(carton_id: str, code: str) -> Dict[str, Any]:
         if not unit:
             raise HTTPException(404, "Sztuka nie znaleziona")
         # Idempotencja (retry/dubel z kolejki offline): sztuka już w TYM kartonie
-        # → zwróć OK bez podwajania.
+        # → zwróć OK bez podwajania. `already` odróżnia to od faktycznego
+        # zapisu (routing kiosku mówi wtedy „już spakowana", nie „dopakowano").
         if unit.get("carton_id") == carton_id:
             agg = cx_query_one(
                 conn,
@@ -165,6 +166,7 @@ def scan_unit_into_carton(carton_id: str, code: str) -> Dict[str, Any]:
                 "targetQty": int(agg["t"]),
                 "full": int(agg["p"]) >= int(agg["t"]),
                 "batchNo": unit.get("batch_no") or "",
+                "already": True,
             }
         if unit.get("status") != "produced":
             raise HTTPException(

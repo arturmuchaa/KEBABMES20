@@ -36,3 +36,13 @@ export interface StanAlarmu {
 }
 
 export type PokazAlarm = (a: Omit<StanAlarmu, 'ts'>) => void
+
+/** Skan złapany poza polem skanu (menu, lista, przejście ekranu), który
+ *  pakowanie ma przyjąć przez SWOJĄ kolejkę. `nr` — do potwierdzenia
+ *  przejęcia, bo ten sam kod może przyjść dwa razy. */
+export interface SkanOczekujacy { nr: number; kod: string; /** chwila odczytu */ ts: number }
+
+/** Kartka kartonu zeskanowana chwilę temu — chroni przed tym, żeby ta sama
+ *  kartka odczytana dwa razy (podwójny odczyt, sufiks, nawyk) od razu
+ *  wstawiła wybrany pełny karton do mroźni. `kod` w postaci z `kodKartki`. */
+export interface OstatniaKartka { id: string; kod: string; ts: number }

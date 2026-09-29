@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest'
 import { czyKompletnyKod, czyKompletnyKodPalety, czyKompletnyKodSztuki, czyWpisalSkaner,
-         idKartonu, MAX_MS_NA_ZNAK, MIN_ZNAKOW_SKANU, utworzStraznikaWysylki } from './skanKodu'
+         idKartonu, kodKartki, MAX_MS_NA_ZNAK, MIN_ZNAKOW_SKANU, utworzStraznikaWysylki } from './skanKodu'
 
 describe('rozpoznanie kompletnego kodu palety', () => {
   it('token z kartki', () => {
@@ -123,6 +123,42 @@ describe('kod sztuki i kartonu — po kształcie, nie po „|"', () => {
     expect(idKartonu(`SCARTON|${ID}`)).toBe(ID)
     expect(idKartonu(`scarton<${ID.toUpperCase()}`)).toBe(ID)
     expect(idKartonu(`U|${ID}`)).toBeNull()
+  })
+})
+
+describe('karta kartonu z CapsLockiem i kartki palet (kodKartki)', () => {
+  const ID = 'ac82b8f61e2545a4867b'
+
+  it('dokładne SCARTON|<20 hex> WIELKIMI literami daje id małymi — jak w bazie', () => {
+    expect(idKartonu(`SCARTON|${ID.toUpperCase()}`)).toBe(ID)
+    expect(idKartonu(`scarton|${ID.toUpperCase()}`)).toBe(ID)
+  })
+
+  it('id, które nie jest 20 hex (stare kartki, testy), zostaje bez zmian', () => {
+    expect(idKartonu('SCARTON|k3')).toBe('k3')
+    expect(idKartonu('SCARTON|AbC123')).toBe('AbC123')
+  })
+
+  it('karton magazynowy → postać kanoniczna do wysłania', () => {
+    expect(kodKartki(`\u0002]Q1SCARTON|${ID.toUpperCase()}\r`)).toEqual({ rodzaj: 'stock', id: ID, kod: `SCARTON|${ID}` })
+  })
+
+  it('kartka palety: token i adres QR — bez zmiany wielkości liter zamówienia', () => {
+    expect(kodKartki('PAL|6890E863aBc|7')).toEqual({ rodzaj: 'order', kod: 'PAL|6890E863aBc|7' })
+    expect(kodKartki('http://tauri.localhost/m/p/AbC123/12'))
+      .toEqual({ rodzaj: 'order', kod: 'http://tauri.localhost/m/p/AbC123/12' })
+  })
+
+  it('prefiks AIM i znaki sterujące są zdejmowane także z kartki palety', () => {
+    // Backend palet (`pallets_service.parse_code`) ich nie zdejmuje.
+    expect(kodKartki(']Q1PAL|Zam1|2\u0003')).toEqual({ rodzaj: 'order', kod: 'PAL|Zam1|2' })
+    expect(kodKartki('\u0002]Q1http://h/m/p/Zam1/2')).toEqual({ rodzaj: 'order', kod: 'http://h/m/p/Zam1/2' })
+  })
+
+  it('sztuka i śmieci to NIE kartka', () => {
+    expect(kodKartki(`U|${ID}`)).toBeNull()
+    expect(kodKartki('PAL|abc')).toBeNull()
+    expect(kodKartki('YALCIN/Z/6/09/26')).toBeNull()
   })
 })
 

@@ -7,10 +7,11 @@
  * ekran przyjmujący dane operatora dostaje test na to, CO WIDZI człowiek.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { createRef } from 'react'
+import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react'
 import { Kafel } from './Kafel'
 import { Alarm } from './Alarm'
-import { PasSkanowania } from './PasSkanowania'
+import { PasSkanowania, type PasSkanowaniaUchwyt, type SkanMeta } from './PasSkanowania'
 
 afterEach(cleanup)
 
@@ -85,8 +86,111 @@ describe('Pas skanowania', () => {
     const pole = screen.getByPlaceholderText('Skanuj kod…') as HTMLInputElement
     fireEvent.change(pole, { target: { value: 'PAL|o1|1' } })
     fireEvent.keyDown(pole, { key: 'Enter' })
-    await waitFor(() => expect(fn).toHaveBeenCalledWith('PAL|o1|1'))
+    await waitFor(() => expect(fn).toHaveBeenCalledWith('PAL|o1|1', { ts: expect.any(Number) }))
     expect(pole.value).toBe('')
+  })
+
+  it('onSkan dostaje chwilę ODCZYTU, nie chwilę, gdy kolejka doszła do kodu', async () => {
+    let teraz = 1_000_000
+    const zegar = vi.spyOn(Date, 'now').mockImplementation(() => teraz)
+    try {
+      let zwolnij!: () => void
+      const onSkan = vi.fn<(k: string, meta: SkanMeta) => Promise<void> | undefined>(
+        k => (k === 'U|pierwsza' ? new Promise<void>(r => { zwolnij = r }) : undefined))
+      const ref = createRef<PasSkanowaniaUchwyt>()
+      render(<PasSkanowania ref={ref} placeholder="Skanuj kod…" onSkan={onSkan} onPominiety={vi.fn()} />)
+      act(() => ref.current!.dodaj('U|pierwsza'))
+      teraz += 300
+      act(() => ref.current!.dodaj('U|druga'))
+      act(() => ref.current!.dodaj('U|z-menu', 42))
+      await waitFor(() => expect(onSkan).toHaveBeenCalledTimes(1))
+      teraz += 10_000                                       // wolna sieć
+      zwolnij()
+      await waitFor(() => expect(onSkan).toHaveBeenCalledTimes(3))
+      expect(onSkan.mock.calls.map(c => c[1].ts)).toEqual([1_000_000, 1_000_300, 42])
+    } finally { zegar.mockRestore() }
+  })
+
+  it('bez onPominiety (załadunek, mroźnia) kolejka zachowuje dawne zachowanie: wysyła mimo blokady', async () => {
+    let zwolnij!: () => void
+    const onSkan = vi.fn((k: string) => (k === 'PAL|o1|1' ? new Promise<void>(r => { zwolnij = r }) : undefined))
+    const ref = createRef<PasSkanowaniaUchwyt>()
+    const { rerender } = render(<PasSkanowania ref={ref} placeholder="Skanuj kod…" onSkan={onSkan} />)
+    act(() => { ref.current!.dodaj('PAL|o1|1'); ref.current!.dodaj('PAL|o1|2') })
+    await waitFor(() => expect(onSkan).toHaveBeenCalledTimes(1))
+    rerender(<PasSkanowania ref={ref} placeholder="Skanuj kod…" onSkan={onSkan} disabled />)
+    zwolnij()
+    await waitFor(() => expect(onSkan).toHaveBeenCalledTimes(2))
+    expect(onSkan.mock.calls.map(c => c[0])).toEqual(['PAL|o1|1', 'PAL|o1|2'])
+  })
+
+  it('kod wstawiony przez ref.dodaj czeka w TEJ SAMEJ kolejce na skan z pola', async () => {
+    const poKolei: string[] = []
+    let zwolnij!: () => void
+    const onSkan = vi.fn((k: string) => {
+      poKolei.push(k)
+      return k === 'PAL|o1|1' ? new Promise<void>(r => { zwolnij = r }) : undefined
+    })
+    const ref = createRef<PasSkanowaniaUchwyt>()
+    render(<PasSkanowania ref={ref} placeholder="Skanuj kod…" onSkan={onSkan} />)
+    const pole = screen.getByPlaceholderText('Skanuj kod…')
+    fireEvent.change(pole, { target: { value: 'PAL|o1|1' } })
+    fireEvent.keyDown(pole, { key: 'Enter' })
+    await waitFor(() => expect(poKolei).toEqual(['PAL|o1|1']))
+    act(() => ref.current!.dodaj('U|abc'))
+    await new Promise(r => setTimeout(r, 20))
+    expect(poKolei).toEqual(['PAL|o1|1'])
+    zwolnij()
+    await waitFor(() => expect(poKolei).toEqual(['PAL|o1|1', 'U|abc']))
+  })
+
+  it('po odmontowaniu skan czekający w kolejce NIE leci — ekran mówi, że trzeba powtórzyć', async () => {
+    let zwolnij!: () => void
+    const onSkan = vi.fn((k: string) => (k === 'U|pierwsza' ? new Promise<void>(r => { zwolnij = r }) : undefined))
+    const onPominiety = vi.fn()
+    const ref = createRef<PasSkanowaniaUchwyt>()
+    const { unmount } = render(<PasSkanowania ref={ref} placeholder="Skanuj kod…" onSkan={onSkan} onPominiety={onPominiety} />)
+    act(() => { ref.current!.dodaj('U|pierwsza'); ref.current!.dodaj('U|druga') })
+    await waitFor(() => expect(onSkan).toHaveBeenCalledTimes(1))
+    unmount()
+    zwolnij()                                               // wysłane żądanie kończy się normalnie
+    await waitFor(() => expect(onPominiety).toHaveBeenCalledWith('U|druga'))
+    expect(onSkan).toHaveBeenCalledTimes(1)
+  })
+
+  it('zablokowany (dialog) w chwili kolejki — skan pominięty, nie wysłany', async () => {
+    let zwolnij!: () => void
+    const onSkan = vi.fn((k: string) => (k === 'U|pierwsza' ? new Promise<void>(r => { zwolnij = r }) : undefined))
+    const onPominiety = vi.fn()
+    const ref = createRef<PasSkanowaniaUchwyt>()
+    const { rerender } = render(<PasSkanowania ref={ref} placeholder="Skanuj kod…" onSkan={onSkan} onPominiety={onPominiety} />)
+    act(() => { ref.current!.dodaj('U|pierwsza'); ref.current!.dodaj('U|druga') })
+    await waitFor(() => expect(onSkan).toHaveBeenCalledTimes(1))
+    rerender(<PasSkanowania ref={ref} placeholder="Skanuj kod…" onSkan={onSkan} onPominiety={onPominiety} disabled />)
+    zwolnij()
+    await waitFor(() => expect(onPominiety).toHaveBeenCalledWith('U|druga'))
+    expect(onSkan).toHaveBeenCalledTimes(1)
+  })
+
+  it('dialog otwarty i zamknięty, zanim wolny skan wrócił — czekający skan pominięty, następny działa', async () => {
+    let zwolnij!: () => void
+    const onSkan = vi.fn((k: string) => (k === 'U|A' ? new Promise<void>(r => { zwolnij = r }) : undefined))
+    const onPominiety = vi.fn()
+    const ref = createRef<PasSkanowaniaUchwyt>()
+    const pas = (disabled: boolean) => (
+      <PasSkanowania ref={ref} placeholder="Skanuj kod…" onSkan={onSkan} onPominiety={onPominiety} disabled={disabled} />)
+    const { rerender } = render(pas(false))
+    act(() => { ref.current!.dodaj('U|A'); ref.current!.dodaj('U|B') })
+    await waitFor(() => expect(onSkan).toHaveBeenCalledTimes(1))
+    rerender(pas(true))                                     // menu serwisowe
+    rerender(pas(false))                                    // zamknięte, zanim A wróciło
+    await act(async () => { zwolnij() })
+    await waitFor(() => expect(onPominiety).toHaveBeenCalledWith('U|B'))
+    expect(onSkan.mock.calls.map(c => c[0])).toEqual(['U|A'])
+    act(() => ref.current!.dodaj('U|C'))
+    await waitFor(() => expect(onSkan).toHaveBeenCalledTimes(2))
+    expect(onSkan.mock.calls.map(c => c[0])).toEqual(['U|A', 'U|C'])
+    expect(onPominiety).toHaveBeenCalledTimes(1)
   })
 
   it('puste pole nic nie wysyła', () => {
