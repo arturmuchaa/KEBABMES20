@@ -17,6 +17,9 @@ TS="$(date +%Y%m%d-%H%M%S)"
 
 cd "$REPO"
 
+# shellcheck source=deploy/straznik_hosta.sh
+. "$REPO/deploy/straznik_hosta.sh"
+
 prune() { ls -dt "$APP"/"$1"-* 2>/dev/null | tail -n +"$((KEEP_BACKUPS + 1))" | xargs -r rm -rf; }
 
 # ─── Strażnik: wdrażamy TYLKO commit, który przeszedł CI ─────────────────────
@@ -114,15 +117,29 @@ deploy_frontend() {
   rm -rf "$APP/dist"
   mv "$APP/dist.new" "$APP/dist"
 
-  local served built
-  served="$(curl -s http://127.0.0.1:8080/ | grep -oE 'main-[A-Za-z0-9_-]+\.js' | head -1)"
+  # Weryfikacja LOKALNEGO nginx — bez -L. Przekierowanie oznacza, że strony
+  # serwuje inny serwer (patrz straznik_hosta.sh), a porównanie jego bundla
+  # z naszym dist byłoby fałszywym „OK". Każda ścieżka kończy się komunikatem:
+  # pod `set -e` pusty grep przerywał skrypt bez słowa (29.09.2026).
+  local html kod served built
+  html="$(mktemp)"
+  kod="$(curl -s -m 15 -o "$html" -w '%{http_code}' "$KEBAB_LOCAL_URL" || true)"
+  served="$(grep -oE 'main-[A-Za-z0-9_-]+\.js' "$html" | head -1 || true)"
+  rm -f "$html"
   built="$(basename "$(ls dist/assets/main-*.js | head -1)")"
-  if [ "$served" = "$built" ]; then
-    echo "✓ frontend OK — serwowany: $served"
-  else
-    echo "✗ serwowany ($served) != zbudowany ($built) — sprawdź nginx/cache" >&2
+  if [ "$kod" != "200" ]; then
+    echo "✗ weryfikacja frontendu: $KEBAB_LOCAL_URL zwraca HTTP ${kod:-brak odpowiedzi} (oczekiwano 200)" >&2
+    echo "  dist JEST już podmieniony; poprzedni: $APP/dist.bak-$TS — sprawdź nginx albo deploy/rollback.sh frontend" >&2
+    exit 1
+  elif [ -z "$served" ]; then
+    echo "✗ weryfikacja frontendu: w HTML z $KEBAB_LOCAL_URL nie ma odwołania do main-*.js" >&2
+    echo "  dist JEST już podmieniony; poprzedni: $APP/dist.bak-$TS" >&2
+    exit 1
+  elif [ "$served" != "$built" ]; then
+    echo "✗ weryfikacja frontendu: serwowany ($served) != zbudowany ($built) — sprawdź nginx/cache" >&2
     exit 1
   fi
+  echo "✓ frontend OK — serwowany bundel = zbudowany ($served)"
 }
 
 deploy_backend() {
@@ -140,6 +157,7 @@ deploy_backend() {
   fi
 }
 
+straznik_hosta
 guard
 
 case "$TARGET" in

@@ -38,16 +38,17 @@ Frontend = React + TypeScript + Vite + Tailwind (font Fira). Desktop = Tauri.
 
 ## 🚀 DEPLOY (VPS) — READ BEFORE DEPLOYING
 
-- Prod runs from `/opt/kebab/app` (**copied files, NOT git**). Backend systemd `kebab-mes` on **127.0.0.1:8010**; nginx serves `dist` on **:8080**. DB on **:5433**.
+- **Check WHICH server you are on first.** Production moved on 2026-08-15 to **Falkenstein (91.98.105.107)**. The old Helsinki box (`ubuntu-4gb-hel1-2`, 204.168.166.34) still has this repo, `/opt/kebab/app`, a `kebab-mes` service and an old `kebab_mes` DB, but it is **NOT production**: its nginx answers every request on :8080 with `308 → http://91.98.105.107:8080`. `curl -sI http://127.0.0.1:8080/` showing a redirect = wrong server, stop. `deploy.sh`, `rollback.sh` and `proba_generalna.sh` refuse to run there (`deploy/straznik_hosta.sh`); on 2026-09-29 a "deploy" landed there before this guard existed. `smoke.sh` has no such guard: it checks the Falkenstein URL but compares against the LOCAL `dist`, so running it on the wrong box proves nothing.
+- On the production server, prod runs from `/opt/kebab/app` (**copied files, NOT git**). Backend systemd `kebab-mes` on **127.0.0.1:8010**; nginx serves `dist` on **:8080**. DB on **:5433**.
 - **MANDATORY pre-deploy diff** (prod is sometimes AHEAD of git with server-only hotfixes):
   ```
   diff -rq /opt/kebab/app/backend/app /opt/kebab/kebab_new/kebab_fixed/backend/app | grep -i differ
   ```
   If prod has content not in the repo → **commit it to git FIRST.** A full deploy silently overwrites prod-only changes (this broke label resolution on 2026-06-21).
-- Deploy with `deploy/deploy.sh [all|frontend|backend]` — it backs up, swaps `dist` atomically, health-checks (8010), and rolls back on failure. `frontend` does not restart the backend.
+- Deploy with `deploy/deploy.sh [all|frontend|backend]`: it checks the host and CI, backs up (`backend.bak-<ts>`, `dist.bak-<ts>`), swaps `dist` atomically, health-checks the backend (8010) and checks that local nginx serves the new bundle. **It does NOT roll back on failure.** If a check fails it stops with `✗` and the backup path, leaving the new files in place (`all` = backend first, so a frontend failure leaves the new backend running). Rolling back is your call: `deploy/rollback.sh`. `frontend` does not restart the backend.
 - **After deploy run `deploy/smoke.sh`** (backend, page, served bundle vs built, update channel, DB) — the served bundle check catches "deploy OK, nginx still serving the old file".
 - **Before deploying anything that writes kilograms, run `deploy/proba_generalna.sh`.** On 2026-08-19 the whole suite was green (1124 backend, 750 frontend) while an edit left a 150 kg gap between batch stock and the movement ledger; only the rehearsal on real data caught it.
-- Rollback is one command: `deploy/rollback.sh` (keeps the pre-rollback state, restarts the backend, health-checks).
+- Rollback is MANUAL, one command: `deploy/rollback.sh [all|frontend|backend|--lista]`. It restores the NEWEST `*.bak-*` copy, moves the current state to `*.przed-cofnieciem-<ts>`, restarts the backend, and health-checks through `:8080/api/health`. It restores **files only: DB migrations are NOT undone.** Then run `deploy/smoke.sh`.
 
 ---
 

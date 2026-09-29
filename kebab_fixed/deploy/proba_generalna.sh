@@ -26,6 +26,11 @@ PORT="${KEBAB_PG_PORT:-5433}"
 SKRYPT="$(cd "$(dirname "$0")" && pwd)/proba_generalna.py"
 
 [ -f "$ENVFILE" ] || { echo "✗ Brak $ENVFILE — uruchom na serwerze produkcyjnym" >&2; exit 1; }
+# Stary serwer ma własne .env i własną (nieaktualną) bazę — próba przeszłaby
+# tam na zielono, nie mówiąc nic o danych zakładu (29.09.2026).
+# shellcheck source=deploy/straznik_hosta.sh
+. "$(cd "$(dirname "$0")" && pwd)/straznik_hosta.sh"
+straznik_hosta
 # shellcheck disable=SC1090
 set -a; . "$ENVFILE"; set +a
 ZRODLO="$(printf '%s' "${DATABASE_URL:-}" | sed 's|.*/||')"

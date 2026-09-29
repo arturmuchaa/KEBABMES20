@@ -27,6 +27,12 @@ lista() {
 
 if [ "$TARGET" = "--lista" ]; then lista; exit 0; fi
 
+# Cofanie na serwerze, który tylko przekierowuje ruch, nic nie naprawia —
+# a jego health-check przez :8080 i tak dostałby 308 zamiast „true".
+# shellcheck source=deploy/straznik_hosta.sh
+. "$(cd "$(dirname "$0")" && pwd)/straznik_hosta.sh"
+straznik_hosta
+
 rollback_frontend() {
   local kopia; kopia="$(ostatnia dist.bak)"
   [ -n "$kopia" ] || { echo "✗ Brak kopii dist.bak-* — nie ma czego cofać" >&2; exit 1; }
