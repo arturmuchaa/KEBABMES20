@@ -2331,7 +2331,7 @@ export const zaladunkiApi = {
    *  `invoice_no` przy zamówieniu to numer faktury TEGO odbiorcy — nadpisuje
    *  `cmr.invoice_no`, bo faktura jest per klient, a auto per kurs. */
   wystaw: (id: string,
-           orders: Array<{ order_id: string; cel_kg: number; invoice_no?: string }>,
+           orders: Array<{ order_id: string; cel_kg: number; invoice_no?: string; hdi_fv?: boolean }>,
            cmr: Record<string, unknown>, hdiFv = false) =>
     post<any>(`/pallets/zaladunki/${encodeURIComponent(id)}/wystaw`,
       { orders, cmr, hdi_fv: hdiFv }),

@@ -126,7 +126,7 @@ describe('kurs czekający na wystawienie', () => {
     fireEvent.click(await screen.findByTestId('wystaw-komplet'))
 
     await waitFor(() => expect(stan.wystawione).toHaveLength(1))
-    expect(stan.wystawione[0].orders).toEqual([{ order_id: 'o1', cel_kg: 300, invoice_no: '' }])
+    expect(stan.wystawione[0].orders).toEqual([{ order_id: 'o1', cel_kg: 300, invoice_no: '', hdi_fv: true }])
   })
 
   it('podział wysyła kilogramy wpisane przez biuro', async () => {
@@ -138,7 +138,7 @@ describe('kurs czekający na wystawienie', () => {
     fireEvent.click(screen.getByTestId('wystaw-komplet'))
 
     await waitFor(() => expect(stan.wystawione).toHaveLength(1))
-    expect(stan.wystawione[0].orders).toEqual([{ order_id: 'o1', cel_kg: 180, invoice_no: '' }])
+    expect(stan.wystawione[0].orders).toEqual([{ order_id: 'o1', cel_kg: 180, invoice_no: '', hdi_fv: true }])
   })
 
   it('podział bez kilogramów NIE wystawia niczego', async () => {
@@ -164,8 +164,8 @@ describe('kurs czekający na wystawienie', () => {
 
     await waitFor(() => expect(stan.wystawione).toHaveLength(1))
     expect(stan.wystawione[0].orders).toEqual([
-      { order_id: 'o1', cel_kg: 300, invoice_no: 'FV 10/09/2026' },
-      { order_id: 'o2', cel_kg: 240, invoice_no: 'FV 11/09/2026' },
+      { order_id: 'o1', cel_kg: 300, invoice_no: 'FV 10/09/2026', hdi_fv: true },
+      { order_id: 'o2', cel_kg: 240, invoice_no: 'FV 11/09/2026', hdi_fv: true },
     ])
   })
 
@@ -174,6 +174,20 @@ describe('kurs czekający na wystawienie', () => {
     pokaz()
     await screen.findByTestId('faktura-o1')
     expect(screen.queryByTestId('cmr-faktura')).toBeNull()
+  })
+
+  it('HDI do faktury domyślnie zaznaczone, biuro może je odznaczyć per odbiorca', async () => {
+    // Biuro (29.09.2026): „nie ma opcji HDI do faktury, jest tylko na całość —
+    // potrzebuję zawsze dwa". Ekran nie wysyłał flagi wcale.
+    stan.kurs = KURS_DWOCH_ODBIORCOW
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    pokaz()
+    expect((await screen.findByTestId('hdi-fv-o1') as HTMLInputElement).checked).toBe(true)
+    fireEvent.click(screen.getByTestId('hdi-fv-o2'))
+    fireEvent.click(screen.getByTestId('wystaw-komplet'))
+
+    await waitFor(() => expect(stan.wystawione).toHaveLength(1))
+    expect(stan.wystawione[0].orders.map((o: any) => o.hdi_fv)).toEqual([true, false])
   })
 
   it('kurs z gotowymi papierami nie prosi o wystawienie', async () => {

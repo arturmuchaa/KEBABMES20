@@ -83,6 +83,8 @@ def zaladunek_wystaw(loading_id: str, body: dict):
     NA FAKTURĘ („całość na fakturę" to `cel_kg` równe całemu zamówieniu),
     a `invoice_no` to numer faktury TEGO odbiorcy na jego CMR-ach. Przewoźnik
     i auto idą w `cmr` — są wspólne dla kursu, faktura nie jest.
+    `hdi_fv` przy zamówieniu = drugie HDI (do faktury) dla tego odbiorcy;
+    `hdi_fv` w ciele to tylko wartość domyślna.
     """
     return loading_service.wystaw_z_kursu(
         loading_id,

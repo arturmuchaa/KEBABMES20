@@ -837,7 +837,12 @@ def wystaw_z_kursu(loading_id: str, decyzje: List[Dict[str, Any]],
         faktura = str(d.get("invoice_no") or "").strip()
         if faktura:
             forma["invoice_no"] = faktura
-        komplet = wystaw_komplet(oid, forma, hdi_fv)
+        # HDI do faktury — decyzja PER ODBIORCA (`hdi_fv` przy zamówieniu),
+        # a flaga kursu zostaje tylko jako wartość domyślna dla starszych
+        # klientów API. Ekran papierów kursu flagi nie wysyłał w ogóle, więc
+        # z kursu powstawało wyłącznie HDI na całość (biuro, 29.09.2026:
+        # „potrzebuję zawsze dwa — na całość i do faktury").
+        komplet = wystaw_komplet(oid, forma, bool(d.get("hdi_fv", hdi_fv)))
 
         wm = komplet.get("wm") or {}
         # Znacznik zgodności papieru z tym, co wyjechało — TUTAJ jest jedyne

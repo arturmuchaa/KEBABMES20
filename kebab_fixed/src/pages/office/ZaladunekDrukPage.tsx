@@ -39,9 +39,12 @@ type Pozycja = {
  *  klientów dawał cztery CMR-y z fakturą pierwszego z nich (biuro: „powinienem
  *  móc do każdego klienta wpisać inny numer FV na CMR"). Przewoźnik i auto
  *  zostają wspólne — to jedno auto i jeden kierowca. */
-type Decyzja = { tryb: 'calosc' | 'podzial'; kgFv: string; fakturaNr: string }
+type Decyzja = { tryb: 'calosc' | 'podzial'; kgFv: string; fakturaNr: string; hdiFv: boolean }
 
-const PUSTA_DECYZJA: Decyzja = { tryb: 'calosc', kgFv: '', fakturaNr: '' }
+/** `hdiFv` domyślnie WŁĄCZONE: biuro drukuje zawsze dwa HDI — na całość
+ *  i do faktury (29.09.2026: „nie ma opcji HDI do faktury, jest tylko na
+ *  całość"). Ekran w ogóle nie wysyłał tej flagi, choć backend ją znał. */
+const PUSTA_DECYZJA: Decyzja = { tryb: 'calosc', kgFv: '', fakturaNr: '', hdiFv: true }
 
 function Papier({ do: doAdres, etykieta, numer }: { do: string; etykieta: string; numer: string }) {
   return (
@@ -85,7 +88,7 @@ export function ZaladunekDrukPage() {
       // Domyślnie CAŁOŚĆ na fakturę — tak wygląda większość kursów, a przy
       // podziale biuro i tak wpisuje kilogramy ręcznie.
       setDecyzje(Object.fromEntries(((k?.pozycje ?? []) as Pozycja[])
-        .map(p => [p.order_id, { tryb: 'calosc', kgFv: '', fakturaNr: '' } as Decyzja])))
+        .map(p => [p.order_id, { ...PUSTA_DECYZJA }])))
     })
   }
 
@@ -98,7 +101,8 @@ export function ZaladunekDrukPage() {
       const kg = d.tryb === 'calosc' ? p.kg_zaladowane : Number(d.kgFv.replace(',', '.'))
       // `invoice_no` przy zamówieniu NADPISUJE numer z formularza transportu —
       // pusty zostawia tamten, więc kurs na jednego odbiorcę działa jak dotąd.
-      return { order_id: p.order_id, cel_kg: kg, invoice_no: d.fakturaNr.trim() }
+      return { order_id: p.order_id, cel_kg: kg, invoice_no: d.fakturaNr.trim(),
+               hdi_fv: d.hdiFv }
     })
     const zly = orders.find(o => !(o.cel_kg > 0))
     if (zly) { setBlad('Podaj kilogramy na fakturę dla każdego odbiorcy'); return }
@@ -230,6 +234,15 @@ export function ZaladunekDrukPage() {
                       value={d.fakturaNr}
                       onChange={e => ustaw({ fakturaNr: e.target.value })}
                     />
+                  </label>
+                  <label className="mt-2 flex items-center gap-1.5 text-sm">
+                    <input
+                      type="checkbox"
+                      data-testid={`hdi-fv-${p.order_id}`}
+                      checked={d.hdiFv}
+                      onChange={e => ustaw({ hdiFv: e.target.checked })}
+                    />
+                    HDI także do faktury <span className="text-xs text-slate-500">(drugie, obok HDI na całość)</span>
                   </label>
                 </div>
               )

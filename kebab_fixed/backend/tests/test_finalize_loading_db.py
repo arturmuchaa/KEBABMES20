@@ -1198,6 +1198,30 @@ def test_pusty_numer_faktury_bierze_numer_z_formularza_kursu(db):
     assert _numery_faktur("o2") == {_FORMA_CMR["invoice_no"]}
 
 
+def _zakresy_hdi(oid):
+    return {r["scope"] or "calosc" for r in query_all(
+        "SELECT scope FROM hdi_documents WHERE order_id=%s "
+        "AND COALESCE(status,'')<>'anulowany'", (oid,))}
+
+
+def test_HDI_do_faktury_decyzja_per_odbiorca(db):
+    """Biuro (29.09.2026): „nie ma opcji HDI do faktury, jest tylko na całość".
+
+    Ekran papierów kursu nie wysyłał `hdi_fv`, więc z kursu powstawało
+    wyłącznie HDI na całość. Decyzja jest per odbiorca, jak numer faktury.
+    """
+    from app.services.loading_service import wystaw_z_kursu
+    kurs = _kurs_dwoch_odbiorcow()
+
+    wystaw_z_kursu(kurs, [
+        {"order_id": "o1", "cel_kg": 300.0, "hdi_fv": True},
+        {"order_id": "o2", "cel_kg": 300.0, "hdi_fv": False},
+    ], _FORMA_CMR)
+
+    assert _zakresy_hdi("o1") == {"calosc", "fv"}
+    assert _zakresy_hdi("o2") == {"calosc"}
+
+
 def _wm_zamowienia(oid="o1"):
     """Wystawiony WM zamówienia — jedyny dokument, który zdjął stan."""
     return query_one(
