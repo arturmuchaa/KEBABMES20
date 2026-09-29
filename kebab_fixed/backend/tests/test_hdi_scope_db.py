@@ -22,6 +22,7 @@ def test_hdi_na_calosc_obejmuje_cale_zamowienie(db):
 
 def test_hdi_do_faktury_obejmuje_tylko_czesc_fakturowana(db):
     _przygotuj_z_podzialem(cel_kg=300.0)
+    generate_hdi("o1")
     hdi = generate_hdi("o1", scope="fv")
     assert float(hdi["totals"]["kg"]) == 300.0
 
@@ -66,21 +67,26 @@ def test_idempotencja_jest_per_zakres(db):
     assert len(query_all("SELECT id FROM hdi_documents WHERE order_id='o1'")) == 2
 
 
-def test_numeracja_dwoch_wariantow_bez_dziury(db):
-    """Dwa warianty biorą DWA KOLEJNE numery, a licznik `sequences`
-    (`hdi_seq:RRMM`) stoi dokładnie na tym drugim — bez dziury i bez
-    rozjazdu z tabelą dokumentów."""
+def test_HDI_do_faktury_nosi_numer_calosci_z_dopiskiem_1(db):
+    """Biuro (29.09.2026): HDI do faktury „nie może być kolejnym, tylko
+    56/09/26/1". Numer całości + „/1", licznik `hdi_seq:RRMM` NIE rusza —
+    następne wydanie dostaje kolejny numer bez dziury."""
     _przygotuj_z_podzialem(cel_kg=300.0)
     calosc = generate_hdi("o1")
     fv = generate_hdi("o1", scope="fv")
 
-    seqs = sorted(r["seq"] for r in query_all(
-        "SELECT seq FROM hdi_documents WHERE order_id='o1'"))
-    assert seqs == [1, 2]
     assert calosc["number"].startswith("1/")
-    assert fv["number"].startswith("2/")
+    assert fv["number"] == calosc["number"] + "/1"
     licznik = query_one("SELECT value FROM sequences WHERE key LIKE 'hdi_seq:%%'")
-    assert int(licznik["value"]) == 2
+    assert int(licznik["value"]) == 1
+
+
+def test_HDI_do_faktury_bez_HDI_na_calosc_odmawia(db):
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    with pytest.raises(HTTPException) as exc:
+        generate_hdi("o1", scope="fv")
+    assert exc.value.status_code == 400
+    assert "/1" in exc.value.detail
 
 
 def test_hdi_do_faktury_bez_podzialu_odmawia(db):
@@ -137,11 +143,11 @@ def test_cmr_bez_HDI_swojego_wariantu_nie_podstawia_cudzego(db):
     tak samo jak dziś dla zamówienia bez żadnego HDI. Podstawienie numeru
     drugiego wariantu byłoby cichym błędem na papierze."""
     _przygotuj_z_podzialem(cel_kg=300.0)
-    hdi_fv = generate_hdi("o1", scope="fv")      # HDI na całość jeszcze nie wystawione
+    hdi_calosc = generate_hdi("o1")      # HDI do faktury jeszcze nie wystawione
 
-    cmr_calosc = generate_cmr("o1", FORM_CMR, scope="calosc")
-    assert cmr_calosc["payload"]["attachments"]["hdi_number"] == ""
+    cmr_fv = generate_cmr("o1", FORM_CMR, scope="fv")
+    assert cmr_fv["payload"]["attachments"]["hdi_number"] == ""
 
     # ...a wariant, który swój dokument ma, cytuje go normalnie.
-    cmr_fv = generate_cmr("o1", FORM_CMR, scope="fv")
-    assert cmr_fv["payload"]["attachments"]["hdi_number"] == hdi_fv["number"]
+    cmr_calosc = generate_cmr("o1", FORM_CMR, scope="calosc")
+    assert cmr_calosc["payload"]["attachments"]["hdi_number"] == hdi_calosc["number"]

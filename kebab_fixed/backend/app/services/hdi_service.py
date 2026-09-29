@@ -524,6 +524,11 @@ def build_hdi_from_wz(wz_id: str) -> Dict[str, Any]:
             "totals": {"qty": total_qty, "kg": total_kg}}
 
 
+def numer_hdi_do_faktury(numer_calosci: str) -> str:
+    """Numer HDI do faktury = numer HDI na całość + „/1" (56/09/26 → 56/09/26/1)."""
+    return f"{numer_calosci}/1"
+
+
 def _next_hdi_seq(conn, ym: str) -> int:
     """Kolejny numer HDI w miesiącu (RRMM).
 
@@ -623,8 +628,24 @@ def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
     ym = today.strftime("%y%m")  # RRMM
     hid = cuid()
     with transaction() as conn:
-        seq = _next_hdi_seq(conn, ym)
-        number = format_hdi_number(seq, ym)
+        if scope == ZAKRES_FV:
+            # HDI do faktury NIE bierze kolejnego numeru z licznika — nosi
+            # numer HDI na całość z dopiskiem „/1" (biuro, 29.09.2026:
+            # „nie może być kolejnym, tylko 56/09/26/1"). To ten sam transport
+            # i ta sama przesyłka, drugi papier jest jej wycinkiem.
+            calosc = cx_query_one(conn,
+                "SELECT number, seq, year_month FROM hdi_documents WHERE order_id=%s "
+                "AND COALESCE(scope,%s)=%s AND COALESCE(status,'')<>'anulowany' "
+                "ORDER BY created_at LIMIT 1",
+                (order_id, ZAKRES_CALOSC, ZAKRES_CALOSC))
+            if not calosc:
+                raise HTTPException(
+                    400, "Najpierw wystaw HDI na całość — HDI do faktury nosi jego numer z /1")
+            number = numer_hdi_do_faktury(calosc["number"])
+            seq, ym = int(calosc["seq"]), calosc["year_month"]
+        else:
+            seq = _next_hdi_seq(conn, ym)
+            number = format_hdi_number(seq, ym)
         # Powtórny odczyt TUŻ PRZED INSERT-em, tak jak w `generate_cmr`.
         # Odczyt `existing` wyżej poszedł POZA transakcją, a `build_hdi` między
         # nimi robi kilkanaście zapytań — komplet dokumentów kliknięty dwa razy
