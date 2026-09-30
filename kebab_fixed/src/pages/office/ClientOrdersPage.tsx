@@ -37,6 +37,7 @@ import {
 import { MaterialSummaryCard } from '@/features/orders/MaterialSummaryCard'
 import { OrderMaterialShortfall } from '@/features/orders/OrderMaterialShortfall'
 import { usePageHeaderActions } from '@/components/PageHeader'
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 
 const STATUS_LABELS: Record<ClientOrder['status'], string> = {
   draft: 'Szkic', confirmed: 'Potwierdzone', in_production: 'W produkcji', done: 'Zrealizowane', cancelled: 'Anulowane',
@@ -80,6 +81,7 @@ export function ClientOrdersPage() {
   const { data: orders, loading, refetch } = useApi(() => clientOrdersApi.list())
   const [cmrOrderId,   setCmrOrderId]   = useState<string | null>(null)
   const [splitOrder,   setSplitOrder]   = useState<ClientOrder | null>(null)
+  const [doUsuniecia,  setDoUsuniecia]  = useState<ClientOrder | null>(null)
   const [expanded,     setExpanded]     = useState<string | null>(null)
   const [filterStatus, setFilterStatus] = useState('')
   // Start z ?q= — globalne szukanie (Ctrl+K) kieruje tu z numerem zamówienia.
@@ -330,7 +332,7 @@ export function ClientOrdersPage() {
                               )}
                               {(o.status === 'draft' || o.status === 'confirmed') && (
                                 <button
-                                  onClick={(e) => { e.stopPropagation(); handleDelete(o.id) }}
+                                  onClick={(e) => { e.stopPropagation(); setDoUsuniecia(o) }}
                                   className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                                   title="Usuń"
                                 >
@@ -497,10 +499,6 @@ export function ClientOrdersPage() {
       alert(e instanceof Error ? e.message : 'Nie udało się cofnąć realizacji')
     }
   }
-  async function handleDelete(id: string) {
-    if (!confirm('Usunąć to zamówienie?')) return
-    await clientOrdersApi.delete(id); refetch()
-  }
 
   // Licznik + akcje w nagłówku strony (wspólny PageHeader).
   usePageHeaderActions(
@@ -611,6 +609,13 @@ export function ClientOrdersPage() {
       </Card>
 
       {cmrOrderId && <CmrFormModal orderId={cmrOrderId} onClose={() => setCmrOrderId(null)} />}
+      {doUsuniecia && (
+        <UsunZamowienieDialog
+          order={doUsuniecia}
+          onClose={() => setDoUsuniecia(null)}
+          onDeleted={() => { setDoUsuniecia(null); refetch() }}
+        />
+      )}
       {splitOrder && (
         <SplitDialog
           orderId={splitOrder.id}
@@ -622,5 +627,65 @@ export function ClientOrdersPage() {
       )}
 
     </div>
+  )
+}
+
+// Usunięcie zamówienia jest NIEODWRACALNE (DELETE z kaskadą pozycji i palet).
+// Zwykłe confirm() nie wystarczyło — 30.09.2026 biuro skasowało przypadkiem
+// zamówienie YALCIN. Kosz stoi tuż obok ołówka edycji, więc okno pokazuje,
+// CO się usuwa, i wymaga wpisania słowa USUŃ; Enter bez tego nic nie robi.
+function UsunZamowienieDialog({ order, onClose, onDeleted }: {
+  order: ClientOrder
+  onClose: () => void
+  onDeleted: () => void
+}) {
+  const [slowo, setSlowo] = useState('')
+  const [trwa, setTrwa] = useState(false)
+  const [blad, setBlad] = useState<string | null>(null)
+  const znorm = slowo.trim().toUpperCase().replace('Ń', 'N')
+  const wolno = znorm === 'USUN' && !trwa
+
+  async function usun() {
+    if (!wolno) return
+    setTrwa(true); setBlad(null)
+    try {
+      await clientOrdersApi.delete(order.id)
+      onDeleted()
+    } catch (e) {
+      setBlad(e instanceof Error ? e.message : 'Nie udało się usunąć zamówienia')
+      setTrwa(false)
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(v) => { if (!v && !trwa) onClose() }}>
+      <DialogContent className="max-w-md">
+        <DialogTitle>Usunąć zamówienie?</DialogTitle>
+        <DialogDescription>
+          Tej operacji nie da się cofnąć — zamówienie zniknie razem z pozycjami i rozpisem palet.
+        </DialogDescription>
+        <div className="rounded border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm space-y-0.5">
+          <div><span className="text-muted-foreground">Numer:</span> <b>{order.orderNo}</b></div>
+          <div><span className="text-muted-foreground">Klient:</span> <b>{order.clientName}</b></div>
+          <div><span className="text-muted-foreground">Ilość:</span> <b>{fmtKg(order.totalKg)}</b></div>
+          {order.deliveryDate && (
+            <div><span className="text-muted-foreground">Dostawa:</span> <b>{fmtDatePl(order.deliveryDate)}</b></div>
+          )}
+        </div>
+        <form onSubmit={(e) => { e.preventDefault(); usun() }} className="space-y-3">
+          <label className="block text-sm">
+            Aby potwierdzić, wpisz <b>USUŃ</b>:
+            <Input autoFocus value={slowo} onChange={(e) => setSlowo(e.target.value)} className="mt-1" />
+          </label>
+          {blad && <div className="text-sm text-destructive">{blad}</div>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={onClose} disabled={trwa}>Anuluj</Button>
+            <Button type="submit" variant="destructive" disabled={!wolno}>
+              {trwa ? 'Usuwanie…' : 'Usuń zamówienie'}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
