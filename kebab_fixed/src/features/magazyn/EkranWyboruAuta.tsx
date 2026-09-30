@@ -34,24 +34,32 @@ export function EkranWyboruAuta({ onWybor }: { onWybor: (vehicleId: string) => v
         <div className="mb-3 rounded-xl p-3 text-sm"
           style={{ background: 'var(--redSoft)', border: '1px solid var(--redLine)', color: 'var(--red)' }}>{blad}</div>
       ) : null}
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
+      {/* Właściciel 30.09.2026: „lista nieczytelna, ucina numery". Dwa duże
+          kafle w rzędzie, nazwa auta zawija się (bez ucinania), numer
+          rejestracyjny osobną, dużą linią. */}
+      <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
         {pojazdy.map(v => (
-          <button key={v.id} type="button" onClick={() => onWybor(v.id)}
-            className="flex items-center gap-4 rounded-2xl px-5 py-5 text-left transition hover:-translate-y-0.5 hover:shadow-md active:scale-[0.99]"
-            style={{ background: 'var(--panel)', border: '1.5px solid var(--line)', color: 'var(--ink)' }}>
-            <span className="grid shrink-0 place-items-center rounded-2xl text-[28px]"
-              style={{ width: 64, height: 64, background: 'var(--accentSoft)', color: 'var(--accent)',
-                       border: '1.5px solid var(--accentLine)' }} aria-hidden>⇥</span>
+          <button key={v.id} type="button" onClick={() => onWybor(v.id)} data-testid="kafel-auta"
+            className="flex min-h-[132px] items-center gap-4 rounded-2xl px-6 py-5 text-left transition active:scale-[0.99]"
+            style={{ background: 'var(--panel)', border: '2px solid var(--line)', color: 'var(--ink)' }}>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[24px] font-extrabold leading-tight">{v.name}</span>
-              <span className="hmi-v10-mono mt-1 block text-[15px] font-bold" style={{ color: 'var(--mut)' }}>
-                {v.plate || '—'}
+              <span className="block break-words text-[26px] font-extrabold leading-tight"
+                style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                {v.name}
               </span>
-              <span className="mt-0.5 block text-[12.5px]" style={{ color: 'var(--mut)' }}>
+              {v.plate ? (
+                <span className="hmi-v10-mono mt-2 inline-block rounded-lg px-3 py-1 text-[22px] font-bold leading-none tracking-wide"
+                  style={{ background: 'var(--bg)', border: '1.5px solid var(--line)' }}>
+                  {v.plate}
+                </span>
+              ) : null}
+              <span className="mt-2 block text-[14px]" style={{ color: 'var(--mut)' }}>
                 {v.kind === 'own' ? 'auto własne' : 'spedycja'}{TYP[v.vehicleType] ? ` · ${TYP[v.vehicleType]}` : ''}
               </span>
             </span>
-            <span className="text-[24px] font-bold" style={{ color: 'var(--accent)' }} aria-hidden>→</span>
+            <span className="grid shrink-0 place-items-center rounded-2xl text-[30px] font-bold"
+              style={{ width: 60, height: 60, background: 'var(--accentSoft)', color: 'var(--accent)',
+                       border: '1.5px solid var(--accentLine)' }} aria-hidden>→</span>
           </button>
         ))}
       </div>
