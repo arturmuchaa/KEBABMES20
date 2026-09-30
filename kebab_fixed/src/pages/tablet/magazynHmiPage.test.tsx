@@ -134,12 +134,12 @@ describe('kiosk magazynu — menu czynności', () => {
     expect(screen.getByText('Do spakowania')).toBeTruthy()
   })
 
-  it('menu i lista mówią wprost, co robi kartka kartonu', async () => {
+  it('bez stałego paska „zeskanuj kartkę — otworzę pakowanie" (właściciel 30.09.2026)', async () => {
     render(<MagazynHmiPage />)
-    expect(screen.getByText('Zeskanuj QR z kartki kartonu — otworzę jego pakowanie')).toBeTruthy()
+    expect(screen.queryByTestId('instrukcja-kartki')).toBeNull()
     fireEvent.click(screen.getByText('Kartony').closest('button')!)
     await screen.findByText('Otwarte kartony')
-    expect(screen.getByText('Zeskanuj QR z kartki kartonu — otworzę jego pakowanie')).toBeTruthy()
+    expect(screen.queryByTestId('instrukcja-kartki')).toBeNull()
   })
 })
 
@@ -216,6 +216,11 @@ describe('skan kartki kartonu z menu', () => {
     expect(screen.getByTestId('status-kartonu').textContent).toContain('W MROŹNI')
     expect(screen.getByTestId('partie-kartonu').textContent).toContain('290926 592')
     expect(screen.queryByText('TEN KARTON NIE JEST OTWARTY')).toBeNull()
+    // Karta leży POD nagłówkiem panelu — wersja i „Wstecz" dalej widoczne.
+    expect(screen.getByTestId('wersja-hmi').textContent).toBe(WERSJA_HMI)
+    expect(screen.getByTestId('wazenie-kartonu').textContent).toContain('NIE WAŻONY')
+    fireEvent.click(screen.getByText(/Wstecz/))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Karta kartonu' })).toBeNull())
     expect(stan.skan).not.toHaveBeenCalled()
   })
 

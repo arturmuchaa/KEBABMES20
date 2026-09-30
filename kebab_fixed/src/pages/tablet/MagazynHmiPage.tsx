@@ -293,8 +293,8 @@ export function MagazynHmiPage() {
 
       <header className="flex h-[76px] shrink-0 items-center gap-5 px-6"
         style={{ background: 'var(--barBg)', borderBottom: '1px solid var(--line)' }}>
-        {meta.back ? (
-          <button type="button" onClick={() => przejdz(meta.back!)}
+        {karta || meta.back ? (
+          <button type="button" onClick={() => (karta ? setKarta(null) : przejdz(meta.back!))}
             className="h-11 shrink-0 rounded-lg px-4 text-[14px] font-bold"
             style={{ background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)' }}>
             ← Wstecz
@@ -302,16 +302,15 @@ export function MagazynHmiPage() {
         ) : null}
         <div {...holdProps} style={{ touchAction: 'manipulation' }}>
           <div className="text-xl font-extrabold uppercase leading-none tracking-tight">{meta.t}</div>
+          {/* Jak w rozbiorze: pod tytułem „opis · wersja" drobnym drukiem. */}
           <div className="hmi-v10-mono mt-1.5 text-[10px] font-bold uppercase tracking-[0.14em]"
-            style={{ color: 'var(--mut)' }}>{meta.p}</div>
+            style={{ color: 'var(--mut)' }}>
+            <span>{karta ? 'Karta kartonu' : meta.p}</span> · <span data-testid="wersja-hmi">{WERSJA_HMI}</span>
+          </div>
         </div>
         <Chip label="Operator" value={(user?.name ?? '—').split(' ')[0]} accent />
         <div className="hidden xl:flex"><Chip label="Dzień" value={dzien} /></div>
         <div className="flex-1" />
-        <span data-testid="wersja-hmi" className="hmi-v10-mono shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-[12.5px] font-bold"
-          style={{ background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)' }}>
-          {WERSJA_HMI}
-        </span>
         <div className="hmi-v10-mono shrink-0 text-[26px] font-bold tracking-tight">{hhmm(teraz)}</div>
         <button type="button" onClick={() => { uniewaznij(); logout() }}
           className="h-9 shrink-0 rounded-lg px-4 text-[13px] font-bold"
@@ -329,25 +328,13 @@ export function MagazynHmiPage() {
         <button className="min-h-11 rounded-lg border px-4 font-bold" onClick={() => setOstatniBlad(null)}>Przeczytane</button>
       </div> : null}
 
-      {/* Instrukcja „kartka otwiera (nic nie zapisuje)" jest prawdziwa tylko
-          na menu i liście. Na pakowaniu kartka pełnego kartonu ZAPISUJE
-          mroźnię — tam mówi o tym zielony panel kartonu, nie ten pasek. */}
-      {ekran === 'kafle' || ekran === 'kartony' || (szukam && EKRANY_SKANU_KARTKI.includes(ekran)) ? (
-        <div data-testid="instrukcja-kartki" role="status" className="flex shrink-0 items-center gap-4 px-6 py-2.5"
+      {/* Właściciel 30.09.2026: stała instrukcja „zeskanuj kartkę — otworzę
+          pakowanie" niepotrzebna. Pasek zostaje tylko na czas szukania
+          kartonu po skanie, żeby było widać, że skan dotarł. */}
+      {szukam && EKRANY_SKANU_KARTKI.includes(ekran) ? (
+        <div data-testid="instrukcja-kartki" role="status" className="flex shrink-0 items-center gap-3 px-6 py-2.5"
           style={{ background: 'var(--accentSoft)', borderBottom: '1px solid var(--accentLine)' }}>
-          <span className="grid shrink-0 place-items-center rounded-xl text-[22px]" aria-hidden
-            style={{ width: 44, height: 44, background: 'var(--panel)', color: 'var(--accent)', border: '1.5px solid var(--accentLine)' }}>
-            {szukam ? '…' : '⌁'}
-          </span>
-          <div className="min-w-0">
-            <div className="text-[18px] font-extrabold leading-tight" style={{ color: szukam ? 'var(--accent)' : 'var(--ink)' }}>
-              {szukam ? 'Szukam kartonu z tej kartki…' : 'Zeskanuj QR z kartki kartonu — otworzę jego pakowanie'}
-            </div>
-            <div className="text-[13.5px] leading-snug" style={{ color: 'var(--mut)' }}>
-              <b style={{ color: 'var(--ink)' }}>Kartka kartonu</b> otwiera karton (nic nie zapisuje).{' '}
-              <b style={{ color: 'var(--ink)' }}>Etykieta sztuki</b> od razu pakuje sztukę do jej kartonu.
-            </div>
-          </div>
+          <span className="text-[18px] font-extrabold" style={{ color: 'var(--accent)' }}>Szukam kartonu z tej kartki…</span>
         </div>
       ) : null}
 

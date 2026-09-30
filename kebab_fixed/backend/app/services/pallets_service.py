@@ -723,7 +723,10 @@ def pallets_in_cold_storage() -> List[Dict]:
             p.cold_storage_at,
             p.notes,
             COALESCE(SUM(pi.qty * COALESCE(l.kg_per_unit,0)), 0)::float AS total_kg,
-            COALESCE(SUM(pi.qty), 0)::int                                AS total_qty
+            COALESCE(SUM(pi.qty), 0)::int                                AS total_qty,
+            -- Ile sztuk naprawdę zeskanowano na paletę: pełna = scanned ≥ rozpis.
+            -- Rozpisana bez skanu (decyzja 09.09) ma 0 — kiosk pokazuje „bez skanu".
+            (SELECT COUNT(*) FROM finished_units fu WHERE fu.pallet_id = p.id)::int AS scanned_qty
         FROM order_pallets p
         JOIN client_orders o          ON o.id = p.order_id
         LEFT JOIN order_pallet_items pi ON pi.pallet_id = p.id

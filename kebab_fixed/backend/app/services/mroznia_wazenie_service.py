@@ -329,12 +329,17 @@ def wazenia_w_mrozni() -> Dict[str, Dict[str, Any]]:
     """Ostatnie ważenie każdego kontenera stojącego w mroźni. Brak klucza =
     wjechał bez ważenia („zważ później") — lista mroźni pokazuje „do zważenia"."""
     rows = query_all(
-        """SELECT DISTINCT ON (w.container_id) w.container_id, w.ok, w.gross_kg, w.diff_kg
+        """SELECT DISTINCT ON (w.container_id) w.container_id, w.ok, w.gross_kg, w.diff_kg,
+                  w.weighed_at, w.operator, w.weigh_mode
            FROM cold_storage_weighings w
            WHERE w.container_id IN (
                SELECT id FROM stock_cartons WHERE cold_storage_at IS NOT NULL
                   AND loaded_vehicle_id IS NULL AND shipped_at IS NULL
                UNION SELECT id FROM order_pallets WHERE status = 'cold_storage')
            ORDER BY w.container_id, w.weighed_at DESC""")
+    # Kiedy i kto — lista mroźni pokazuje to przy każdym kartonie (30.09.2026).
     return {r["container_id"]: {"ok": bool(r["ok"]), "grossKg": float(r["gross_kg"] or 0),
-                                "diffKg": float(r["diff_kg"] or 0)} for r in rows}
+                                "diffKg": float(r["diff_kg"] or 0),
+                                "weighedAt": r["weighed_at"].isoformat() if r.get("weighed_at") else "",
+                                "operator": r.get("operator") or "",
+                                "weighMode": r.get("weigh_mode") or "auto"} for r in rows}

@@ -15,7 +15,7 @@
  * bez sztuk idą starą ścieżką — nie ma z czym porównać wagi.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { isOfflineError, magazynApi, palletScanApi, type ColdStoragePallet, type KartonDoWazenia, type PaletaMrozni, type WazenieMrozni } from '@/lib/api'
+import { isOfflineError, magazynApi, palletScanApi, type ColdStoragePallet, type KartonDoWazenia, type PaletaMrozni, type WazenieMrozni, type WazenieWMrozni } from '@/lib/api'
 import { idKartonu } from '@/features/scan/skanKodu'
 import { PasSkanowania } from './components/PasSkanowania'
 import { StanPolaczenia } from './components/StanPolaczenia'
@@ -23,6 +23,7 @@ import { Karta } from './components/Karta'
 import { grajBlad } from './dzwiek'
 import { WazenieKartonu } from './WazenieKartonu'
 import { drukujEtykieteWagi } from './drukEtykietyWagi'
+import { dataGodzina } from './etykietaWagiZpl'
 import { kgPl, roznicaPl } from './wazenieMrozni'
 import type { PokazAlarm } from './magazynTypes'
 
@@ -278,42 +279,30 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
 
         <Karta tytul="Stoi w mroźni" tresc={false} prawo={<span>najbliższy termin wydania u góry</span>}>
           {posortowane.map(p => (
-            <div key={p.palletId} className="flex items-center gap-3 px-4 py-3" style={{ borderTop: '1px solid var(--lineSoft)' }}>
-              <span className="grid shrink-0 place-items-center rounded-full text-[14px]"
-                style={{ width: 34, height: 34, background: '#fff', border: '2px solid var(--accentLine)', color: 'var(--accent)' }}>❄</span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[15.5px] font-extrabold">{p.clientName}</span>
-                <span className="hmi-v10-mono block truncate text-[12px]" style={{ color: 'var(--mut)' }}>
-                  {p.orderNo} · {p.cartonNo ? `Karton ${p.cartonNo}` : `P${p.palletNo}`}
-                </span>
-              </span>
-              <span className="shrink-0 text-right">
-                <span className="hmi-v10-mono block text-[15px] font-bold">{Math.round(p.totalKg)} kg</span>
-                <span className="block text-[11.5px]" style={{ color: 'var(--mut)' }}>
-                  {p.deliveryDate ? `wydanie ${String(p.deliveryDate).slice(8, 10)}.${String(p.deliveryDate).slice(5, 7)}` : 'bez terminu'}
-                </span>
-              </span>
-              <ZnacznikWagi w={wazenia[p.palletId]} />
-              <PrzyciskiWagi onDodruk={() => void dodruk(p.palletId)}
-                onZwaz={() => void zwazPonownie(`PAL|${p.orderId}|${p.palletNo}`)}
-                onWyjazd={() => void wyjedz({ result: 'OK', code: `PAL|${p.orderId}|${p.palletNo}` })} />
-            </div>
+            <WierszMrozni key={p.palletId}
+              klient={p.clientName}
+              opis={`${p.orderNo} · ${p.cartonNo ? `karton ${p.cartonNo}` : `P${p.palletNo}`}`}
+              kg={p.totalKg}
+              termin={p.deliveryDate ? `wydanie ${String(p.deliveryDate).slice(8, 10)}.${String(p.deliveryDate).slice(5, 7)}` : 'bez terminu'}
+              pelnosc={pelnoscPalety(p.scannedQty, p.totalQty)}
+              w={wazenia[p.palletId]}
+              onDodruk={() => void dodruk(p.palletId)}
+              onZwaz={() => void zwazPonownie(`PAL|${p.orderId}|${p.palletNo}`)}
+              onWyjazd={() => void wyjedz({ result: 'OK', code: `PAL|${p.orderId}|${p.palletNo}` })} />
           ))}
           {kartony.map(k => (
-            <div key={k.id} className="flex items-center gap-3 px-4 py-3" style={{ borderTop: '1px solid var(--lineSoft)' }}>
-              <span className="grid shrink-0 place-items-center rounded-full text-[14px]"
-                style={{ width: 34, height: 34, background: '#fff', border: '2px solid var(--accentLine)', color: 'var(--accent)' }}>❄</span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[15.5px] font-extrabold">{k.clientName || 'na magazyn'}</span>
-                <span className="hmi-v10-mono block truncate text-[12px]" style={{ color: 'var(--mut)' }}>
-                  karton {k.cartonNo} · magazyn · {k.packedQty} szt
-                </span>
-              </span>
-              <span className="hmi-v10-mono shrink-0 text-[15px] font-bold">{Math.round(k.kg)} kg</span>
-              <ZnacznikWagi w={wazenia[k.id]} />
-              <PrzyciskiWagi onDodruk={() => void dodruk(k.id)} onZwaz={() => void zwazPonownie(`SCARTON|${k.id}`)}
-                onWyjazd={() => void wyjedz({ result: 'OK', code: `SCARTON|${k.id}` })} />
-            </div>
+            <WierszMrozni key={k.id}
+              klient={k.clientName || 'na magazyn'}
+              opis={`karton ${k.cartonNo} · magazyn`}
+              kg={k.kg}
+              termin="na magazyn"
+              pelnosc={k.full === false || (k.targetQty && k.packedQty < k.targetQty)
+                ? { pelny: false, t: `NIEPEŁNY ${k.packedQty}/${k.targetQty || '?'} szt` }
+                : { pelny: true, t: `PEŁNY ${k.packedQty}${k.targetQty ? `/${k.targetQty}` : ''} szt` }}
+              w={wazenia[k.id]}
+              onDodruk={() => void dodruk(k.id)}
+              onZwaz={() => void zwazPonownie(`SCARTON|${k.id}`)}
+              onWyjazd={() => void wyjedz({ result: 'OK', code: `SCARTON|${k.id}` })} />
           ))}
           {!blad && aktualizacja && !lista.length && !kartony.length ? (
             <div className="p-6 text-center text-[14px]" style={{ color: 'var(--mut)' }}>Mroźnia pusta.</div>
@@ -335,11 +324,72 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
   )
 }
 
-/** Czy karton w mroźni był ważony — „do zważenia" po „Zważ później". */
-function ZnacznikWagi({ w }: { w?: { ok: boolean } }) {
-  const [t, kolor] = !w ? ['do zważenia', '#92400e'] : w.ok ? ['✓ waga', '#166534'] : ['niezgodna', '#991b1b']
-  return <span className="shrink-0 rounded-md px-2 py-1 text-[11.5px] font-extrabold uppercase"
-    style={{ color: kolor, border: `1px solid ${kolor}` }}>{t}</span>
+/** Pełność palety zamówienia: zeskanowane sztuki wobec rozpisu. Rozpisana
+ *  bez skanu sztuk (decyzja 09.09) nie jest „pełna" — nikt jej nie liczył. */
+export function pelnoscPalety(zeskanowane: number, rozpis: number): { pelny: boolean; t: string } {
+  if (!zeskanowane) return { pelny: false, t: `BEZ SKANU SZTUK · ${rozpis} szt rozpis` }
+  if (rozpis && zeskanowane < rozpis) return { pelny: false, t: `NIEPEŁNY ${zeskanowane}/${rozpis} szt` }
+  return { pelny: true, t: `PEŁNY ${zeskanowane}${rozpis ? `/${rozpis}` : ''} szt` }
+}
+
+/** Wiersz listy „Stoi w mroźni" (właściciel 30.09.2026): pełny karton na
+ *  zielono, niepełny na szaro, a przy każdym wprost — zważony czy nie,
+ *  kiedy i kto. */
+function WierszMrozni({ klient, opis, kg, termin, pelnosc, w, onDodruk, onZwaz, onWyjazd }: {
+  klient: string
+  opis: string
+  kg: number
+  termin: string
+  pelnosc: { pelny: boolean; t: string }
+  w?: WazenieWMrozni
+  onDodruk: () => void
+  onZwaz: () => void
+  onWyjazd: () => void
+}) {
+  const { pelny } = pelnosc
+  return (
+    <div data-testid="wiersz-mrozni" data-pelny={pelny ? '1' : '0'} className="flex items-center gap-3 px-4 py-3"
+      style={{
+        borderTop: '1px solid var(--lineSoft)',
+        borderLeft: `6px solid ${pelny ? 'var(--success)' : 'var(--line)'}`,
+        background: pelny ? 'var(--successSoft)' : 'var(--bg)',
+      }}>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[16px] font-extrabold" style={{ color: pelny ? 'var(--ink)' : 'var(--mut)' }}>{klient}</span>
+        <span className="hmi-v10-mono block truncate text-[12px]" style={{ color: 'var(--mut)' }}>{opis}</span>
+        <span className="mt-1 inline-block rounded-md px-2 py-0.5 text-[11.5px] font-extrabold uppercase"
+          style={pelny
+            ? { background: 'var(--panel)', color: '#166534', border: '1px solid var(--successLine)' }
+            : { background: 'var(--panel)', color: 'var(--mut)', border: '1px solid var(--line)' }}>
+          {pelny ? '✓ ' : ''}{pelnosc.t}
+        </span>
+      </span>
+      <span className="shrink-0 text-right">
+        <span className="hmi-v10-mono block text-[15px] font-bold">{Math.round(kg)} kg</span>
+        <span className="block text-[11.5px]" style={{ color: 'var(--mut)' }}>{termin}</span>
+      </span>
+      <ZnacznikWagi w={w} />
+      <PrzyciskiWagi onDodruk={onDodruk} onZwaz={onZwaz} onWyjazd={onWyjazd} />
+    </div>
+  )
+}
+
+/** Czy karton w mroźni był ważony — „nie zważony" po „Zważ później". */
+function ZnacznikWagi({ w }: { w?: WazenieWMrozni }) {
+  const [t, kolor, tlo] = !w ? ['NIE ZWAŻONY', '#92400e', 'var(--ambSoft)']
+    : w.ok ? ['✓ ZWAŻONY', '#166534', 'var(--panel)'] : ['WAGA NIEZGODNA', '#991b1b', 'var(--redSoft)']
+  const kiedy = w?.weighedAt ? dataGodzina(w.weighedAt).slice(0, 5) + ' ' + dataGodzina(w.weighedAt).slice(-5) : ''
+  return (
+    <span className="w-[150px] shrink-0 rounded-lg px-2.5 py-1.5 text-center"
+      style={{ color: kolor, border: `1.5px solid ${kolor}`, background: tlo }}>
+      <span className="block text-[12px] font-extrabold uppercase leading-tight">{t}</span>
+      {w ? (
+        <span className="hmi-v10-mono block truncate text-[11px] font-bold leading-tight" style={{ color: 'var(--mut)' }}>
+          {[kiedy, w.operator].filter(Boolean).join(' · ') || `${kgPl(w.grossKg)} kg`}
+        </span>
+      ) : null}
+    </span>
+  )
 }
 
 function PrzyciskiWagi({ onDodruk, onZwaz, onWyjazd }: { onDodruk: () => void; onZwaz: () => void; onWyjazd: () => void }) {

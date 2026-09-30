@@ -213,3 +213,22 @@ def test_stare_wazenie_z_krotkim_numerem_dodruk_pelny(db):
     zwaz_i_wstaw(f"SCARTON|{k['id']}", "euro", 70.0, "auto")
     execute("""UPDATE cold_storage_weighings SET batches='[{"qty": 2, "batchNo": "598"}]'::jsonb""")
     assert ostatnie_wazenie(k["id"])["batches"] == [{"qty": 2, "batchNo": "290926 598"}]
+
+
+def test_lista_mrozni_mowi_kto_kiedy_i_czy_pelny(db):
+    """Właściciel 30.09.2026: lista mroźni — pełny/niepełny, zważony kiedy i przez kogo."""
+    from app.services.magazyn_pakowanie_service import kartony_w_mrozni
+    from app.services.pallets_service import pallets_in_cold_storage
+    k = _pelny_karton()
+    zwaz_i_wstaw(f"SCARTON|{k['id']}", "euro", 80.0, "manual", "Jan")
+    w = wazenia_w_mrozni()[k["id"]]
+    assert w["operator"] == "Jan" and w["weighMode"] == "manual" and w["weighedAt"]
+    karton = next(x for x in kartony_w_mrozni() if x["id"] == k["id"])
+    assert karton["full"] is True and karton["packedQty"] == karton["targetQty"] == 3
+
+    pid = _paleta("o1", "YALCIN", qty=2)
+    _sztuka("p0")
+    skanuj_sztuke(unit_qr("p0"), pid)
+    execute("UPDATE order_pallets SET status='cold_storage' WHERE id=%s", (pid,))
+    paleta = next(p for p in pallets_in_cold_storage() if p["pallet_id"] == pid)
+    assert paleta["total_qty"] == 2 and paleta["scanned_qty"] == 1

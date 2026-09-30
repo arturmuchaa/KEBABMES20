@@ -15,6 +15,9 @@ const s = vi.hoisted(() => ({
   alarmy: [] as any[],
   ok: true,
   wyjazdy: [] as string[],
+  lista: [] as any[],
+  kartony: [] as any[],
+  wm: {} as Record<string, any>,
 }))
 
 const PALETY = [
@@ -24,8 +27,8 @@ const PALETY = [
 
 vi.mock('@/lib/api', () => ({
   magazynApi: {
-    mrozniaKartony: () => Promise.resolve([]),
-    mrozniaWazenia: () => Promise.resolve({}),
+    mrozniaKartony: () => Promise.resolve(s.kartony),
+    mrozniaWazenia: () => Promise.resolve(s.wm),
     mrozniaWyjazd: (kod: string) => { s.wyjazdy.push(kod); return Promise.resolve({ result: 'SUCCESS', cartonNo: '000123', clientName: 'YALCIN' }) },
     paletyMrozni: () => Promise.resolve(PALETY),
     mrozniaSprawdz: () => Promise.resolve(s.sprawdz),
@@ -42,7 +45,7 @@ vi.mock('@/lib/api', () => ({
     },
   },
   palletScanApi: {
-    inColdStorage: () => Promise.resolve([]),
+    inColdStorage: () => Promise.resolve(s.lista),
     scan: (kod: string) => { s.stare.push(kod); return Promise.resolve({ result: 'SUCCESS', order: { clientName: 'X' }, palletNo: 1, totalKg: 1 }) },
   },
   isOfflineError: () => false,
@@ -57,7 +60,7 @@ vi.mock('@/lib/zebra', () => ({
 
 vi.mock('./dzwiek', () => ({ grajBlad: () => {} }))
 
-import { EkranMrozni } from './EkranMrozni'
+import { EkranMrozni, pelnoscPalety } from './EkranMrozni'
 
 const PELNY = {
   result: 'OK', status: 'full', kind: 'stock', id: 'c1', code: 'SCARTON|0123456789abcdef0123', cartonNo: '000123',
@@ -77,6 +80,7 @@ function skanuj(kod: string) {
 
 beforeEach(() => {
   s.sprawdz = PELNY; s.wazenia = []; s.stare = []; s.druki = []; s.alarmy = []; s.ok = true; s.wyjazdy = []
+  s.lista = []; s.kartony = []; s.wm = {}
   try { localStorage.clear() } catch { /* */ }
 })
 afterEach(() => { cleanup(); (window as any).__scaleSim?.(null) })
@@ -199,5 +203,35 @@ describe('mroźnia — tryb wjazd / wyjazd (29.09.2026)', () => {
     skanuj('SCARTON|0123456789abcdef0123')
     await waitFor(() => expect(s.wyjazdy).toEqual([PELNY.code]))
     expect(await screen.findByText(/Wyjechał: karton 000123/)).toBeTruthy()
+  })
+})
+
+// Właściciel 30.09.2026: lista mroźni ma mówić wprost — pełny (zielony) czy
+// niepełny (szary) i czy zważony, kiedy i kto.
+describe('mroźnia — lista: pełny/niepełny i ważenie', () => {
+  it('pełność palety liczona ze skanów wobec rozpisu', () => {
+    expect(pelnoscPalety(15, 15)).toEqual({ pelny: true, t: 'PEŁNY 15/15 szt' })
+    expect(pelnoscPalety(10, 15).pelny).toBe(false)
+    expect(pelnoscPalety(10, 15).t).toBe('NIEPEŁNY 10/15 szt')
+    expect(pelnoscPalety(0, 20).t).toContain('BEZ SKANU')
+  })
+
+  it('pełny zważony na zielono z godziną i osobą; niepełny szary „nie zważony"', async () => {
+    s.lista = [
+      { orderId: 'o1', orderNo: 'YALCIN/Z/9/09/26', clientName: 'YALCIN', deliveryDate: '2026-10-05', palletId: 'p1',
+        palletNo: 1, cartonNo: '000501', totalKg: 750, totalQty: 15, scannedQty: 15, parts: [] },
+    ]
+    s.kartony = [{ id: 'c9', cartonNo: '000777', clientName: 'ZAGROS', packedQty: 8, targetQty: 15, full: false, kg: 400, coldStorageAt: '' }]
+    s.wm = { p1: { ok: true, grossKg: 790, diffKg: 0, weighedAt: '2026-09-30T08:05:00', operator: 'Jan', weighMode: 'auto' } }
+    render(<EkranMrozni onAlarm={a => s.alarmy.push(a)} />)
+    await waitFor(() => expect(screen.getAllByTestId('wiersz-mrozni').length).toBe(2))
+    const [pelny, niepelny] = screen.getAllByTestId('wiersz-mrozni')
+    expect(pelny.dataset.pelny).toBe('1')
+    expect(pelny.textContent).toContain('PEŁNY 15/15 szt')
+    expect(pelny.textContent).toContain('✓ ZWAŻONY')
+    expect(pelny.textContent).toContain('30.09 08:05 · Jan')
+    expect(niepelny.dataset.pelny).toBe('0')
+    expect(niepelny.textContent).toContain('NIEPEŁNY 8/15 szt')
+    expect(niepelny.textContent).toContain('NIE ZWAŻONY')
   })
 })

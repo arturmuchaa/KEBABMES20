@@ -581,6 +581,8 @@ def kartony_w_mrozni() -> List[Dict[str, Any]]:
         "cartonNo": format_carton_no(r.get("carton_no")) if r.get("carton_no") else "",
         "clientName": r.get("client_name") or "",
         "packedQty": int(r.get("packed_qty") or 0),
+        "targetQty": int(r.get("target_qty") or 0),
+        "full": r.get("status") == "packed",
         "kg": float(r.get("kg") or 0),
         "coldStorageAt": str(r.get("cold_storage_at") or ""),
     } for r in rows]

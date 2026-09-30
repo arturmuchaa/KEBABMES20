@@ -2275,6 +2275,8 @@ export interface ColdStoragePallet {
   notes:         string
   totalKg:       number
   totalQty:      number
+  /** Sztuki zeskanowane na paletę; pełna = scannedQty ≥ totalQty. */
+  scannedQty:    number
   parts:         ColdStoragePart[]
 }
 
@@ -2297,6 +2299,7 @@ function mapColdStoragePallet(r: any): ColdStoragePallet {
     notes:         r.notes ?? '',
     totalKg:       Number(r.total_kg ?? 0),
     totalQty:      Number(r.total_qty ?? 0),
+    scannedQty:    Number(r.scanned_qty ?? 0),
     parts,
   }
 }
@@ -3965,7 +3968,7 @@ export const magazynApi = {
     post<{ result: 'SUCCESS' | 'ALREADY_SCANNED' | 'NOT_FULL' | 'INVALID'; cartonNo?: string; clientName?: string }>(
       '/magazyn/mroznia/karton', { code }),
   mrozniaKartony: () =>
-    get<{ id: string; cartonNo: string; clientName: string; packedQty: number; kg: number; coldStorageAt: string }[]>(
+    get<{ id: string; cartonNo: string; clientName: string; packedQty: number; targetQty?: number; full?: boolean; kg: number; coldStorageAt: string }[]>(
       '/magazyn/mroznia/kartony'),
   /** Tary palet do ważenia przy mroźni (lista z biura). */
   paletyMrozni: () => get<{ pallets: PaletaMrozni[] }>('/magazyn/mroznia/palety').then(r => r?.pallets ?? []),
@@ -3983,9 +3986,20 @@ export const magazynApi = {
       '/magazyn/mroznia/wyjazd', { code }),
   /** Ostatnie ważenie każdego kartonu w mroźni; brak klucza = niezważony. */
   mrozniaWazenia: () =>
-    get<Record<string, { ok: boolean; grossKg: number; diffKg: number }>>('/magazyn/mroznia/wazenia'),
+    get<Record<string, WazenieWMrozni>>('/magazyn/mroznia/wazenia'),
   mrozniaOstatnieWazenie: (containerId: string) =>
     get<WazenieMrozni>(`/magazyn/mroznia/wazenie/${encodeURIComponent(containerId)}`),
+}
+
+/** Ostatnie ważenie kartonu stojącego w mroźni (lista mroźni). */
+export interface WazenieWMrozni {
+  ok: boolean
+  grossKg: number
+  diffKg: number
+  /** Starszy serwer tych pól nie zwraca. */
+  weighedAt?: string
+  operator?: string
+  weighMode?: string
 }
 
 export interface PaletaMrozni {
