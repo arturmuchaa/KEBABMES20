@@ -346,7 +346,10 @@ def _zapisz(k: Dict[str, Any], code: str) -> Optional[Dict[str, Any]]:
 
 
 def _odmowa_sztuki(unit: Dict[str, Any], aktywny_id: Optional[str]) -> Optional[Dict]:
-    """ALREADY / NOT_PRODUCED dla sztuki, która nie może już nigdzie wejść."""
+    """ALREADY / NOT_PRODUCED / ON_DISPATCH dla sztuki, która nie może już nigdzie wejść."""
+    if unit.get("dispatch_id"):
+        # Wyjęta na wydanie sztuk — nie wraca do kartonu skanem pakowania.
+        return _wynik("ON_DISPATCH", unit, None)
     if unit.get("carton_id") or unit.get("pallet_id"):
         ten = aktywny_id and aktywny_id in (unit.get("carton_id"), unit.get("pallet_id"))
         return _wynik("ALREADY", unit, None, where=_gdzie_lezy(unit), sameCarton=bool(ten))

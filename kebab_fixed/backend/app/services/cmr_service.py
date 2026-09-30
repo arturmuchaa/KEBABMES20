@@ -189,9 +189,6 @@ def build_cmr(order_id: str, form: Dict[str, Any],
 
     consignee_part = _client_snapshot(order)
 
-    co = get_company()
-    company_addr = f"{co.get('address','')}".strip()
-    load_city = co.get("city", "")
     # Numer HDI w załącznikach musi być z TEGO SAMEGO wariantu: CMR „na drogę"
     # jedzie z kierowcą i powołuje się na HDI na całość, CMR pod fakturę — na
     # HDI do faktury. Zapytanie po samym `order_id` (ORDER BY created_at DESC)
@@ -219,9 +216,21 @@ def build_cmr(order_id: str, form: Dict[str, Any],
         "AND COALESCE(scope,%s)=%s AND COALESCE(status,'')<>'anulowany' "
         "ORDER BY created_at DESC LIMIT 1",
         (order_id, ZAKRES_CALOSC, scope))
-    today = datetime.now().strftime("%Y-%m-%d")
+    payload = _zloz_payload(consignee_part, goods, totals, (hdi or {}).get("number", ""), form)
+    return {"order_id": order_id, "client_name": order.get("client_name", ""),
+            "carrier_id": form.get("carrier_id") or None, "payload": payload,
+            "totals": totals, "scope": scope}
 
-    payload = {
+
+
+def _zloz_payload(consignee_part: Dict[str, Any], goods: List[Dict[str, Any]],
+                  totals: Dict[str, Any], hdi_number: str, form: Dict[str, Any]) -> Dict[str, Any]:
+    """Treść listu CMR — wspólna dla zamówienia i wydania sztuk z kiosku."""
+    co = get_company()
+    company_addr = f"{co.get('address','')}".strip()
+    load_city = co.get("city", "")
+    today = datetime.now().strftime("%Y-%m-%d")
+    return {
         "sender": {"name": co.get("name", ""), "address": company_addr,
                    "postal_code": co.get("postal_code", ""), "city": load_city,
                    "country": country_from_nip(co.get("nip", ""), "Poland"),
@@ -231,7 +240,7 @@ def build_cmr(order_id: str, form: Dict[str, Any],
         "delivery_place": consignee_part["delivery_place"],
         "load_place": co.get("load_place") or f"{company_addr}, {load_city}".strip(", "),
         "load_date": today,
-        "attachments": {"hdi_number": (hdi or {}).get("number", ""),
+        "attachments": {"hdi_number": hdi_number or "",
                         "invoice_no": form.get("invoice_no", "")},
         "goods": goods,
         "gross_kg": totals["kg"],
@@ -240,10 +249,59 @@ def build_cmr(order_id: str, form: Dict[str, Any],
         "established_place": load_city,
         "established_date": today,
     }
-    return {"order_id": order_id, "client_name": order.get("client_name", ""),
-            "carrier_id": form.get("carrier_id") or None, "payload": payload,
-            "totals": totals, "scope": scope}
 
+
+def generate_cmr_for_dispatch(dispatch_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
+    """CMR dla wydania pojedynczych sztuk z kiosku (30.09.2026).
+
+    Towar = sztuki wydania (kg/szt), odbiorca = klient wydania, HDI w
+    załączniku = HDI wystawione z WZ tego wydania. Dokument trzymamy w
+    `cmr_documents.order_id` = id wydania (kolumna tekstowa, bez klucza obcego)
+    — jeden CMR na wydanie, powtórne wywołanie odświeża ten sam numer.
+    """
+    disp = query_one("SELECT * FROM dispatches WHERE id=%s", (dispatch_id,))
+    if not disp:
+        raise HTTPException(404, "Wydanie nie znalezione")
+    rows = query_all(
+        "SELECT weight_kg AS kg_per_unit, COUNT(*) AS qty_done FROM finished_units "
+        "WHERE dispatch_id=%s GROUP BY weight_kg", (dispatch_id,))
+    goods = build_goods([dict(r) for r in rows], form.get("goods_manual") or [])
+    if not goods:
+        raise HTTPException(400, "Brak towaru do umieszczenia na CMR")
+    totals = cmr_totals(goods)
+    consignee_part = _client_snapshot({"client_id": disp.get("client_id"),
+                                       "client_name": disp.get("client_name") or ""})
+    hdi = query_one(
+        """SELECT h.number FROM hdi_documents h JOIN wz_documents w ON w.id = h.wz_id
+           WHERE w.source_type='dispatch' AND w.source_id=%s
+             AND COALESCE(h.status,'')<>'anulowany' ORDER BY h.created_at DESC LIMIT 1""",
+        (dispatch_id,))
+    payload = _zloz_payload(consignee_part, goods, totals, (hdi or {}).get("number", ""), form)
+    client_name = disp.get("client_name") or ""
+    carrier_id = form.get("carrier_id") or None
+    today = datetime.now()
+    with transaction() as conn:
+        existing = cx_query_one(conn, "SELECT id, number FROM cmr_documents WHERE order_id=%s "
+                                      "ORDER BY created_at LIMIT 1 FOR UPDATE", (dispatch_id,))
+        if existing:
+            cx_execute(conn, "UPDATE cmr_documents SET client_name=%s, carrier_id=%s, payload=%s::jsonb WHERE id=%s",
+                       (client_name, carrier_id, json.dumps(payload), existing["id"]))
+            return {"id": existing["id"], "number": existing["number"], "status": "wystawiony",
+                    "scope": ZAKRES_CALOSC, "payload": payload}
+        ym = today.strftime("%y%m")
+        seq = int(cx_query_one(conn, "SELECT COALESCE(MAX(seq),0)+1 AS n FROM cmr_documents "
+                                     "WHERE year_month=%s", (ym,))["n"])
+        number = format_cmr_number(seq, ym)
+        cid = cuid()
+        cx_execute(conn,
+            """INSERT INTO cmr_documents
+               (id, number, seq, year_month, order_id, client_name, carrier_id, status, payload,
+                issue_date, created_at, scope)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,'wystawiony',%s::jsonb,%s,%s,%s)""",
+            (cid, number, seq, ym, dispatch_id, client_name, carrier_id,
+             json.dumps(payload), today.strftime("%d.%m.%Y"), now_iso(), ZAKRES_CALOSC))
+    logger.info("cmr.dispatch.generated", extra={"cmr_id": cid, "number": number, "dispatch_id": dispatch_id})
+    return {"id": cid, "number": number, "status": "wystawiony", "scope": ZAKRES_CALOSC, "payload": payload}
 
 def format_cmr_number(seq: int, year_month: str) -> str:
     # year_month = "RRMM" (np. "2607"); numer = NN/MM/RR — jak HDI,

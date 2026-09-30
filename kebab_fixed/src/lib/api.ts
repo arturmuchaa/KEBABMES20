@@ -3112,6 +3112,9 @@ export interface CmrListRow {
 export const cmrApi = {
   generate: (orderId: string, form: CmrFormInput) =>
     post<{ id: string; number: string; status: string }>(`/cmr/generate?order_id=${encodeURIComponent(orderId)}`, form),
+  /** CMR dla wydania pojedynczych sztuk z kiosku magazynu. */
+  generateDispatch: (dispatchId: string, form: CmrFormInput) =>
+    post<{ id: string; number: string; status: string }>(`/cmr/generate-dispatch?dispatch_id=${encodeURIComponent(dispatchId)}`, form),
   get: (id: string) => get<any>(`/cmr/${id}`),
   listDocs: () => get<any[]>('/cmr').then(rs => (rs ?? []).map((r): CmrListRow => ({
     id: r.id, number: r.number ?? '', clientName: r.client_name ?? '', status: r.status ?? '',
@@ -3989,7 +3992,57 @@ export const magazynApi = {
     get<Record<string, WazenieWMrozni>>('/magazyn/mroznia/wazenia'),
   mrozniaOstatnieWazenie: (containerId: string) =>
     get<WazenieMrozni>(`/magazyn/mroznia/wazenie/${encodeURIComponent(containerId)}`),
+
+  // ── Wydanie pojedynczych sztuk (30.09.2026) ──
+  wydanieSztukKlienci: () => get<KlientWydania[]>('/magazyn/wydanie-sztuk/klienci'),
+  wydanieSztukOtwarte: () => get<WydanieSztuk[]>('/magazyn/wydanie-sztuk'),
+  wydanieSztukDoWystawienia: () => get<WydanieSztuk[]>('/magazyn/wydanie-sztuk/do-wystawienia'),
+  zalozWydanieSztuk: (body: { client_id: string; pickup: 'klient' | 'nasze'; vehicle_id?: string | null }) =>
+    post<WydanieSztuk>('/magazyn/wydanie-sztuk', body),
+  skanWydaniaSztuk: (id: string, code: string) =>
+    post<SkanWydaniaSztuk>(`/magazyn/wydanie-sztuk/${encodeURIComponent(id)}/skan`, { code }),
+  cofnijZWydaniaSztuk: (id: string, unitId: string) =>
+    post<WydanieSztuk & { backToCarton: boolean; cartonNo: string }>(
+      `/magazyn/wydanie-sztuk/${encodeURIComponent(id)}/cofnij`, { unit_id: unitId }),
+  przekazWydanieSztuk: (id: string) =>
+    post<WydanieSztuk>(`/magazyn/wydanie-sztuk/${encodeURIComponent(id)}/przekaz`, {}),
+  porzucWydanieSztuk: (id: string) => del<{ ok: boolean }>(`/magazyn/wydanie-sztuk/${encodeURIComponent(id)}`),
 }
+
+export interface KlientWydania { id: string; name: string; displayName: string }
+
+export interface SztukaNaWydaniu {
+  id: string
+  kg: number
+  batchNo: string
+  recipeName: string
+  productTypeName: string
+  /** Karton, z którego sztuka wyszła (pusty = leżała luzem). */
+  fromCartonNo: string
+  fromClient: string
+}
+
+export interface WydanieSztuk {
+  id: string
+  /** open = kiosk skanuje; ready = przekazane do biura; shipped = WZ wystawiona. */
+  status: 'open' | 'ready' | 'shipped'
+  clientId: string
+  clientName: string
+  pickup: 'klient' | 'nasze' | ''
+  vehicleId: string
+  operator: string
+  notes: string
+  createdAt: string
+  handedAt: string
+  qty: number
+  kg: number
+  units: SztukaNaWydaniu[]
+}
+
+export type SkanWydaniaSztuk =
+  | ({ result: 'OK'; from: { kind: 'stock' | 'order' | 'loose'; cartonNo?: string; clientName?: string; orderNo?: string } } & WydanieSztuk)
+  | ({ result: 'ALREADY' } & WydanieSztuk)
+  | { result: 'OTHER_DISPATCH' | 'SHIPPED' | 'NOT_PRODUCED' | 'INVALID'; status?: string; code?: string }
 
 /** Ostatnie ważenie kartonu stojącego w mroźni (lista mroźni). */
 export interface WazenieWMrozni {

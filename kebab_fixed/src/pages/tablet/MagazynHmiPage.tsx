@@ -28,6 +28,7 @@ import { Kafel } from '@/features/magazyn/components/Kafel'
 import { Alarm } from '@/features/magazyn/components/Alarm'
 import { EkranKartonow } from '@/features/magazyn/EkranKartonow'
 import { EkranPakowania } from '@/features/magazyn/EkranPakowania'
+import { EkranWydaniaSztuk } from '@/features/magazyn/EkranWydaniaSztuk'
 import { EkranWyboruAuta } from '@/features/magazyn/EkranWyboruAuta'
 import { EkranZaladunku } from '@/features/magazyn/EkranZaladunku'
 import { EkranMrozni } from '@/features/magazyn/EkranMrozni'
@@ -51,6 +52,7 @@ const TYTULY: Record<EkranMagazynu, { t: string; p: string; back: EkranMagazynu 
   'kartony-praca': { t: 'Kartony',  p: 'Pakowanie',                    back: 'kartony' },
   'wydanie-auta':  { t: 'Wydanie',  p: 'Które auto',                   back: 'kafle' },
   'wydanie-praca': { t: 'Wydanie',  p: 'Załadunek palet',              back: 'wydanie-auta' },
+  'wydanie-sztuk': { t: 'Wydanie',  p: 'Pojedyncze sztuki',            back: 'wydanie-auta' },
   'mroznia':       { t: 'Mroźnia',  p: 'Wstawianie palet',             back: 'kafle' },
 }
 
@@ -386,7 +388,12 @@ export function MagazynHmiPage() {
       ) : null}
 
       {ekran === 'wydanie-auta' ? (
-        <EkranWyboruAuta onWybor={id => { setPojazdId(id); przejdz('wydanie-praca') }} />
+        <EkranWyboruAuta onWybor={id => { setPojazdId(id); przejdz('wydanie-praca') }}
+          onSztuki={() => przejdz('wydanie-sztuk')} />
+      ) : null}
+
+      {ekran === 'wydanie-sztuk' ? (
+        <EkranWydaniaSztuk onAlarm={pokazAlarm} onKoniec={() => przejdz('wydanie-auta')} />
       ) : null}
 
       {ekran === 'wydanie-praca' ? (

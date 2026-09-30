@@ -201,6 +201,10 @@ def permission_for_path(path: str, method: str = "GET") -> str:
     # Tary palet do ważenia przy mroźni: kiosk czyta, zmienia tylko biuro.
     if _matches(path, "/api/magazyn/mroznia/palety") and method != "GET":
         return "office"
+    # Wydanie pojedynczych sztuk z kiosku (30.09.2026): ta sama robota co
+    # załadunek — magazynier wybiera klienta, skanuje, przekazuje do biura.
+    if _matches(path, "/api/magazyn/wydanie-sztuk"):
+        return "wydanie"
     # Mroźnia to robota wydania (ta sama co skan palety do mroźni).
     if _matches(path, "/api/magazyn/mroznia"):
         return "wydanie"

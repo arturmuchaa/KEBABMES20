@@ -176,6 +176,8 @@ def scan_unit_into_carton(carton_id: str, code: str) -> Dict[str, Any]:
             )
         if unit.get("carton_id"):
             raise HTTPException(409, "Sztuka jest już w innym kartonie")
+        if unit.get("dispatch_id"):
+            raise HTTPException(409, "Sztuka jest na wydaniu — najpierw cofnij ją z wydania")
         # Dopasuj sztukę do pozycji kartonu z wolnym miejscem (skład mieszany).
         line = pick_line_for_unit(unit, lines)
         if line is None:

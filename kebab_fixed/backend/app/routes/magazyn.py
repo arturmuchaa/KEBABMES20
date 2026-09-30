@@ -124,3 +124,69 @@ def mroznia_wyjazd(body: SkanKodu, request: Request):
 @router.get("/mroznia/wazenia")
 def mroznia_wazenia():
     return mroznia_wazenie_service.wazenia_w_mrozni()
+
+
+# ── Wydanie pojedynczych sztuk (30.09.2026) ────────────────────────────────
+# Kiosk: klient → skan sztuk (schodzą z kartonów) → przekaż do biura.
+# Biuro wystawia WZ przez /api/dispatches/{id}/close, potem HDI i CMR.
+
+from app.services import wydanie_sztuk_service as wydanie_sztuk  # noqa: E402
+
+
+class NoweWydanieSztuk(BaseModel):
+    client_id: str
+    pickup: str
+    vehicle_id: Optional[str] = None
+
+
+class SkanWydania(BaseModel):
+    code: str
+
+
+class CofnijSztuke(BaseModel):
+    unit_id: str
+
+
+@router.get("/wydanie-sztuk/klienci")
+def wydanie_sztuk_klienci():
+    return wydanie_sztuk.klienci()
+
+
+@router.get("/wydanie-sztuk")
+def wydanie_sztuk_otwarte():
+    return wydanie_sztuk.otwarte()
+
+
+@router.get("/wydanie-sztuk/do-wystawienia")
+def wydanie_sztuk_do_wystawienia():
+    return wydanie_sztuk.do_wystawienia()
+
+
+@router.post("/wydanie-sztuk")
+def wydanie_sztuk_zaloz(body: NoweWydanieSztuk, request: Request):
+    return wydanie_sztuk.zaloz(body.client_id, body.pickup, body.vehicle_id, _operator(request))
+
+
+@router.get("/wydanie-sztuk/{dispatch_id}")
+def wydanie_sztuk_szczegoly(dispatch_id: str):
+    return wydanie_sztuk.szczegoly(dispatch_id)
+
+
+@router.post("/wydanie-sztuk/{dispatch_id}/skan")
+def wydanie_sztuk_skan(dispatch_id: str, body: SkanWydania, request: Request):
+    return wydanie_sztuk.skanuj(dispatch_id, body.code, _operator(request))
+
+
+@router.post("/wydanie-sztuk/{dispatch_id}/cofnij")
+def wydanie_sztuk_cofnij(dispatch_id: str, body: CofnijSztuke):
+    return wydanie_sztuk.cofnij(dispatch_id, body.unit_id)
+
+
+@router.post("/wydanie-sztuk/{dispatch_id}/przekaz")
+def wydanie_sztuk_przekaz(dispatch_id: str, request: Request):
+    return wydanie_sztuk.przekaz_do_biura(dispatch_id, _operator(request))
+
+
+@router.delete("/wydanie-sztuk/{dispatch_id}")
+def wydanie_sztuk_porzuc(dispatch_id: str):
+    return wydanie_sztuk.porzuc(dispatch_id)

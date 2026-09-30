@@ -67,3 +67,9 @@ def get(cmr_id: str):
 @router.get("")
 def list_all():
     return svc.list_cmr()
+
+
+@router.post("/generate-dispatch")
+def generate_dispatch(dispatch_id: str = Query(...), form: CmrForm = CmrForm()):
+    """CMR dla wydania pojedynczych sztuk z kiosku magazynu (30.09.2026)."""
+    return svc.generate_cmr_for_dispatch(dispatch_id, form.model_dump())

@@ -1,6 +1,7 @@
 import { useOtworzDokument } from '@/lib/otworzDokument'
 import { docNumberSortValue } from '@/lib/docNumberSort'
 import { mozliweHdiDoWz } from '@/components/wz/hdiDostepne'
+import { WydaniaSztukCard } from '@/features/wz/WydaniaSztukCard'
 import { Fragment, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { wzApi, hdiApi, downloadDocPdf, WzDoc, WzLine, QuantityChain } from '@/lib/api'
@@ -349,6 +350,8 @@ export function WzDocumentsPage() {
           <Plus size={14} /> Nowy WZ
         </Button>
       </div>
+
+      <WydaniaSztukCard otworz={otworz} onWystawiono={() => void reload()} />
 
       <Card>
         <div className="px-4 pt-2.5 border-b" role="tablist">

@@ -13,6 +13,7 @@ export type EkranMagazynu =
   | 'kartony-praca'
   | 'wydanie-auta'
   | 'wydanie-praca'
+  | 'wydanie-sztuk'
   | 'mroznia'
 
 /** Błąd pokazywany na CAŁYM ekranie.

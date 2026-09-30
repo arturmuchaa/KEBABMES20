@@ -12,7 +12,11 @@ import { vehiclesApi, type Vehicle } from '@/lib/api'
 
 const TYP: Record<string, string> = { dostawczy: 'dostawczy', tir: 'TIR', solo: 'solówka', inny: '' }
 
-export function EkranWyboruAuta({ onWybor }: { onWybor: (vehicleId: string) => void }) {
+export function EkranWyboruAuta({ onWybor, onSztuki }: {
+  onWybor: (vehicleId: string) => void
+  /** Wydanie pojedynczych sztuk (odbiór klienta / nasze auto) — 30.09.2026. */
+  onSztuki?: () => void
+}) {
   const [pojazdy, setPojazdy] = useState<Vehicle[]>([])
   const [blad, setBlad] = useState('')
   const [ladowanie, setLadowanie] = useState(true)
@@ -33,6 +37,22 @@ export function EkranWyboruAuta({ onWybor }: { onWybor: (vehicleId: string) => v
       {blad ? (
         <div className="mb-3 rounded-xl p-3 text-sm"
           style={{ background: 'var(--redSoft)', border: '1px solid var(--redLine)', color: 'var(--red)' }}>{blad}</div>
+      ) : null}
+      {onSztuki ? (
+        <button type="button" onClick={onSztuki} data-testid="kafel-sztuki"
+          className="mb-4 flex w-full items-center gap-5 rounded-2xl px-6 py-5 text-left active:scale-[0.995]"
+          style={{ background: 'var(--accentSoft)', border: '2px solid var(--accentLine)', color: 'var(--ink)' }}>
+          <span className="grid shrink-0 place-items-center rounded-2xl text-[30px] font-extrabold"
+            style={{ width: 64, height: 64, background: 'var(--panel)', color: 'var(--accent)', border: '1.5px solid var(--accentLine)' }}
+            aria-hidden>≡</span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[26px] font-extrabold leading-tight">Pojedyncze sztuki</span>
+            <span className="block text-[15px]" style={{ color: 'var(--mut)' }}>
+              Odbiór przez klienta albo nasze auto — skanujesz sztuki, biuro wystawia WZ i HDI
+            </span>
+          </span>
+          <span className="text-[30px] font-bold" style={{ color: 'var(--accent)' }} aria-hidden>→</span>
+        </button>
       ) : null}
       {/* Właściciel 30.09.2026: „lista nieczytelna, ucina numery". Dwa duże
           kafle w rzędzie, nazwa auta zawija się (bez ucinania), numer

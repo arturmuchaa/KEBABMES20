@@ -26,6 +26,10 @@ describe('mozliweHdiDoWz — komu wolno wystawić HDI', () => {
     expect(mozliweHdiDoWz(wz({ source_type: 'order' }))).toBe(false)
   })
 
+  it('WZ z wydania sztuk (kiosk magazynu) — tak', () => {
+    expect(mozliweHdiDoWz(wz({ source_type: 'dispatch' }))).toBe(true)
+  })
+
   it('WZ anulowany — nie', () => {
     expect(mozliweHdiDoWz(wz({ status: 'anulowany' }))).toBe(false)
   })

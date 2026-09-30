@@ -153,7 +153,7 @@ def _publiczne(w: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
 
 def ostatnie_wazenie(container_id: str) -> Optional[Dict[str, Any]]:
     return _publiczne(query_one(
-        "SELECT * FROM cold_storage_weighings WHERE container_id=%s "
+        "SELECT * FROM cold_storage_weighings WHERE container_id=%s AND invalid_at IS NULL "
         "ORDER BY weighed_at DESC LIMIT 1", (container_id,)))
 
 
@@ -332,7 +332,7 @@ def wazenia_w_mrozni() -> Dict[str, Dict[str, Any]]:
         """SELECT DISTINCT ON (w.container_id) w.container_id, w.ok, w.gross_kg, w.diff_kg,
                   w.weighed_at, w.operator, w.weigh_mode
            FROM cold_storage_weighings w
-           WHERE w.container_id IN (
+           WHERE w.invalid_at IS NULL AND w.container_id IN (
                SELECT id FROM stock_cartons WHERE cold_storage_at IS NOT NULL
                   AND loaded_vehicle_id IS NULL AND shipped_at IS NULL
                UNION SELECT id FROM order_pallets WHERE status = 'cold_storage')

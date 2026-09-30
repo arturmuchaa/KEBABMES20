@@ -432,6 +432,14 @@ _DDL: list[str] = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_dispatches_status ON dispatches(status)",
     "CREATE INDEX IF NOT EXISTS idx_dispatches_client ON dispatches(client_id)",
+    # Wydanie pojedynczych sztuk z kiosku magazynu (30.09.2026): skąd wydanie,
+    # jak jedzie, kiedy przekazane do biura; sztuka pamięta karton, z którego
+    # wyszła (Cofnij), a ważenie kartonu po wyjęciu sztuki traci ważność.
+    "ALTER TABLE dispatches ADD COLUMN IF NOT EXISTS source TEXT",
+    "ALTER TABLE dispatches ADD COLUMN IF NOT EXISTS pickup TEXT",
+    "ALTER TABLE dispatches ADD COLUMN IF NOT EXISTS handed_at TIMESTAMPTZ",
+    "ALTER TABLE finished_units ADD COLUMN IF NOT EXISTS dispatch_from JSONB",
+    "ALTER TABLE cold_storage_weighings ADD COLUMN IF NOT EXISTS invalid_at TIMESTAMPTZ",
     "ALTER TABLE finished_units ADD COLUMN IF NOT EXISTS dispatch_id TEXT",
     "CREATE INDEX IF NOT EXISTS idx_finished_units_dispatch ON finished_units(dispatch_id) WHERE dispatch_id IS NOT NULL",
 

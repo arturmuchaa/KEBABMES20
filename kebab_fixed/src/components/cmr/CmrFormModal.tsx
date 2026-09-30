@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 import { carriersApi, cmrApi, type Carrier, type CmrGoodsLine } from '@/lib/api'
 
-export function CmrFormModal({ orderId, onClose }: { orderId: string; onClose: () => void }) {
+export function CmrFormModal({ orderId, dispatchId, onClose }: {
+  orderId?: string
+  /** Wydanie pojedynczych sztuk z kiosku — CMR z jego sztuk zamiast z zamówienia. */
+  dispatchId?: string
+  onClose: () => void
+}) {
   const [carriers, setCarriers] = useState<Carrier[]>([])
   const [carrierId, setCarrierId] = useState('')
   const [plate, setPlate] = useState('')
@@ -25,10 +30,11 @@ export function CmrFormModal({ orderId, onClose }: { orderId: string; onClose: (
   async function generate() {
     setBusy(true)
     try {
-      const r = await cmrApi.generate(orderId, {
+      const form = {
         carrier_id: carrierId, plate, invoice_no: invoiceNo, instructions,
         goods_manual: goods.filter(g => g.name.trim()),
-      })
+      }
+      const r = dispatchId ? await cmrApi.generateDispatch(dispatchId, form) : await cmrApi.generate(orderId ?? '', form)
       const url = `/office/cmr/${r.id}/druk`
       const win = window.open(url, '_blank')
       if (!win) window.location.href = url

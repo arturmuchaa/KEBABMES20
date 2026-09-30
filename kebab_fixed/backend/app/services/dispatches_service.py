@@ -150,7 +150,8 @@ def close_dispatch(dispatch_id: str) -> Dict[str, Any]:
         disp = cx_query_one(conn, "SELECT * FROM dispatches WHERE id=%s FOR UPDATE", (dispatch_id,))
         if not disp:
             raise HTTPException(404, "Wydanie nie znalezione")
-        if disp.get("status") != "open":
+        # `ready` = przekazane do biura z kiosku magazynu (wydanie sztuk).
+        if disp.get("status") not in ("open", "ready"):
             raise HTTPException(409, "Wydanie zamknięte")
 
         units = cx_query_all(

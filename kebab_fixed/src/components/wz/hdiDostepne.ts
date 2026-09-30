@@ -4,7 +4,7 @@ import { WzDoc } from '@/lib/api'
  * Czy do tego WZ wolno wystawić handlowy dokument identyfikacyjny.
  *
  * Trzy warunki, wszystkie z realnej pracy biura:
- *  1. tylko WZ RĘCZNY — dokument z zamówienia ma własną ścieżkę HDI, liczoną
+ *  1. tylko WZ RĘCZNY albo z wydania sztuk — dokument z zamówienia ma własną ścieżkę HDI, liczoną
  *     z linii planu produkcji,
  *  2. tylko WZ anulowany ≠ dokument do wystawienia,
  *  3. tylko WZ, który wydaje WYRÓB GOTOWY (`has_fg`). Uboczne — grzbiety,
@@ -19,7 +19,9 @@ import { WzDoc } from '@/lib/api'
  */
 export function mozliweHdiDoWz(doc: WzDoc): boolean {
   const source = (doc as any).source_type ?? doc.sourceType ?? ''
-  if (source !== 'manual') return false
+  // `dispatch` = WZ z wydania pojedynczych sztuk (kiosk magazynu, 30.09.2026):
+  // wyrób gotowy prosto z magazynu, tak samo jak ręczny WZ.
+  if (source !== 'manual' && source !== 'dispatch') return false
   if ((doc.status || '') === 'anulowany') return false
   return (doc as any).has_fg !== false
 }
