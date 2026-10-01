@@ -1,5 +1,24 @@
 import { describe, it, expect } from 'vitest'
-import { batchLabel } from './batchLabel'
+import { batchLabel, batchParts } from './batchLabel'
+
+describe('batchParts', () => {
+  it('szczegóły pokazują PEŁNE rozbicie — więcej niż dwie partie, nic nie zwinięte', () => {
+    expect(batchParts({
+      seasonedBatchNos: ['x'],
+      batchAllocation: { '472': { pieces: 2 }, 'PP13': { pieces: 6 }, 'PP14': { pieces: 3 }, 'PP15': { pieces: 0 }, '480': { pieces: 1 } },
+    })).toEqual([
+      // Klucze-liczby JS zwraca przed tekstowymi — liczy się komplet, nie kolejność.
+      { batchNo: '472', pieces: 2 }, { batchNo: '480', pieces: 1 },
+      { batchNo: 'PP13', pieces: 6 }, { batchNo: 'PP14', pieces: 3 },
+    ])
+  })
+
+  it('bez rozbicia — lista partii bez sztuk', () => {
+    expect(batchParts({ seasonedBatchNos: ['344', '', '355'] }))
+      .toEqual([{ batchNo: '344', pieces: null }, { batchNo: '355', pieces: null }])
+    expect(batchParts(null)).toEqual([])
+  })
+})
 
 describe('batchLabel', () => {
   it('jedna partia to sam numer', () => {

@@ -1,0 +1,111 @@
+/*
+ * Ekran produkcji — style, których nie da się wygodnie wyrazić inline:
+ * gest przytrzymania, animacja wskazówki i ciaśniejsza rama na niskich
+ * ekranach (1280×720, 1366×768), żeby plan 30 pozycji zmieścił się bez
+ * przewijania.
+ */
+
+.phmi-bar { height: 76px; }
+.phmi-main { padding: 16px; gap: 12px; }
+.phmi-split { gap: 14px; }
+.phmi-side { width: clamp(380px, 31vw, 560px); container-type: size; container-name: phmi-side; }
+
+/* Panel liczenia. Wymiary tu, a nie inline, bo wariant kompaktowy zależy
+ * od wysokości PANELU (container query), nie od okna: na 1280×720 z paskiem
+ * zmian siatka załogi dostawała ~202 px, a 15 osób (5 rzędów × 40 + odstępy)
+ * potrzebuje 224 px. */
+.phmi-panel { padding: 12px; gap: 8px; }
+.phmi-panel__big { font-size: 25px; }
+.phmi-panel__zaloga { gap: 6px; }
+.phmi-panel__ile { height: 52px; }
+.phmi-panel__wynik { height: 32px; }
+.phmi-panel__glowny { height: 58px; }
+.phmi-panel__akcje { height: 46px; }
+
+/* Niski panel (1280×720, także z paskiem zmian): ciaśniejsze odstępy
+ * i kontrolki, ~40 px więcej dla załogi. Imiona zostają 16 px, przyciski
+ * dalej ≥ 44 px. Na 1080 p panel jest wysoki i ta reguła nie działa. */
+@container phmi-side (max-height: 600px) {
+  .phmi-panel { padding: 8px 10px; gap: 5px; }
+  .phmi-panel__big { font-size: 23px; }
+  .phmi-panel__zaloga { gap: 5px; }
+  .phmi-panel__ile { height: 48px; }
+  .phmi-panel__wynik { height: 28px; }
+  .phmi-panel__glowny { height: 52px; }
+  .phmi-panel__akcje { height: 44px; }
+}
+
+@media (max-height: 820px) {
+  .phmi-bar { height: 58px; }
+  .phmi-main { padding: 10px; gap: 8px; }
+  .phmi-split { gap: 10px; }
+}
+@media (max-height: 760px) {
+  .phmi-bar { height: 52px; }
+}
+
+/* Poza zakresem HMI (telefon, małe okno, < 1100 px szerokości albo < 600 px
+ * wysokości): plan i panel nie zmieszczą się obok siebie bez ucięcia.
+ * Zamiast chować kontrolki pod `overflow: hidden`, ekran JAWNIE przechodzi
+ * na układ jeden pod drugim i przewija się cały. Na 1280×720 i większych
+ * ta reguła nie działa — tam plan i panel stoją razem, bez przewijania. */
+@media (max-width: 1099px), (max-height: 599px) {
+  .phmi-root { overflow-y: auto !important; overflow-x: hidden !important; }
+  .phmi-root > * { flex-shrink: 0 !important; }
+  .phmi-head { height: auto; min-height: 52px; flex-wrap: wrap; row-gap: 6px; padding-block: 6px; }
+  .phmi-dzien { height: auto; grid-template-columns: repeat(4, minmax(0, 1fr)) !important; grid-auto-rows: 56px; }
+  .phmi-main { flex: none !important; overflow: visible !important; }
+  .phmi-split { flex: none !important; flex-direction: column; overflow: visible !important; }
+  .phmi-split > [data-testid="plan-lista"] { flex: none; height: max(360px, 70vh); }
+  .phmi-side { width: 100%; height: 620px; }
+}
+
+/* Wiersz planu: przy małej szerokości pierwszeństwo mają „15 × 50 kg",
+ * rodzaj, zrobione/plan i skan. Klient chowa się pierwszy — na 1280×720
+ * (kolumna ~420 px) klient obok ucinał rodzaj do „WROCŁA…", więc w gęstym
+ * wierszu poniżej 520 px klienta nie ma wcale (pełny w szczegółach). */
+.phmi-cell { container-type: inline-size; }
+@container (max-width: 520px) {
+  .phmi-row__client { display: none; }
+  /* Duży wiersz (M/L, ≥ 48 px) w wąskiej kolumnie — 15–20 pozycji na
+   * 1280×720: font 20–24 px nie mieści „15 × 50 kg" i rodzaju w jednej
+   * linii („15×50 kg WR…"). Rodzaj schodzi do drugiej linii na całą
+   * szerokość, klient/tuleja ustępują (pełne w szczegółach). */
+  .phmi-row--big .phmi-row__head { flex-direction: column; align-items: stretch; gap: 1px; }
+  .phmi-row--big .phmi-row__sub { display: none; }
+}
+
+/* Stała wskazówka gestu nad planem — czytelna, ale nie krzyczy. */
+.phmi-plan-hint { height: 18px; margin-bottom: 4px; font-size: 13px; line-height: 18px; }
+
+/* Wiersz planu i kafel pracownika: bez menu przeglądarki, bez zaznaczania
+ * tekstu i bez opóźnienia „double-tap zoom" na dotyku. */
+.phmi-touch {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.phmi-row { position: relative; overflow: hidden; }
+.phmi-row:focus-visible,
+.phmi-btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* Wskazówka przytrzymania: pasek wypełnia się przez czas gestu. */
+.phmi-row__hold {
+  position: absolute; inset: 0; pointer-events: none;
+  background: var(--accent); opacity: .10;
+  transform-origin: left center; transform: scaleX(0);
+}
+.phmi-row--pressing .phmi-row__hold { animation: phmi-hold 600ms linear forwards; }
+@keyframes phmi-hold { to { transform: scaleX(1); } }
+
+/* Potwierdzenie zapisu — krótki błysk, bez modala. */
+@keyframes phmi-flash { from { background: var(--successLine); } to { background: var(--successSoft); } }
+.phmi-flash { animation: phmi-flash 900ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .phmi-row--pressing .phmi-row__hold { animation: none; transform: scaleX(1); }
+  .phmi-flash { animation: none; }
+}

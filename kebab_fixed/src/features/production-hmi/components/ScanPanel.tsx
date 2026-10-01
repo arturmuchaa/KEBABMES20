@@ -1,26 +1,32 @@
 /**
- * Skanowanie gotowych kebabów — sztuka wchodzi na magazyn wyrobu gotowego.
+ * Skanowanie gotowych kebabów JEDNEJ pozycji — sztuka wchodzi na magazyn
+ * wyrobu gotowego.
+ *
+ * Jedna droga (01.10.2026): pozycję wybiera się na głównej liście planu,
+ * a „Skanuj tę pozycję" w panelu otwiera od razu pole czytnika. Okno nie ma
+ * własnej listy pozycji ani „Zmień pozycję" — druga lista wyboru była drugim
+ * miejscem na pomyłkę. Następny wózek = powrót do planu i dotknięcie pozycji.
  *
  * Skaner na hali zachowuje się jak klawiatura: wystukuje kod — i Entera
- * często NIE wciska (brak sufiksu w konfiguracji skanera). Hala 25.09.2026:
- * „kod się pojawia, trzeba klikać Enter". Dlatego pole wysyła kompletny kod
- * sam, przez wspólny `useSkanAutoSubmit` (ten sam co załadunek i magazyn);
- * Enter, jeśli przyjdzie, jest bezczynny. Całe wejście to jedno pole, które samo trzyma kursor i samo się
- * czyści — operator ma zajęte ręce i nie będzie klikał w ekran między
- * sztukami. Dźwięk po każdym skanie jest ważniejszy niż komunikat: kebab
- * zwykle patrzy w wózek, nie w monitor.
+ * często NIE wciska (hala 25.09.2026). Pole wysyła kompletny kod samo, przez
+ * wspólny `useSkanAutoSubmit`; Enter, jeśli przyjdzie, jest bezczynny.
+ * Dźwięk po każdym skanie jest ważniejszy niż komunikat: operator patrzy
+ * w wózek, nie w monitor.
  *
- * Skan jest zamknięty na JEDNĄ pozycję planu (27.08.2026). Hala przekłada
- * wózek pozycja po pozycji, więc operator najpierw wskazuje „poz. 1 · 20×40 kg",
- * a dopiero potem skanuje. Sztuka z innej pozycji odbija się na serwerze —
- * pilnowanie tego wyłącznie w UI byłoby pozorne, bo skaner wystukuje, co ma
- * pod ręką.
+ * Kolejka: operator skanuje szybciej, niż wraca odpowiedź. Każdy kod dostaje
+ * id pozycji W CHWILI PRZYJĘCIA i z nim idzie na serwer. Okna nie da się
+ * zamknąć, dopóki kolejka nie jest rozliczona — inaczej skan wisiałby
+ * w powietrzu, a operator myślałby, że wszedł.
+ *
+ * Sztuka z innej pozycji odbija się na serwerze z nazwą właściwej — tego NIE
+ * nazywamy duplikatem, bo komunikat mówi operatorowi, gdzie odłożyć wózek.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { beepErr, beepOk } from '@/features/pwa/beep'
 import { useSkanAutoSubmit } from '@/features/scan/useSkanAutoSubmit'
-import { scanOf, type ScanMap } from '../scanProgress'
-import type { PlanLineView } from './PlanList'
+import { scanOf, type LineScan } from '../scanProgress'
+import { useModalFocus } from '../useModalFocus'
+import { sztukiRazyWaga, type PlanLineView } from './PlanList'
 
 export interface ScanResult {
   clientName?: string
@@ -33,66 +39,84 @@ export interface ScanResult {
 }
 
 export interface ScanPanelProps {
-  /** Pozycje planu dnia — operator wybiera, którą teraz skanuje. */
-  lines: PlanLineView[]
-  /** Postęp skanowania per pozycja (ile wygenerowano / ile zeskanowano). */
-  scans?: ScanMap
-  /** Pozycja wskazana z licznika („Skanuj tę pozycję") — omija wybór. */
-  initialLineId?: string
+  /** Pozycja wybrana na liście planu — jedyna, którą to okno skanuje. */
+  line: PlanLineView
+  lp: number
+  /** Postęp skanowania tej pozycji z serwera. */
+  scan?: LineScan
   onScan: (code: string, lineId: string) => Promise<ScanResult>
   onClose: () => void
 }
 
-/** Dubel poznajemy PO TREŚCI, nie po kodzie 409.
- *  Odbicie sztuki z obcej pozycji też jest 409, a jego komunikat mówi
- *  operatorowi, gdzie odłożyć wózek — nie wolno go zamienić na „już jest". */
+/** Sztuka z cudzej pozycji — serwer podaje, z której („Ta sztuka jest z pozycji 2 (KIRMIZI)"). */
+const czyObcaPozycja = (e: any): boolean => {
+  const t = String(e?.message ?? '').toLowerCase()
+  return t.includes('z pozycji') || t.includes('innej pozycji')
+}
+/** Dubel poznajemy PO TREŚCI, nie po kodzie 409 — obca pozycja też jest 409. */
 const czyDubel = (e: any): boolean => {
   const t = String(e?.message ?? '').toLowerCase()
   return t.includes('duplikat') || t.includes('already') || t.includes('zeskanowan')
 }
 
-const kg = (n: number) => `${Math.round(n * 100) / 100} kg`
+type Wynik = { ok: boolean; tytul: string; tekst: string; wynik?: ScanResult }
 
-export function ScanPanel({ lines, scans, initialLineId, onScan, onClose }: ScanPanelProps) {
-  const [pozycjaId, setPozycjaId] = useState(initialLineId ?? '')
+export function ScanPanel({ line, lp, scan, onScan, onClose }: ScanPanelProps) {
+  // Pozycja zamrożona przy otwarciu: odświeżenie planu może zmienić jej
+  // dane, ale nie to, DOKĄD idą skany z tego okna.
+  const [lineId] = useState(line.id)
   const [kod, setKod] = useState('')
-  const [zajety, setZajety] = useState(false)
-  const [ostatni, setOstatni] = useState<{ ok: boolean; tekst: string; wynik?: ScanResult } | null>(null)
+  const [wKolejce, setWKolejce] = useState(0)
+  const [ostatni, setOstatni] = useState<Wynik | null>(null)
   const [ile, setIle] = useState(0)
   const pole = useRef<HTMLInputElement | null>(null)
+  const okno = useRef<HTMLDivElement | null>(null)
+  // `true` w SETUP, `false` w sprzątaniu. Samo `useRef(true)` + sprzątanie
+  // psuło się w React.StrictMode (setup → cleanup → setup): flaga zostawała
+  // na `false` i wynik skanu, dźwięk ani zdjęcie „zapisuję…" nigdy nie
+  // przychodziły — a prawdziwy entry kiosku (`produkcja.tsx`) ma StrictMode.
+  const zamontowany = useRef(false)
+  const timerFokusu = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    zamontowany.current = true
+    return () => {
+      zamontowany.current = false
+      if (timerFokusu.current) clearTimeout(timerFokusu.current)
+      timerFokusu.current = null
+    }
+  }, [])
+  useModalFocus(okno, pole)
 
-  const pozycja = lines.find(l => l.id === pozycjaId) ?? null
-  const lp = pozycja ? lines.findIndex(l => l.id === pozycja.id) + 1 : 0
-
-  const wroc = () => setTimeout(() => pole.current?.focus(), 30)
-  // Kursor wraca do pola także po WYBORZE pozycji — inaczej pierwszy skan
-  // z czytnika po wejściu w tryb skanu poszedłby w próżnię.
-  useEffect(() => { if (pozycja) wroc() }, [pozycjaId])
-
-  const wybierz = (id: string) => {
-    setPozycjaId(id)
-    // Nowy wózek — licznik sesji z poprzedniej pozycji wprowadzałby w błąd.
-    setIle(0)
-    setOstatni(null)
+  // Po wyniku skaner ma być gotowy na następną sztukę — ale fokus NIE jest
+  // zabierany przyciskowi, w który operator właśnie celuje (np. „Wróć").
+  const wroc = () => {
+    if (timerFokusu.current) clearTimeout(timerFokusu.current)
+    timerFokusu.current = setTimeout(() => {
+      timerFokusu.current = null
+      if (!zamontowany.current) return
+      const a = document.activeElement as HTMLElement | null
+      const naPrzycisku = !!a && a !== pole.current && !!okno.current?.contains(a)
+        && a.tagName === 'BUTTON' && !(a as HTMLButtonElement).disabled
+      if (!naPrzycisku) pole.current?.focus()
+    }, 30)
   }
 
-  // Kolejka skanów: operator skanuje wózek szybciej, niż wraca odpowiedź.
-  // Dawniej skan w trakcie poprzedniego był po cichu gubiony (`zajety`),
-  // a przy auto-wysyłce nic by go już nie ponowiło.
-  const kolejka = useRef<string[]>([])
+  const kolejka = useRef<{ code: string; lineId: string }[]>([])
   const wTrakcie = useRef(false)
 
   const przetworz = async () => {
-    if (wTrakcie.current || !pozycja) return
+    if (wTrakcie.current) return
     wTrakcie.current = true
-    setZajety(true)
     try {
       while (kolejka.current.length) {
-        const code = kolejka.current.shift()!
+        const { code, lineId: doPozycji } = kolejka.current[0]
         try {
-          const wynik = await onScan(code, pozycja.id)
+          const wynik = await onScan(code, doPozycji)
+          if (!zamontowany.current) continue
+          const komplet = line.qty > 0 && (wynik.done ?? 0) >= line.qty
           setOstatni({
             ok: true,
+            tytul: komplet ? 'Pozycja potwierdzona' : wynik.onStock === false ? 'Zeskanowano' : 'Na magazynie',
             tekst: [wynik.clientName, wynik.batchNo, wynik.weightKg != null ? `${wynik.weightKg} kg` : '']
               .filter(Boolean).join(' · '),
             wynik,
@@ -100,162 +124,119 @@ export function ScanPanel({ lines, scans, initialLineId, onScan, onClose }: Scan
           setIle(n => n + 1)
           beepOk()
         } catch (e: any) {
-          setOstatni({
-            ok: false,
-            tekst: czyDubel(e) ? 'Ta sztuka jest już zeskanowana' : (e?.message || 'Nie udało się zeskanować'),
-          })
+          if (!zamontowany.current) continue
+          setOstatni(czyObcaPozycja(e)
+            ? { ok: false, tytul: 'Sztuka z innej pozycji — odłóż ją', tekst: e?.message || '' }
+            : czyDubel(e)
+              ? { ok: false, tytul: 'Ta sztuka jest już zeskanowana', tekst: 'Drugi raz nie wchodzi na magazyn.' }
+              : { ok: false, tytul: 'Nie weszła', tekst: e?.message || 'Nie udało się zeskanować' })
           beepErr()
+        } finally {
+          kolejka.current.shift()
+          if (zamontowany.current) setWKolejce(kolejka.current.length)
         }
       }
     } finally {
       wTrakcie.current = false
-      setZajety(false)
-      wroc()
+      if (zamontowany.current) wroc()
     }
   }
 
   const wyslij = (surowy: string) => {
     const code = surowy.trim()
+    // Okno zamknięte: kod, który dojrzewał do auto-wysyłki, przepada — nie
+    // może trafić na pozycję, której operator już nie ogląda.
+    if (!zamontowany.current) return
     setKod('')
-    if (!code || !pozycja) return
-    kolejka.current.push(code)
+    if (!code) return
+    kolejka.current.push({ code, lineId })
+    setWKolejce(kolejka.current.length)
     void przetworz()
   }
 
   const { zatwierdz } = useSkanAutoSubmit(kod, wyslij)
 
+  const zajety = wKolejce > 0
+  const sprobujZamknac = useCallback(() => {
+    if (kolejka.current.length || wTrakcie.current) return
+    setKod('')
+    onClose()
+  }, [onClose])
+
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); sprobujZamknac() } }
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [sprobujZamknac])
+
+  // Licznik pozycji z serwera; odpowiedź skanu niesie świeższą liczbę niż
+  // odświeżenie planu, więc bierzemy większą z dwóch serwerowych wartości.
+  const s = scanOf(scan ? { [lineId]: scan } : {}, lineId)
+  const naPozycji = Math.max(s.scanned, ostatni?.ok ? (ostatni.wynik?.done ?? 0) : 0)
   const ramka = ostatni
     ? (ostatni.ok
         ? { background: 'var(--successSoft)', border: '1px solid var(--successLine)', color: 'var(--success)' }
         : { background: 'var(--redSoft)', border: '1px solid var(--redLine)', color: 'var(--red)' })
     : { background: 'var(--bg)', border: '1px solid var(--line)', color: 'var(--mut)' }
 
-  const komplet = !!ostatni?.ok && ostatni.wynik?.total != null
-    && (ostatni.wynik.done ?? 0) >= (ostatni.wynik.total ?? 0)
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-8" style={{ background: 'rgba(15,23,42,.34)' }}>
-      <div className="flex flex-col gap-5 p-6" style={{
-        width: 900, maxWidth: '100%', maxHeight: '100%', borderRadius: 14, background: 'var(--panel)',
-        border: '1px solid var(--line)', color: 'var(--ink)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.3)',
-      }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: 'rgba(15,23,42,.38)' }}>
+      <div ref={okno} role="dialog" aria-modal="true" aria-labelledby="skan-tytul" data-testid="okno-skanu"
+        className="flex flex-col gap-4 overflow-y-auto" style={{
+          width: 880, maxWidth: '100%', maxHeight: '100%', borderRadius: 14, background: 'var(--panel)', padding: 22,
+          border: '1px solid var(--line)', color: 'var(--ink)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.3)',
+        }}>
         <div className="flex items-center gap-4 flex-shrink-0">
-          <div className="flex items-center justify-center flex-shrink-0 text-[26px]" style={{
-            width: 56, height: 56, borderRadius: 12,
-            background: 'var(--accentSoft)', border: '1px solid #C7CCFB', color: 'var(--accent)',
-          }}>▥</div>
-          <div className="min-w-0">
-            <h3 className="m-0 text-[22px] font-extrabold" style={{ letterSpacing: '-.01em' }}>Skanowanie kebabów</h3>
-            {pozycja ? (
-              <p data-testid="wybrana-pozycja" className="m-0 mt-0.5 text-sm font-bold truncate" style={{ color: 'var(--accent)' }}>
-                Poz. {lp} · {pozycja.qty} szt. × {kg(pozycja.kgPerUnit)} · {pozycja.recipeName}
-                {pozycja.clientName ? ` · ${pozycja.clientName}` : ' · na magazyn'}
-              </p>
-            ) : (
-              <p className="m-0 mt-0.5 text-sm font-bold" style={{ color: 'var(--mut)' }}>
-                Wybierz pozycję, którą teraz skanujesz
-              </p>
-            )}
+          <span className="hmi-v10-mono text-[22px] font-extrabold flex-shrink-0"
+            style={{ background: 'var(--accent)', color: '#fff', borderRadius: 9, padding: '6px 13px' }}>{lp}</span>
+          <div className="min-w-0 flex-1">
+            <h3 id="skan-tytul" className="m-0 text-[13px] font-bold uppercase" style={{ letterSpacing: '.12em', color: 'var(--mut)' }}>
+              Skanowanie pozycji
+            </h3>
+            <p data-testid="wybrana-pozycja" className="m-0 text-[24px] font-extrabold truncate">
+              <span className="hmi-v10-mono">{sztukiRazyWaga(line)}</span> · {line.recipeName}
+              <span style={{ color: 'var(--mut)', fontWeight: 600 }}> · {line.clientName || 'na magazyn'}</span>
+            </p>
           </div>
-          {pozycja && (
-            <button type="button" data-testid="zmien-pozycje" onClick={() => wybierz('')}
-              className="ml-auto text-[14px] font-bold flex-shrink-0"
-              style={{ height: 44, padding: '0 18px', borderRadius: 9,
-                       border: '1px solid var(--line)', color: 'var(--ink)', background: 'var(--bg)' }}>
-              Zmień pozycję
-            </button>
-          )}
-          <button type="button" onClick={onClose} aria-label="Zamknij"
-            className={`text-[20px] flex-shrink-0 ${pozycja ? '' : 'ml-auto'}`} style={{ color: 'var(--mut)' }}>✕</button>
+          <div className="text-right flex-shrink-0">
+            <div data-testid="postep-pozycji" className="hmi-v10-mono text-[28px] font-extrabold leading-none">
+              {naPozycji} / {line.qty}
+            </div>
+            <div className="text-[10px] font-bold uppercase mt-1" style={{ letterSpacing: '.1em', color: 'var(--mut)' }}>zeskanowane na pozycji</div>
+          </div>
         </div>
 
-        {!pozycja ? (
-          <div className="flex flex-col gap-2.5 overflow-auto" style={{ minHeight: 120 }}>
-            {lines.length === 0 ? (
-              <div className="text-center py-10">
-                <div className="text-xl font-extrabold">Biuro nie zaplanowało dziś produkcji</div>
-                <div className="text-base mt-2" style={{ color: 'var(--mut)' }}>Nie ma czego skanować.</div>
-              </div>
-            ) : lines.map((l, i) => {
-              const s = scanOf(scans, l.id)
-              const gotowa = s.total > 0 && s.scanned >= l.qty
-              return (
-                <button key={l.id} type="button" data-testid={`pozycja-${l.id}`} onClick={() => wybierz(l.id)}
-                  className="flex items-center gap-4 text-left active:scale-[.99] transition-transform"
-                  style={{
-                    padding: '16px 18px', borderRadius: 12, background: gotowa ? 'var(--successSoft)' : 'var(--bg)',
-                    border: `1.5px solid ${gotowa ? 'var(--successLine)' : 'var(--line)'}`,
-                  }}>
-                  <span className="hmi-v10-mono text-[22px] font-extrabold flex-shrink-0"
-                    style={{ width: 40, color: 'var(--mut)' }}>{i + 1}</span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[19px] font-extrabold truncate">
-                      {l.qty} szt. × {kg(l.kgPerUnit)} · {l.recipeName}
-                    </span>
-                    <span className="block text-[14px] font-semibold mt-0.5" style={{ color: 'var(--mut)' }}>
-                      {l.clientName || '— na magazyn —'}{l.packagingName ? ` · ${l.packagingName}` : ''}
-                    </span>
-                  </span>
-                  {s.total === 0 ? (
-                    <span className="text-[13px] font-bold flex-shrink-0" style={{ color: 'var(--amb)' }}>
-                      Brak etykiet
-                    </span>
-                  ) : (
-                    <span className="text-right flex-shrink-0">
-                      <span className="hmi-v10-mono text-[22px] font-extrabold block"
-                        style={{ color: gotowa ? 'var(--success)' : 'var(--ink)' }}>
-                        {s.scanned} / {s.total}
-                      </span>
-                      <span className="text-[10px] font-bold uppercase" style={{ letterSpacing: '.1em', color: 'var(--mut)' }}>
-                        {gotowa ? 'potwierdzona' : 'zeskanowane'}
-                      </span>
-                    </span>
-                  )}
-                </button>
-              )
-            })}
-          </div>
-        ) : (
-          <>
-            <form onSubmit={e => { e.preventDefault(); zatwierdz(kod) }}>
-              <input ref={pole} data-testid="pole-skanu" value={kod} onChange={e => setKod(e.target.value)}
-                placeholder="Zeskanuj kod QR sztuki" autoFocus autoComplete="off" spellCheck={false}
-                className="w-full hmi-v10-mono text-[22px] font-bold"
-                style={{ padding: '18px 20px', borderRadius: 10, background: 'var(--panel)',
-                         border: '2px solid var(--accent)', color: 'var(--ink)' }} />
-            </form>
+        <form onSubmit={e => { e.preventDefault(); zatwierdz(kod) }}>
+          <input ref={pole} data-testid="pole-skanu" aria-label="Pole skanowania" value={kod}
+            onChange={e => setKod(e.target.value)}
+            placeholder="Zeskanuj kod QR sztuki" autoComplete="off" spellCheck={false}
+            className="w-full hmi-v10-mono text-[22px] font-bold"
+            style={{ padding: '18px 20px', borderRadius: 10, background: 'var(--panel)',
+                     border: '2px solid var(--accent)', color: 'var(--ink)' }} />
+        </form>
 
-            <div data-testid="ostatni-skan" className="flex items-center gap-4" style={{ ...ramka, borderRadius: 12, padding: '18px 20px', minHeight: 92 }}>
-              <span className="text-[30px] leading-none">{ostatni ? (ostatni.ok ? '✓' : '✕') : '·'}</span>
-              <div className="min-w-0 flex-1">
-                <div className="text-[19px] font-extrabold">
-                  {ostatni
-                    ? (ostatni.ok
-                        ? (komplet ? 'Pozycja potwierdzona'
-                                   : ostatni.wynik?.onStock === false ? 'Zeskanowano' : 'Na magazynie')
-                        : 'Nie weszła')
-                    : 'Czekam na skan'}
-                </div>
-                <div className="text-[15px] font-semibold mt-0.5">{ostatni?.tekst || 'Przyłóż czytnik do etykiety'}</div>
-              </div>
-              {ostatni?.ok && ostatni.wynik?.total != null && (
-                <div className="text-right flex-shrink-0">
-                  <div data-testid="postep-pozycji" className="hmi-v10-mono text-[26px] font-extrabold">
-                    {ostatni.wynik.done} / {ostatni.wynik.total}
-                  </div>
-                  <div className="text-[10px] font-bold uppercase" style={{ letterSpacing: '.1em' }}>na pozycji</div>
-                </div>
-              )}
-            </div>
-          </>
-        )}
+        <div data-testid="ostatni-skan" role="status" aria-live="polite" className="flex items-center gap-4"
+          style={{ ...ramka, borderRadius: 12, padding: '16px 20px', minHeight: 88 }}>
+          <span className="text-[30px] leading-none" aria-hidden="true">{ostatni ? (ostatni.ok ? '✓' : '✕') : '·'}</span>
+          <div className="min-w-0 flex-1">
+            <div className="text-[20px] font-extrabold">{ostatni ? ostatni.tytul : 'Czekam na skan'}</div>
+            <div className="text-[15px] font-semibold mt-0.5">{ostatni?.tekst || (ostatni ? '' : 'Przyłóż czytnik do etykiety')}</div>
+          </div>
+        </div>
 
         <div className="flex items-center gap-3 pt-3 flex-shrink-0" style={{ borderTop: '1px solid var(--line)' }}>
           <span style={{ color: 'var(--mut)' }}>Zeskanowano teraz</span>
           <b data-testid="zeskanowano-teraz" className="hmi-v10-mono text-[24px] font-extrabold" style={{ color: 'var(--accent)' }}>{ile}</b>
-          <button type="button" onClick={onClose} className="ml-auto text-base font-bold"
-            style={{ height: 56, padding: '0 28px', borderRadius: 10, border: '1px solid var(--line)', color: 'var(--ink)' }}>
-            Zamknij
+          {zajety && (
+            <span data-testid="kolejka-skanow" className="text-[14px] font-bold" style={{ color: 'var(--amb)' }}>
+              · zapisuję {wKolejce} {wKolejce === 1 ? 'skan' : 'skany'}…
+            </span>
+          )}
+          <button type="button" data-testid="zamknij-skan" onClick={sprobujZamknac} disabled={zajety}
+            className="phmi-btn ml-auto text-base font-bold"
+            style={{ height: 56, padding: '0 26px', borderRadius: 10, border: '1px solid var(--line)', color: 'var(--ink)',
+                     background: 'var(--bg)', opacity: zajety ? .5 : 1 }}>
+            {zajety ? 'Czekaj — zapisuję' : '← Wróć do planu'}
           </button>
         </div>
       </div>

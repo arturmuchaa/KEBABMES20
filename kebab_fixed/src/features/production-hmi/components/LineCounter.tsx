@@ -1,224 +1,338 @@
 /**
- * Liczenie sztuk z jednej pozycji planu.
+ * Panel liczenia sztuk wybranej pozycji — stoi OBOK planu, nie zamiast niego.
  *
- * Rytm z TABLETU PRODUKCJI: minus, wielka liczba, plus, potem jeden zapis.
+ * Rytm hali (01.10.2026): „pozycja 15 × 50 kg: 3 szt. Jan, 5 Anar". Operator
+ * dotyka pozycję na liście, potem osobę, ilość i jeden duży przycisk
+ * „Dodaj N szt. · IMIĘ". Panel nie zamyka się po zapisie ani po zrobieniu
+ * planu — tę samą pozycję trzeba jeszcze zeskanować albo poprawić.
+ *
  * BEZ KLAWIATURY — w rękawicy trafia się w duży przycisk, nie w cyfry
- * (decyzja właściciela 24.08.2026, po odrzuceniu pola do wpisywania).
+ * (decyzja właściciela 24.08.2026). Szybkie ilości 1/3/5 plus minus/plus.
  *
- * Wybrany pracownik ZOSTAJE na czas serii, a jego nazwisko stoi na przyciskach
- * zapisu. To świadome odstępstwo od rozbioru, gdzie pracownik odznacza się po
- * każdym zapisie: tamta reguła powstała po wpisach lądujących na złej osobie
- * przy POJEDYNCZYCH ważeniach, a przy liczeniu co sztukę byłaby nie do zniesienia.
+ * Ilość wraca do 1 przy zmianie osoby (panel jest montowany od nowa przy
+ * zmianie pozycji), żeby „5 szt." nie przeszło przypadkiem na następną osobę.
+ * Wybrana osoba ZOSTAJE na czas serii zapisów na tej pozycji.
  *
- * Załoga liczy 10–15 osób układających naraz, więc pracownicy stoją KAFELKAMI
- * z dorobkiem na tej pozycji — osobę wybiera się wzrokiem z drugiego końca
- * stołu, a nie czytając pasek chipsów.
- *
- * Sztuki idą w OBIE strony: dopóki sztuka nie jest zeskanowana, jest tylko
- * liczbą na ekranie i wolno ją odjąć — także po zamknięciu pozycji, bo pomyłka
- * wychodzi zwykle na końcu. Po skanie sztuka leży na magazynie wyrobu gotowego
- * i zostaje wyłącznie przepisanie pracy komu innemu (`onMoveFrom`).
+ * Sztuki idą w OBIE strony, ale odejmowanie jest KOREKTĄ: schowane za
+ * przełącznikiem, zawsze schodzi wybranej osobie i tylko z niezeskanowanych
+ * (zeskanowana sztuka leży na magazynie wyrobu gotowego). Zostaje też
+ * przepisanie pracy na inną osobę (`onMoveFrom`).
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { byWorker } from '../planProgress'
 import { removablePieces, scanOf, type LineScan } from '../scanProgress'
-import type { PlanLineView } from './PlanList'
+import { crewLabels } from '../crew'
+import { sztukiRazyWaga, type PlanLineView } from './PlanList'
+
+/** Jeden zapis = jedna pozycja i jedna osoba, zamrożone w chwili dotknięcia. */
+export interface SaveRequest { lineId: string; workerId: string; pieces: number }
+
+export interface SaveFeedback {
+  /** Rośnie z każdym wynikiem — restartuje błysk potwierdzenia. */
+  seq: number
+  lineId: string
+  ok: boolean
+  text: string
+}
 
 export interface LineCounterProps {
   line: PlanLineView
+  /** Numer pozycji na liście planu. */
+  lp?: number
   workers: { id: string; name: string }[]
   selectedWorkerId: string
   onSelectWorker: (id: string) => void
-  /** Dodatnio — dopisz sztuki, ujemnie — zdejmij je wybranemu pracownikowi. */
-  onSave: (pieces: number) => void
-  onBack: () => void
+  /** Dodatnio — dopisz sztuki, ujemnie — zdejmij je wybranej osobie. */
+  onSave: (req: SaveRequest) => void
   /** `false` w trakcie przerwy — zapis jest wtedy odmawiany. */
   canSave: boolean
-  /** Dotknięcie osoby w rozliczeniu — poprawka „nie ta osoba".
-   *  Działa też na pozycji gotowej: pomyłka wychodzi zwykle na koniec. */
+  /** Zapis w locie (dowolnej pozycji) — kolejny czeka. */
+  busy?: boolean
+  /** Serwer jeszcze nie oddał stanu po ostatnim zapisie tej pozycji. */
+  syncing?: boolean
+  /** Przepisanie sztuk wybranej osoby na kogoś innego. */
   onMoveFrom?: (workerId: string) => void
   /** Ile sztuk pozycji wygenerowano i zeskanowano — próg odejmowania. */
   scan?: LineScan
-  /** Przejście do skanowania TEJ pozycji (drugie wejście obok paska dnia). */
+  /** Skanowanie TEJ pozycji — jedyna droga do skanu. */
   onScanLine?: (lineId: string) => void
+  onDetails?: (lineId: string) => void
+  feedback?: SaveFeedback | null
 }
 
+const PRESETY = [1, 3, 5] as const
+
 export function LineCounter({
-  line, workers, selectedWorkerId, onSelectWorker, onSave, onBack, canSave,
-  onMoveFrom, scan, onScanLine,
+  line, lp, workers, selectedWorkerId, onSelectWorker, onSave, canSave, busy = false, syncing = false,
+  onMoveFrom, scan, onScanLine, onDetails, feedback,
 }: LineCounterProps) {
   const zostalo = Math.max(0, line.qty - line.qtyDone)
   const [ile, setIle] = useState(1)
+  const [korekta, setKorekta] = useState(false)
 
   // Po zapisie zostaje mniej do zrobienia — licznik nie może wisieć nad limitem.
-  // Pozycja domknięta (`zostalo === 0`) zostawia licznik na 1: odejmowanie
-  // wciąż z niego korzysta, więc zerowanie zablokowałoby poprawkę.
+  // Pozycja domknięta zostawia licznik na 1: korekta wciąż z niego korzysta.
   useEffect(() => { setIle(n => Math.min(Math.max(1, n), Math.max(1, zostalo))) }, [zostalo])
+  // Udana korekta wraca do dodawania — odejmowanie nie może zostać „trybem".
+  useEffect(() => { if (feedback?.ok) setKorekta(false) }, [feedback?.seq, feedback?.ok])
 
-  const wybrany = workers.find(w => w.id === selectedWorkerId)
-  const imie = (wybrany?.name ?? '').split(' ')[0] || '—'
-  const rozliczenie = byWorker(line)
-  const dorobek = new Map(rozliczenie.map(w => [w.workerId, w.pieces]))
+  const etykiety = useMemo(() => crewLabels(workers), [workers])
+  const wybrany = workers.find(w => w.id === selectedWorkerId) ?? null
+  const imie = wybrany ? (etykiety.get(wybrany.id)?.short ?? wybrany.name) : ''
+  const dorobek = new Map(byWorker(line).map(w => [w.workerId, w.pieces]))
   const skan = scanOf(scan ? { [line.id]: scan } : {}, line.id)
 
-  // Ile wolno odjąć: nie więcej niż osoba ma na pozycji I nie poniżej progu
-  // skanu (zeskanowane sztuki leżą już na magazynie wyrobu gotowego).
-  const moje = dorobek.get(selectedWorkerId) ?? 0
+  const moje = wybrany ? (dorobek.get(wybrany.id) ?? 0) : 0
   const doOdjecia = Math.min(ile, moje, removablePieces(line, { [line.id]: skan }))
 
-  const dodanieZablokowane = !canSave || zostalo === 0
-  const odjecieZablokowane = !canSave || doOdjecia <= 0
+  const blokada = !canSave ? 'Przerwa — zapis wstrzymany'
+    : busy ? 'Zapisuję…'
+    : syncing ? 'Odświeżam stan pozycji…'
+    : null
+  const dodanie = blokada ?? (!workers.length ? 'Brak pracowników na liście'
+    : !wybrany ? 'Wybierz osobę ↑'
+    : zostalo === 0 ? 'Pozycja ma komplet sztuk'
+    : null)
+  const odjecie = blokada ?? (!wybrany ? 'Wybierz osobę ↑' : doOdjecia <= 0 ? 'Nie ma czego odjąć' : null)
 
-  const dodaj = () => { if (!dodanieZablokowane) onSave(ile) }
-  const odejmij = () => { if (!odjecieZablokowane) onSave(-doOdjecia) }
+  // Zmiana osoby kasuje też korektę: tryb odejmowania zostawiony po
+  // poprzedniej osobie zdjąłby sztuki następnej, która nic nie poprawiała.
+  const wybierzOsobe = (id: string) => {
+    if (id !== selectedWorkerId) { setIle(1); setKorekta(false) }
+    onSelectWorker(id)
+  }
+  const przepisanie = blokada ?? (!wybrany || moje <= 0 || !onMoveFrom ? 'brak' : null)
+  const dodaj = () => { if (!dodanie && wybrany) onSave({ lineId: line.id, workerId: wybrany.id, pieces: ile }) }
+  const odejmij = () => { if (!odjecie && wybrany) onSave({ lineId: line.id, workerId: wybrany.id, pieces: -doOdjecia }) }
 
-  const klawisz = { borderRadius: 10, background: 'var(--panel)', border: '1.5px solid var(--line)', color: 'var(--ink)' }
+  // Górna granica ilości: przy dodawaniu reszta planu, przy korekcie dorobek osoby.
+  const limit = korekta ? Math.max(1, moje) : zostalo
+  const fb = feedback && feedback.lineId === line.id ? feedback : null
+  const kafleKolumny = workers.length <= 4 ? 2 : 3
 
   return (
-    <div className="flex-1 flex flex-col gap-3.5 p-5 overflow-hidden"
-      style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12 }}>
-      <div className="flex items-baseline gap-4 flex-wrap flex-shrink-0">
-        <button type="button" onClick={onBack} className="text-[15px] font-bold" style={{ color: 'var(--accent)' }}>
-          ← Plan dnia
-        </button>
-        <span className="text-[22px] font-extrabold" style={{ letterSpacing: '-.01em' }}>
-          {line.qty} szt. × {line.kgPerUnit} kg · {line.recipeName}
-          {line.packagingName ? ` · ${line.packagingName}` : ''}
-          {line.clientName ? ` · ${line.clientName}` : ' · na magazyn'}
-        </span>
-        <span className="hmi-v10-mono text-[26px] font-extrabold ml-auto">{line.qtyDone} / {line.qty}</span>
-      </div>
+    <div data-testid="panel-pozycji" className="phmi-panel h-full flex flex-col overflow-hidden"
+      style={{ background: 'var(--panel)', border: '2px solid var(--accent)', borderRadius: 12 }}>
 
-      {/* Pasek skanu — mówi, ile z pozycji jest już na magazynie wyrobu
-          gotowego, czyli ile sztuk jest poza zasięgiem poprawki. */}
-      <div className="flex items-center gap-3 flex-shrink-0 flex-wrap">
-        <span data-testid="skan-pozycji" className="text-[13px] font-bold"
-          style={{
-            padding: '7px 13px', borderRadius: 8, letterSpacing: '.02em',
-            background: skan.scanned >= line.qty && line.qty > 0 ? 'var(--successSoft)' : 'var(--bg)',
-            border: `1px solid ${skan.scanned >= line.qty && line.qty > 0 ? 'var(--successLine)' : 'var(--line)'}`,
-            color: skan.scanned >= line.qty && line.qty > 0 ? 'var(--success)' : 'var(--mut)',
-          }}>
-          Zeskanowane <b className="hmi-v10-mono">{skan.scanned} / {line.qty}</b>
-          {skan.scanned >= line.qty && line.qty > 0 ? ' · potwierdzone' : ''}
-        </span>
-        {skan.scanned > 0 && skan.scanned < line.qtyDone && (
-          <span className="text-[13px] font-semibold" style={{ color: 'var(--mut)' }}>
-            zeskanowanych już nie odejmiesz — zostaje przepisanie komu innemu
+      {/* Nagłówek — ta sama „15 × 50 kg", co na liście, żeby oko złapało parę. */}
+      <div className="flex-shrink-0">
+        <div className="flex items-center gap-2.5 min-w-0">
+          {lp != null && (
+            <span className="hmi-v10-mono text-[15px] font-extrabold flex-shrink-0"
+              style={{ background: 'var(--accent)', color: '#fff', borderRadius: 7, padding: '2px 8px' }}>
+              {lp}
+            </span>
+          )}
+          <span data-testid="pozycja-naglowek" className="phmi-panel__big hmi-v10-mono font-extrabold whitespace-nowrap" style={{ letterSpacing: '-.02em' }}>
+            {sztukiRazyWaga(line)}
           </span>
-        )}
-        {onScanLine && (
-          <button type="button" data-testid="skanuj-pozycje" onClick={() => onScanLine(line.id)}
-            className="ml-auto text-[14px] font-bold"
-            style={{ height: 42, padding: '0 18px', borderRadius: 9,
-                     border: '1.5px solid var(--accent)', color: 'var(--accent)', background: 'var(--accentSoft)' }}>
-            ▥ Skanuj tę pozycję
-          </button>
-        )}
+          <span className="phmi-panel__big ml-auto hmi-v10-mono font-extrabold whitespace-nowrap" data-testid="wykonano"
+            aria-label={`Wykonano ${line.qtyDone} z ${line.qty}`}>
+            {line.qtyDone}<span style={{ color: 'var(--mut)' }}>/{line.qty}</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-2 min-w-0 mt-1">
+          <span className="text-[15px] font-bold truncate min-w-0">
+            {line.recipeName}
+            <span style={{ color: 'var(--mut)', fontWeight: 600 }}> · {line.clientName || 'na magazyn'}</span>
+          </span>
+          <span data-testid="skan-pozycji" className="ml-auto flex-shrink-0 hmi-v10-mono text-[13px] font-bold whitespace-nowrap"
+            style={{
+              padding: '3px 8px', borderRadius: 7,
+              background: skan.scanned >= line.qty && line.qty > 0 ? 'var(--successSoft)' : 'var(--bg)',
+              border: `1px solid ${skan.scanned >= line.qty && line.qty > 0 ? 'var(--successLine)' : 'var(--line)'}`,
+              color: skan.scanned >= line.qty && line.qty > 0 ? 'var(--success)' : 'var(--mut)',
+            }}>
+            ▥ skan {skan.scanned} / {line.qty}
+          </span>
+        </div>
       </div>
 
-      {/* Kafelki załogi — 10–15 osób naraz, więc siatka, a nie pasek.
-          Bierze resztę wysokości i przewija się sama; licznik i przyciski
-          zapisu zostają przyklejone na dole, zawsze pod ręką. */}
-      <div className="grid gap-2.5 overflow-auto flex-1" role="group" aria-label="Kto teraz liczy"
-        style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(168px, 1fr))', alignContent: 'start', minHeight: 96 }}>
-        {workers.map(w => {
-          const aktywny = w.id === selectedWorkerId
-          const ma = dorobek.get(w.id) ?? 0
-          return (
-            <button key={w.id} type="button" data-testid={`pracownik-${w.id}`} aria-pressed={aktywny}
-              onClick={() => onSelectWorker(w.id)}
-              className="flex flex-col items-start justify-center px-4 active:scale-[.98] transition-transform"
-              style={{
-                ...klawisz, height: 76, gap: 3,
-                background: aktywny ? 'var(--accent)' : 'var(--panel)',
-                borderColor: aktywny ? 'var(--accent)' : 'var(--line)',
-                borderWidth: aktywny ? 2 : 1.5,
-                color: aktywny ? '#fff' : 'var(--ink)',
-              }}>
-              <span className="text-[19px] font-extrabold leading-none truncate w-full text-left">
-                {w.name.split(' ')[0]}
-              </span>
-              {ma > 0 && (
-                <span className="hmi-v10-mono text-[13px] font-bold leading-none"
-                  style={{ color: aktywny ? 'rgba(255,255,255,.82)' : 'var(--mut)' }}>
-                  {ma} szt.
+      <div className="flex items-baseline justify-between flex-shrink-0">
+        <span className="text-[11px] font-bold uppercase" style={{ letterSpacing: '.1em', color: 'var(--mut)' }}>
+          {korekta ? 'Korekta — czyje sztuki?' : 'Kto zrobił?'}
+        </span>
+        <span className="text-[12px] font-semibold" style={{ color: 'var(--mut)' }}>
+          pozostało <b className="hmi-v10-mono" style={{ color: zostalo ? 'var(--amb)' : 'var(--success)' }}>{zostalo}</b> szt.
+        </span>
+      </div>
+
+      {/* Kafelki załogi — 10–15 osób, dorobek osoby NA TEJ pozycji. Gdy załoga
+          nie mieści się w panelu (wyjątkowo duża zmiana), siatka przewija się
+          jawnie, zamiast ucinać ludzi. Rzędy rosną do 68 px, gdy jest miejsce,
+          i kurczą się do 40 px — na 1280×720 mieści się 15 osób, także z paskiem
+          zmian (niski panel dostaje kompaktowe odstępy, production-hmi.css). */}
+      {workers.length === 0 ? (
+        <div data-testid="brak-pracownikow" className="flex-1 min-h-0 flex items-center justify-center text-center px-4"
+          style={{ background: 'var(--ambSoft)', border: '1px solid var(--ambLine)', borderRadius: 10, color: 'var(--amb)' }}>
+          <div>
+            <div className="text-[17px] font-extrabold">Brak pracowników produkcji</div>
+            <div className="text-[14px] font-semibold mt-1">Biuro musi dodać ludzi z rolą „pracownik produkcji". Do tego czasu zapis jest wyłączony.</div>
+          </div>
+        </div>
+      ) : (
+        <div role="group" aria-label="Kto teraz liczy" className="phmi-panel__zaloga flex-1 min-h-0 grid overflow-y-auto"
+          style={{ gridTemplateColumns: `repeat(${kafleKolumny}, minmax(0, 1fr))`,
+                   gridTemplateRows: `repeat(${Math.ceil(workers.length / kafleKolumny)}, minmax(40px, 68px))`,
+                   alignContent: 'start' }}>
+          {workers.map(w => {
+            const aktywny = w.id === selectedWorkerId
+            const ma = dorobek.get(w.id) ?? 0
+            const et = etykiety.get(w.id)
+            return (
+              <button key={w.id} type="button" data-testid={`pracownik-${w.id}`} aria-pressed={aktywny}
+                aria-label={`${w.name}${ma ? `, ${ma} szt. na tej pozycji` : ''}`}
+                onClick={() => wybierzOsobe(w.id)}
+                className="phmi-touch phmi-btn flex flex-col justify-center min-w-0 px-2.5 active:scale-[.98] transition-transform"
+                style={{
+                  borderRadius: 9, textAlign: 'left',
+                  background: aktywny ? (korekta ? 'var(--red)' : 'var(--accent)') : 'var(--panel)',
+                  border: `${aktywny ? 2 : 1.5}px solid ${aktywny ? (korekta ? 'var(--red)' : 'var(--accent)') : 'var(--line)'}`,
+                  color: aktywny ? '#fff' : 'var(--ink)',
+                }}>
+                <span className="text-[16px] font-extrabold leading-tight truncate w-full">{et?.first ?? w.name}</span>
+                <span className="flex items-baseline gap-1 w-full min-w-0 leading-tight">
+                  <span className="text-[11px] font-semibold truncate flex-1 min-w-0"
+                    style={{ color: aktywny ? 'rgba(255,255,255,.8)' : 'var(--mut)' }}>{et?.rest}</span>
+                  {ma > 0 && (
+                    <span className="hmi-v10-mono text-[12px] font-extrabold flex-shrink-0"
+                      style={{ color: aktywny ? '#fff' : 'var(--accent)' }}>{ma} szt.</span>
+                  )}
                 </span>
-              )}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Ilość: szybkie 1/3/5, potem minus/plus do reszty. */}
+      <div className="phmi-panel__ile flex items-stretch gap-1.5 flex-shrink-0">
+        {PRESETY.map(n => {
+          const off = n > Math.max(1, limit)
+          return (
+            <button key={n} type="button" data-testid={`ile-${n}`} aria-pressed={ile === n} disabled={off}
+              onClick={() => setIle(n)} aria-label={`${n} szt.`}
+              className="phmi-touch phmi-btn hmi-v10-mono text-[20px] font-extrabold"
+              style={{ width: 52, borderRadius: 9,
+                       background: ile === n ? 'var(--ink)' : 'var(--bg)', color: ile === n ? '#fff' : 'var(--ink)',
+                       border: '1.5px solid var(--line)', opacity: off ? .35 : 1 }}>
+              {n}
             </button>
           )
         })}
-      </div>
-
-      <div className="text-[15px] font-semibold flex-shrink-0" style={{ color: 'var(--mut)' }}>
-        Wykonano <b className="hmi-v10-mono">{line.qtyDone}</b> z {line.qty} · pozostało{' '}
-        <b className="hmi-v10-mono" style={{ color: 'var(--amb)' }}>{zostalo}</b> szt.
-      </div>
-
-      <div className="flex items-center justify-center gap-7 flex-shrink-0">
-        <button type="button" aria-label="mniej" disabled={ile <= 1}
-          onClick={() => setIle(n => Math.max(1, n - 1))}
-          className="text-[42px] font-extrabold leading-none"
-          style={{ ...klawisz, width: 96, height: 96, borderRadius: 12, background: 'var(--bg)', opacity: ile <= 1 ? .35 : 1 }}>
+        <span className="flex-1" />
+        <button type="button" aria-label="mniej" disabled={ile <= 1} onClick={() => setIle(n => Math.max(1, n - 1))}
+          className="phmi-touch phmi-btn text-[28px] font-extrabold leading-none"
+          style={{ width: 52, borderRadius: 9, background: 'var(--bg)', border: '1.5px solid var(--line)', opacity: ile <= 1 ? .35 : 1 }}>
           −
         </button>
-        <div className="flex flex-col items-center" style={{ minWidth: 150 }}>
-          <b data-testid="licznik" className="hmi-v10-mono text-[68px] font-extrabold leading-none">{ile}</b>
-          <span className="hmi-v10-mono text-[15px] font-bold mt-1" style={{ color: 'var(--mut)' }}>
-            = {ile * line.kgPerUnit} kg
-          </span>
+        <div className="flex flex-col items-center justify-center" style={{ minWidth: 58 }}>
+          <b data-testid="licznik" className="hmi-v10-mono text-[28px] font-extrabold leading-none">{ile}</b>
+          <span className="hmi-v10-mono text-[11px] font-bold" style={{ color: 'var(--mut)' }}>= {kgSuma(ile, line.kgPerUnit)} kg</span>
         </div>
-        {/* Granicę trzyma `disabled`; Math.min zostaje jako druga warstwa —
-            nieosiągalna z DOM-u, więc świadomie nieobjęta testem. */}
-        <button type="button" aria-label="więcej" disabled={ile >= zostalo}
-          onClick={() => setIle(n => Math.min(zostalo, n + 1))}
-          className="text-[42px] font-extrabold leading-none"
-          style={{ ...klawisz, width: 96, height: 96, borderRadius: 12,
-                   background: 'var(--accent)', borderColor: 'var(--accent)', color: '#fff',
-                   opacity: ile >= zostalo ? .35 : 1 }}>
+        {/* Granicę trzyma `disabled`; strona i tak przycina zapis do reszty planu. */}
+        <button type="button" aria-label="więcej" disabled={ile >= limit} onClick={() => setIle(n => Math.min(n + 1, Math.max(1, limit)))}
+          className="phmi-touch phmi-btn text-[28px] font-extrabold leading-none"
+          style={{ width: 52, borderRadius: 9, background: 'var(--accent)', color: '#fff', border: 0,
+                   opacity: ile >= limit ? .35 : 1 }}>
           +
         </button>
       </div>
 
-      {/* Dwa zapisy zamiast jednego. Odejmowanie z obwódką, nie wypełnione —
-          jest poprawką, a nie codziennym ruchem, i nie może wpaść pod kciuk
-          zamiast „Dodaj". */}
-      <div className="flex gap-3 flex-shrink-0">
-        <button type="button" data-testid="zapisz" onClick={dodaj} disabled={dodanieZablokowane}
-          className="flex-1 text-[21px] font-bold"
-          style={{ height: 64, borderRadius: 10, border: 0, background: 'var(--accent)', color: '#fff',
-                   opacity: dodanieZablokowane ? .4 : 1 }}>
-          {zostalo === 0 ? 'Pozycja gotowa' : `Dodaj ${ile} szt. · ${imie}`}
-        </button>
-        <button type="button" data-testid="odejmij" onClick={odejmij} disabled={odjecieZablokowane}
-          className="text-[19px] font-bold"
-          style={{ height: 64, padding: '0 26px', borderRadius: 10, background: 'var(--panel)',
-                   border: '1.5px solid var(--redLine)', color: 'var(--red)',
-                   opacity: odjecieZablokowane ? .35 : 1 }}>
-          Odejmij {Math.max(doOdjecia, 0) || ile} szt. · {imie}
-        </button>
+      {/* Potwierdzenie zapisu na miejscu — bez modala sukcesu. Stała wysokość:
+          komunikat nie może przesuwać przycisku pod kciukiem. */}
+      <div key={fb?.seq ?? 0} role="status" aria-live="polite" data-testid="wynik-zapisu"
+        className={`phmi-panel__wynik flex-shrink-0 flex items-center px-3 text-[14px] font-bold truncate ${fb?.ok ? 'phmi-flash' : ''}`}
+        style={{
+          borderRadius: 8,
+          background: fb ? (fb.ok ? 'var(--successSoft)' : 'var(--redSoft)') : 'transparent',
+          border: `1px solid ${fb ? (fb.ok ? 'var(--successLine)' : 'var(--redLine)') : 'transparent'}`,
+          color: fb ? (fb.ok ? 'var(--success)' : 'var(--red)') : 'var(--mut)',
+        }}>
+        {fb ? `${fb.ok ? '✓' : '✕'} ${fb.text}` : (wybrany ? `Liczy: ${wybrany.name}` : 'Wybierz osobę, ilość i dodaj')}
       </div>
 
-      <div className="flex flex-col gap-2 pt-3 flex-shrink-0" style={{ borderTop: '1px solid var(--line)' }}>
-        <div className="text-[11px] font-bold uppercase" style={{ letterSpacing: '.1em', color: 'var(--mut)' }}>
-          Kto ile zrobił{onMoveFrom ? ' · dotknij, żeby przepisać komu innemu' : ''}
+      {korekta ? (
+        <div className="phmi-panel__glowny flex gap-2 flex-shrink-0">
+          <button type="button" data-testid="odejmij" onClick={odejmij} disabled={!!odjecie}
+            className="phmi-touch phmi-btn flex-1 min-w-0 text-[18px] font-extrabold truncate px-2"
+            style={{ borderRadius: 10, background: 'var(--redSoft)', border: '2px solid var(--red)', color: 'var(--red)',
+                     opacity: odjecie ? .45 : 1 }}>
+            {odjecie ?? `Odejmij ${doOdjecia} szt. · ${imie}`}
+          </button>
+          <button type="button" data-testid="przepisz" disabled={!!przepisanie}
+            onClick={() => { if (!przepisanie && wybrany) onMoveFrom?.(wybrany.id) }}
+            className="phmi-touch phmi-btn text-[15px] font-bold px-3"
+            style={{ borderRadius: 10, background: 'var(--panel)', border: '1.5px solid var(--line)', color: 'var(--ink)',
+                     opacity: przepisanie ? .45 : 1 }}>
+            Przepisz na…
+          </button>
         </div>
-        <div className="flex gap-3 flex-wrap">
-          {rozliczenie.length === 0
-            ? <span className="text-[15px]" style={{ color: 'var(--mut)' }}>Jeszcze nikt</span>
-            : rozliczenie.map(w => (
-                <button key={w.workerId} type="button" data-testid={`rozliczenie-${w.workerId}`}
-                  onClick={() => onMoveFrom?.(w.workerId)}
-                  className="hmi-v10-mono text-[16px] font-bold"
-                  style={{ background: 'var(--bg)', borderRadius: 10, padding: '8px 14px',
-                           border: `1px solid ${onMoveFrom ? 'var(--accent)' : 'var(--line)'}`,
-                           color: onMoveFrom ? 'var(--accent)' : 'var(--ink)',
-                           cursor: onMoveFrom ? 'pointer' : 'default' }}>
-                  {w.workerName} — {w.pieces} szt.
-                </button>
-              ))}
-        </div>
+      ) : (
+        <button type="button" data-testid="zapisz" onClick={dodaj} disabled={!!dodanie}
+          className="phmi-panel__glowny phmi-touch phmi-btn flex-shrink-0 text-[21px] font-extrabold truncate px-3"
+          style={{ borderRadius: 10, border: 0, background: dodanie ? 'var(--barBg)' : 'var(--accent)',
+                   color: dodanie ? 'var(--ink)' : '#fff', opacity: dodanie ? .75 : 1 }}>
+          {dodanie ?? `Dodaj ${ile} szt. · ${imie}`}
+        </button>
+      )}
+
+      <div className="phmi-panel__akcje flex gap-2 flex-shrink-0">
+        {onScanLine && (
+          // Skan czeka na koniec zapisu sztuk — inaczej odświeżenie po skanie
+          // i zapis tej samej pozycji ścigałyby się o jej stan.
+          // Krótki napis: to GŁÓWNA droga skanu i nie może kończyć się „…".
+          <button type="button" data-testid="skanuj-pozycje" disabled={busy || syncing}
+            aria-label="Skanuj tę pozycję"
+            onClick={() => { if (!busy && !syncing) onScanLine(line.id) }}
+            className="phmi-touch phmi-btn flex-1 min-w-0 text-[15px] font-bold whitespace-nowrap px-2"
+            style={{ borderRadius: 9, border: '1.5px solid var(--accent)', color: 'var(--accent)', background: 'var(--accentSoft)',
+                     opacity: busy || syncing ? .45 : 1 }}>
+            <span aria-hidden="true">▥</span> Skanuj pozycję
+          </button>
+        )}
+        <button type="button" data-testid="korekta" aria-pressed={korekta} onClick={() => { setKorekta(k => !k); setIle(1) }}
+          className="phmi-touch phmi-btn text-[14px] font-bold px-3"
+          style={{ borderRadius: 9, border: `1.5px solid ${korekta ? 'var(--red)' : 'var(--line)'}`,
+                   background: korekta ? 'var(--red)' : 'var(--panel)', color: korekta ? '#fff' : 'var(--ink)' }}>
+          {/* Oba napisy tej samej długości — przełączenie nie zwęża skanu. */}
+          {korekta ? '← Dodaj' : 'Korekta'}
+        </button>
+        {onDetails && (
+          <button type="button" data-testid="szczegoly" onClick={() => onDetails(line.id)}
+            className="phmi-touch phmi-btn text-[14px] font-bold px-3"
+            style={{ borderRadius: 9, border: '1.5px solid var(--line)', background: 'var(--panel)', color: 'var(--ink)' }}>
+            Szczegóły
+          </button>
+        )}
       </div>
+    </div>
+  )
+}
+
+const kgSuma = (n: number, kg: number) => Math.round(n * kg * 100) / 100
+
+/** Panel przed wybraniem pozycji — mówi, co zrobić, zamiast stać pusty. */
+export function LineCounterEmpty({ hasLines }: { hasLines: boolean }) {
+  return (
+    <div data-testid="panel-pusty" className="h-full flex flex-col items-center justify-center text-center px-6"
+      style={{ background: 'var(--panel)', border: '1.5px dashed var(--line)', borderRadius: 12 }}>
+      {hasLines ? (
+        <>
+          <div className="text-[44px] leading-none" aria-hidden="true" style={{ color: 'var(--accent)' }}>←</div>
+          <div className="text-[21px] font-extrabold mt-3">Dotknij pozycję planu</div>
+          <ol className="text-[15px] font-semibold mt-3 text-left" style={{ color: 'var(--mut)', lineHeight: 1.7 }}>
+            <li>1. pozycja z listy</li>
+            <li>2. osoba, która zrobiła sztuki</li>
+            <li>3. ilość i „Dodaj"</li>
+          </ol>
+          <div className="text-[13px] font-semibold mt-4" style={{ color: 'var(--mut)' }}>
+            Przytrzymaj pozycję — partie, tuleja i rozliczenie.
+          </div>
+        </>
+      ) : (
+        <div className="text-[17px] font-bold" style={{ color: 'var(--mut)' }}>Nie ma czego liczyć — czekamy na plan z biura.</div>
+      )}
     </div>
   )
 }

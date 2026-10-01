@@ -1,5 +1,32 @@
 import { describe, it, expect } from 'vitest'
-import { productionCrew, wrappingCrew, type WorkerRow } from './crew'
+import { crewLabels, productionCrew, wrappingCrew, type WorkerRow } from './crew'
+
+describe('crewLabels', () => {
+  it('pojedyncze imię zostaje samym imieniem', () => {
+    const m = crewLabels([{ id: 'a', name: 'DAWID NOWAK' }, { id: 'b', name: 'DENYS KOVAL' }])
+    expect(m.get('a')!.short).toBe('DAWID')
+    expect(m.get('b')!.short).toBe('DENYS')
+  })
+
+  it('dwa takie same imiona dostają inicjał nazwiska', () => {
+    const m = crewLabels([{ id: 'a', name: 'ANAR KAZIMOV' }, { id: 'b', name: 'ANAR MAMMADOV' }])
+    expect(m.get('a')!.short).toBe('ANAR K.')
+    expect(m.get('b')!.short).toBe('ANAR M.')
+  })
+
+  it('ten sam inicjał nie wystarcza — wtedy pełne nazwisko, reszta bez zmian', () => {
+    const m = crewLabels([
+      { id: 'a', name: 'ANAR KAZIMOV' }, { id: 'b', name: 'ANAR KERIMOV' },
+      { id: 'c', name: 'ANAR MAMMADOV' }, { id: 'd', name: 'DAWID NOWAK' },
+    ])
+    expect(m.get('a')!.short).toBe('ANAR KAZIMOV')
+    expect(m.get('b')!.short).toBe('ANAR KERIMOV')
+    expect(m.get('c')!.short).toBe('ANAR M.')
+    expect(m.get('d')!.short).toBe('DAWID')
+    // Kafle dalej: imię na górze, reszta w podpisie.
+    expect(m.get('a')).toMatchObject({ first: 'ANAR', rest: 'KAZIMOV' })
+  })
+})
 
 const w = (over: Partial<WorkerRow>): WorkerRow => ({
   id: 'w1', name: 'DAWID NOWAK', role: 'WORKER_PRODUCTION', active: true, ...over,

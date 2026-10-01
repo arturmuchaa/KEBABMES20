@@ -7,10 +7,20 @@
  * jeden zapis — BEZ KLAWIATURY (w rękawicy trafia się w duży przycisk).
  */
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, within } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, within, act } from '@testing-library/react'
 
 import { PlanList } from './PlanList'
 import { LineCounter } from './LineCounter'
+import { LineDetails } from './LineDetails'
+
+// jsdom 25 nie zna PointerEvent — bez tego `fireEvent.pointerDown` tworzy
+// goły Event bez współrzędnych i przycisku.
+if (typeof (window as any).PointerEvent === 'undefined') {
+  ;(window as any).PointerEvent = class extends MouseEvent {
+    pointerId: number
+    constructor(type: string, init: any = {}) { super(type, init); this.pointerId = init.pointerId ?? 1 }
+  }
+}
 import { PlanChangedBanner } from './PlanChangedBanner'
 import { BreakOverlay } from './BreakOverlay'
 import { DaySummary } from './DaySummary'
@@ -28,55 +38,75 @@ const linia = (over: Partial<PlanLineView> = {}): PlanLineView => ({
   qtyDone: 12, workerEntries: [], ...over,
 })
 
+const wiersz = (id: string) => screen.getByTestId(`pozycja-planu-${id}`)
+
 describe('PlanList', () => {
-  it('pokazuje kolumny w kolejności karty produkcji', () => {
-    render(<PlanList lines={[linia()]} onPick={() => {}} />)
-    const naglowki = screen.getAllByRole('columnheader').map(h => h.textContent?.trim())
-    expect(naglowki).toEqual(['Lp', 'Ilość szt.', 'Waga', 'Rodzaj', 'Partia', 'Tuleje', 'Klient', 'Razem', 'Postęp', 'Skan', 'Stan'])
+  it('wiersz niesie numer, „ilość × waga", rodzaj, klienta i tuleję', () => {
+    render(<PlanList lines={[linia(), linia({ id: 'l2', recipeName: 'BULLI' })]} onPick={() => {}} />)
+    const w = wiersz('l2')
+    expect(w.textContent).toMatch(/^2/)                          // numer pozycji
+    expect(within(w).getByText('20 × 35 kg')).toBeTruthy()
+    expect(within(w).getByText('BULLI')).toBeTruthy()
+    expect(w.textContent).toContain('Bulli sp. z o.o.')
+    expect(w.textContent).toContain('Tuleja 120')
   })
 
-  it('wiersz niesie to, co operator musi wiedzieć', () => {
+  it('postęp pozycji: zrobione / plan', () => {
     render(<PlanList lines={[linia()]} onPick={() => {}} />)
-    const w = screen.getAllByRole('row')[1]
-    expect(within(w).getByText('20 szt.')).toBeTruthy()
-    expect(within(w).getByText('35 kg')).toBeTruthy()
-    expect(within(w).getByText('WROCŁAW')).toBeTruthy()
-    expect(within(w).getByText('Tuleja 120')).toBeTruthy()
-    expect(within(w).getByText('Bulli sp. z o.o.')).toBeTruthy()
-    expect(within(w).getByText('700 kg')).toBeTruthy()
-  })
-
-  it('postęp pozycji podaje sztuki I procent', () => {
-    render(<PlanList lines={[linia()]} onPick={() => {}} />)
-    expect(screen.getByText('12 / 20')).toBeTruthy()
-    expect(screen.getByText('60%')).toBeTruthy()
+    expect(screen.getByTestId('postep-l1').textContent).toBe('12/20')
   })
 
   it('pozycja bez klienta to produkcja na magazyn', () => {
     render(<PlanList lines={[linia({ clientName: '' })]} onPick={() => {}} />)
-    expect(screen.getByText('— na magazyn —')).toBeTruthy()
+    expect(wiersz('l1').textContent).toContain('na magazyn')
   })
 
   it('gotowa pozycja jest wyróżniona', () => {
     render(<PlanList lines={[linia({ qtyDone: 20 })]} onPick={() => {}} />)
-    expect(screen.getByText('Gotowe')).toBeTruthy()
+    expect(within(wiersz('l1')).getByText('Gotowe')).toBeTruthy()
+    expect(wiersz('l1').getAttribute('data-state')).toBe('DONE')
   })
 
   it('dotknięcie wiersza oddaje jego id', () => {
     const pick = vi.fn()
-    render(<PlanList lines={[linia(), linia({ id: 'l2', recipeName: 'BULLI' })]} onPick={pick} />)
-    fireEvent.click(screen.getAllByRole('row')[2])
+    render(<PlanList lines={[linia(), linia({ id: 'l2', recipeName: 'BULLI' })]} onPick={pick} onDetails={() => {}} />)
+    fireEvent.click(wiersz('l2'))
     expect(pick).toHaveBeenCalledWith('l2')
   })
 
-  // Operator musi wiedzieć, z jakiego wsadu robi pozycję — bez tego pyta biuro.
-  it('wiersz pokazuje numer partii, także przy rozbiciu na kilka', () => {
+  it('wybrana pozycja jest oznaczona (także dla czytnika ekranu)', () => {
+    render(<PlanList lines={[linia(), linia({ id: 'l2' })]} selectedId="l2" onPick={() => {}} />)
+    expect(wiersz('l2').getAttribute('aria-pressed')).toBe('true')
+    expect(wiersz('l1').getAttribute('aria-pressed')).toBe('false')
+  })
+
+  // Partie przeniesione do szczegółów (01.10.2026) — na liście zabierały
+  // miejsce 30 pozycjom.
+  it('NIE pokazuje partii, alokacji ani sum kilogramów na liście', () => {
     render(<PlanList onPick={() => {}} lines={[
       linia({ id: 'l1', seasonedBatchNos: ['344'] }),
       linia({ id: 'l2', batchAllocation: { '472': { pieces: 2 }, 'PP13': { pieces: 6 } } }),
     ]} />)
-    expect(within(screen.getAllByRole('row')[1]).getByText('344')).toBeTruthy()
-    expect(within(screen.getAllByRole('row')[2]).getByText('2×472 · 6×PP13')).toBeTruthy()
+    const tekst = screen.getByTestId('plan-lista').textContent ?? ''
+    expect(tekst).not.toContain('344')
+    expect(tekst).not.toContain('472')
+    expect(tekst).not.toContain('PP13')
+    expect(tekst).not.toContain('700 kg')
+  })
+
+  it('nie ma tabeli z kilkunastoma kolumnami ani poziomego przewijania z definicji', () => {
+    render(<PlanList lines={[linia()]} onPick={() => {}} />)
+    expect(screen.queryByRole('table')).toBeNull()
+    expect(screen.getByTestId('plan-przewijanie').style.overflowX).toBe('hidden')
+  })
+
+  it('30 pozycji: wszystkie w DOM, w dwóch kolumnach, w kolejności planu', () => {
+    const lines = Array.from({ length: 30 }, (_, i) => linia({ id: `p${i + 1}`, recipeName: `R${i + 1}` }))
+    render(<PlanList lines={lines} onPick={() => {}} />)
+    const wiersze = screen.getAllByTestId(/^pozycja-planu-/)
+    expect(wiersze).toHaveLength(30)
+    expect(wiersze.map(w => w.getAttribute('data-testid'))).toEqual(lines.map(l => `pozycja-planu-${l.id}`))
+    expect(screen.getByTestId('plan-lista').getAttribute('data-cols')).toBe('2')
   })
 
   // Potwierdzenie pozycji to SKAN, nie licznik sztuk: dopiero zeskanowana
@@ -95,38 +125,142 @@ describe('PlanList', () => {
     expect(screen.queryByText('Potwierdzone')).toBeNull()
   })
 
+  // Skan liczony do PLANU pozycji — tak samo jak stan POTWIERDZONE
+  // (`isConfirmed`), żeby lista i potwierdzenie nie mówiły dwóch rzeczy.
   it('kolumna skanu pokazuje, ile sztuk pozycji już zeskanowano', () => {
     render(<PlanList lines={[linia()]} onPick={() => {}} scans={{ l1: { total: 20, scanned: 12 } }} />)
-    expect(screen.getByTestId('skan-l1').textContent).toBe('12 / 20')
+    expect(screen.getByTestId('skan-l1').textContent).toContain('12/20')
   })
 
   it('pozycja bez wydrukowanych etykiet mówi wprost, że nie ma czego skanować', () => {
     render(<PlanList lines={[linia()]} onPick={() => {}} scans={{}} />)
-    expect(screen.getByTestId('skan-l1').textContent).toBe('—')
+    expect(screen.getByTestId('skan-l1').textContent).toContain('—')
   })
 
   it('pusty plan mówi wprost, że biuro nic nie zaplanowało', () => {
     render(<PlanList lines={[]} onPick={() => {}} />)
     expect(screen.getByText(/Biuro nie zaplanowało/i)).toBeTruthy()
   })
+})
 
-  // Metalowe potrafią skończyć się w połowie dnia. Dotknięcie TULEI otwiera
-  // wybór rodzaju, a nie licznik sztuk — inaczej operator co chwilę wchodziłby
-  // w licznik zamiast zmienić tuleję.
-  it('dotknięcie tulei prosi o zmianę rodzaju, nie otwiera licznika', () => {
+// Krótkie dotknięcie wybiera, przytrzymanie otwiera szczegóły. Po
+// przytrzymaniu przeglądarka i tak wyśle `click` — nie może zmienić wyboru.
+describe('PlanList — przytrzymanie wiersza', () => {
+  const setup = () => {
     const pick = vi.fn()
-    const pickTuleja = vi.fn()
-    render(<PlanList lines={[linia()]} onPick={pick} onPickPackaging={pickTuleja} />)
-    fireEvent.click(screen.getByTestId('tuleja-l1'))
-    expect(pickTuleja).toHaveBeenCalledWith('l1')
+    const details = vi.fn()
+    const r = render(<PlanList lines={[linia(), linia({ id: 'l2' })]} onPick={pick} onDetails={details} />)
+    return { pick, details, ...r }
+  }
+  afterEach(() => vi.useRealTimers())
+
+  it('przytrzymanie ~600 ms otwiera szczegóły i NIE wybiera pozycji', () => {
+    vi.useFakeTimers()
+    const { pick, details } = setup()
+    fireEvent.pointerDown(wiersz('l2'), { button: 0, clientX: 10, clientY: 10 })
+    act(() => { vi.advanceTimersByTime(650) })
+    expect(details).toHaveBeenCalledWith('l2')
+    fireEvent.pointerUp(wiersz('l2'))
+    fireEvent.click(wiersz('l2'))
     expect(pick).not.toHaveBeenCalled()
   })
 
-  it('bez obsługi zmiany tulei wiersz działa jak dotąd', () => {
-    const pick = vi.fn()
-    render(<PlanList lines={[linia()]} onPick={pick} />)
-    fireEvent.click(screen.getByTestId('tuleja-l1'))
+  it('krótkie dotknięcie wybiera, nie otwiera szczegółów', () => {
+    vi.useFakeTimers()
+    const { pick, details } = setup()
+    fireEvent.pointerDown(wiersz('l1'), { button: 0 })
+    act(() => { vi.advanceTimersByTime(200) })
+    fireEvent.pointerUp(wiersz('l1'))
+    fireEvent.click(wiersz('l1'))
+    act(() => { vi.advanceTimersByTime(1000) })
     expect(pick).toHaveBeenCalledWith('l1')
+    expect(details).not.toHaveBeenCalled()
+  })
+
+  it('przerwany gest (cancel / przesunięcie palca) nie otwiera szczegółów', () => {
+    vi.useFakeTimers()
+    const { details } = setup()
+    fireEvent.pointerDown(wiersz('l1'), { button: 0, clientX: 10, clientY: 10 })
+    fireEvent.pointerCancel(wiersz('l1'))
+    act(() => { vi.advanceTimersByTime(1000) })
+    fireEvent.pointerDown(wiersz('l1'), { button: 0, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(wiersz('l1'), { clientX: 10, clientY: 60 })
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(details).not.toHaveBeenCalled()
+  })
+
+  it('odmontowanie w trakcie przytrzymania sprząta zegar', () => {
+    vi.useFakeTimers()
+    const { details, unmount } = setup()
+    fireEvent.pointerDown(wiersz('l1'), { button: 0 })
+    unmount()
+    act(() => { vi.advanceTimersByTime(1000) })
+    expect(details).not.toHaveBeenCalled()
+  })
+
+  it('menu kontekstowe przeglądarki jest zablokowane na wierszu', () => {
+    setup()
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+    wiersz('l1').dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+  })
+
+  it('wiersz to pojedynczy przycisk — bez zagnieżdżonych przycisków', () => {
+    setup()
+    expect(wiersz('l1').tagName).toBe('BUTTON')
+    expect(wiersz('l1').querySelector('button')).toBeNull()
+  })
+})
+
+describe('LineDetails — szczegóły pozycji', () => {
+  const props = (over: any = {}) => ({
+    line: linia({ seasonedBatchNos: ['344'], batchAllocation: { '472': { pieces: 2 }, 'PP13': { pieces: 6 } },
+      packagingUsed: 7, workerEntries: [{ workerId: 'w1', workerName: 'DAWID NOWAK', pieces: 9, addedAt: '' }] }),
+    lp: 3, scan: { total: 20, scanned: 4 }, onClose: vi.fn(), onChangePackaging: vi.fn(), onMoveFrom: vi.fn(),
+    ...over,
+  })
+
+  it('pokazuje PEŁNE rozbicie partii, nie zwinięte', () => {
+    render(<LineDetails {...props()} />)
+    const partie = screen.getByTestId('partie').textContent ?? ''
+    expect(partie).toContain('472')
+    expect(partie).toContain('2 szt.')
+    expect(partie).toContain('PP13')
+    expect(partie).toContain('6 szt.')
+  })
+
+  it('pełne nazwy, tuleja, postęp i rozliczenie', () => {
+    render(<LineDetails {...props()} />)
+    const okno = screen.getByRole('dialog')
+    expect(okno.textContent).toContain('Bulli sp. z o.o.')
+    expect(screen.getByTestId('tuleja-nazwa').textContent).toBe('Tuleja 120')
+    expect(okno.textContent).toContain('12 / 20 szt.')
+    expect(okno.textContent).toContain('4 / 20 szt.')
+    expect(screen.getByTestId('rozliczenie-w1').textContent).toContain('9 szt.')
+  })
+
+  it('zmiana tulei i przepisanie oddają id', () => {
+    const p = props()
+    render(<LineDetails {...p} />)
+    fireEvent.click(screen.getByTestId('zmien-tuleje'))
+    expect(p.onChangePackaging).toHaveBeenCalledWith('l1')
+    fireEvent.click(screen.getByTestId('rozliczenie-w1'))
+    expect(p.onMoveFrom).toHaveBeenCalledWith('w1')
+  })
+
+  it('Escape zamyka; fokus startuje na „Zamknij"', () => {
+    const p = props()
+    render(<LineDetails {...p} />)
+    expect(document.activeElement).toBe(screen.getByTestId('zamknij-szczegoly'))
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(p.onClose).toHaveBeenCalled()
+  })
+
+  it('jest dialogiem z tytułem dla czytnika ekranu', () => {
+    render(<LineDetails {...props()} />)
+    const okno = screen.getByRole('dialog')
+    expect(okno.getAttribute('aria-modal')).toBe('true')
+    expect(okno.getAttribute('aria-labelledby')).toBe('szczegoly-tytul')
   })
 })
 
@@ -265,6 +399,9 @@ describe('PackagingPicker — zmiana tulei z hali', () => {
   })
 })
 
+/** Jeden zapis = jedna pozycja i jedna osoba. */
+const zapis = (pieces: number, workerId = 'w1', lineId = 'l1') => ({ lineId, workerId, pieces })
+
 describe('LineCounter', () => {
   const props = () => ({
     line: linia(),
@@ -272,7 +409,6 @@ describe('LineCounter', () => {
     selectedWorkerId: 'w1',
     onSelectWorker: vi.fn(),
     onSave: vi.fn(),
-    onBack: vi.fn(),
     canSave: true,
   })
 
@@ -307,12 +443,73 @@ describe('LineCounter', () => {
   })
 
 
-  it('zapis oddaje liczbę sztuk', () => {
+  it('zapis oddaje pozycję, osobę i liczbę sztuk naraz', () => {
     const p = props()
     render(<LineCounter {...p} />)
     fireEvent.click(screen.getByRole('button', { name: 'więcej' }))
     fireEvent.click(screen.getByTestId('zapisz'))
-    expect(p.onSave).toHaveBeenCalledWith(2)
+    expect(p.onSave).toHaveBeenCalledWith(zapis(2))
+  })
+
+  it('szybkie ilości 1/3/5 ustawiają licznik; większe niż reszta planu gasną', () => {
+    render(<LineCounter {...props()} line={linia({ qtyDone: 16 })} />)   // zostały 4
+    fireEvent.click(screen.getByTestId('ile-3'))
+    expect(screen.getByTestId('licznik').textContent).toBe('3')
+    expect(screen.getByTestId('zapisz').textContent).toBe('Dodaj 3 szt. · DAWID')
+    expect((screen.getByTestId('ile-5') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('zmiana osoby wraca z ilością do 1 — „5 szt." nie przechodzi na kolejną osobę', () => {
+    const p = props()
+    const { rerender } = render(<LineCounter {...p} />)
+    fireEvent.click(screen.getByTestId('ile-5'))
+    fireEvent.click(screen.getByTestId('pracownik-w2'))
+    expect(p.onSelectWorker).toHaveBeenCalledWith('w2')
+    rerender(<LineCounter {...p} selectedWorkerId="w2" />)
+    expect(screen.getByTestId('licznik').textContent).toBe('1')
+  })
+
+  it('bez wybranej osoby zapis jest zablokowany i mówi, czego brakuje', () => {
+    const p = { ...props(), selectedWorkerId: '' }
+    render(<LineCounter {...p} />)
+    const b = screen.getByTestId('zapisz') as HTMLButtonElement
+    expect(b.disabled).toBe(true)
+    expect(b.textContent).toMatch(/Wybierz osobę/)
+    fireEvent.click(b)
+    expect(p.onSave).not.toHaveBeenCalled()
+  })
+
+  it('bez pracowników na liście — jasny komunikat i blokada zapisu', () => {
+    const p = { ...props(), workers: [], selectedWorkerId: '' }
+    render(<LineCounter {...p} />)
+    expect(screen.getByTestId('brak-pracownikow').textContent).toMatch(/Brak pracowników/)
+    expect((screen.getByTestId('zapisz') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('zapis w locie i czekanie na serwer gaszą przycisk', () => {
+    const p = props()
+    const { rerender } = render(<LineCounter {...p} busy />)
+    expect((screen.getByTestId('zapisz') as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByTestId('zapisz').textContent).toMatch(/Zapisuję/)
+    rerender(<LineCounter {...p} syncing />)
+    expect((screen.getByTestId('zapisz') as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByTestId('zapisz'))
+    expect(p.onSave).not.toHaveBeenCalled()
+  })
+
+  it('potwierdzenie zapisu stoi w panelu tej pozycji, a cudze nie', () => {
+    const p = props()
+    const { rerender } = render(<LineCounter {...p} feedback={{ seq: 1, lineId: 'l1', ok: true, text: 'Dodano 3 szt. · DAWID' }} />)
+    expect(screen.getByTestId('wynik-zapisu').textContent).toContain('Dodano 3 szt. · DAWID')
+    rerender(<LineCounter {...p} feedback={{ seq: 2, lineId: 'l9', ok: false, text: 'błąd innej' }} />)
+    expect(screen.getByTestId('wynik-zapisu').textContent).not.toContain('błąd innej')
+  })
+
+  it('dwie osoby o tym samym imieniu — przycisk podaje inicjał nazwiska', () => {
+    const p = { ...props(), workers: [{ id: 'a1', name: 'ANAR KOWAL' }, { id: 'a2', name: 'ANAR MAMEDOV' }], selectedWorkerId: 'a2' }
+    render(<LineCounter {...p} />)
+    expect(screen.getByTestId('zapisz').textContent).toBe('Dodaj 1 szt. · ANAR M.')
+    expect(screen.getByTestId('pracownik-a1').textContent).toContain('KOWAL')
   })
 
   it('nazwisko pracownika stoi na przycisku zapisu', () => {
@@ -332,14 +529,9 @@ describe('LineCounter', () => {
     expect(screen.getByText(/pozostało/i).textContent).toContain('8')
   })
 
-  it('rozlicza, kto ile zrobił z tej pozycji', () => {
-    const p = { ...props(), line: linia({ workerEntries: [
-      { workerId: 'w1', workerName: 'DAWID', pieces: 8, addedAt: '' },
-      { workerId: 'w2', workerName: 'DENYS', pieces: 4, addedAt: '' },
-    ] }) }
-    render(<LineCounter {...p} />)
-    expect(screen.getByText('DAWID — 8 szt.')).toBeTruthy()
-    expect(screen.getByText('DENYS — 4 szt.')).toBeTruthy()
+  it('nie ma „wróć do listy" — plan stoi obok', () => {
+    render(<LineCounter {...props()} />)
+    expect(screen.queryByText(/Plan dnia/)).toBeNull()
   })
 })
 
@@ -356,7 +548,6 @@ describe('LineCounter — kafelki pracowników', () => {
     selectedWorkerId: 'w1',
     onSelectWorker: vi.fn(),
     onSave: vi.fn(),
-    onBack: vi.fn(),
     canSave: true,
     ...over,
   })
@@ -403,37 +594,50 @@ describe('LineCounter — odejmowanie sztuk przed skanem', () => {
     selectedWorkerId: 'w1',
     onSelectWorker: vi.fn(),
     onSave: vi.fn(),
-    onBack: vi.fn(),
     canSave: true,
     scan: { total: 20, scanned: 0 },
     ...over,
+  })
+  /** Odejmowanie jest korektą — schowane za przełącznikiem. */
+  const korekta = () => fireEvent.click(screen.getByTestId('korekta'))
+
+  it('odejmowanie jest schowane, dopóki operator nie włączy korekty', () => {
+    render(<LineCounter {...props()} />)
+    expect(screen.queryByTestId('odejmij')).toBeNull()
+    korekta()
+    expect(screen.getByTestId('odejmij')).toBeTruthy()
+    expect(screen.queryByTestId('zapisz')).toBeNull()
   })
 
   it('odejmowanie oddaje UJEMNĄ liczbę sztuk — jeden zapis, jedna droga', () => {
     const p = props()
     render(<LineCounter {...p} />)
+    korekta()
     fireEvent.click(screen.getByRole('button', { name: 'więcej' }))
     fireEvent.click(screen.getByTestId('odejmij'))
-    expect(p.onSave).toHaveBeenCalledWith(-2)
+    expect(p.onSave).toHaveBeenCalledWith(zapis(-2))
   })
 
   it('nazwisko osoby stoi na przycisku odejmowania — sztuki schodzą JEJ', () => {
     render(<LineCounter {...props()} />)
+    korekta()
     expect(screen.getByTestId('odejmij').textContent).toContain('DAWID')
   })
 
   it('nie odejmiesz osobie więcej, niż ma na pozycji', () => {
     const p = props({ selectedWorkerId: 'w2' })   // DENYS ma 3 szt.
     render(<LineCounter {...p} />)
+    korekta()
     for (let i = 0; i < 8; i++) fireEvent.click(screen.getByRole('button', { name: 'więcej' }))
     fireEvent.click(screen.getByTestId('odejmij'))
-    expect(p.onSave).toHaveBeenCalledWith(-3)
+    expect(p.onSave).toHaveBeenCalledWith(zapis(-3, 'w2'))
   })
 
   it('osobie bez sztuk nie ma czego odjąć', () => {
     const p = props({ workers: [{ id: 'w1', name: 'DAWID NOWAK' }, { id: 'w3', name: 'OLEH BONDAR' }],
                       selectedWorkerId: 'w3' })
     render(<LineCounter {...p} />)
+    korekta()
     expect((screen.getByTestId('odejmij') as HTMLButtonElement).disabled).toBe(true)
   })
 
@@ -443,14 +647,24 @@ describe('LineCounter — odejmowanie sztuk przed skanem', () => {
     ] }) })
     render(<LineCounter {...p} />)
     expect((screen.getByTestId('zapisz') as HTMLButtonElement).disabled).toBe(true)
+    korekta()
     expect((screen.getByTestId('odejmij') as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('w trakcie przerwy nie odejmiesz tak samo jak nie dopiszesz', () => {
     const p = props({ canSave: false })
     render(<LineCounter {...p} />)
+    korekta()
     fireEvent.click(screen.getByTestId('odejmij'))
     expect(p.onSave).not.toHaveBeenCalled()
+  })
+
+  it('udany zapis wraca z korekty do dodawania', () => {
+    const p = props()
+    const { rerender } = render(<LineCounter {...p} />)
+    korekta()
+    rerender(<LineCounter {...p} feedback={{ seq: 1, lineId: 'l1', ok: true, text: 'Odjęto 1 szt.' }} />)
+    expect(screen.getByTestId('zapisz')).toBeTruthy()
   })
 })
 
@@ -466,26 +680,27 @@ describe('LineCounter — po zeskanowaniu', () => {
     selectedWorkerId: 'w1',
     onSelectWorker: vi.fn(),
     onSave: vi.fn(),
-    onBack: vi.fn(),
     canSave: true,
     onMoveFrom: vi.fn(),
     ...over,
   })
 
   it('wszystko zeskanowane → odejmowanie zgaszone, zostaje przepisanie', () => {
-    const p = props({ scan: { total: 20, scanned: 12 } })
+    const p = props({ scan: { total: 20, scanned: 12 }, selectedWorkerId: 'w2' })
     render(<LineCounter {...p} />)
+    fireEvent.click(screen.getByTestId('korekta'))
     expect((screen.getByTestId('odejmij') as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.click(screen.getByTestId('rozliczenie-w2'))
+    fireEvent.click(screen.getByTestId('przepisz'))
     expect(p.onMoveFrom).toHaveBeenCalledWith('w2')
   })
 
   it('nadwyżkę ponad zeskanowane wolno jeszcze skasować', () => {
     const p = props({ scan: { total: 20, scanned: 9 } })   // wpisane 12, zeskanowane 9
     render(<LineCounter {...p} />)
+    fireEvent.click(screen.getByTestId('korekta'))
     for (let i = 0; i < 8; i++) fireEvent.click(screen.getByRole('button', { name: 'więcej' }))
     fireEvent.click(screen.getByTestId('odejmij'))
-    expect(p.onSave).toHaveBeenCalledWith(-3)
+    expect(p.onSave).toHaveBeenCalledWith(zapis(-3))
   })
 
   it('mówi wprost, ile sztuk pozycji jest już zeskanowanych', () => {
@@ -497,7 +712,7 @@ describe('LineCounter — po zeskanowaniu', () => {
     const p = props({ scan: { total: 20, scanned: 12 } })
     render(<LineCounter {...p} />)
     fireEvent.click(screen.getByTestId('zapisz'))
-    expect(p.onSave).toHaveBeenCalledWith(1)
+    expect(p.onSave).toHaveBeenCalledWith(zapis(1))
   })
 
   it('prowadzi do skanowania TEJ pozycji', () => {
@@ -518,16 +733,23 @@ describe('LineCounter — poprawka „nie ta osoba"', () => {
     selectedWorkerId: 'w1',
     onSelectWorker: () => {},
     onSave: () => {},
-    onBack: () => {},
     canSave: true,
     ...over,
   })
 
-  it('dotknięcie osoby z rozliczenia prosi o przeniesienie jej sztuk', () => {
+  it('korekta → „Przepisz na…" prosi o przeniesienie sztuk WYBRANEJ osoby', () => {
     const move = vi.fn()
-    render(<LineCounter {...zProps({ onMoveFrom: move })} />)
-    fireEvent.click(screen.getByTestId('rozliczenie-w2'))
+    render(<LineCounter {...zProps({ onMoveFrom: move, selectedWorkerId: 'w2' })} />)
+    fireEvent.click(screen.getByTestId('korekta'))
+    fireEvent.click(screen.getByTestId('przepisz'))
     expect(move).toHaveBeenCalledWith('w2')
+  })
+
+  it('osoba bez sztuk na pozycji nie ma czego przepisać', () => {
+    const move = vi.fn()
+    render(<LineCounter {...zProps({ onMoveFrom: move, workers: [{ id: 'w3', name: 'OLEH BONDAR' }], selectedWorkerId: 'w3' })} />)
+    fireEvent.click(screen.getByTestId('korekta'))
+    expect((screen.getByTestId('przepisz') as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('gotowa pozycja NADAL pozwala poprawić przypisanie', () => {
@@ -536,7 +758,8 @@ describe('LineCounter — poprawka „nie ta osoba"', () => {
       { workerId: 'w1', workerName: 'DAWID NOWAK', pieces: 12, addedAt: '10:00' },
     ] }) })} />)
     expect(screen.getByTestId('zapisz').hasAttribute('disabled')).toBe(true)   // sztuk już nie dopiszesz
-    fireEvent.click(screen.getByTestId('rozliczenie-w1'))
+    fireEvent.click(screen.getByTestId('korekta'))
+    fireEvent.click(screen.getByTestId('przepisz'))
     expect(move).toHaveBeenCalledWith('w1')
   })
 })
@@ -556,6 +779,18 @@ describe('PlanChangedBanner', () => {
     render(<PlanChangedBanner changes={zmiany} onAck={ack} />)
     fireEvent.click(screen.getByRole('button', { name: /Rozumiem/i }))
     expect(ack).toHaveBeenCalled()
+  })
+
+  // Pasek ma jedną linię — przy wielu zmianach nie może zjeść wysokości planu.
+  it('wiele zmian: jedna linia + rozwijana pełna lista', () => {
+    const duzo = Array.from({ length: 6 }, (_, i) => ({
+      kind: 'added' as const, line: { id: `x${i}`, qty: i + 1, kgPerUnit: 40, recipeName: `R${i}`, packagingName: '', clientName: '' },
+    }))
+    render(<PlanChangedBanner changes={duzo} onAck={() => {}} />)
+    expect(screen.getByTestId('pasek-zmian').style.height).toBe('44px')
+    expect(screen.queryByTestId('zmiany-lista')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Wszystkie (6)' }))
+    expect(within(screen.getByTestId('zmiany-lista')).getAllByRole('listitem')).toHaveLength(6)
   })
 
   it('bez zmian nie renderuje niczego', () => {

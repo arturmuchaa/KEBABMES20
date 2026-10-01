@@ -30,6 +30,24 @@ export function batchLabel(line: BatchSource | null | undefined): string {
   return nos.length ? zwin(nos) : '—'
 }
 
+/**
+ * Pełne rozbicie partii — do szczegółów pozycji (przytrzymanie wiersza).
+ * Główna lista planu partii nie pokazuje wcale; tu nic nie zwijamy.
+ */
+export function batchParts(line: BatchSource | null | undefined): { batchNo: string; pieces: number | null }[] {
+  const src = line || {}
+  const ba = src.batchAllocation
+  if (ba && typeof ba === 'object' && !Array.isArray(ba)) {
+    const czesci = Object.entries(ba)
+      .map(([bno, a]) => ({ batchNo: String(bno || ''), pieces: Number((a || {}).pieces) || 0 }))
+      .filter(p => p.batchNo && p.pieces > 0)
+    if (czesci.length) return czesci
+  }
+  return (src.seasonedBatchNos || [])
+    .map(n => String(n || '').trim()).filter(Boolean)
+    .map(batchNo => ({ batchNo, pieces: null }))
+}
+
 const zwin = (czesci: string[]): string => {
   const widoczne = czesci.slice(0, MAX).join(' · ')
   const reszta = czesci.length - MAX

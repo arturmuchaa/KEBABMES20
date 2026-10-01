@@ -10,6 +10,10 @@
  * z lokalnej kopii. Tablet trzyma własny `progress` seedowany z serwera i musi
  * pilnować, żeby odświeżenie go nie zdeptało; tutaj nie ma czego deptać —
  * a to dokładnie ta klasa błędów, która 24.08.2026 zamroziła licznik rozbioru.
+ *
+ * Układ (01.10.2026): plan dnia i panel liczenia stoją OBOK siebie, cały czas.
+ * Wybrana pozycja nie zamyka się po zapisie ani po zrobieniu planu. Skanowanie
+ * ma jedną drogę: pozycja na liście → „Skanuj tę pozycję" w panelu.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Spinner } from '@/components/ui/widgets'
@@ -21,7 +25,7 @@ import { getProductionDate } from '@/features/deboning/utils'
 import { HMI_VARS, HMI_FONT } from '@/features/hmi-theme/vars'
 import '@/features/hmi-theme/hmi-font.css'
 import { planDiff, snapshotPlanu, type PlanChange, type PlanSnapshotLine } from '@/features/production-hmi/planDiff'
-import { planTotals } from '@/features/production-hmi/planProgress'
+import { planTotals, type WorkerEntry } from '@/features/production-hmi/planProgress'
 import { removablePieces, type ScanMap } from '@/features/production-hmi/scanProgress'
 import { finishForecast, type Forecast } from '@/features/production-hmi/finishForecast'
 import { shiftStats, type ShiftEntry } from '@/features/production-hmi/shiftStats'
@@ -29,7 +33,11 @@ import {
   BRAK_PRZERW, breakEnded, breakStarted, breaksFromServer, canSave, onBreak, pausedMs, type BreakState,
 } from '@/features/production-hmi/breakState'
 import { PlanList, type PlanLineView } from '@/features/production-hmi/components/PlanList'
-import { LineCounter } from '@/features/production-hmi/components/LineCounter'
+import {
+  LineCounter, LineCounterEmpty, type SaveFeedback, type SaveRequest,
+} from '@/features/production-hmi/components/LineCounter'
+import { LineDetails } from '@/features/production-hmi/components/LineDetails'
+import '@/features/production-hmi/production-hmi.css'
 import { PlanChangedBanner } from '@/features/production-hmi/components/PlanChangedBanner'
 import { BreakOverlay } from '@/features/production-hmi/components/BreakOverlay'
 import { ShiftStats } from '@/features/production-hmi/components/ShiftStats'
@@ -40,13 +48,14 @@ import { MovePiecesModal } from '@/features/production-hmi/components/MovePieces
 import { ScanPanel } from '@/features/production-hmi/components/ScanPanel'
 import { ForecastPanel } from '@/features/production-hmi/components/ForecastPanel'
 import { wrappedTotal } from '@/features/production-hmi/wrapping'
-import { productionCrew, wrappingCrew } from '@/features/production-hmi/crew'
+import { crewLabels, productionCrew, wrappingCrew } from '@/features/production-hmi/crew'
 
 declare const __PRODUKCJA_VERSION__: string
 
 const DZIAL = 'produkcja'
 /** Kartoteka folii w opakowaniach — rozpoznajemy ją po nazwie, jak reszta MES. */
 const FOLIA = 'folia'
+const BRAK_POZYCJI = 'Tej pozycji nie ma już w planie'
 
 const czasHM = (ms: number): string => {
   const m = Math.max(0, Math.round(ms / 60_000))
@@ -59,6 +68,38 @@ const dzienPoPolsku = (iso: string): string => {
   if (Number.isNaN(d.getTime())) return iso
   const dni = ['niedziela', 'poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota']
   return `${dni[d.getDay()]} ${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`
+}
+
+type Wpis = WorkerEntry
+
+/**
+ * Wpisy osób po zmianie o `zmiana` sztuk (już przyciętej) — rusza WYŁĄCZNIE
+ * wpisy wskazanej osoby.
+ *
+ * Osoba bywa w kilku wpisach (np. A:2, A:3), a jej dorobek to ich suma.
+ * Odejmowanie schodzi więc po wszystkich jej wpisach, od najnowszego —
+ * zdjęcie wszystkiego z pierwszego wpisu i odfiltrowanie ujemnego zostawiało
+ * A:3 zamiast A:1, czyli rozliczenie rozjeżdżało się z `qtyDone`.
+ * Wpis na zero to nie wpis — zostawiony straszyłby w statystykach zmiany
+ * jako osoba z zerem sztuk (tak samo jak przy przepisywaniu na serwerze).
+ */
+function zmienWpisy(dotad: Wpis[], kto: { id: string; name: string }, zmiana: number): Wpis[] {
+  if (zmiana > 0) {
+    const idx = dotad.findIndex(e => e.workerId === kto.id)
+    return idx >= 0
+      ? dotad.map((e, i) => (i === idx ? { ...e, pieces: (e.pieces ?? 0) + zmiana } : e))
+      : [...dotad, { workerId: kto.id, workerName: kto.name, pieces: zmiana,
+                     addedAt: new Date().toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) }]
+  }
+  let zostalo = -zmiana
+  const out = [...dotad]
+  for (let i = out.length - 1; i >= 0 && zostalo > 0; i--) {
+    if (out[i].workerId !== kto.id) continue
+    const zdejmij = Math.min(zostalo, Math.max(0, out[i].pieces ?? 0))
+    out[i] = { ...out[i], pieces: (out[i].pieces ?? 0) - zdejmij }
+    zostalo -= zdejmij
+  }
+  return out.filter(e => e.workerId !== kto.id || (e.pieces ?? 0) > 0)
 }
 
 export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VERSION__}` }: { buildLabel?: string }) {
@@ -80,11 +121,16 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
 
   const [wybranaPozycja, setWybranaPozycja] = useState<string | null>(null)
   const [tulejaPozycji, setTulejaPozycji] = useState<string | null>(null)
-  const [przepisywany, setPrzepisywany] = useState<string | null>(null)
-  /** `null` — panel skanowania zamknięty; `''` — otwarty na wyborze pozycji;
-   *  id — otwarty od razu na tej pozycji (wejście z licznika). */
+  /** Szczegóły pozycji (przytrzymanie wiersza) — NIE zmieniają zaznaczenia. */
+  const [szczegoly, setSzczegoly] = useState<string | null>(null)
+  /** Przepisanie sztuk: pozycja i osoba zamrożone w chwili otwarcia okna. */
+  const [przepisywany, setPrzepisywany] = useState<{ lineId: string; workerId: string } | null>(null)
+  /** id pozycji, której skanowanie jest otwarte; `null` — zamknięte. */
   const [skanowanie, setSkanowanie] = useState<string | null>(null)
   const [pracownik, setPracownik] = useState('')
+  const [wynikZapisu, setWynikZapisu] = useState<SaveFeedback | null>(null)
+  const [zapisuje, setZapisuje] = useState(false)
+  const ostatniaSkanowana = useRef<PlanLineView | null>(null)
   const [przerwy, setPrzerwy] = useState<BreakState>(BRAK_PRZERW)
   const [statystykiOtwarte, setStatystykiOtwarte] = useState(false)
   const [prognozaOtwarta, setPrognozaOtwarta] = useState(false)
@@ -230,67 +276,171 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
 
   const operatorzy = useMemo(() => productionCrew(opsData.data as any), [opsData.data])
   const foliowczycy = useMemo(() => wrappingCrew(opsData.data as any), [opsData.data])
+  const etykietyZalogi = useMemo(() => crewLabels(operatorzy), [operatorzy])
   const pozycja = linie.find(l => l.id === wybranaPozycja) ?? null
   const pozycjaTulei = linie.find(l => l.id === tulejaPozycji) ?? null
+  const lpPozycji = (id: string) => linie.findIndex(l => l.id === id) + 1
+
+  // Zmiana pozycji zdejmuje wybór osoby — sztuki idą do wypłaty, więc osoba
+  // z poprzedniej pozycji nie może „przejechać" na nową bez dotknięcia.
+  // Ilość wraca do 1, bo panel montuje się od nowa (`key`).
+  const wybranaRef = useRef(wybranaPozycja)
+  wybranaRef.current = wybranaPozycja
+  const wybierzPozycje = useCallback((id: string) => {
+    if (wybranaRef.current !== id) { setPracownik(''); setWynikZapisu(null) }
+    setWybranaPozycja(id)
+  }, [])
 
   const foliowanie = wrapData.data ?? []
   const zafoliowane = useMemo(() => wrappedTotal(foliowanie), [foliowanie])
   // Tuleja idzie jedna na sztukę — zużycie dnia to po prostu zrobione sztuki.
   const tulejeZuzyte = totals.sztDone
 
-  const pokazToast = (t: string) => { setToast(t); setTimeout(() => setToast(''), 3000) }
+  // Jeden timer dymka: nowy komunikat kasuje poprzedni (inaczej stary timer
+  // gasiłby świeży dymek), a odmontowanie sprząta wszystko. Wynik zapisu
+  // przychodzący PO odmontowaniu nie stawia już nowego timera.
+  const zamontowany = useRef(true)
+  const timerToastu = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    zamontowany.current = true
+    return () => {
+      zamontowany.current = false
+      if (timerToastu.current) clearTimeout(timerToastu.current)
+      timerToastu.current = null
+    }
+  }, [])
+  const pokazToast = (t: string) => {
+    if (!zamontowany.current) return
+    if (timerToastu.current) clearTimeout(timerToastu.current)
+    setToast(t)
+    timerToastu.current = setTimeout(() => { timerToastu.current = null; setToast('') }, 3000)
+  }
+
+  // Najświeższy stan przerwy — dla zapisów, które czekają na odczyt serwera.
+  // Callback zapisu ma w domknięciu `przerwy` z chwili dotknięcia; przerwa
+  // rozpoczęta w trakcie odczytu musi zatrzymać PATCH mimo to.
+  const przerwyRef = useRef(przerwy)
+  przerwyRef.current = przerwy
+
+  // ── Bezpieczeństwo kolejnych zapisów ──
+  //
+  // Zapis wysyła CAŁY stan pozycji (qtyDone + wpisy osób). Liczymy go NIE
+  // z planu na ekranie, tylko ze ŚWIEŻEGO odczytu planu (`byId`) zrobionego
+  // pod blokadą, tuż przed PATCH:
+  //   • plan na ekranie bywa sprzed poprzedniego zapisu (odświeżenie w locie,
+  //     zawieszone odpytywanie) — liczony z niego zapis zjadłby sztuki;
+  //   • blokada `zapisWToku` jest synchroniczna i JEDNA dla wszystkich
+  //     mutacji pozycji (sztuki, przepisanie, tuleja) — trzyma od odczytu do
+  //     końca PATCH, więc następny zapis zawsze czyta stan po poprzednim,
+  //     a podwójne dotknięcie nie wyśle drugiego żądania;
+  //   • nieudany odczyt = zero PATCH i jasny komunikat. Nic nie udajemy.
+  // `useApi.refetch` służy wyłącznie odświeżeniu ekranu — połyka błędy i bywa
+  // anulowany, więc nigdy nie jest potwierdzeniem stanu.
+  const zapisWToku = useRef(false)
+  const zablokuj = () => {
+    if (zapisWToku.current) return false
+    zapisWToku.current = true
+    setZapisuje(true)
+    return true
+  }
+  const odblokuj = () => { zapisWToku.current = false; setZapisuje(false) }
+
+  /** Świeża pozycja z serwera — albo powód, dla którego zapisu nie będzie. */
+  const swiezaPozycja = async (planId: string, lineId: string): Promise<{ linia: PlanLineView } | { blad: string }> => {
+    let swiezy: any
+    try { swiezy = await productionPlansApi.byId(planId) }
+    catch (e: any) {
+      return { blad: `Nie zapisano — nie udało się pobrać stanu pozycji${e?.message ? ` (${e.message})` : ''}. Spróbuj jeszcze raz` }
+    }
+    if (!swiezy || swiezy.id !== planId) return { blad: 'Nie zapisano — serwer nie oddał tego planu' }
+    if (swiezy.status !== 'active' && swiezy.status !== 'draft') return { blad: 'Nie zapisano — plan nie jest już aktywny' }
+    const l = (swiezy.lines ?? []).find((x: any) => x.id === lineId)
+    if (!l) return { blad: BRAK_POZYCJI }
+    return { linia: {
+      ...l, qty: Number(l.qty ?? 0), qtyDone: Math.max(0, Number(l.qtyDone ?? 0)),
+      workerEntries: Array.isArray(l.workerEntries) ? l.workerEntries : [],
+    } }
+  }
+
+  // Wynik zapisu stoi w panelu pozycji; gdy operator zdążył przejść na inną
+  // pozycję, mówi o nim też dymek — żeby błąd nie przepadł po cichu.
+  const seqWyniku = useRef(0)
+  const pokazWynik = (lineId: string, ok: boolean, text: string) => {
+    seqWyniku.current += 1
+    setWynikZapisu({ seq: seqWyniku.current, lineId, ok, text })
+    if (lineId !== wybranaRef.current) pokazToast(`Poz. ${lpPozycji(lineId)}: ${text}`)
+  }
 
   // ── Zapis sztuk (w obie strony) ──
   //
-  // Dodatnie `sztuk` dopisuje pracę, ujemne ją zdejmuje. Odejmowanie zawsze
-  // schodzi WYBRANEJ osobie — sztuki idą do wypłaty, więc nie wolno ich
-  // zabierać „z pozycji" komukolwiek. Serwer trzyma próg skanu (zeskanowanej
-  // sztuki nie da się odjąć, bo leży już na magazynie wyrobu gotowego);
-  // LineCounter gasi przycisk wcześniej, ale to tylko uprzejmość dla operatora.
-  const zapisz = useCallback(async (sztuk: number) => {
-    if (!plan || !pozycja || sztuk === 0) return
-    // Strażnik autorytatywny. Operator i tak nie kliknie — LineCounter gasi
-    // przycisk — więc ta linia jest nieosiągalna z DOM-u i świadomie nieobjęta
-    // testem; trzyma zapis, gdyby kiedyś pojawiła się druga droga wywołania.
+  // Dodatnie `pieces` dopisuje pracę, ujemne ją zdejmuje. Pozycja i osoba
+  // przychodzą z panelu zamrożone w chwili dotknięcia — zmiana zaznaczenia
+  // w trakcie zapisu nie przelewa sztuk na inną pozycję ani osobę.
+  // Odejmowanie zawsze schodzi WSKAZANEJ osobie, nigdy „z pozycji". Serwer
+  // trzyma próg skanu; panel gasi przycisk wcześniej, to tylko uprzejmość.
+  const zapisz = useCallback(async ({ lineId, workerId, pieces }: SaveRequest) => {
+    if (zapisWToku.current) return
+    if (!plan || !pieces) return
+    // Strażnik autorytatywny — panel i tak gasi przycisk w przerwie.
     if (!canSave(przerwy)) return
-    const kto = operatorzy.find(o => o.id === pracownik) ?? operatorzy[0]
-    if (!kto) { pokazToast('Wybierz, kto liczy'); return }
-
-    const dotad = pozycja.workerEntries ?? []
-    const maja = dotad.filter(e => e.workerId === kto.id).reduce((a, e) => a + (e.pieces ?? 0), 0)
-    // Ile realnie schodzi: nie więcej, niż osoba ma na pozycji i nie poniżej
-    // progu skanu. Bez tego zapis poleciałby na serwer po 409.
-    const zmiana = sztuk < 0
-      ? -Math.min(-sztuk, maja, removablePieces(pozycja, skany))
-      : sztuk
-    if (zmiana === 0) { pokazToast('Tych sztuk nie da się już odjąć'); return }
-
-    const idx = dotad.findIndex(e => e.workerId === kto.id)
-    const wpisy = (idx >= 0
-      ? dotad.map((e, i) => (i === idx ? { ...e, pieces: e.pieces + zmiana } : e))
-      : [...dotad, { workerId: kto.id, workerName: kto.name, pieces: zmiana,
-                     addedAt: new Date().toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' }) }]
-    // Wpis na zero to nie wpis — zostawiony straszyłby w statystykach zmiany
-    // jako osoba z zerem sztuk (tak samo jak przy przepisywaniu na serwerze).
-    ).filter(e => (e.pieces ?? 0) > 0)
-    const zrobione = Math.max(0, Math.min(pozycja.qty, pozycja.qtyDone + zmiana))
-    const stan = zrobione >= pozycja.qty ? 'DONE' : zrobione > 0 ? 'IN_PROGRESS' : 'PLANNED'
+    // Bez domyślnej osoby: sztuki idą do wypłaty, „pierwszy z listy" to pomyłka.
+    const kto = operatorzy.find(o => o.id === workerId)
+    if (!kto) { pokazWynik(lineId, false, 'Wybierz osobę, która zrobiła sztuki'); return }
+    if (!zablokuj()) return
+    const planId = plan.id
+    const imie = etykietyZalogi.get(kto.id)?.short ?? kto.name
 
     try {
-      await productionPlansApi.updateLineProgress(plan.id, pozycja.id,
-        { qtyDone: zrobione, lineStatus: stan as any, workerEntries: wpisy })
-      planData.refetch()
-      if (zmiana < 0) {
-        pokazToast(`Odjęto ${-zmiana} szt. · ${kto.name.split(' ')[0]}`)
-      } else if (zrobione >= pozycja.qty) {
-        // Zamknięta pozycja wraca na listę, ale NIE jest zamknięta na klucz —
-        // wchodzi się w nią z powrotem i poprawia, dopóki nic nie zeskanowane.
-        setWybranaPozycja(null); pokazToast('Pozycja gotowa — zeskanuj sztuki, żeby ją potwierdzić')
+      const odczyt = await swiezaPozycja(planId, lineId)
+      if ('blad' in odczyt) {
+        pokazWynik(lineId, false, odczyt.blad)
+        // Zdjętej pozycji panel zaraz zniknie razem z komunikatem — dymek zostaje.
+        if (odczyt.blad === BRAK_POZYCJI && lineId === wybranaRef.current) pokazToast(odczyt.blad)
+        return
       }
-    } catch (e: any) {
-      pokazToast(e?.message || 'Nie udało się zapisać — spróbuj jeszcze raz')
+      const linia = odczyt.linia
+
+      const dotad = linia.workerEntries ?? []
+      const maja = dotad.filter(e => e.workerId === kto.id).reduce((a, e) => a + (e.pieces ?? 0), 0)
+      // JEDNA zmiana dla qtyDone i dla wpisu osoby, przycięta do planu
+      // i do dorobku osoby. Dawniej qtyDone przycinało się osobno, a wpis
+      // dostawał pełne `pieces` — rozliczenie ludzi rozjeżdżało się z postępem.
+      // Próg skanu przy odejmowaniu trzyma też serwer.
+      const zmiana = pieces > 0
+        ? Math.min(pieces, Math.max(0, linia.qty - linia.qtyDone))
+        : -Math.min(-pieces, maja, removablePieces(linia, skany), linia.qtyDone)
+      if (zmiana === 0) {
+        pokazWynik(lineId, false, pieces > 0 ? 'Pozycja ma już komplet sztuk' : 'Tych sztuk nie da się już odjąć')
+        return
+      }
+
+      const wpisy = zmienWpisy(dotad, kto, zmiana)
+      const zrobione = linia.qtyDone + zmiana
+      const stan = zrobione >= linia.qty ? 'DONE' : zrobione > 0 ? 'IN_PROGRESS' : 'PLANNED'
+
+      // Przerwa mogła ruszyć, gdy czekaliśmy na odczyt — sprawdzamy NAJŚWIEŻSZY
+      // stan tuż przed PATCH, nie ten z chwili dotknięcia.
+      if (!canSave(przerwyRef.current)) {
+        pokazWynik(lineId, false, 'Przerwa — nie zapisano. Po przerwie dodaj sztuki jeszcze raz')
+        return
+      }
+
+      try {
+        await productionPlansApi.updateLineProgress(planId, lineId,
+          { qtyDone: zrobione, lineStatus: stan as any, workerEntries: wpisy })
+      } catch (e: any) {
+        pokazWynik(lineId, false, e?.message ? `Nie zapisano — ${e.message}` : 'Nie zapisano — spróbuj jeszcze raz')
+        return
+      }
+      // Pozycja ZOSTAJE wybrana także po dobiciu planu — teraz ją się skanuje.
+      pokazWynik(lineId, true, zmiana > 0
+        ? `Dodano ${zmiana} szt. · ${imie} — pozycja ${zrobione}/${linia.qty}`
+        : `Odjęto ${-zmiana} szt. · ${imie} — pozycja ${zrobione}/${linia.qty}`)
+    } finally {
+      odblokuj()
+      void planData.refetch()
     }
-  }, [plan, pozycja, przerwy, operatorzy, pracownik, planData, skany])
+  }, [plan, przerwy, operatorzy, etykietyZalogi, planData, skany]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Skanowanie gotowych kebabów ──
   //
@@ -311,23 +461,29 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   const przeniesSztuki = useCallback(async (
     ruch: { toWorkerId: string; toWorkerName: string; pieces: number },
   ) => {
-    if (!plan || !pozycja || !przepisywany) return
+    const linia = przepisywany ? linie.find(l => l.id === przepisywany.lineId) : null
+    if (!plan || !linia || !przepisywany) return
+    // Ta sama blokada co zapis sztuk: przepisanie zmienia wpisy osób na
+    // serwerze, więc nie może się zazębić z „Dodaj" tej samej pozycji.
+    // Następny zapis sztuk i tak czyta świeży stan (`swiezaPozycja`).
+    if (!zablokuj()) return
     setZajety(true)
     try {
-      await productionPlansApi.moveLinePieces(plan.id, pozycja.id, {
-        fromWorkerId: przepisywany, toWorkerId: ruch.toWorkerId,
+      await productionPlansApi.moveLinePieces(plan.id, linia.id, {
+        fromWorkerId: przepisywany.workerId, toWorkerId: ruch.toWorkerId,
         toWorkerName: ruch.toWorkerName, pieces: ruch.pieces, by: user?.name ?? '',
       })
       setPrzepisywany(null)
-      planData.refetch()
+      void planData.refetch()
       pokazToast(`Przepisano ${ruch.pieces} szt. na ${ruch.toWorkerName.split(' ')[0]}`)
     } catch (e: any) {
       setPrzepisywany(null)
       pokazToast(e?.message ? `Nie udało się przenieść — ${e.message}` : 'Nie udało się przenieść sztuk')
     } finally {
+      odblokuj()
       setZajety(false)
     }
-  }, [plan, pozycja, przepisywany, user, planData])
+  }, [plan, linie, przepisywany, user, planData]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Zmiana tulei pozycji ──
   //
@@ -338,6 +494,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   const zmienTuleje = useCallback(async (packagingId: string) => {
     const linia = linie.find(l => l.id === tulejaPozycji)
     if (!plan || !linia) return
+    if (!zablokuj()) return
     setZajety(true)
     try {
       await productionPlansApi.changeLinePackaging(plan.id, linia.id, packagingId)
@@ -348,9 +505,10 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
       setTulejaPozycji(null)
       pokazToast(e?.message ? `Nie udało się zmienić tulei — ${e.message}` : 'Nie udało się zmienić tulei')
     } finally {
+      odblokuj()
       setZajety(false)
     }
-  }, [plan, linie, tulejaPozycji, planData, pkgData])
+  }, [plan, linie, tulejaPozycji, planData, pkgData]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Przerwy ──
   //
@@ -358,7 +516,11 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   // Nieudany zapis nie cofa ekranu: operator już stoi, a przerwa bez zapisu
   // jest mniejszym złem niż przerwa, która nie zablokowała liczenia sztuk.
   const zacznijPrzerwe = useCallback(async () => {
-    setPrzerwy(s => breakStarted(s, new Date().toISOString()))
+    const od = new Date().toISOString()
+    // Ref od razu, nie dopiero po renderze: zapis czekający na odczyt
+    // sprawdza go tuż przed PATCH.
+    przerwyRef.current = breakStarted(przerwyRef.current, od)
+    setPrzerwy(s => breakStarted(s, od))
     if (!plan?.id) return
     zapisPrzerwy.current += 1
     try { await productionPlansApi.startBreak(plan.id); breaksData.refetch() }
@@ -402,14 +564,29 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   }, [dzien, user, wrapData])
 
   // ── Zakończenie dnia ──
+  //
+  // Ta sama blokada co zapis sztuk: zamknięcie nie może wystartować obok
+  // zapisu w locie. Wpisy dla biura liczymy ze ŚWIEŻEGO odczytu planu —
+  // lista na ekranie bywa sprzed ostatniego zapisu (stare odpytywanie),
+  // a z niej `tabletFinish` zgubiłby sztuki. Nieudany odczyt = ani zwrotu
+  // folii, ani wysłania do biura.
   const zakonczDzien = useCallback(async (zwrot: number) => {
-    if (!plan) return
+    if (!plan || zapisWToku.current) return
+    if (!zablokuj()) return
     setZajety(true)
+    const planId = plan.id
     try {
+      let swiezy: any
+      try { swiezy = await productionPlansApi.byId(planId) }
+      catch (e: any) {
+        pokazToast(`Nie zamknięto dnia — nie udało się pobrać planu${e?.message ? ` (${e.message})` : ''}. Spróbuj jeszcze raz`)
+        return
+      }
+      if (!swiezy || swiezy.id !== planId) { pokazToast('Nie zamknięto dnia — serwer nie oddał tego planu'); return }
       if (zwrot > 0 && foliaId) {
         await dayMaterialsApi.giveBack(dzien, foliaId, zwrot, user?.name ?? '')
       }
-      const entries = (plan.lines ?? [])
+      const entries = (swiezy.lines ?? [])
         .filter((l: any) => (l.qtyDone ?? 0) > 0)
         .map((l: any) => ({
           planLineId: l.id,
@@ -427,16 +604,17 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
           clientName: l.clientName,
           seasonedBatchNos: l.seasonedBatchNos ?? (l.seasonedBatchNo ? [l.seasonedBatchNo] : []),
         }))
-      await productionPlansApi.tabletFinish(plan.id, entries)
+      await productionPlansApi.tabletFinish(planId, entries)
       setPodsumowanie(false)
       planData.refetch(); matData.refetch()
       pokazToast('Wysłano do potwierdzenia biura')
     } catch (e: any) {
       pokazToast(e?.message || 'Nie udało się zamknąć dnia')
     } finally {
+      odblokuj()
       setZajety(false)
     }
-  }, [plan, foliaId, dzien, user, planData, matData])
+  }, [plan, foliaId, dzien, user, planData, matData]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (planData.loading && !planData.data) {
     return (
@@ -447,14 +625,22 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   }
 
   const wPrzerwie = onBreak(przerwy)
+  // Okno skanu trzyma ostatnio znane dane pozycji, gdyby biuro zdjęło ją
+  // z planu w trakcie skanowania — kolejka i tak idzie z zamrożonym id.
+  const skanowanaLinia = skanowanie
+    ? (linie.find(l => l.id === skanowanie) ?? (ostatniaSkanowana.current?.id === skanowanie ? ostatniaSkanowana.current : null))
+    : null
+  if (skanowanaLinia) ostatniaSkanowana.current = skanowanaLinia
+  const liniaSzczegolow = szczegoly ? linie.find(l => l.id === szczegoly) ?? null : null
+  const liniaPrzepisania = przepisywany ? linie.find(l => l.id === przepisywany.lineId) ?? null : null
   const trwajacaOd = przerwy.pauses.find(p => p.to === null)?.from ?? teraz
 
   return (
-    <div className="h-full w-full overflow-hidden flex flex-col"
+    <div className="phmi-root h-full w-full overflow-hidden flex flex-col"
       style={{ ...HMI_VARS, background: 'var(--bg)', color: 'var(--ink)', fontFamily: HMI_FONT }}>
 
-      <header className="flex-shrink-0 flex items-center gap-5 px-6"
-        style={{ height: 76, background: 'var(--barBg)', borderBottom: '1px solid var(--line)' }}>
+      <header className="phmi-bar phmi-head flex-shrink-0 flex items-center gap-5 px-6"
+        style={{ background: 'var(--barBg)', borderBottom: '1px solid var(--line)' }}>
         <div>
           <div className="font-extrabold text-xl leading-none uppercase" style={{ letterSpacing: '-.01em' }}>Produkcja</div>
           <div className="hmi-v10-mono text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.14em' }}>
@@ -472,16 +658,29 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
             <span className="hmi-v10-mono text-sm font-bold" style={{ color: (c as any).color ?? 'var(--ink)', lineHeight: 1.3 }}>{c.val}</span>
           </div>
         ))}
-        <div className="flex-1" />
+        <div className="flex-1 min-w-0 flex justify-center">
+          {/* W nagłówku, nie osobną belką — belka zjadała wysokość planu. */}
+          {plan?.tabletFinishedAt && !plan?.officeConfirmedAt && (
+            <span role="status" className="text-[13px] font-bold truncate" style={{
+              background: 'var(--successSoft)', border: '1px solid var(--successLine)',
+              borderRadius: 8, padding: '6px 12px', color: 'var(--success)',
+            }}>
+              ✓ Dzień wysłany do biura — czeka na potwierdzenie
+            </span>
+          )}
+        </div>
         <button type="button" onClick={zacznijPrzerwe}
           disabled={wPrzerwie} className="h-9 px-4 text-[13px] font-bold flex-shrink-0"
           style={{ border: '1px solid var(--ambLine)', color: 'var(--amb)', borderRadius: 8,
                    background: 'var(--ambSoft)', opacity: wPrzerwie ? .4 : 1 }}>
           Przerwa
         </button>
-        <button type="button" onClick={() => setPodsumowanie(true)} disabled={!plan}
+        {/* Zapis w locie blokuje też zamknięcie dnia — wpisy dla biura liczą się
+            ze stanu po zapisie, nie obok niego. */}
+        <button type="button" onClick={() => { if (!zapisWToku.current) setPodsumowanie(true) }}
+          disabled={!plan || zapisuje}
           className="h-9 px-4 text-[13px] font-bold flex-shrink-0"
-          style={{ border: '1px solid var(--line)', color: 'var(--ink)', borderRadius: 8, background: 'var(--panel)', opacity: plan ? 1 : .4 }}>
+          style={{ border: '1px solid var(--line)', color: 'var(--ink)', borderRadius: 8, background: 'var(--panel)', opacity: plan && !zapisuje ? 1 : .4 }}>
           Zakończ dzień
         </button>
         <button type="button" onClick={() => logout()}
@@ -491,50 +690,51 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
         </button>
       </header>
 
-      <div className="flex-1 overflow-hidden flex flex-col gap-3.5 p-4.5" style={{ padding: 18 }}>
+      <div data-testid="hmi-produkcja-glowny" className="phmi-main flex-1 min-h-0 overflow-hidden flex flex-col">
         <PlanChangedBanner changes={zmiany} onAck={potwierdzZmiany} />
 
-        {plan?.tabletFinishedAt && !plan?.officeConfirmedAt && (
-          <div className="text-[15px] font-bold" style={{
-            background: 'var(--successSoft)', border: '1px solid var(--successLine)',
-            borderRadius: 12, padding: '12px 16px', color: 'var(--success)',
-          }}>
-            Dzień wysłany do biura — czeka na potwierdzenie.
-          </div>
-        )}
-
-        <div className="flex-1 flex gap-3.5 overflow-hidden" style={{ gap: 14 }}>
-          {pozycja ? (
-            <LineCounter
-              line={pozycja}
-              workers={operatorzy}
-              selectedWorkerId={pracownik || operatorzy[0]?.id || ''}
-              onSelectWorker={setPracownik}
-              onSave={zapisz}
-              onBack={() => setWybranaPozycja(null)}
-              canSave={canSave(przerwy)}
-              onMoveFrom={setPrzepisywany}
-              scan={skany[pozycja.id]}
-              onScanLine={setSkanowanie}
-            />
-          ) : (
-            <PlanList lines={linie} onPick={setWybranaPozycja} onPickPackaging={setTulejaPozycji}
-              scans={skany} />
-          )}
+        {/* Plan i panel ZAWSZE razem: lista nie znika po wybraniu pozycji. */}
+        <div className="phmi-split flex-1 min-h-0 flex overflow-hidden">
+          <PlanList lines={linie} selectedId={wybranaPozycja} onPick={wybierzPozycje}
+            onDetails={setSzczegoly} scans={skany} />
+          <aside className="phmi-side flex-shrink-0 min-h-0" aria-label="Liczenie sztuk wybranej pozycji">
+            {pozycja ? (
+              <LineCounter
+                key={pozycja.id}
+                line={pozycja}
+                lp={lpPozycji(pozycja.id)}
+                workers={operatorzy}
+                selectedWorkerId={pracownik}
+                onSelectWorker={setPracownik}
+                onSave={zapisz}
+                canSave={canSave(przerwy)}
+                busy={zapisuje}
+                onMoveFrom={workerId => { if (!zapisWToku.current) setPrzepisywany({ lineId: pozycja.id, workerId }) }}
+                scan={skany[pozycja.id]}
+                onScanLine={id => { if (!zapisWToku.current) setSkanowanie(id) }}
+                onDetails={setSzczegoly}
+                feedback={wynikZapisu}
+              />
+            ) : (
+              <LineCounterEmpty hasLines={linie.length > 0} />
+            )}
+          </aside>
         </div>
       </div>
 
       {/* Pasek dnia — ten sam wzorzec co w rozbiorze: 76 px, --barBg, kafle
           z liczbą i podpisem, część klikalna (▸). Liczby dnia mają stać cały
           czas na oku, a nie chować się w oknach. */}
-      <div className="flex-shrink-0 grid grid-cols-8" style={{ height: 76, background: 'var(--barBg)', borderTop: '1px solid var(--line)' }}>
+      <div className="phmi-bar phmi-dzien flex-shrink-0 grid grid-cols-8" style={{ background: 'var(--barBg)', borderTop: '1px solid var(--line)' }}>
         {([
           { label: 'Zrobione',   val: `${totals.kgDone} kg` },
           { label: 'Postęp',     val: `${totals.pct}%`, color: 'var(--accent)' },
           { label: 'Tempo',      val: `${stats.total.kgPerHour} kg/h` },
           { label: 'Sztuki',     val: `${totals.sztDone} / ${totals.sztPlan}` },
           { label: 'Foliowanie', val: `${zafoliowane} kg`, onTap: () => setFoliowanieOtwarte(true) },
-          { label: 'Skanowanie', val: `${zeskanowaneRazem} / ${totals.sztPlan}`, onTap: () => setSkanowanie('') },
+          // Sam licznik — NIE drugie wejście do skanu. Skanuje się pozycję
+          // wybraną na liście („Skanuj tę pozycję" w panelu), jedną drogą.
+          { label: 'Zeskanowane', val: `${zeskanowaneRazem} / ${totals.sztPlan}`, testId: 'kafel-skanowanie' },
           // Godzina, nie procent: kierownik podejmuje po niej decyzje (drugi
           // kurs auta, nadgodziny). Kreska, gdy prognoza byłaby zgadywaniem.
           { label: 'Koniec ok.', testId: 'kafel-prognoza',
@@ -549,7 +749,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
             <span className="text-[10px] font-bold uppercase mt-1.5 leading-tight" style={{ color: 'var(--accent)' }}>{c.label} ▸</span>
           </button>
         ) : (
-          <div key={c.label} className="flex flex-col items-center justify-center px-1 text-center"
+          <div key={c.label} data-testid={c.testId} className="flex flex-col items-center justify-center px-1 text-center"
             style={{ borderRight: '1px solid var(--lineSoft)' }}>
             <span className="hmi-v10-mono text-xl font-bold leading-none" style={{ color: c.color ?? 'var(--ink)' }}>{c.val}</span>
             <span className="text-[10px] font-bold uppercase mt-1.5 leading-tight" style={{ color: 'var(--mut)' }}>{c.label}</span>
@@ -574,15 +774,26 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
           busy={zajety} onSave={zapiszFoliowanie} onClose={() => setFoliowanieOtwarte(false)} />
       )}
 
-      {skanowanie !== null && (
-        <ScanPanel lines={linie} scans={skany} initialLineId={skanowanie}
+      {skanowanaLinia && (
+        <ScanPanel line={skanowanaLinia} lp={lpPozycji(skanowanaLinia.id)} scan={skany[skanowanaLinia.id]}
           onScan={zeskanuj} onClose={() => setSkanowanie(null)} />
       )}
 
-      {pozycja && przepisywany && (
+      {liniaSzczegolow && (
+        <LineDetails line={liniaSzczegolow} lp={lpPozycji(liniaSzczegolow.id)} scan={skany[liniaSzczegolow.id]}
+          locked={zapisuje || zajety || wPrzerwie}
+          onClose={() => setSzczegoly(null)}
+          onChangePackaging={id => { if (zapisWToku.current) return; setSzczegoly(null); setTulejaPozycji(id) }}
+          onMoveFrom={workerId => {
+            if (zapisWToku.current) return
+            setSzczegoly(null); setPrzepisywany({ lineId: liniaSzczegolow.id, workerId })
+          }} />
+      )}
+
+      {liniaPrzepisania && przepisywany && (
         <MovePiecesModal
-          line={pozycja}
-          fromWorkerId={przepisywany}
+          line={liniaPrzepisania}
+          fromWorkerId={przepisywany.workerId}
           workers={operatorzy}
           busy={zajety}
           onMove={przeniesSztuki}
@@ -617,7 +828,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
 
       {podsumowanie && (
         <DaySummary date={dzienPoPolsku(dzien)} totals={totals} stats={stats} material={folia}
-          pausedMs={przerwyMs} busy={zajety}
+          pausedMs={przerwyMs} busy={zajety || zapisuje}
           onFinish={zakonczDzien} onClose={() => setPodsumowanie(false)} />
       )}
 
