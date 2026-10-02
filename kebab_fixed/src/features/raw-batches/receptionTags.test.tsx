@@ -152,7 +152,7 @@ describe('ReceptionTags — ile zawieszek na dostawę', () => {
  * bo tu widać efekt: wydruk, poprawka, wydruk.
  */
 describe('ReceptionTags — kalibracja drukarki', () => {
-  const KALIBRACJA = { offsetXMm: 0, offsetYMm: 0, labelLengthMm: 80, tearOffMm: 0 }
+  const KALIBRACJA = { offsetXMm: 0, offsetYMm: 0, labelLengthMm: 102.3, tearOffMm: 0 }
 
   function zKalibracja(cal = KALIBRACJA, extra: any = {}) {
     const onCalibrationChange = vi.fn()
@@ -206,7 +206,7 @@ describe('ReceptionTags — kalibracja drukarki', () => {
     const { onCalibrationChange } = otworz()
     fireEvent.click(screen.getByLabelText('Przesunięcie wzdłuż taśmy więcej'))
     expect(onCalibrationChange).toHaveBeenCalledWith({
-      offsetXMm: 0, offsetYMm: 0.5, labelLengthMm: 80, tearOffMm: 0,
+      offsetXMm: 0, offsetYMm: 0.5, labelLengthMm: 102.3, tearOffMm: 0,
     })
   })
 
@@ -238,12 +238,12 @@ describe('ReceptionTags — kalibracja drukarki', () => {
   })
 
   it('„Wyzeruj" wraca do nastawy fabrycznej jednym kliknięciem', () => {
-    const { onCalibrationChange } = otworz({ offsetXMm: 2, offsetYMm: -1, labelLengthMm: 82, tearOffMm: 3 })
+    const { onCalibrationChange } = otworz({ offsetXMm: 2, offsetYMm: -1, labelLengthMm: 104, tearOffMm: 3 })
     fireEvent.click(screen.getByLabelText('Wyzeruj kalibrację'))
-    // Skok taśmy wraca do ZMIERZONEGO przez drukarkę (82,3 mm), nie do
+    // Skok taśmy wraca do 100 mm zawieszki + przerwa (102,3 mm), nie do
     // wysokości zawieszki — „fabryczne" znaczy tu „zgodne z taśmą".
     expect(onCalibrationChange).toHaveBeenCalledWith({
-      offsetXMm: 0, offsetYMm: 0, labelLengthMm: 82.3, tearOffMm: 0,
+      offsetXMm: 0, offsetYMm: 0, labelLengthMm: 102.3, tearOffMm: 0,
     })
   })
 
@@ -260,7 +260,7 @@ describe('ReceptionTags — kalibracja drukarki', () => {
  * odrywanie dokładnie na nagłówek następnej zawieszki.
  */
 describe('ReceptionTags — skok taśmy zmierzony przez drukarkę', () => {
-  const KAL = { offsetXMm: 0, offsetYMm: 0, labelLengthMm: 80, tearOffMm: 0 }
+  const KAL = { offsetXMm: 0, offsetYMm: 0, labelLengthMm: 102.3, tearOffMm: 0 }
 
   function pokazPanel(printerLabelLengthMm: number | null) {
     const onApplyPrinterLabelLength = vi.fn()
@@ -278,15 +278,15 @@ describe('ReceptionTags — skok taśmy zmierzony przez drukarkę', () => {
   }
 
   it('proponuje przeniesienie pomiaru, gdy drukarka mówi co innego niż nastawa', () => {
-    const { onApplyPrinterLabelLength } = pokazPanel(82.3)
+    const { onApplyPrinterLabelLength } = pokazPanel(103.4)
     const przycisk = screen.getByLabelText('Ustaw skok taśmy z drukarki')
-    expect(przycisk.textContent).toContain('82,3')
+    expect(przycisk.textContent).toContain('103,4')
     fireEvent.click(przycisk)
     expect(onApplyPrinterLabelLength).toHaveBeenCalled()
   })
 
   it('nie zaczepia, gdy drukarka i nastawa są zgodne', () => {
-    pokazPanel(80)
+    pokazPanel(102.3)
     expect(screen.queryByLabelText('Ustaw skok taśmy z drukarki')).toBeNull()
   })
 

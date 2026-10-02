@@ -5,7 +5,9 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest'
 
-import { LABEL_H_MM, LABEL_W_MM, mmToDots } from '@/features/deboning/byproductLabelZpl'
+import { mmToDots } from '@/features/deboning/byproductLabelZpl'
+
+import { TAG_H_MM, TAG_W_MM } from './receptionTagZpl'
 import {
   DEFAULT_CALIBRATION, LABEL_LENGTH_MAX_MM, LABEL_LENGTH_MIN_MM, OFFSET_MAX_MM,
   CALIBRATION_STORAGE_KEY, calibrationTestZpl, clampCalibration, fmtOffsetMm,
@@ -95,7 +97,7 @@ describe('tearOffZpl — punkt odrywania przed serią', () => {
 
 describe('calibrationTestZpl — wydruk, z którego widać, w którą stronę uciekł druk', () => {
   it('rysuje ramkę po krawędzi etykiety', () => {
-    expect(calibrationTestZpl()).toContain(`^FO0,0^GB${mmToDots(LABEL_W_MM)},${mmToDots(LABEL_H_MM)},`)
+    expect(calibrationTestZpl()).toContain(`^FO0,0^GB${mmToDots(TAG_W_MM)},${mmToDots(TAG_H_MM)},`)
   })
 
   it('przesuwa ramkę o nastawę — testujemy to, co pójdzie na zawieszki', () => {
@@ -136,27 +138,32 @@ describe('fmtOffsetMm — milimetry ze znakiem, po polsku', () => {
  * ani razu. Wartość zmierzona MUSI być domyślna, nie do wyklikania.
  */
 describe('skok taśmy — domyślnie to, co ma taśma, a nie wysokość zawieszki', () => {
-  it('domyślny skok to zmierzone 82,3 mm, nie 80 mm zawieszki', () => {
-    expect(DEFAULT_CALIBRATION.labelLengthMm).toBe(82.3)
-  })
-
-  it('stara nastawa 80 mm (nigdy nie ruszana) dostaje zmierzoną wartość', () => {
-    const store = magazyn({ [CALIBRATION_STORAGE_KEY]: JSON.stringify(
-      { offsetXMm: 0, offsetYMm: 0, labelLengthMm: 80, tearOffMm: 0 }) })
-    expect(loadCalibration(store).labelLengthMm).toBe(82.3)
+  it('domyślny skok to 100 mm zawieszki + 2,3 mm przerwy', () => {
+    expect(DEFAULT_CALIBRATION.labelLengthMm).toBe(102.3)
   })
 
   it('skok USTAWIONY ręcznie zostaje nietknięty — biuro wie lepiej', () => {
     const store = magazyn({ [CALIBRATION_STORAGE_KEY]: JSON.stringify(
-      { offsetXMm: 0, offsetYMm: 0, labelLengthMm: 76.5, tearOffMm: 0 }) })
-    expect(loadCalibration(store).labelLengthMm).toBe(76.5)
+      { offsetXMm: 0.5, offsetYMm: 0, labelLengthMm: 103.1, tearOffMm: 0 }) })
+    expect(loadCalibration(store)).toMatchObject({ offsetXMm: 0.5, labelLengthMm: 103.1 })
+  })
+})
+
+/**
+ * Przejście z rolki 50×80 na 80×100 (02.10.2026). Nastawa zapisana na
+ * stanowisku pod starą rolką ma skok ~82 mm — wysłana jako `^LL` urwałaby
+ * każdą zawieszkę w 4/5, a przesunięcia były mierzone na węższej taśmie.
+ */
+describe('nastawa z rolki 50×80', () => {
+  it('stary skok 82,3 mm zastępuje domyślnym dla 80×100', () => {
+    const store = magazyn({ [CALIBRATION_STORAGE_KEY]: JSON.stringify(
+      { offsetXMm: 0, offsetYMm: 0, labelLengthMm: 82.3, tearOffMm: 0 }) })
+    expect(loadCalibration(store).labelLengthMm).toBe(DEFAULT_CALIBRATION.labelLengthMm)
   })
 
-  it('migracja nie rusza pozostałych nastaw', () => {
+  it('zeruje przesunięcia z węższej taśmy, ale zostawia punkt odrywania drukarki', () => {
     const store = magazyn({ [CALIBRATION_STORAGE_KEY]: JSON.stringify(
       { offsetXMm: 1.5, offsetYMm: -2, labelLengthMm: 80, tearOffMm: 3 }) })
-    expect(loadCalibration(store)).toEqual({
-      offsetXMm: 1.5, offsetYMm: -2, labelLengthMm: 82.3, tearOffMm: 3,
-    })
+    expect(loadCalibration(store)).toEqual({ ...DEFAULT_CALIBRATION, tearOffMm: 3 })
   })
 })

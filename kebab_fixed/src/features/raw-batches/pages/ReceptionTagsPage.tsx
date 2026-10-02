@@ -168,7 +168,7 @@ export function ReceptionTagsPage() {
         setPrinterInfo(
           'Drukarka nie odpowiada na pytania (stary firmware).\n'
           + 'Wysłałem polecenie wydruku etykiety konfiguracyjnej — wyjdzie z drukarki.\n'
-          + 'Szukaj na niej wiersza LABEL LENGTH i porównaj go z 80 mm.',
+          + 'Szukaj na niej wiersza LABEL LENGTH i porównaj go ze 100 mm zawieszki.',
         )
         setMessage({ ok: true, text: 'Drukarka wypuści etykietę z konfiguracją' })
         return
@@ -203,7 +203,7 @@ export function ReceptionTagsPage() {
   }, [])
 
   /** Przenieś ZMIERZONĄ przez drukarkę długość etykiety do nastawy stanowiska.
-   *  Spór o skok taśmy rozstrzyga drukarka, nie nasza stała 80 mm: po `~JC`
+   *  Spór o skok taśmy rozstrzyga drukarka, nie nasza stała 100 mm: po `~JC`
    *  zmierzyła 658 pkt (82,3 mm), a my wysyłaliśmy 639 — i te 2,4 mm różnicy
    *  wypychały odrywanie dokładnie na nagłówek następnej zawieszki. */
   const applyPrinterLabelLength = useCallback(() => {

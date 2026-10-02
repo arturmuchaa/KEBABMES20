@@ -84,7 +84,7 @@ export function parsePrinterIdentity(raw: string): PrinterIdentity {
 
 /**
  * Podsumowanie dla biura: jedno zdanie, z którego widać, czy drukarka i MES
- * mówią o tej samej etykiecie. Nominał to wysokość zawieszki (80 mm).
+ * mówią o tej samej etykiecie. Nominał to wysokość zawieszki (100 mm).
  */
 export function printerSummary(
   identity: PrinterIdentity,

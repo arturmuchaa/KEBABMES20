@@ -21,8 +21,10 @@
  *
  * Czysta logika bez DOM i bez Reacta — testowana jednostkowo.
  */
-import { LABEL_DPI, LABEL_H_MM, LABEL_W_MM, mmToDots } from '@/features/deboning/byproductLabelZpl'
+import { LABEL_DPI, mmToDots } from '@/features/deboning/byproductLabelZpl'
 import { CALIBRATE_ZPL, tearOffMaxMm, tearOffZpl } from '@/features/deboning/labelPrinterSetup'
+
+import { TAG_H_MM, TAG_MARGIN_MM, TAG_W_MM } from './receptionTagZpl'
 
 // Komendy serwisowe są wspólne z halą — JEDNO źródło, żeby kiosk i biuro nie
 // rozjechały się przy pierwszej poprawce.
@@ -32,9 +34,11 @@ export { CALIBRATE_ZPL, tearOffMaxMm, tearOffZpl }
  *  źle zmierzona taśma (`~JC`) albo źle założona rolka. */
 export const OFFSET_MAX_MM = 5
 
-/** Rozsądny zakres skoku taśmy dla zawieszek 50×80 mm z przerwą. */
-export const LABEL_LENGTH_MIN_MM = 60
-export const LABEL_LENGTH_MAX_MM = 110
+/** Rozsądny zakres skoku taśmy dla zawieszek 80×100 mm z przerwą. Dolna
+ *  granica odsiewa też nastawy z czasów rolki 50×80 (82,3 mm) — patrz
+ *  `loadCalibration`. */
+export const LABEL_LENGTH_MIN_MM = 95
+export const LABEL_LENGTH_MAX_MM = 120
 
 /** Klucz w localStorage — nastawa jest cechą stanowiska, nie użytkownika. */
 export const CALIBRATION_STORAGE_KEY = 'kebab.biuro.zawieszki.kalibracja'
@@ -51,20 +55,19 @@ export interface TagPrinterCalibration {
 }
 
 /**
- * Skok taśmy zmierzony przez drukarkę biura (ZTC GC420t, wydruk
- * konfiguracyjny 22.08.2026): `LABEL LENGTH 0658` = 82,3 mm. Zawieszka ma
- * 80 mm — reszta to przerwa między etykietami.
+ * Domyślny skok taśmy: zawieszka 100 mm + przerwa.
  *
- * To musi być WARTOŚĆ DOMYŚLNA, nie coś do wyklikania. Do 26.08 domyślne było
- * 80 mm, a zmierzone 82,3 dawał dopiero przycisk „Ustaw skok taśmy z drukarki"
- * po udanym odczycie ustawień — a ta drukarka odpowiada tylko wydrukiem
- * konfiguracji na taśmie, więc przycisk nigdy się nie pokazał i biuro przez
- * cztery dni odrywało zawieszki w poprzek.
+ * Przerwę 2,3 mm zmierzyła drukarka biura (ZTC GC420t, wydruk
+ * konfiguracyjny 22.08.2026: `LABEL LENGTH 0658` = 82,3 mm przy etykiecie
+ * 80 mm). Na rolce 80×100 od 02.10.2026 przyjmujemy tę samą przerwę, ale to
+ * ZAŁOŻENIE: po założeniu nowej rolki `~JC` i „Ustaw skok taśmy z drukarki"
+ * albo wydruk konfiguracji i przepisanie LABEL LENGTH.
+ *
+ * Musi to być wartość domyślna, nie coś do wyklikania: do 26.08 domyślne było
+ * gołe 80 mm i biuro przez cztery dni odrywało zawieszki w poprzek.
  */
-export const MEASURED_LABEL_PITCH_MM = 82.3
-
-/** Stara wartość domyślna — po niej poznajemy nastawę, której nikt nie ruszał. */
-const LEGACY_LABEL_LENGTH_MM = LABEL_H_MM
+export const TAG_GAP_MM = 2.3
+export const MEASURED_LABEL_PITCH_MM = TAG_H_MM + TAG_GAP_MM
 
 export const DEFAULT_CALIBRATION: TagPrinterCalibration = {
   offsetXMm: 0,
@@ -118,13 +121,16 @@ export function loadCalibration(store: Magazyn | null = storage()): TagPrinterCa
   try {
     const raw = store?.getItem(CALIBRATION_STORAGE_KEY)
     if (!raw) return { ...DEFAULT_CALIBRATION }
-    const zapisana = clampCalibration(JSON.parse(raw) as Partial<TagPrinterCalibration>)
-    // Nastawa zapisana STARĄ wartością domyślną (80 mm) znaczy „nikt tego nie
-    // ruszał" — podnosimy ją do zmierzonej. Bez tego poprawka minęłaby każdą
-    // maszynę, która choć raz otworzyła ten ekran.
-    return zapisana.labelLengthMm === LEGACY_LABEL_LENGTH_MM
-      ? { ...zapisana, labelLengthMm: MEASURED_LABEL_PITCH_MM }
-      : zapisana
+    const surowa = JSON.parse(raw) as Partial<TagPrinterCalibration>
+    // Nastawa z rolki 50×80 (skok ~80–82 mm) do zawieszki 80×100 nie pasuje
+    // w niczym: `^LL` urwałby wydruk w 4/5, a przesunięcia były mierzone na
+    // węższej taśmie. Zostawiamy tylko punkt odrywania — to nastawa drukarki,
+    // nie rolki, i siedzi w niej niezależnie od tego ekranu.
+    const dlugosc = Number(surowa?.labelLengthMm)
+    if (Number.isFinite(dlugosc) && dlugosc < LABEL_LENGTH_MIN_MM) {
+      return clampCalibration({ ...DEFAULT_CALIBRATION, tearOffMm: surowa.tearOffMm })
+    }
+    return clampCalibration(surowa)
   } catch {
     // Uszkodzony wpis nie może zablokować druku zawieszek — wracamy do domyślnej.
     return { ...DEFAULT_CALIBRATION }
@@ -161,7 +167,7 @@ export function calibrationTestZpl(
   const dot = (mm: number) => Math.max(0, mmToDots(mm, dpi))
   const gruba = Math.max(1, mmToDots(0.5, dpi))
   const cienka = Math.max(1, mmToDots(0.3, dpi))
-  const M = 3 // margines pola zadruku zawieszki
+  const M = TAG_MARGIN_MM
 
   const fo = (xMm: number, yMm: number) => `^FO${dot(xMm + c.offsetXMm)},${dot(yMm + c.offsetYMm)}`
   const text = (xMm: number, yMm: number, fontMm: number, value: string) => {
@@ -172,7 +178,7 @@ export function calibrationTestZpl(
   // Znaczniki co 10 mm wzdłuż taśmy: po nich widać, o ile milimetrów uciekł
   // wydruk, bez przykładania linijki do etykiety.
   const podzialka: string[] = []
-  for (let y = 10; y < LABEL_H_MM; y += 10) {
+  for (let y = 10; y < TAG_H_MM; y += 10) {
     podzialka.push(`${fo(0, y)}^GB${dot(4)},${cienka},${cienka}^FS`)
     podzialka.push(text(5, y - 1.5, 2.6, `${y}`))
   }
@@ -180,15 +186,15 @@ export function calibrationTestZpl(
   return [
     '^XA',
     '^CI28',
-    `^PW${mmToDots(LABEL_W_MM, dpi)}`,
+    `^PW${mmToDots(TAG_W_MM, dpi)}`,
     `^LL${mmToDots(c.labelLengthMm, dpi)}`,
     '^LH0,0',
     '^MNY',
     '^LS0',
     // Krawędź etykiety — musi wyjść w całości, na wszystkich czterech bokach.
-    `${fo(0, 0)}^GB${dot(LABEL_W_MM)},${dot(LABEL_H_MM)},${gruba}^FS`,
+    `${fo(0, 0)}^GB${dot(TAG_W_MM)},${dot(TAG_H_MM)},${gruba}^FS`,
     // Pole zadruku zawieszki (3 mm marginesu) — w nim siedzą wszystkie napisy.
-    `${fo(M, M)}^GB${dot(LABEL_W_MM - 2 * M)},${dot(LABEL_H_MM - 2 * M)},${cienka}^FS`,
+    `${fo(M, M)}^GB${dot(TAG_W_MM - 2 * M)},${dot(TAG_H_MM - 2 * M)},${cienka}^FS`,
     ...podzialka,
     text(M + 2, 30, 4.5, 'KALIBRACJA'),
     text(M + 2, 36, 3.2, `X ${fmtOffsetMm(c.offsetXMm)} mm`),

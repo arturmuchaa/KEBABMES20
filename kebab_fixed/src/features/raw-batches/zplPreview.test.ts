@@ -42,10 +42,10 @@ describe('zplPreviewBoxes — ZPL → pola do narysowania', () => {
     const teksty = boxes.filter(b => b.kind === 'text').map(b => b.text)
     expect(teksty).toContain('471')
     expect(teksty).toContain('Partia dostawcy')
-    // Pięć kresek: pod dostawcą, numerem porządkowym, wagą, paletą i partią dostawcy.
-    expect(boxes.filter(b => b.kind === 'line')).toHaveLength(5)
+    // Cztery kreski: pod dostawcą, numerem przyjęcia z paletą, wagą i partią dostawcy.
+    expect(boxes.filter(b => b.kind === 'line')).toHaveLength(4)
     // Nic nie wychodzi poza taśmę — ten sam warunek, co na drukarce.
-    expect(boxes.every(b => b.yMm >= 0 && b.yMm < 80)).toBe(true)
+    expect(boxes.every(b => b.yMm >= 0 && b.yMm < 100)).toBe(true)
   })
 })
 

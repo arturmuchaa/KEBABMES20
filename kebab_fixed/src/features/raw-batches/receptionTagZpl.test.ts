@@ -1,11 +1,37 @@
 import { describe, it, expect } from 'vitest'
 
-import { LABEL_H_MM, LABEL_W_MM, mmToDots } from '@/features/deboning/byproductLabelZpl'
+import { mmToDots } from '@/features/deboning/byproductLabelZpl'
 import { LOGO_DOTS_W } from '@/lib/labelLogo'
 import {
-  LOGO_H_MM, opisLotu, receptionTagZpl, receptionTagsStreamZpl, shortenSupplier,
-  splitSupplierLots,
+  LOGO_H_MM, LOT_FONT_MAX_MM, LOT_FONT_MIN_MM, LOTY_DOL_MM, TAG_FIELD_W_MM, TAG_H_MM,
+  TAG_MARGIN_MM, TAG_W_MM, layoutSupplierLots, opisLotu, receptionTagZpl,
+  receptionTagsStreamZpl, shortenSupplier, splitSupplierLots,
 } from './receptionTagZpl'
+
+const mm = (dots: number) => (dots * 25.4) / 203
+/** Prawa krawędź pola zadruku w mm. */
+const PRAWA_MM = TAG_W_MM - TAG_MARGIN_MM
+
+interface Wiersz { text: string; xMm: number; yMm: number; fontMm: number; prawaMm: number }
+
+/** Wszystkie napisy z gotowego ZPL z ich prawą krawędzią. Font 0 jest
+ *  proporcjonalny; 0,6 wysokości na znak to bezpieczna górna granica dla
+ *  wielkich liter (Zebra Programming Guide). Blok `^FB` kończy się na
+ *  swojej szerokości. */
+function wiersze(zpl: string): Wiersz[] {
+  const re = /\^FO(\d+),(\d+)\^A0N,(\d+),\d+(?:\^FB(\d+),\d+,-?\d+,[LCR])?\^FD([\s\S]*?)\^FS/g
+  const out: Wiersz[] = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(zpl))) {
+    const xMm = mm(Number(m[1]))
+    const fontMm = mm(Number(m[3]))
+    const prawaMm = m[4] !== undefined
+      ? xMm + mm(Number(m[4]))
+      : xMm + m[5].length * fontMm * 0.6
+    out.push({ text: m[5], xMm, yMm: mm(Number(m[2])), fontMm, prawaMm })
+  }
+  return out
+}
 
 const BASE = {
   receptionNo: '12/08/2026',
@@ -22,14 +48,14 @@ const BASE = {
   receivedDate: '2026-08-12',
 }
 
-describe('shortenSupplier — nazwa dostawcy na 50 mm taśmy', () => {
+describe('shortenSupplier — nazwa dostawcy na 80 mm taśmy', () => {
   it('zdejmuje formę prawną, która nie mówi nic operatorowi', () => {
     expect(shortenSupplier('KOKO Sp. z o.o.')).toBe('KOKO')
     expect(shortenSupplier('Drobimex Spółka z ograniczoną odpowiedzialnością')).toBe('Drobimex')
   })
 
   it('długą nazwę przycina, zamiast pozwolić drukarce uciąć ją w losowym miejscu', () => {
-    expect(shortenSupplier('Zakład Przetwórstwa Drobiowego Wielkopolska').length).toBeLessThanOrEqual(22)
+    expect(shortenSupplier('Zakład Przetwórstwa Drobiowego Wielkopolska Północ').length).toBeLessThanOrEqual(26)
   })
 
   it('pusta nazwa zostaje pusta — zawieszka nie wymyśla dostawcy', () => {
@@ -37,11 +63,11 @@ describe('shortenSupplier — nazwa dostawcy na 50 mm taśmy', () => {
   })
 })
 
-describe('receptionTagZpl — zawieszka palety przyjęcia 50×80', () => {
-  it('trzyma format taśmy hali: 50 mm w poprzek, 80 mm wzdłuż', () => {
+describe('receptionTagZpl — zawieszka palety przyjęcia 80×100', () => {
+  it('trzyma format rolki zawieszek: 80 mm w poprzek, 100 mm wzdłuż', () => {
     const zpl = receptionTagZpl(BASE)
-    expect(zpl).toContain(`^PW${mmToDots(LABEL_W_MM)}`)
-    expect(zpl).toContain(`^LL${mmToDots(LABEL_H_MM)}`)
+    expect(zpl).toContain(`^PW${mmToDots(80)}`)
+    expect(zpl).toContain(`^LL${mmToDots(100)}`)
   })
 
   it('otwiera i zamyka etykietę, ustawia UTF-8 i etykiety wykrawane', () => {
@@ -68,7 +94,8 @@ describe('receptionTagZpl — zawieszka palety przyjęcia 50×80', () => {
 
   it('pokazuje, która to paleta z ilu i ile waży cała partia', () => {
     const zpl = receptionTagZpl(BASE)
-    expect(zpl).toContain('PALETA 3 / 6')
+    expect(zpl).toContain('^FDPaleta^FS')
+    expect(zpl).toContain('^FD3 / 6^FS')
     expect(zpl).toContain('3000 kg')
   })
 
@@ -105,55 +132,55 @@ describe('receptionTagZpl — zawieszka palety przyjęcia 50×80', () => {
  * znika na taśmie (hala, 14.08.2026: z „KOŚCI" zostawało „ŚCI"). Dlatego
  * mierzymy KAŻDY wiersz najgorszymi danymi, jakie mogą przyjść z przyjęcia.
  */
-describe('receptionTagZpl — nic nie wychodzi poza pole zadruku', () => {
-  /** Font 0 jest proporcjonalny; 0,6 wysokości na znak to bezpieczna górna
-   *  granica dla wielkich liter (Zebra Programming Guide). */
-  const SZEROKOSC_ZNAKU = 0.6
-  const POLE_MM = 44   // 50 mm taśmy minus 2 × 3 mm marginesu
+const NAJGORSZE = {
+  ...BASE,
+  receptionNo: '128/08/2026',
+  supplierName: 'Zakład Przetwórstwa Drobiowego Wielkopolska Północ',
+  batchNo: '1471',
+  netKg: 1245.5,
+  containers: 199,
+  containerKg: 12.5,
+  batchKg: 12480.5,
+  palletIndex: 12,
+  palletCount: 12,
+  full: false,
+}
 
-  function najszerszyWiersz(zpl: string): { text: string; mm: number } {
-    const re = /\^A0N,(\d+),\d+\^FD([\s\S]*?)\^FS/g
-    let m: RegExpExecArray | null
-    let max = { text: '', mm: 0 }
-    while ((m = re.exec(zpl))) {
-      const fontMm = (Number(m[1]) * 25.4) / 203
-      const mm = m[2].length * fontMm * SZEROKOSC_ZNAKU
-      if (mm > max.mm) max = { text: m[2], mm }
+/** Napisy nie mogą na siebie wjeżdżać — sprawdzamy każdą parę prostokątów. */
+function kolizje(zpl: string): string[] {
+  const w = wiersze(zpl)
+  const out: string[] = []
+  for (let i = 0; i < w.length; i++) {
+    for (let j = i + 1; j < w.length; j++) {
+      const a = w[i]; const b = w[j]
+      // Wiersz `^FB` do prawej zajmuje tylko końcówkę bloku.
+      const lewa = (r: Wiersz) => (r.prawaMm - r.xMm > r.text.length * r.fontMm * 0.6 + 0.5
+        ? r.prawaMm - r.text.length * r.fontMm * 0.6 : r.xMm)
+      const poziomo = lewa(a) < b.prawaMm && lewa(b) < a.prawaMm
+      const pionowo = a.yMm < b.yMm + b.fontMm && b.yMm < a.yMm + a.fontMm
+      if (poziomo && pionowo) out.push(`${a.text} × ${b.text}`)
     }
-    return max
   }
+  return out
+}
 
-  const NAJGORSZE = {
-    ...BASE,
-    receptionNo: '128/08/2026',
-    supplierName: 'Zakład Przetwórstwa Drobiowego Wielkopolska',
-    batchNo: '1471',
-    netKg: 1245.5,
-    containers: 199,
-    batchKg: 12480,
-    palletIndex: 12,
-    palletCount: 12,
-  }
-
-  it('pełna paleta mieści się w 44 mm', () => {
-    const w = najszerszyWiersz(receptionTagZpl(NAJGORSZE))
-    expect({ text: w.text, mm: Math.round(w.mm) }).toMatchObject({ mm: expect.any(Number) })
-    expect(w.mm).toBeLessThanOrEqual(POLE_MM)
-  })
-
-  it('paleta niepełna też — dopisek „NIEPEŁNA" nie może rozepchać wiersza', () => {
-    const w = najszerszyWiersz(receptionTagZpl({ ...NAJGORSZE, full: false }))
-    expect(w.mm).toBeLessThanOrEqual(POLE_MM)
+describe('receptionTagZpl — nic nie wychodzi poza pole zadruku', () => {
+  it('pełna i niepełna paleta mieszczą się w 74 mm pola zadruku', () => {
+    for (const dane of [{ ...NAJGORSZE, full: true }, NAJGORSZE]) {
+      for (const w of wiersze(receptionTagZpl(dane))) {
+        expect({ text: w.text, ok: w.prawaMm <= PRAWA_MM + 0.2 }).toEqual({ text: w.text, ok: true })
+      }
+    }
   })
 
   it('żaden wiersz nie zjeżdża poniżej dolnej krawędzi taśmy', () => {
-    const zpl = receptionTagZpl({ ...NAJGORSZE, full: false })
-    const re = /\^FO\d+,(\d+)\^A0N,(\d+),/g
-    let m: RegExpExecArray | null
-    while ((m = re.exec(zpl))) {
-      const dolMm = ((Number(m[1]) + Number(m[2])) * 25.4) / 203
-      expect(dolMm).toBeLessThanOrEqual(LABEL_H_MM)
+    for (const w of wiersze(receptionTagZpl(NAJGORSZE))) {
+      expect(w.yMm + w.fontMm).toBeLessThanOrEqual(TAG_H_MM - TAG_MARGIN_MM)
     }
+  })
+
+  it('napisy nie nachodzą na siebie przy najdłuższych danych', () => {
+    expect(kolizje(receptionTagZpl(NAJGORSZE))).toEqual([])
   })
 })
 
@@ -188,8 +215,8 @@ describe('receptionTagZpl — kalibracja drukarki', () => {
     expect(pola(zpl).every(([x, y]) => x >= 0 && y >= 0)).toBe(true)
   })
 
-  it('zmierzony skok taśmy trafia do ^LL zamiast nominalnych 80 mm', () => {
-    expect(receptionTagZpl(BASE, { labelLengthMm: 82 })).toContain(`^LL${mmToDots(82)}`)
+  it('zmierzony skok taśmy trafia do ^LL zamiast nominalnych 100 mm', () => {
+    expect(receptionTagZpl(BASE, { labelLengthMm: 102.3 })).toContain(`^LL${mmToDots(102.3)}`)
   })
 
   // REGRESJA 22.08.2026: wyniesienie `^LL`/`^MNY` do preambuły wysyłanej raz na
@@ -198,7 +225,7 @@ describe('receptionTagZpl — kalibracja drukarki', () => {
   // wrócić do tego pomysłu.
   it('KAŻDA etykieta niesie własną długość taśmy — GC420t inaczej urywa wydruk', () => {
     const zpl = receptionTagZpl(BASE)
-    expect(zpl).toContain(`^LL${mmToDots(LABEL_H_MM)}`)
+    expect(zpl).toContain(`^LL${mmToDots(TAG_H_MM)}`)
     expect(zpl).toContain('^MNY')
   })
 
@@ -209,7 +236,7 @@ describe('receptionTagZpl — kalibracja drukarki', () => {
     formaty.forEach(f => {
       expect(f).toContain('^LL')
       expect(f).toContain('^MNY')
-      expect(f).toContain(`^PW${mmToDots(LABEL_W_MM)}`)
+      expect(f).toContain(`^PW${mmToDots(TAG_W_MM)}`)
     })
   })
 
@@ -232,39 +259,17 @@ describe('receptionTagZpl — kalibracja drukarki', () => {
 })
 
 /**
- * Partia dostawcy na dole zawieszki (biuro, 22.08.2026). Numer porządkowy jest
- * NASZ i wisi wielkim drukiem u góry; numer dostawcy służy do rozmowy z nim
- * przy reklamacji, więc musi być na palecie, a nie tylko w księdze.
+ * Partia dostawcy (biuro, 22.08 i 02.10.2026). Numer przyjęcia zewnętrznego
+ * jest NASZ; numer dostawcy służy do rozmowy z nim przy reklamacji, więc musi
+ * dać się przeczytać z palety — na 50×80 szedł fontem 3 mm i nie dało się.
  */
-const NAJGORSZE_LOTY = {
-  ...BASE,
-  receptionNo: '128/08/2026',
-  supplierName: 'Zakład Przetwórstwa Drobiowego Wielkopolska',
-  batchNo: '1471',
-  netKg: 1245.5,
-  containers: 199,
-  batchKg: 12480,
-  palletIndex: 12,
-  palletCount: 12,
-  full: false,
-}
-
 const loty = (...numery: string[]) => numery.map(no => ({ no }))
 
-/** Współrzędna Y wiersza o podanej treści (w punktach drukarki). */
-function yWiersza(zpl: string, wartosc: string): number {
-  const re = /\^FO\d+,(\d+)\^A0N,\d+,\d+\^FD([\s\S]*?)\^FS/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(zpl))) if (m[2] === wartosc) return Number(m[1])
-  return Number.NaN
-}
-
-/** Wysokość fontu wiersza o podanej treści (w punktach). */
-function fontWiersza(zpl: string, wartosc: string): number {
-  const re = /\^A0N,(\d+),\d+\^FD([\s\S]*?)\^FS/g
-  let m: RegExpExecArray | null
-  while ((m = re.exec(zpl))) if (m[2] === wartosc) return Number(m[1])
-  return Number.NaN
+/** Wiersz o podanej treści. */
+function wiersz(zpl: string, tekst: string): Wiersz {
+  const w = wiersze(zpl).find(r => r.text === tekst)
+  if (!w) throw new Error(`brak wiersza „${tekst}"`)
+  return w
 }
 
 describe('receptionTagZpl — partia dostawcy', () => {
@@ -274,23 +279,40 @@ describe('receptionTagZpl — partia dostawcy', () => {
     expect(zpl).toContain('^FD4577^FS')
   })
 
+  it('jeden lot idzie NAJWIĘKSZYM fontem — co najmniej tak dużym jak waga palety', () => {
+    const zpl = receptionTagZpl({ ...BASE, supplierLots: loty('1234567') })
+    expect(wiersz(zpl, '1234567').fontMm).toBeCloseTo(LOT_FONT_MAX_MM, 0)
+    expect(wiersz(zpl, '1234567').fontMm).toBeGreaterThan(wiersz(zpl, '540 kg').fontMm)
+  })
+
+  it('długi numer lotu zmniejsza font, zamiast wychodzić poza taśmę', () => {
+    const zpl = receptionTagZpl({ ...BASE, supplierLots: loty('PL-2026/08/12345') })
+    const w = wiersz(zpl, 'PL-2026/08/12345')
+    expect(w.fontMm).toBeLessThan(LOT_FONT_MAX_MM)
+    expect(w.prawaMm).toBeLessThanOrEqual(PRAWA_MM + 0.2)
+  })
+
   it('wszystkie loty złożone na jeden numer przyjęcia zewnętrznego, nie tylko pierwszy', () => {
     expect(receptionTagZpl({ ...BASE, supplierLots: loty('4577', '4578') }))
       .toContain('^FD4577 / 4578^FS')
   })
 
-  it('trzy loty wchodzą w jeden wiersz, sześć w dwa — nic się nie urywa', () => {
-    const wiersze = splitSupplierLots(loty('4577', '4578', '4579', '4580', '4581', '4582'))
-    expect(wiersze).toEqual(['4577 / 4578 / 4579', '4580 / 4581 / 4582'])
-    expect(wiersze.join(' ')).not.toContain('…')
+  it('sześć lotów mieści się bez urywania i nadal fontem większym niż dawne 3 mm', () => {
+    const uklad = layoutSupplierLots(loty('1234567', '2345678', '3456789', '4567890', '5678901', '6789012'))
+    expect(uklad.rows.map(r => r.no).join(' ')).not.toContain('…')
+    expect(uklad.rows.map(r => r.no).join(' / ').split(' / ')).toHaveLength(6)
+    expect(uklad.fontMm).toBeGreaterThanOrEqual(5)
   })
 
-  it('drugi wiersz trafia na zawieszkę NIŻEJ niż pierwszy', () => {
+  it('kolejne wiersze idą NIŻEJ i nie wchodzą na daty', () => {
     const zpl = receptionTagZpl({
-      ...BASE, supplierLots: loty('4577', '4578', '4579', '4580', '4581', '4582'),
+      ...NAJGORSZE, supplierLots: loty('1234567', '2345678', '3456789', '4567890', '5678901', '6789012'),
     })
-    expect(yWiersza(zpl, '4580 / 4581 / 4582'))
-      .toBeGreaterThan(yWiersza(zpl, '4577 / 4578 / 4579'))
+    const uklad = layoutSupplierLots(loty('1234567', '2345678', '3456789', '4567890', '5678901', '6789012'))
+    const ys = uklad.rows.map(r => wiersz(zpl, r.no).yMm)
+    ys.slice(1).forEach((y, i) => expect(y).toBeGreaterThan(ys[i]))
+    expect(ys[ys.length - 1] + uklad.fontMm).toBeLessThanOrEqual(LOTY_DOL_MM + 0.2)
+    expect(kolizje(zpl)).toEqual([])
   })
 
   it('powtórzony lot nie zajmuje miejsca dwa razy', () => {
@@ -303,33 +325,16 @@ describe('receptionTagZpl — partia dostawcy', () => {
     expect(receptionTagZpl(BASE)).toContain('^FD—^FS')
   })
 
-  it('dłuższe numery pakuje ciaśniej, zamiast rozpychać wiersz', () => {
-    expect(splitSupplierLots(loty('1234567', '2345678', '3456789', '4567890')))
-      .toEqual(['1234567 / 2345678', '3456789 / 4567890'])
-  })
-
-  it('dopiero po zapełnieniu obu wierszy ucina — i sygnalizuje to wielokropkiem', () => {
-    const out = splitSupplierLots(loty('1234567', '2345678', '3456789', '4567890', '5678901'))
-    expect(out).toHaveLength(2)
-    expect(out[1].endsWith(' …')).toBe(true)
+  it('dopiero gdy nawet najmniejszy font nie mieści lotów, ucina — i mówi to wielokropkiem', () => {
+    const duzo = loty(...Array.from({ length: 40 }, (_, i) => String(1234500 + i)))
+    const uklad = layoutSupplierLots(duzo)
+    expect(uklad.fontMm).toBe(LOT_FONT_MIN_MM)
+    expect(uklad.rows[uklad.rows.length - 1].no.endsWith(' …')).toBe(true)
   })
 
   it('partia dostawcy siedzi NIŻEJ niż numer przyjęcia zewnętrznego', () => {
     const zpl = receptionTagZpl({ ...BASE, supplierLots: loty('4577') })
-    expect(yWiersza(zpl, '4577')).toBeGreaterThan(yWiersza(zpl, '471'))
-  })
-
-  it('sześć lotów przy najdłuższych danych nadal mieści się w 44 mm', () => {
-    const zpl = receptionTagZpl({
-      ...NAJGORSZE_LOTY,
-      supplierLots: loty('1234567', '2345678', '3456789', '4567890', '5678901', '6789012'),
-    })
-    const re = /\^A0N,(\d+),\d+\^FD([\s\S]*?)\^FS/g
-    let m: RegExpExecArray | null
-    while ((m = re.exec(zpl))) {
-      const mm = m[2].length * ((Number(m[1]) * 25.4) / 203) * 0.6
-      expect(mm).toBeLessThanOrEqual(44)
-    }
+    expect(wiersz(zpl, '4577').yMm).toBeGreaterThan(wiersz(zpl, '471').yMm)
   })
 })
 
@@ -346,10 +351,8 @@ describe('receptionTagZpl — partia łączona z kilogramami', () => {
     { no: '112918', kg: 1800 },
   ]
 
-  it('każdy lot ma przy sobie swoje kilogramy', () => {
+  it('opis lotu niesie jego kilogramy', () => {
     expect(opisLotu({ no: '112906', kg: 450 })).toBe('112906 450 kg')
-    expect(splitSupplierLots(LACZONA, { maxZnakow: 30, maxWierszy: 3, zKilogramami: true }))
-      .toEqual(['112906 450 kg / 112907 1200 kg', '112918 1800 kg'])
   })
 
   it('lot bez wagi (starsze przyjęcia) zostaje samym numerem', () => {
@@ -358,19 +361,18 @@ describe('receptionTagZpl — partia łączona z kilogramami', () => {
     expect(opisLotu({ no: '112906', kg: null })).toBe('112906')
   })
 
-  it('rubryka mówi wprost, że przy numerach są kilogramy', () => {
+  it('tabelka: lot w wierszu, numer z lewej, kilogramy wyrównane do prawej', () => {
     const zpl = receptionTagZpl({ ...BASE, supplierLots: LACZONA })
-    expect(zpl).toContain('^FDPartie dostawcy (kg)^FS')
-    expect(zpl).toContain('^FD112918 1800 kg^FS')
+    expect(zpl).toContain('^FDPartie dostawcy^FS')
+    const no = wiersz(zpl, '112918')
+    const kg = wiersz(zpl, '1800 kg')
+    expect(kg.yMm).toBeCloseTo(no.yMm, 1)
+    expect(zpl).toMatch(/\^FB\d+,1,0,R\^FD1800 kg\^FS/)
+    expect(kg.prawaMm).toBeLessThanOrEqual(PRAWA_MM + 0.2)
   })
 
-  it('font jest MNIEJSZY niż przy jednej partii — inaczej kilogramy by się nie zmieściły', () => {
-    // Jeden lot: kilogramy zostają przy numerze przyjęcia („z partii …"),
-    // więc w rubryce stoi sam numer — i to jego font porównujemy.
-    const jedna = receptionTagZpl({ ...BASE, supplierLots: [{ no: '112906', kg: 450 }] })
-    const wiele = receptionTagZpl({ ...BASE, supplierLots: LACZONA })
-    expect(fontWiersza(wiele, '112918 1800 kg'))
-      .toBeLessThan(fontWiersza(jedna, '112906'))
+  it('trzy loty z wagami nadal dużym fontem — czytelnie z odległości ręki', () => {
+    expect(layoutSupplierLots(LACZONA).fontMm).toBeGreaterThanOrEqual(7)
   })
 
   it('cztery loty z wagami mieszczą się bez wielokropka', () => {
@@ -380,44 +382,20 @@ describe('receptionTagZpl — partia łączona z kilogramami', () => {
     ]
     const zpl = receptionTagZpl({ ...BASE, supplierLots: cztery })
     expect(zpl).not.toContain('…')
-    for (const lot of cztery) expect(zpl).toContain(opisLotu(lot))
+    for (const lot of cztery) expect(zpl).toContain(`^FD${lot.no}^FS`)
   })
 
-  it('nic z sekcji lotów nie wchodzi na daty u dołu zawieszki', () => {
-    const zpl = receptionTagZpl({
-      ...BASE,
-      supplierLots: [
-        { no: '1234567', kg: 1245.5 }, { no: '2345678', kg: 1245.5 },
-        { no: '3456789', kg: 1245.5 }, { no: '4567890', kg: 1245.5 },
-      ],
-    })
-    const re = /\^FO\d+,(\d+)\^A0N,(\d+),\d+\^FD([\s\S]*?)\^FS/g
-    const yUboj = (() => {
-      const re = /\^FO\d+,(\d+)\^A0N,\d+,\d+\^FD(Ubój[\s\S]*?)\^FS/
-      return Number(re.exec(zpl)![1])
-    })()
-    let m: RegExpExecArray | null
-    while ((m = re.exec(zpl))) {
-      if (!m[3].includes('kg') || m[3].includes('poj.')) continue
-      expect(Number(m[1]) + Number(m[2])).toBeLessThanOrEqual(yUboj)
-    }
-  })
-
-  it('partia łączona też nie wychodzi poza 44 mm pola zadruku', () => {
-    const zpl = receptionTagZpl({
-      ...NAJGORSZE_LOTY,
-      supplierLots: [
-        { no: '1234567', kg: 1245.5 }, { no: '2345678', kg: 1245.5 },
-        { no: '3456789', kg: 1245.5 }, { no: '4567890', kg: 1245.5 },
-        { no: '5678901', kg: 1245.5 }, { no: '6789012', kg: 1245.5 },
-      ],
-    })
-    const re = /\^A0N,(\d+),\d+\^FD([\s\S]*?)\^FS/g
-    let m: RegExpExecArray | null
-    while ((m = re.exec(zpl))) {
-      const mm = m[2].length * ((Number(m[1]) * 25.4) / 203) * 0.6
-      expect(mm).toBeLessThanOrEqual(44)
-    }
+  it('sześć długich lotów z wagami: kilogramy ustępują, ale WSZYSTKIE numery są na zawieszce', () => {
+    const szesc = [
+      { no: '1234567', kg: 1245.5 }, { no: '2345678', kg: 1245.5 },
+      { no: '3456789', kg: 1245.5 }, { no: '4567890', kg: 1245.5 },
+      { no: '5678901', kg: 1245.5 }, { no: '6789012', kg: 1245.5 },
+    ]
+    const zpl = receptionTagZpl({ ...NAJGORSZE, supplierLots: szesc })
+    expect(zpl).not.toContain('…')
+    for (const lot of szesc) expect(zpl).toContain(lot.no)
+    for (const w of wiersze(zpl)) expect(w.prawaMm).toBeLessThanOrEqual(PRAWA_MM + 0.2)
+    expect(kolizje(zpl)).toEqual([])
   })
 })
 
@@ -434,18 +412,14 @@ describe('receptionTagZpl — znak firmowy', () => {
     expect(Number(m[3]) % Number(m[4])).toBe(0)
   })
 
-  it('mieści się w polu zadruku i nie wchodzi na numer dokumentu', () => {
-    const m = LOGO.exec(receptionTagZpl(NAJGORSZE_LOTY))!
-    const mm = (dots: number) => (dots * 25.4) / 203
+  it('mieści się w polu zadruku i nie wchodzi na numer dokumentu ani dostawcę', () => {
+    const zpl = receptionTagZpl(NAJGORSZE)
+    const m = LOGO.exec(zpl)!
     const lewa = mm(Number(m[1]))
     const dol = mm(Number(m[2])) + LOGO_H_MM
-    // Prawa krawędź liczona w PUNKTACH — w milimetrach wychodzi 47,05 przez
-    // zaokrąglenie siatki drukarki, a na taśmie znak stoi równo z polem.
-    expect(Number(m[1]) + LOGO_DOTS_W).toBeLessThanOrEqual(mmToDots(LABEL_W_MM - 3))
-    // Najdłuższy numer dokumentu („128/08/2026", font 4 mm) kończy się poniżej
-    // 30 mm — znak zaczyna się dalej, więc wiersze się nie zderzą.
-    expect(lewa).toBeGreaterThan(30)
-    expect(dol).toBeLessThan(9)
+    expect(Number(m[1]) + LOGO_DOTS_W).toBeLessThanOrEqual(mmToDots(PRAWA_MM))
+    expect(lewa).toBeGreaterThan(wiersz(zpl, '128/08/2026').prawaMm)
+    expect(dol).toBeLessThan(wiersze(zpl)[2].yMm)  // trzeci napis = dostawca
   })
 
   it('przesunięcie kalibracyjne rusza znak razem z resztą etykiety', () => {

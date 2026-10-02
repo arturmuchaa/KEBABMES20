@@ -361,7 +361,7 @@ function PrinterCalibration({
   onApplyPrinterLabelLength?: () => void
   busy: boolean
 }) {
-  // Spór o skok taśmy rozstrzyga DRUKARKA, nie nasza stała 80 mm — pokazujemy
+  // Spór o skok taśmy rozstrzyga DRUKARKA, nie nasza stała 100 mm — pokazujemy
   // przycisk dopiero wtedy, gdy jej pomiar różni się od nastawy.
   const rozjazdTasmy = printerLabelLengthMm !== null
     && Math.abs(printerLabelLengthMm - calibration.labelLengthMm) >= 0.5
@@ -472,7 +472,7 @@ function PrinterCalibration({
             disabled={busy} onChange={v => zmien({ tearOffMm: v })}
           />
           <MmField
-            label="Skok taśmy" hint="etykieta razem z przerwą, zmierzona linijką (zawieszka: 80 mm)"
+            label="Skok taśmy" hint="etykieta razem z przerwą, zmierzona linijką (zawieszka: 100 mm)"
             value={calibration.labelLengthMm} min={LABEL_LENGTH_MIN_MM} max={LABEL_LENGTH_MAX_MM}
             disabled={busy} onCommit={v => zmien({ labelLengthMm: v })}
           />
