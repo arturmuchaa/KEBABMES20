@@ -15,7 +15,7 @@
  * rysuje jedną z nich. Czysta funkcja bez DOM — testowana jednostkowo.
  */
 import { LABEL_DPI, fmtLabelDate, fmtLabelKg, mmToDots } from '@/features/deboning/byproductLabelZpl'
-import { LOGO_DOTS_H, LOGO_DOTS_W, labelLogoZpl } from '@/lib/labelLogo'
+import { LOGO_LARGE_DOTS_H, LOGO_LARGE_DOTS_W, labelLogoLargeZpl } from '@/lib/labelLogo'
 
 /** Zawieszka: 80 mm w poprzek taśmy, 100 mm wzdłuż podawania. */
 export const TAG_W_MM = 80
@@ -83,7 +83,7 @@ const FORMY_PRAWNE = [
 ]
 
 /** Font nazwy dostawcy. */
-const DOSTAWCA_FONT_MM = 4.5
+const DOSTAWCA_FONT_MM = 4.2
 
 /** Ile znaków nazwy dostawcy mieści się w wierszu 4,5 mm na 74 mm zadruku. */
 const MAX_DOSTAWCA = znakowWWierszu(DOSTAWCA_FONT_MM) - 1
@@ -101,21 +101,22 @@ export function shortenSupplier(name: string): string {
   return (spacja > MAX_DOSTAWCA / 2 ? ciete.slice(0, spacja) : ciete).trim()
 }
 
-/** Znak firmowy w milimetrach — raster jest robiony pod 203 dpi (`labelLogo`). */
-export const LOGO_W_MM = (LOGO_DOTS_W * 25.4) / LABEL_DPI
-export const LOGO_H_MM = (LOGO_DOTS_H * 25.4) / LABEL_DPI
+/** Znak firmowy w milimetrach — duży raster pod 203 dpi (`labelLogo`). */
+export const LOGO_W_MM = (LOGO_LARGE_DOTS_W * 25.4) / LABEL_DPI
+export const LOGO_H_MM = (LOGO_LARGE_DOTS_H * 25.4) / LABEL_DPI
 
 /**
  * Fonty partii dostawcy, od największego. Bierzemy pierwszy, przy którym
  * WSZYSTKIE loty mieszczą się w ramce bez ucinania.
  *
- * Numer partii dostawcy to pierwsze, o co pyta dostawca przy reklamacji —
- * na 50×80 szedł fontem 3 mm i nie dało się go przeczytać z odległości
- * wyciągniętej ręki (biuro, 02.10.2026). Jeden lot dostaje teraz 11 mm,
- * sześć lotów nadal ~6 mm. Poniżej 4,5 mm nie schodzimy: nieczytelny numer
- * to żadna informacja — wtedy wielokropek.
+ * Na 50×80 szedł fontem 3 mm i był nie do przeczytania. Pierwsza wersja
+ * 80×100 dała mu 11 mm, ale wtedy przykrywał numer przyjęcia zewnętrznego,
+ * który jest u nas NAJWAŻNIEJSZY — biuro (02.10.2026): partie mają być
+ * mniejsze, „ale nie za małe", żeby magazynier odczytał je przy rozładunku.
+ * Stąd sufit 7,5 mm (sześć lotów wciąż ~6 mm). Poniżej 4,5 mm nie schodzimy:
+ * nieczytelny numer to żadna informacja — wtedy wielokropek.
  */
-export const LOT_FONTS_MM = [11, 9.5, 8, 7, 6, 5.2, 4.5] as const
+export const LOT_FONTS_MM = [7.5, 6.5, 6, 5.5, 5, 4.5] as const
 export const LOT_FONT_MAX_MM = LOT_FONTS_MM[0]
 export const LOT_FONT_MIN_MM = LOT_FONTS_MM[LOT_FONTS_MM.length - 1]
 
@@ -123,8 +124,8 @@ export const LOT_FONT_MIN_MM = LOT_FONTS_MM[LOT_FONTS_MM.length - 1]
 const LOT_SKOK = 1.2
 
 /** Ramka partii dostawcy na zawieszce (mm od góry etykiety). */
-export const LOTY_GORA_MM = 57.2
-export const LOTY_DOL_MM = 84.2
+export const LOTY_GORA_MM = 62.6
+export const LOTY_DOL_MM = 84.4
 
 /** Ile wierszy danego fontu wchodzi w ramkę partii. */
 export function lotRowsFor(fontMm: number, wysokoscMm: number = LOTY_DOL_MM - LOTY_GORA_MM): number {
@@ -303,6 +304,19 @@ function textRight(g: Rysunek, xMm: number, yMm: number, wMm: number, fontMm: nu
     + `^FB${mmToDots(wMm, g.dpi)},1,0,R^FD${esc(value)}^FS`
 }
 
+/** Biały napis na czarnym polu (`^FR` odwraca kolor pod napisem). */
+function textReverse(g: Rysunek, xMm: number, yMm: number, fontMm: number, value: string): string {
+  const h = mmToDots(fontMm, g.dpi)
+  return `^FO${dot(g, xMm + g.ox)},${dot(g, yMm + g.oy)}^A0N,${h},${h}^FR^FD${esc(value)}^FS`
+}
+
+/** Biały napis wyśrodkowany w bloku `^FB` na czarnym polu. */
+function textCenterReverse(g: Rysunek, xMm: number, yMm: number, wMm: number, fontMm: number, value: string): string {
+  const h = mmToDots(fontMm, g.dpi)
+  return `^FO${dot(g, xMm + g.ox)},${dot(g, yMm + g.oy)}^A0N,${h},${h}`
+    + `^FB${mmToDots(wMm, g.dpi)},1,0,C^FR^FD${esc(value)}^FS`
+}
+
 function line(g: Rysunek, xMm: number, yMm: number, wMm: number): string {
   const t = Math.max(1, mmToDots(0.6, g.dpi))
   return `^FO${dot(g, xMm + g.ox)},${dot(g, yMm + g.oy)}^GB${mmToDots(wMm, g.dpi)},${t},${t}^FS`
@@ -318,10 +332,8 @@ export function receptionTagZpl(
   const g: Rysunek = { dpi, ox: offsetXMm, oy: offsetYMm }
   const M = TAG_MARGIN_MM
   const W = TAG_FIELD_W_MM
-  // Prawa kolumna górnych sekcji (paleta, pojemniki) — lewą zajmują wielkie
-  // liczby, które na 74 mm zostawiają drugie tyle miejsca obok siebie.
-  const P = 50
-  const PW = 44
+  // Prawa kolumna sekcji wagi (paleta) — lewą zajmuje waga netto.
+  const P = 46
 
   // Kaliber tylko wtedy, gdy jest: „199 poj. x  kg" wyglądałoby jak błąd wagi.
   const pojemniki = input.containerKg
@@ -337,60 +349,59 @@ export function receptionTagZpl(
   const loty = layoutSupplierLots(input.supplierLots)
   const lotSkok = loty.fontMm * LOT_SKOK
   const lotyWysokosc = (loty.rows.length - 1) * lotSkok + loty.fontMm
-  // Wiersze lotów wyśrodkowane w ramce: jeden wielki numer nie wisi pod
-  // nagłówkiem z pustką do samych dat.
+  // Wiersze lotów wyśrodkowane w ramce: jeden numer nie wisi pod nagłówkiem
+  // z pustką do samych dat.
   const lotyY = LOTY_GORA_MM + Math.max(0, (LOTY_DOL_MM - LOTY_GORA_MM - lotyWysokosc) / 2)
 
-  // Znak firmowy w prawym górnym rogu, obok numeru dokumentu. Wyrównanie do
-  // prawej liczone w PUNKTACH, nie w milimetrach: raster ma stałą szerokość
-  // w punktach, więc przeliczanie przez mm zostawiało go ułamek milimetra
-  // poza polem zadruku.
-  const logoX = Math.max(0, mmToDots(TAG_W_MM - M, dpi) - LOGO_DOTS_W + mmToDots(g.ox, dpi))
+  // Numer przyjęcia zewnętrznego — NAJWAŻNIEJSZY napis zawieszki (biuro,
+  // 02.10.2026) — siedzi w czarnym pasie na całą szerokość, białym drukiem.
+  // Pas odcina go od reszty: nie zlewa się z wagą ani z partiami dostawcy
+  // i widać go z drugiego końca chłodni.
+  const PAS_Y = 19.4
+  const PAS_H = 19
 
   const body = [
-    labelLogoZpl(logoX, dot(g, 3 + g.oy)),
+    // Znak firmowy w nagłówku z lewej, obok numer dokumentu dostawy. Wcześniej
+    // 16 mm w rogu wyglądał jak doklejony; teraz to 36 mm i stoi na równi
+    // z numerem przyjęcia.
+    labelLogoLargeZpl(dot(g, M + g.ox), dot(g, 3.4 + g.oy)),
+    text(g, 41, 3, 2.8, 'Przyjęcie'),
+    text(g, 41, 6.4, 5.4, input.receptionNo ?? ''),
+    text(g, M, 13.4, DOSTAWCA_FONT_MM, shortenSupplier(input.supplierName)),
 
-    text(g, M, 3, 3, 'Przyjęcie'),
-    text(g, M, 6.6, 5, input.receptionNo ?? ''),
-    text(g, M, 12.6, DOSTAWCA_FONT_MM, shortenSupplier(input.supplierName)),
-    line(g, M, 18.6, W),
+    // Pas wypełniony: grubość ramki = wysokość pasa.
+    `^FO${dot(g, M + g.ox)},${dot(g, PAS_Y + g.oy)}`
+      + `^GB${mmToDots(W, dpi)},${mmToDots(PAS_H, dpi)},${mmToDots(PAS_H, dpi)}^FS`,
+    textReverse(g, M + 2, PAS_Y + 1.2, 2.8, 'NR PRZYJĘCIA ZEWNĘTRZNEGO'),
+    textCenterReverse(g, M, PAS_Y + 4.4, W, 13.5, input.batchNo ?? ''),
 
-    text(g, M, 20, 3, 'Nr przyjęcia zewnętrznego'),
-    text(g, M, 23.8, 12, input.batchNo ?? ''),
-    text(g, P, 20, 3, 'Paleta'),
-    text(g, P, 23.8, 6.2, `${input.palletIndex} / ${input.palletCount}`),
+    text(g, M, 40, 2.8, 'Waga netto palety'),
+    text(g, M, 43.2, 7, `${fmtLabelKg(input.netKg)} kg`),
+    text(g, M, 51.2, 2.8, pojemniki),
+    text(g, M, 54.6, 2.8, `z partii ${fmtLabelKg(input.batchKg)} kg`),
+    text(g, P, 40, 2.8, 'Paleta'),
+    text(g, P, 43.2, 7, `${input.palletIndex} / ${input.palletCount}`),
     // „NIEPEŁNA" osobnym wierszem pod numerem palety — doklejona do numeru
     // rozpychałaby wiersz poza pole zadruku.
-    ...(input.full === false ? [text(g, P, 31, 4.5, 'NIEPEŁNA')] : []),
-    line(g, M, 37.3, W),
+    ...(input.full === false ? [text(g, P, 51.6, 4.2, 'NIEPEŁNA')] : []),
+    line(g, M, 58.4, W),
 
-    text(g, M, 38.7, 3, 'Waga netto palety'),
-    text(g, M, 42.2, 7.5, `${fmtLabelKg(input.netKg)} kg`),
-    // Wyrównane do prawej krawędzi pola: „z partii 12480,5 kg" od stałego X
-    // wychodził poza taśmę, a od prawej zawsze kończy się w polu zadruku.
-    textRight(g, PW, 42.8, M + W - PW, 2.8, pojemniki),
-    textRight(g, PW, 46.6, M + W - PW, 2.8, `z partii ${fmtLabelKg(input.batchKg)} kg`),
-    line(g, M, 51.2, W),
-
-    // Partia DOSTAWCY: największa ramka na zawieszce i font dobierany do liczby
-    // lotów (`layoutSupplierLots`). Numer porządkowy jest nasz, a ten służy do
-    // rozmowy z dostawcą przy reklamacji (biuro, 22.08 i 02.10.2026).
-    text(g, M, 52.6, 3.2, loty.rows.length > 1 || loty.laczona ? 'Partie dostawcy' : 'Partia dostawcy'),
+    text(g, M, 59.6, 2.8, loty.rows.length > 1 || loty.laczona ? 'Partie dostawcy' : 'Partia dostawcy'),
     ...loty.rows.flatMap((r, i) => {
       const y = lotyY + i * lotSkok
       return r.kg
         ? [text(g, M, y, loty.fontMm, r.no), textRight(g, M, y, W, loty.fontMm, r.kg)]
         : [text(g, M, y, loty.fontMm, r.no)]
     }),
-    line(g, M, 85.2, W),
+    line(g, M, 85.6, W),
 
     // Daty w trzech kolumnach po 25 mm — „04.08.2026" fontem 4 mm ma 24 mm.
-    text(g, M, 86.6, 2.8, 'Ubój'),
-    text(g, M + 25, 86.6, 2.8, 'Ważność'),
-    text(g, M + 50, 86.6, 2.8, 'Przyjęcie'),
-    text(g, M, 90.2, 4, fmtLabelDate(input.slaughterDate)),
-    text(g, M + 25, 90.2, 4, fmtLabelDate(input.expiryDate)),
-    text(g, M + 50, 90.2, 4, fmtLabelDate(input.receivedDate)),
+    text(g, M, 87, 2.8, 'Ubój'),
+    text(g, M + 25, 87, 2.8, 'Ważność'),
+    text(g, M + 50, 87, 2.8, 'Przyjęcie'),
+    text(g, M, 90.4, 4, fmtLabelDate(input.slaughterDate)),
+    text(g, M + 25, 90.4, 4, fmtLabelDate(input.expiryDate)),
+    text(g, M + 50, 90.4, 4, fmtLabelDate(input.receivedDate)),
   ]
 
   const n = Math.max(1, Math.round(copies))

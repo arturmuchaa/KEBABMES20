@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 
 import { mmToDots } from '@/features/deboning/byproductLabelZpl'
-import { LOGO_DOTS_W } from '@/lib/labelLogo'
+import { LOGO_LARGE_DOTS_W as LOGO_DOTS_W_DUZY } from '@/lib/labelLogo'
 import {
   LOGO_H_MM, LOT_FONT_MAX_MM, LOT_FONT_MIN_MM, LOTY_DOL_MM, TAG_FIELD_W_MM, TAG_H_MM,
   TAG_MARGIN_MM, TAG_W_MM, layoutSupplierLots, opisLotu, receptionTagZpl,
@@ -19,7 +19,7 @@ interface Wiersz { text: string; xMm: number; yMm: number; fontMm: number; prawa
  *  wielkich liter (Zebra Programming Guide). Blok `^FB` kończy się na
  *  swojej szerokości. */
 function wiersze(zpl: string): Wiersz[] {
-  const re = /\^FO(\d+),(\d+)\^A0N,(\d+),\d+(?:\^FB(\d+),\d+,-?\d+,[LCR])?\^FD([\s\S]*?)\^FS/g
+  const re = /\^FO(\d+),(\d+)\^A0N,(\d+),\d+(?:\^FB(\d+),\d+,-?\d+,[LCR])?(?:\^FR)?\^FD([\s\S]*?)\^FS/g
   const out: Wiersz[] = []
   let m: RegExpExecArray | null
   while ((m = re.exec(zpl))) {
@@ -279,15 +279,15 @@ describe('receptionTagZpl — partia dostawcy', () => {
     expect(zpl).toContain('^FD4577^FS')
   })
 
-  it('jeden lot idzie NAJWIĘKSZYM fontem — co najmniej tak dużym jak waga palety', () => {
+  it('jeden lot idzie największym fontem rubryki — ale dużo mniejszym niż numer przyjęcia zewnętrznego', () => {
     const zpl = receptionTagZpl({ ...BASE, supplierLots: loty('1234567') })
     expect(wiersz(zpl, '1234567').fontMm).toBeCloseTo(LOT_FONT_MAX_MM, 0)
-    expect(wiersz(zpl, '1234567').fontMm).toBeGreaterThan(wiersz(zpl, '540 kg').fontMm)
+    expect(wiersz(zpl, '1234567').fontMm).toBeLessThan(wiersz(zpl, '471').fontMm / 1.5)
   })
 
   it('długi numer lotu zmniejsza font, zamiast wychodzić poza taśmę', () => {
-    const zpl = receptionTagZpl({ ...BASE, supplierLots: loty('PL-2026/08/12345') })
-    const w = wiersz(zpl, 'PL-2026/08/12345')
+    const zpl = receptionTagZpl({ ...BASE, supplierLots: loty('PL-2026/08/12345-AB') })
+    const w = wiersz(zpl, 'PL-2026/08/12345-AB')
     expect(w.fontMm).toBeLessThan(LOT_FONT_MAX_MM)
     expect(w.prawaMm).toBeLessThanOrEqual(PRAWA_MM + 0.2)
   })
@@ -371,8 +371,8 @@ describe('receptionTagZpl — partia łączona z kilogramami', () => {
     expect(kg.prawaMm).toBeLessThanOrEqual(PRAWA_MM + 0.2)
   })
 
-  it('trzy loty z wagami nadal dużym fontem — czytelnie z odległości ręki', () => {
-    expect(layoutSupplierLots(LACZONA).fontMm).toBeGreaterThanOrEqual(7)
+  it('trzy loty z wagami nadal czytelne przy rozładunku — co najmniej 6 mm', () => {
+    expect(layoutSupplierLots(LACZONA).fontMm).toBeGreaterThanOrEqual(6)
   })
 
   it('cztery loty z wagami mieszczą się bez wielokropka', () => {
@@ -399,6 +399,29 @@ describe('receptionTagZpl — partia łączona z kilogramami', () => {
   })
 })
 
+/**
+ * Numer przyjęcia zewnętrznego jest u nas NAJWAŻNIEJSZY (biuro, 02.10.2026):
+ * ma być najbardziej widoczny i nie zlewać się z resztą zawieszki.
+ */
+describe('receptionTagZpl — numer przyjęcia zewnętrznego', () => {
+  it('ma największy font na zawieszce', () => {
+    const zpl = receptionTagZpl({ ...BASE, supplierLots: loty('1234567') })
+    const max = Math.max(...wiersze(zpl).filter(w => w.text !== '471').map(w => w.fontMm))
+    expect(wiersz(zpl, '471').fontMm).toBeGreaterThan(max * 1.5)
+  })
+
+  it('idzie białym drukiem na czarnym pasie na całą szerokość pola', () => {
+    const zpl = receptionTagZpl(BASE)
+    expect(zpl).toMatch(/\^FB\d+,1,0,C\^FR\^FD471\^FS/)
+    const pas = /\^FO(\d+),(\d+)\^GB(\d+),(\d+),(\d+)\^FS/.exec(zpl)!
+    expect(mm(Number(pas[3]))).toBeCloseTo(TAG_FIELD_W_MM, 0)
+    expect(Number(pas[5])).toBe(Number(pas[4]))  // wypełniony
+    const w = wiersz(zpl, '471')
+    expect(w.yMm).toBeGreaterThanOrEqual(mm(Number(pas[2])))
+    expect(w.yMm + w.fontMm).toBeLessThanOrEqual(mm(Number(pas[2]) + Number(pas[4])))
+  })
+})
+
 describe('receptionTagZpl — znak firmowy', () => {
   const LOGO = /\^FO(\d+),(\d+)\^GFA,(\d+),\d+,(\d+),([0-9A-F]+)\^FS/
 
@@ -417,9 +440,10 @@ describe('receptionTagZpl — znak firmowy', () => {
     const m = LOGO.exec(zpl)!
     const lewa = mm(Number(m[1]))
     const dol = mm(Number(m[2])) + LOGO_H_MM
-    expect(Number(m[1]) + LOGO_DOTS_W).toBeLessThanOrEqual(mmToDots(PRAWA_MM))
-    expect(lewa).toBeGreaterThan(wiersz(zpl, '128/08/2026').prawaMm)
-    expect(dol).toBeLessThan(wiersze(zpl)[2].yMm)  // trzeci napis = dostawca
+    expect(Number(m[1]) + LOGO_DOTS_W_DUZY).toBeLessThanOrEqual(mmToDots(PRAWA_MM))
+    // Znak stoi z lewej w nagłówku, numer dokumentu z prawej — bez zderzenia.
+    expect(lewa + mm(LOGO_DOTS_W_DUZY)).toBeLessThan(wiersz(zpl, '128/08/2026').xMm)
+    expect(dol).toBeLessThan(wiersz(zpl, shortenSupplier(NAJGORSZE.supplierName)).yMm)
   })
 
   it('przesunięcie kalibracyjne rusza znak razem z resztą etykiety', () => {
