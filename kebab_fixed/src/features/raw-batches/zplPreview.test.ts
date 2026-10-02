@@ -44,7 +44,7 @@ describe('zplPreviewBoxes — ZPL → pola do narysowania', () => {
     expect(teksty).toContain('Partia dostawcy')
     // Cztery kreski: nad i pod numerem przyjęcia zewnętrznego, nad partią i nad datami.
     expect(boxes.filter(b => b.kind === 'line')).toHaveLength(4)
-    expect(boxes.find(b => b.text === '471')?.align).toBe('C')
+
     // Nic nie wychodzi poza taśmę — ten sam warunek, co na drukarce.
     expect(boxes.every(b => b.yMm >= 0 && b.yMm < 100)).toBe(true)
   })

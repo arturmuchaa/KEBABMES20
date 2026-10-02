@@ -55,7 +55,7 @@ describe('shortenSupplier — nazwa dostawcy na 80 mm taśmy', () => {
   })
 
   it('długą nazwę przycina, zamiast pozwolić drukarce uciąć ją w losowym miejscu', () => {
-    expect(shortenSupplier('Zakład Przetwórstwa Drobiowego Wielkopolska Północ').length).toBeLessThanOrEqual(26)
+    expect(shortenSupplier('Zakład Przetwórstwa Drobiowego Wielkopolska Północ').length).toBeLessThanOrEqual(12)
   })
 
   it('pusta nazwa zostaje pusta — zawieszka nie wymyśla dostawcy', () => {
@@ -413,7 +413,8 @@ describe('receptionTagZpl — numer przyjęcia zewnętrznego', () => {
   it('zwykłym czarnym drukiem — bez białego na czarnym pasie, który na Zebrze bywa nieczytelny', () => {
     const zpl = receptionTagZpl(BASE)
     expect(zpl).not.toContain('^FR')
-    expect(zpl).toMatch(/\^FB\d+,1,0,C\^FD471\^FS/)
+    // Od lewej krawędzi pola, jak reszta zawieszki — nie na środku.
+    expect(wiersz(zpl, '471').xMm).toBeCloseTo(TAG_MARGIN_MM, 0)
   })
 
   it('stoi sam w swojej sekcji — żaden inny napis nie dzieli z nim wysokości', () => {
@@ -444,9 +445,10 @@ describe('receptionTagZpl — znak firmowy', () => {
     const lewa = mm(Number(m[1]))
     const dol = mm(Number(m[2])) + LOGO_H_MM
     expect(Number(m[1]) + LOGO_DOTS_W_DUZY).toBeLessThanOrEqual(mmToDots(PRAWA_MM))
-    // Znak stoi z lewej w nagłówku, numer dokumentu z prawej — bez zderzenia.
-    expect(lewa + mm(LOGO_DOTS_W_DUZY)).toBeLessThan(wiersz(zpl, '128/08/2026').xMm)
-    expect(dol).toBeLessThan(wiersz(zpl, shortenSupplier(NAJGORSZE.supplierName)).yMm)
+    // Znak na górze, numer dokumentu i dostawca POD nim — nie obok.
+    expect(lewa).toBeCloseTo(TAG_MARGIN_MM, 0)
+    expect(dol).toBeLessThan(wiersz(zpl, 'Przyjęcie').yMm)
+    expect(dol).toBeLessThan(wiersz(zpl, 'Dostawca').yMm)
   })
 
   it('przesunięcie kalibracyjne rusza znak razem z resztą etykiety', () => {
