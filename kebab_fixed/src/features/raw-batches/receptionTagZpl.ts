@@ -120,11 +120,11 @@ export const LOT_FONTS_MM = [7.5, 6.5, 6, 5.5, 5, 4.5] as const
 export const LOT_FONT_MAX_MM = LOT_FONTS_MM[0]
 export const LOT_FONT_MIN_MM = LOT_FONTS_MM[LOT_FONTS_MM.length - 1]
 
-/** Skok wiersza partii względem fontu — 20% światła, żeby wiersze się nie zlewały. */
-const LOT_SKOK = 1.2
+/** Skok wiersza partii względem fontu — 15% światła, żeby wiersze się nie zlewały. */
+const LOT_SKOK = 1.15
 
 /** Ramka partii dostawcy na zawieszce (mm od góry etykiety). */
-export const LOTY_GORA_MM = 62.6
+export const LOTY_GORA_MM = 64.2
 export const LOTY_DOL_MM = 84.4
 
 /** Ile wierszy danego fontu wchodzi w ramkę partii. */
@@ -304,17 +304,11 @@ function textRight(g: Rysunek, xMm: number, yMm: number, wMm: number, fontMm: nu
     + `^FB${mmToDots(wMm, g.dpi)},1,0,R^FD${esc(value)}^FS`
 }
 
-/** Biały napis na czarnym polu (`^FR` odwraca kolor pod napisem). */
-function textReverse(g: Rysunek, xMm: number, yMm: number, fontMm: number, value: string): string {
-  const h = mmToDots(fontMm, g.dpi)
-  return `^FO${dot(g, xMm + g.ox)},${dot(g, yMm + g.oy)}^A0N,${h},${h}^FR^FD${esc(value)}^FS`
-}
-
-/** Biały napis wyśrodkowany w bloku `^FB` na czarnym polu. */
-function textCenterReverse(g: Rysunek, xMm: number, yMm: number, wMm: number, fontMm: number, value: string): string {
+/** Napis wyśrodkowany w bloku `^FB` — bez liczenia szerokości znaków. */
+function textCenter(g: Rysunek, xMm: number, yMm: number, wMm: number, fontMm: number, value: string): string {
   const h = mmToDots(fontMm, g.dpi)
   return `^FO${dot(g, xMm + g.ox)},${dot(g, yMm + g.oy)}^A0N,${h},${h}`
-    + `^FB${mmToDots(wMm, g.dpi)},1,0,C^FR^FD${esc(value)}^FS`
+    + `^FB${mmToDots(wMm, g.dpi)},1,0,C^FD${esc(value)}^FS`
 }
 
 function line(g: Rysunek, xMm: number, yMm: number, wMm: number): string {
@@ -353,13 +347,6 @@ export function receptionTagZpl(
   // z pustką do samych dat.
   const lotyY = LOTY_GORA_MM + Math.max(0, (LOTY_DOL_MM - LOTY_GORA_MM - lotyWysokosc) / 2)
 
-  // Numer przyjęcia zewnętrznego — NAJWAŻNIEJSZY napis zawieszki (biuro,
-  // 02.10.2026) — siedzi w czarnym pasie na całą szerokość, białym drukiem.
-  // Pas odcina go od reszty: nie zlewa się z wagą ani z partiami dostawcy
-  // i widać go z drugiego końca chłodni.
-  const PAS_Y = 19.4
-  const PAS_H = 19
-
   const body = [
     // Znak firmowy w nagłówku z lewej, obok numer dokumentu dostawy. Wcześniej
     // 16 mm w rogu wyglądał jak doklejony; teraz to 36 mm i stoi na równi
@@ -369,24 +356,28 @@ export function receptionTagZpl(
     text(g, 41, 6.4, 5.4, input.receptionNo ?? ''),
     text(g, M, 13.4, DOSTAWCA_FONT_MM, shortenSupplier(input.supplierName)),
 
-    // Pas wypełniony: grubość ramki = wysokość pasa.
-    `^FO${dot(g, M + g.ox)},${dot(g, PAS_Y + g.oy)}`
-      + `^GB${mmToDots(W, dpi)},${mmToDots(PAS_H, dpi)},${mmToDots(PAS_H, dpi)}^FS`,
-    textReverse(g, M + 2, PAS_Y + 1.2, 2.8, 'NR PRZYJĘCIA ZEWNĘTRZNEGO'),
-    textCenterReverse(g, M, PAS_Y + 4.4, W, 13.5, input.batchNo ?? ''),
+    // Numer przyjęcia zewnętrznego — NAJWAŻNIEJSZY napis zawieszki (biuro,
+    // 02.10.2026). Sam w swojej sekcji, między kreskami, wyśrodkowany i ponad
+    // dwa razy większy od wszystkiego innego — żeby się nie zlewał z resztą.
+    // Zwykłym czarnym drukiem: biały na czarnym pasie odrzucony, bo na Zebrze
+    // duża zaczerniona plama potrafi wyjść nieczytelnie.
+    line(g, M, 18.8, W),
+    text(g, M, 20.2, 2.8, 'Nr przyjęcia zewnętrznego'),
+    textCenter(g, M, 24, W, 15, input.batchNo ?? ''),
+    line(g, M, 40.4, W),
 
-    text(g, M, 40, 2.8, 'Waga netto palety'),
-    text(g, M, 43.2, 7, `${fmtLabelKg(input.netKg)} kg`),
-    text(g, M, 51.2, 2.8, pojemniki),
-    text(g, M, 54.6, 2.8, `z partii ${fmtLabelKg(input.batchKg)} kg`),
-    text(g, P, 40, 2.8, 'Paleta'),
-    text(g, P, 43.2, 7, `${input.palletIndex} / ${input.palletCount}`),
+    text(g, M, 41.6, 2.8, 'Waga netto palety'),
+    text(g, M, 44.8, 7, `${fmtLabelKg(input.netKg)} kg`),
+    text(g, M, 52.6, 2.8, pojemniki),
+    text(g, M, 56, 2.8, `z partii ${fmtLabelKg(input.batchKg)} kg`),
+    text(g, P, 41.6, 2.8, 'Paleta'),
+    text(g, P, 44.8, 7, `${input.palletIndex} / ${input.palletCount}`),
     // „NIEPEŁNA" osobnym wierszem pod numerem palety — doklejona do numeru
     // rozpychałaby wiersz poza pole zadruku.
-    ...(input.full === false ? [text(g, P, 51.6, 4.2, 'NIEPEŁNA')] : []),
-    line(g, M, 58.4, W),
+    ...(input.full === false ? [text(g, P, 53, 4.2, 'NIEPEŁNA')] : []),
+    line(g, M, 59.8, W),
 
-    text(g, M, 59.6, 2.8, loty.rows.length > 1 || loty.laczona ? 'Partie dostawcy' : 'Partia dostawcy'),
+    text(g, M, 61, 2.8, loty.rows.length > 1 || loty.laczona ? 'Partie dostawcy' : 'Partia dostawcy'),
     ...loty.rows.flatMap((r, i) => {
       const y = lotyY + i * lotSkok
       return r.kg

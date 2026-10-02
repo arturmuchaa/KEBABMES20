@@ -410,15 +410,18 @@ describe('receptionTagZpl — numer przyjęcia zewnętrznego', () => {
     expect(wiersz(zpl, '471').fontMm).toBeGreaterThan(max * 1.5)
   })
 
-  it('idzie białym drukiem na czarnym pasie na całą szerokość pola', () => {
+  it('zwykłym czarnym drukiem — bez białego na czarnym pasie, który na Zebrze bywa nieczytelny', () => {
     const zpl = receptionTagZpl(BASE)
-    expect(zpl).toMatch(/\^FB\d+,1,0,C\^FR\^FD471\^FS/)
-    const pas = /\^FO(\d+),(\d+)\^GB(\d+),(\d+),(\d+)\^FS/.exec(zpl)!
-    expect(mm(Number(pas[3]))).toBeCloseTo(TAG_FIELD_W_MM, 0)
-    expect(Number(pas[5])).toBe(Number(pas[4]))  // wypełniony
-    const w = wiersz(zpl, '471')
-    expect(w.yMm).toBeGreaterThanOrEqual(mm(Number(pas[2])))
-    expect(w.yMm + w.fontMm).toBeLessThanOrEqual(mm(Number(pas[2]) + Number(pas[4])))
+    expect(zpl).not.toContain('^FR')
+    expect(zpl).toMatch(/\^FB\d+,1,0,C\^FD471\^FS/)
+  })
+
+  it('stoi sam w swojej sekcji — żaden inny napis nie dzieli z nim wysokości', () => {
+    const zpl = receptionTagZpl({ ...NAJGORSZE, batchNo: '471' })
+    const nr = wiersz(zpl, '471')
+    const obok = wiersze(zpl).filter(w => w.text !== '471'
+      && w.yMm < nr.yMm + nr.fontMm && nr.yMm < w.yMm + w.fontMm)
+    expect(obok).toEqual([])
   })
 })
 
