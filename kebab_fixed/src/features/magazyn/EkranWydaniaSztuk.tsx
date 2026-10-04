@@ -33,6 +33,10 @@ export function EkranWydaniaSztuk({ onAlarm, onKoniec }: { onAlarm: PokazAlarm; 
   const [przekazane, setPrzekazane] = useState<WydanieSztuk | null>(null)
   const [ostatni, setOstatni] = useState('')
   const [praca, setPraca] = useState(false)
+  // Skany odebrane, a jeszcze nierozliczone. Szybka seria czeka w kolejce
+  // pola — przekazanie / porzucenie / cofnięcie w tym czasie zamknęłoby
+  // wydanie, zanim wszystkie sztuki na nie weszły.
+  const [skanuje, setSkanuje] = useState(false)
 
   useEffect(() => {
     magazynApi.wydanieSztukOtwarte().then(r => setOtwarte(Array.isArray(r) ? r : [])).catch(() => {})
@@ -45,7 +49,13 @@ export function EkranWydaniaSztuk({ onAlarm, onKoniec }: { onAlarm: PokazAlarm; 
   }
 
   async function skanuj(kod: string) {
-    if (!wydanie) return
+    if (!wydanie) {
+      // Wydanie zamknięte, zanim kolejka doszła do tego skanu — nie znika po cichu.
+      grajBlad('L')
+      onAlarm({ skaner: 'L', ton: 'blad', naglowek: 'SKAN NIE ZAPISANY',
+        szczegol: 'Wydanie było już zamknięte. Wybierz wydanie i zeskanuj sztukę ponownie.' })
+      return
+    }
     try {
       const r = await magazynApi.skanWydaniaSztuk(wydanie.id, kod)
       if (r.result === 'OK') {
@@ -66,7 +76,7 @@ export function EkranWydaniaSztuk({ onAlarm, onKoniec }: { onAlarm: PokazAlarm; 
   }
 
   async function cofnij(unitId: string) {
-    if (!wydanie) return
+    if (!wydanie || skanuje) return
     try {
       const r = await magazynApi.cofnijZWydaniaSztuk(wydanie.id, unitId)
       setWydanie(r)
@@ -75,7 +85,7 @@ export function EkranWydaniaSztuk({ onAlarm, onKoniec }: { onAlarm: PokazAlarm; 
   }
 
   async function przekaz() {
-    if (!wydanie || !wydanie.qty) return
+    if (!wydanie || !wydanie.qty || skanuje) return
     setPraca(true)
     try {
       const r = await magazynApi.przekazWydanieSztuk(wydanie.id)
@@ -84,7 +94,7 @@ export function EkranWydaniaSztuk({ onAlarm, onKoniec }: { onAlarm: PokazAlarm; 
   }
 
   async function porzuc() {
-    if (!wydanie) return
+    if (!wydanie || skanuje) return
     try { await magazynApi.porzucWydanieSztuk(wydanie.id); setWydanie(null); onKoniec() } catch (e) { alarmSieci(e) }
   }
 
@@ -152,7 +162,8 @@ export function EkranWydaniaSztuk({ onAlarm, onKoniec }: { onAlarm: PokazAlarm; 
                         {s.fromCartonNo ? `z kartonu ${s.fromCartonNo}${s.fromClient ? ` · ${s.fromClient}` : ''}` : 'luzem'}
                         {s.batchNo ? ` · partia ${s.batchNo}` : ''}
                       </span>
-                      <button type="button" onClick={() => void cofnij(s.id)} className="rounded-md px-2.5 py-1 text-[12px] font-bold"
+                      <button type="button" onClick={() => void cofnij(s.id)} disabled={skanuje}
+                        className="rounded-md px-2.5 py-1 text-[12px] font-bold disabled:opacity-40"
                         style={{ background: 'var(--panel)', border: '1px solid var(--line)' }}>Cofnij</button>
                     </span>
                   ))}
@@ -177,11 +188,12 @@ export function EkranWydaniaSztuk({ onAlarm, onKoniec }: { onAlarm: PokazAlarm; 
             <b style={{ color: 'var(--ink)' }}> do zważenia</b>. Dokumenty (WZ, HDI, CMR) wystawia biuro.
           </div>
           <div className="mt-auto flex flex-col gap-2">
-            <button type="button" onClick={() => void przekaz()} disabled={!wydanie.qty || praca}
+            <button type="button" onClick={() => void przekaz()} disabled={!wydanie.qty || praca || skanuje}
               className="rounded-2xl px-5 py-5 text-[20px] font-extrabold text-white disabled:opacity-40"
-              style={{ background: 'var(--success)' }}>Przekaż do biura</button>
+              style={{ background: 'var(--success)' }}>{skanuje ? 'Czekaj — zapisuję skany' : 'Przekaż do biura'}</button>
             {!wydanie.qty ? (
-              <button type="button" onClick={() => void porzuc()} className="rounded-2xl px-5 py-3.5 text-[16px] font-bold"
+              <button type="button" onClick={() => void porzuc()} disabled={skanuje}
+                className="rounded-2xl px-5 py-3.5 text-[16px] font-bold disabled:opacity-40"
                 style={{ background: 'var(--panel)', border: '1px solid var(--line)' }}>Porzuć puste wydanie</button>
             ) : null}
           </div>
@@ -189,6 +201,7 @@ export function EkranWydaniaSztuk({ onAlarm, onKoniec }: { onAlarm: PokazAlarm; 
       </div>
 
       <PasSkanowania placeholder="Skanuj etykietę sztuki…" onSkan={skanuj} disabled={praca}
+        onPendingChange={setSkanuje}
         podpis="Skan etykiety: sztuka schodzi z kartonu na to wydanie." />
     </div>
   )

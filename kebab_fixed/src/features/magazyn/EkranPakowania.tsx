@@ -40,7 +40,8 @@ import type { OstatniaKartka, PokazAlarm, SkanOczekujacy } from './magazynTypes'
 interface Wpis { ts: number; opis: string; gdzie: string; ton: 'cisza' | 'inny' | 'blad'; kod?: string; containerId?: string }
 
 /** Ta sama kartka w tym oknie to podwójny odczyt, nie decyzja „do mroźni".
- *  Tyle samo co blokada powtórki w polu skanu (`utworzStraznikaWysylki`). */
+ *  Ochrona SEMANTYCZNA tej jednej decyzji — pole skanu nie odrzuca powtórek
+ *  (sztuka zeskanowana drugi raz idzie na serwer i wraca jako dubel). */
 export const POWTORKA_KARTKI_MS = 2000
 
 export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, oczekujace, onPrzejeto, ostatniaKartka, zablokowany = false, onKartaKartonu }: {

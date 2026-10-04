@@ -8,8 +8,10 @@
  * miejscem na pomyłkę. Następny wózek = powrót do planu i dotknięcie pozycji.
  *
  * Skaner na hali zachowuje się jak klawiatura: wystukuje kod — i Entera
- * często NIE wciska (hala 25.09.2026). Pole wysyła kompletny kod samo, przez
- * wspólny `useSkanAutoSubmit`; Enter, jeśli przyjdzie, jest bezczynny.
+ * często NIE wciska (hala 25.09.2026). Pole ramkuje strumień wspólnym
+ * buforem (`usePoleSkanu`): kod sztuki wychodzi w chwili, gdy dotrze jego
+ * 20. znak hex, a następny kod zbiera się od nowa — szybka seria się nie
+ * skleja (hala 02.10.2026). Enter/Tab po takim kodzie są bezczynne.
  * Dźwięk po każdym skanie jest ważniejszy niż komunikat: operator patrzy
  * w wózek, nie w monitor.
  *
@@ -20,12 +22,23 @@
  *
  * Sztuka z innej pozycji odbija się na serwerze z nazwą właściwej — tego NIE
  * nazywamy duplikatem, bo komunikat mówi operatorowi, gdzie odłożyć wózek.
+ *
+ * BŁĘDY NIE ZNIKAJĄ: przy serii wynik ostatniego skanu przykrywa poprzedni,
+ * więc każdy skan, który nie wszedł, trafia też na listę błędów sesji —
+ * z kodem i rzeczywistym powodem. Lista jest zwięzła (przewijana), ale
+ * KAŻDY błąd do „Przeczytane" jest na niej dostępny; bieżący błąd pokazuje
+ * duże pole — razem z kodem. Co zrobić, zależy od powodu (dubel już jest
+ * na magazynie, obca pozycja potrzebuje właściwej, błąd połączenia daje
+ * wynik NIEPEWNY), więc nie ma jednego „zeskanuj ponownie". Nic nie jest
+ * ponawiane automatycznie: powtórka jest decyzją operatora.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { beepErr, beepOk } from '@/features/pwa/beep'
-import { useSkanAutoSubmit } from '@/features/scan/useSkanAutoSubmit'
+import { usePoleSkanu } from '@/features/scan/usePoleSkanu'
+import type { Ramka } from '@/features/scan/buforSkanu'
 import { scanOf, type LineScan } from '../scanProgress'
 import { useModalFocus } from '../useModalFocus'
+import { opiszBladSkanu } from '../skanWynik'
 import { sztukiRazyWaga, type PlanLineView } from './PlanList'
 
 export interface ScanResult {
@@ -48,27 +61,26 @@ export interface ScanPanelProps {
   onClose: () => void
 }
 
-/** Sztuka z cudzej pozycji — serwer podaje, z której („Ta sztuka jest z pozycji 2 (KIRMIZI)"). */
-const czyObcaPozycja = (e: any): boolean => {
-  const t = String(e?.message ?? '').toLowerCase()
-  return t.includes('z pozycji') || t.includes('innej pozycji')
-}
-/** Dubel poznajemy PO TREŚCI, nie po kodzie 409 — obca pozycja też jest 409. */
-const czyDubel = (e: any): boolean => {
-  const t = String(e?.message ?? '').toLowerCase()
-  return t.includes('duplikat') || t.includes('already') || t.includes('zeskanowan')
-}
-
-type Wynik = { ok: boolean; tytul: string; tekst: string; wynik?: ScanResult }
+type Wynik = { ok: boolean; tytul: string; tekst: string; wynik?: ScanResult; nrBledu?: number; kod?: string }
+type BladSkanu = { nr: number; kod: string; tytul: string; tekst: string }
 
 export function ScanPanel({ line, lp, scan, onScan, onClose }: ScanPanelProps) {
   // Pozycja zamrożona przy otwarciu: odświeżenie planu może zmienić jej
   // dane, ale nie to, DOKĄD idą skany z tego okna.
   const [lineId] = useState(line.id)
-  const [kod, setKod] = useState('')
   const [wKolejce, setWKolejce] = useState(0)
   const [ostatni, setOstatni] = useState<Wynik | null>(null)
   const [ile, setIle] = useState(0)
+  const [bledy, setBledy] = useState<BladSkanu[]>([])
+  const nrBledu = useRef(0)
+  /** Wynik błędny: w dużym polu (z kodem) i na liście sesji. Lista nie
+   *  dubluje tego, co właśnie widać w dużym polu — po następnym wyniku
+   *  błąd jest już tylko na liście, nadal z kodem i powodem. */
+  const pokazBlad = (kod: string, w: Wynik) => {
+    const nr = ++nrBledu.current
+    setBledy(b => [{ nr, kod, tytul: w.tytul, tekst: w.tekst }, ...b])
+    setOstatni({ ...w, nrBledu: nr, kod })
+  }
   const pole = useRef<HTMLInputElement | null>(null)
   const okno = useRef<HTMLDivElement | null>(null)
   // `true` w SETUP, `false` w sprzątaniu. Samo `useRef(true)` + sprzątanie
@@ -125,11 +137,8 @@ export function ScanPanel({ line, lp, scan, onScan, onClose }: ScanPanelProps) {
           beepOk()
         } catch (e: any) {
           if (!zamontowany.current) continue
-          setOstatni(czyObcaPozycja(e)
-            ? { ok: false, tytul: 'Sztuka z innej pozycji — odłóż ją', tekst: e?.message || '' }
-            : czyDubel(e)
-              ? { ok: false, tytul: 'Ta sztuka jest już zeskanowana', tekst: 'Drugi raz nie wchodzi na magazyn.' }
-              : { ok: false, tytul: 'Nie weszła', tekst: e?.message || 'Nie udało się zeskanować' })
+          const { tytul, tekst } = opiszBladSkanu(e)
+          pokazBlad(code, { ok: false, tytul, tekst })
           beepErr()
         } finally {
           kolejka.current.shift()
@@ -142,26 +151,35 @@ export function ScanPanel({ line, lp, scan, onScan, onClose }: ScanPanelProps) {
     }
   }
 
-  const wyslij = (surowy: string) => {
-    const code = surowy.trim()
-    // Okno zamknięte: kod, który dojrzewał do auto-wysyłki, przepada — nie
-    // może trafić na pozycję, której operator już nie ogląda.
+  /** Gotowa ramka z pola: kod do kolejki (bez czekania na API) albo błąd
+   *  odczytu na listę — nic nie leci na serwer. */
+  const przyjmij = (r: Ramka) => {
+    // Okno zamknięte: kod, który dojrzewał do wysyłki, przepada — nie może
+    // trafić na pozycję, której operator już nie ogląda.
     if (!zamontowany.current) return
-    setKod('')
+    if (r.rodzaj === 'blad') {
+      pokazBlad(r.fragment, { ok: false, tytul: 'Nieczytelny skan — nie wysłano', tekst: r.komunikat })
+      beepErr()
+      return
+    }
+    const code = r.kod.trim()
     if (!code) return
     kolejka.current.push({ code, lineId })
     setWKolejce(kolejka.current.length)
     void przetworz()
   }
 
-  const { zatwierdz } = useSkanAutoSubmit(kod, wyslij)
+  const { onChange, onKeyDown, onPaste, onCompositionStart, onCompositionEnd, zakoncz, wyczysc } =
+    usePoleSkanu(pole, przyjmij)
+  const bledyPonizej = bledy.filter(b => b.nr !== ostatni?.nrBledu)
+  const bladPowyzej = bledy.length > bledyPonizej.length
 
   const zajety = wKolejce > 0
   const sprobujZamknac = useCallback(() => {
     if (kolejka.current.length || wTrakcie.current) return
-    setKod('')
+    wyczysc()
     onClose()
-  }, [onClose])
+  }, [onClose, wyczysc])
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); sprobujZamknac() } }
@@ -206,9 +224,12 @@ export function ScanPanel({ line, lp, scan, onScan, onClose }: ScanPanelProps) {
           </div>
         </div>
 
-        <form onSubmit={e => { e.preventDefault(); zatwierdz(kod) }}>
-          <input ref={pole} data-testid="pole-skanu" aria-label="Pole skanowania" value={kod}
-            onChange={e => setKod(e.target.value)}
+        <form onSubmit={e => { e.preventDefault(); zakoncz() }}>
+          {/* Pole NIEKONTROLOWANE: treść należy do bufora ramek, nie do stanu
+              Reacta — render nie może zjeść początku następnego kodu. */}
+          <input ref={pole} data-testid="pole-skanu" aria-label="Pole skanowania"
+            onChange={onChange} onKeyDown={onKeyDown} onPaste={onPaste}
+            onCompositionStart={onCompositionStart} onCompositionEnd={onCompositionEnd}
             placeholder="Zeskanuj kod QR sztuki" autoComplete="off" spellCheck={false}
             className="w-full hmi-v10-mono text-[22px] font-bold"
             style={{ padding: '18px 20px', borderRadius: 10, background: 'var(--panel)',
@@ -221,8 +242,47 @@ export function ScanPanel({ line, lp, scan, onScan, onClose }: ScanPanelProps) {
           <div className="min-w-0 flex-1">
             <div className="text-[20px] font-extrabold">{ostatni ? ostatni.tytul : 'Czekam na skan'}</div>
             <div className="text-[15px] font-semibold mt-0.5">{ostatni?.tekst || (ostatni ? '' : 'Przyłóż czytnik do etykiety')}</div>
+            {!ostatni?.ok && ostatni?.kod ? (
+              <div data-testid="ostatni-kod" className="text-[13px] font-semibold mt-0.5 break-all">
+                Kod: <span className="hmi-v10-mono font-bold">{ostatni.kod}</span>
+              </div>
+            ) : null}
           </div>
         </div>
+
+        {bledy.length ? (
+          <div data-testid="bledy-sesji" role="log" aria-label="Skany z błędem w tej sesji"
+            className="flex-shrink-0"
+            style={{ background: 'var(--redSoft)', border: '1px solid var(--redLine)', borderRadius: 12, padding: '10px 16px' }}>
+            <div className="flex items-center gap-3">
+              <span className="text-[15px] font-extrabold" style={{ color: 'var(--red)' }}>
+                Skany z błędem w tej sesji: <span data-testid="bledy-licznik" className="hmi-v10-mono">{bledy.length}</span>
+              </span>
+              <span data-testid="bledy-instrukcja" className="text-[13px] font-semibold" style={{ color: 'var(--red)' }}>
+                — {bladPowyzej && bledyPonizej.length
+                  ? 'sprawdź błędy: ostatni powyżej, wcześniejsze poniżej'
+                  : bladPowyzej ? 'sprawdź błąd powyżej' : 'sprawdź błędy poniżej'}
+              </span>
+              {/* Po kliknięciu fokus wraca do pola — następne skany nie mogą
+                  utknąć na przycisku (wroc() celowo nie zabiera go przyciskom). */}
+              <button type="button" data-testid="bledy-wyczysc"
+                onClick={() => { setBledy([]); pole.current?.focus() }}
+                className="phmi-btn ml-auto text-[13px] font-bold"
+                style={{ height: 36, padding: '0 14px', borderRadius: 8, border: '1px solid var(--redLine)',
+                         color: 'var(--red)', background: 'var(--panel)' }}>
+                Przeczytane
+              </button>
+            </div>
+            {/* Wszystkie nierozliczone błędy; zwięźle — lista się przewija. */}
+            <ul data-testid="bledy-lista" className="m-0 mt-1 p-0 list-none overflow-y-auto" style={{ maxHeight: 132 }}>
+              {bledyPonizej.map(b => (
+                <li key={b.nr} data-testid="blad-skanu" className="text-[13px] break-words" style={{ color: 'var(--ink)' }}>
+                  <span className="hmi-v10-mono font-bold">{b.kod}</span> — {b.tytul}{b.tekst ? `: ${b.tekst}` : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         <div className="flex items-center gap-3 pt-3 flex-shrink-0" style={{ borderTop: '1px solid var(--line)' }}>
           <span style={{ color: 'var(--mut)' }}>Zeskanowano teraz</span>

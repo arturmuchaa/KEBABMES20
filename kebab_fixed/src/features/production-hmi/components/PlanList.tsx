@@ -66,7 +66,7 @@ function useWysokosc<T extends HTMLElement>() {
   return [setEl, h] as const
 }
 
-export function PlanList({ lines, selectedId, onPick, onDetails, scans }: {
+export function PlanList({ lines, selectedId, onPick, onDetails, scans, lastScannedId }: {
   lines: PlanLineView[]
   selectedId?: string | null
   onPick: (lineId: string) => void
@@ -74,6 +74,9 @@ export function PlanList({ lines, selectedId, onPick, onDetails, scans }: {
   onDetails?: (lineId: string) => void
   /** Postęp skanowania per pozycja — źródło stanu POTWIERDZONE. */
   scans?: ScanMap
+  /** Pozycja ostatnio zeskanowanej sztuki (z odpowiedzi serwera) — osobny
+   *  znacznik na liczniku skanu. NIE rusza zaznaczenia (`selectedId`). */
+  lastScannedId?: string | null
 }) {
   const [ref, wysokosc] = useWysokosc<HTMLDivElement>()
 
@@ -122,7 +125,7 @@ export function PlanList({ lines, selectedId, onPick, onDetails, scans }: {
           {lines.map((l, i) => (
             <li key={l.id} className="phmi-cell min-w-0">
               <PlanRow line={l} lp={i + 1} density={uklad.density} selected={l.id === selectedId}
-                scans={scans} onPick={onPick} onDetails={onDetails} />
+                scans={scans} onPick={onPick} onDetails={onDetails} lastScanned={l.id === lastScannedId} />
             </li>
           ))}
         </ol>
@@ -131,9 +134,9 @@ export function PlanList({ lines, selectedId, onPick, onDetails, scans }: {
   )
 }
 
-function PlanRow({ line: l, lp, density, selected, scans, onPick, onDetails }: {
+function PlanRow({ line: l, lp, density, selected, scans, onPick, onDetails, lastScanned = false }: {
   line: PlanLineView; lp: number; density: Density; selected: boolean; scans?: ScanMap
-  onPick: (id: string) => void; onDetails?: (id: string) => void
+  onPick: (id: string) => void; onDetails?: (id: string) => void; lastScanned?: boolean
 }) {
   const { pressing, handlers } = useLongPress(
     () => onDetails?.(l.id),
@@ -198,10 +201,14 @@ function PlanRow({ line: l, lp, density, selected, scans, onPick, onDetails }: {
       {/* Skan osobno: „—", gdy biuro nie wydrukowało etykiet (nie ma czego
           skanować), a nie „0 / 20" — to dwie różne sytuacje. */}
       <span data-testid={`skan-${l.id}`} title="Zeskanowane na magazyn / plan"
+        data-ostatni-skan={lastScanned ? 'true' : undefined}
         className="hmi-v10-mono flex-shrink-0 flex items-center justify-center font-bold whitespace-nowrap"
         style={{
           minWidth: density === 'S' ? 62 : 74, fontSize: density === 'S' ? 13 : 15,
           borderLeft: '1px solid var(--lineSoft)', padding: '0 8px',
+          // Ostatni skan: samo tło licznika — bez zmiany wymiarów wiersza.
+          background: lastScanned ? 'var(--successSoft)' : undefined,
+          boxShadow: lastScanned ? 'inset 0 0 0 2px var(--successLine)' : undefined,
           color: stan === 'CONFIRMED' ? 'var(--success)' : skan.total === 0 ? 'var(--mut)' : 'var(--ink)',
         }}>
         <span aria-hidden="true" style={{ marginRight: 4, opacity: .7 }}>▥</span>

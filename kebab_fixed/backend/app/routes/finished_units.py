@@ -19,7 +19,8 @@ def generate_from_plan_line(dto: GenerateUnitsRequest):
 
 @router.post("/scan-produced")
 def scan_produced(dto: ScanProducedRequest):
-    return svc.scan_produced(dto.code, dto.trolley_id, dto.plan_line_id)
+    return svc.scan_produced(dto.code, dto.trolley_id, dto.plan_line_id,
+                             expected_plan_id=dto.expected_plan_id)
 
 
 @router.get("/plan-progress")

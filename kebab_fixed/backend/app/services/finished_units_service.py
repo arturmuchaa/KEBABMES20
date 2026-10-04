@@ -329,8 +329,61 @@ def _line_label(conn, plan_line_id: str) -> str:
     return f"{int(row['lp'])} ({nazwa})" if nazwa else str(int(row["lp"]))
 
 
+def _guard_expected_plan(conn, unit: Dict[str, Any], expected_plan_id: str) -> Dict[str, Any]:
+    """Sztuka skanowana z głównego ekranu HMI musi należeć do planu, który
+    hala widziała w chwili skanu, a ten plan musi być nadal otwarty.
+
+    Wołane PRZED jakąkolwiek zmianą sztuki i magazynu. Kolejność blokad jak
+    w `book_scanned_unit`: najpierw sztuka (już zablokowana przez wołającego),
+    potem plan `FOR UPDATE` — dzięki temu biuro nie zamknie planu między
+    sprawdzeniem a zaksięgowaniem. Zwraca wiersz pozycji.
+    """
+    plan_line_id = unit.get("plan_line_id") or ""
+    if not plan_line_id:
+        raise HTTPException(409, "Ta sztuka nie należy do żadnej pozycji planu")
+    line = cx_query_one(
+        conn, "SELECT id, plan_id FROM production_plan_lines WHERE id=%s", (plan_line_id,)
+    )
+    if not line:
+        raise HTTPException(409, "Pozycji tej sztuki nie ma już w planie")
+    if (line.get("plan_id") or "") != expected_plan_id:
+        obcy = cx_query_one(
+            conn, "SELECT plan_no, plan_date FROM production_plans WHERE id=%s",
+            (line.get("plan_id"),),
+        ) or {}
+        opis = " ".join(str(x) for x in (obcy.get("plan_no"), obcy.get("plan_date")) if x)
+        raise HTTPException(
+            409,
+            f"Ta sztuka jest z innego planu ({opis}) — odłóż ją" if opis
+            else "Ta sztuka jest z innego planu — odłóż ją",
+        )
+    plan = cx_query_one(
+        conn,
+        "SELECT id, status, tablet_finished_at, office_confirmed_at "
+        "FROM production_plans WHERE id=%s FOR UPDATE",
+        (expected_plan_id,),
+    )
+    if not plan:
+        raise HTTPException(409, "Planu tej sztuki nie ma już w systemie")
+    if plan.get("office_confirmed_at") or plan.get("status") not in ("active", "draft"):
+        raise HTTPException(409, "Plan jest już zamknięty — skan nie wszedł")
+    if plan.get("tablet_finished_at"):
+        raise HTTPException(409, "Dzień wysłany do biura — skan nie wszedł")
+    # Pozycja ponownie, już pod blokadą planu: biuro mogło ją zdjąć w międzyczasie.
+    line = cx_query_one(
+        conn,
+        "SELECT id, plan_id, recipe_name, product_type_name "
+        "FROM production_plan_lines WHERE id=%s AND plan_id=%s",
+        (plan_line_id, expected_plan_id),
+    )
+    if not line:
+        raise HTTPException(409, "Pozycji tej sztuki nie ma już w planie")
+    return line
+
+
 def scan_produced(
-    code: str, trolley_id: str | None = None, plan_line_id: str | None = None
+    code: str, trolley_id: str | None = None, plan_line_id: str | None = None,
+    expected_plan_id: str | None = None,
 ) -> Dict[str, Any]:
     """Skan produkcyjny: planned → produced (+ wózek). Dubel → 409.
 
@@ -338,6 +391,11 @@ def scan_produced(
     naraz („poz. 1: 20×40 kg"), więc sztuka z innej pozycji musi się odbić
     z nazwą tej właściwej, zamiast po cichu zaliczyć się gdzie indziej.
     Skanowanie mobilne pozycji nie zna i podaje `None` — działa jak dotąd.
+
+    `expected_plan_id` — skan z GŁÓWNEGO ekranu HMI (03.10.2026): pozycji nie
+    wybiera nikt, etykieta sama ją wskazuje, ale sztuka musi być z planu
+    widocznego na hali, a plan otwarty (`_guard_expected_plan`). Odpowiedź
+    niesie autorytatywne `planId`/`planLineId` i nazwę produktu.
     """
     unit_id = parse_unit_qr(code)
     if not unit_id:
@@ -349,6 +407,7 @@ def scan_produced(
         )
         if not unit:
             raise HTTPException(404, "Sztuka nie znaleziona")
+        line = _guard_expected_plan(conn, unit, expected_plan_id) if expected_plan_id else None
         # Sprawdzamy pozycję PRZED zmianą statusu — odbita sztuka ma zostać
         # nietknięta, żeby dało się ją zeskanować na właściwej pozycji.
         if plan_line_id and (unit.get("plan_line_id") or "") != plan_line_id:
@@ -389,12 +448,23 @@ def scan_produced(
             """,
             (unit.get("plan_line_id"),),
         )
+        if line is None and unit.get("plan_line_id"):
+            line = cx_query_one(
+                conn,
+                "SELECT id, plan_id, recipe_name, product_type_name "
+                "FROM production_plan_lines WHERE id=%s",
+                (unit.get("plan_line_id"),),
+            )
+        line = line or {}
         return {
             "ok": True,
             "unitId": unit_id,
             "status": new_status,
             "goodsId": goods_id,
+            "planId": line.get("plan_id") or "",
             "planLineId": unit.get("plan_line_id") or "",
+            "recipeName": line.get("recipe_name") or "",
+            "productTypeName": line.get("product_type_name") or "",
             "onStock": bool(goods_id),
             "clientName": unit.get("client_name") or "",
             "batchNo": unit.get("batch_no") or "",

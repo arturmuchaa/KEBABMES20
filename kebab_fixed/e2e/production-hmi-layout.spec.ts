@@ -23,7 +23,11 @@ const IMIONA = [
   'MYKOLA SHEVCHUK', 'ROMAN BOIKO', 'JAKUB ZIELIŃSKI', 'YURII KRAVCHENKO',
 ]
 
-interface Stan { plan: any; skany: Record<string, number>; patch: any[]; skanyWolania: any[] }
+interface Stan {
+  plan: any; skany: Record<string, number>; patch: any[]; skanyWolania: any[]
+  /** 20 hex z etykiety sztuki → pozycja planu (etykieta wskazuje pozycję, nie ekran). */
+  sztuki: Record<string, string>
+}
 
 const linia = (i: number) => {
   const qty = [15, 20, 10, 30, 8, 25][i % 6]
@@ -46,7 +50,7 @@ const nowyStan = (n: number): Stan => ({
     tablet_finished_at: null, office_confirmed_at: null,
     lines: Array.from({ length: n }, (_, i) => linia(i)),
   },
-  skany: {}, patch: [], skanyWolania: [],
+  skany: {}, patch: [], skanyWolania: [], sztuki: {},
 })
 
 const json = (route: Route, body: unknown, status = 200) =>
@@ -78,10 +82,14 @@ async function postaw(page: Page, stan: Stan) {
       if (p.endsWith('/finished-units/scan-produced')) {
         const body = route.request().postDataJSON()
         stan.skanyWolania.push(body)
-        const id = body.plan_line_id
+        const hex = String(body.code ?? '').match(/([0-9a-f]{20})$/i)?.[1]?.toLowerCase() ?? ''
+        const id = stan.sztuki[hex] ?? body.plan_line_id ?? 'l1'
+        if (body.expected_plan_id && body.expected_plan_id !== 'p1') return json(route, { detail: 'Sztuka z innego planu' }, 409)
+        const l = stan.plan.lines.find((x: any) => x.id === id)
         stan.skany[id] = (stan.skany[id] ?? 0) + 1
-        return json(route, { ok: true, unitId: 'u1', status: 'produced', clientName: 'Bulli sp. z o.o.',
-          batchNo: '250826 344', weightKg: 50, done: stan.skany[id], total: 15, onStock: true, planLineId: id })
+        return json(route, { ok: true, unitId: hex, status: 'produced', clientName: 'Bulli sp. z o.o.',
+          batchNo: '250826 344', weightKg: l.kg_per_unit, done: stan.skany[id], total: l.qty, onStock: true,
+          planId: 'p1', planLineId: id, recipeName: l.recipe_name, productTypeName: l.product_type_name })
       }
       if (p.endsWith('/workers')) {
         return json(route, IMIONA.map((name, i) => ({ id: `w${i + 1}`, name, role: 'WORKER_PRODUCTION', active: true })))
@@ -190,7 +198,7 @@ async function wskazowkaWidoczna(page: Page) {
 
 /**
  * Panel pozycji: teksty (nagłówek, „wykonano", licznik) i cele dotykowe
- * (ilości, ±, zapis, skan, korekta, szczegóły, kafle załogi) sprawdzane
+ * (ilości, ±, zapis, korekta, szczegóły, kafle załogi) sprawdzane
  * OSOBNO — tekst ma być czytelny, a nie wysoki jak przycisk.
  *
  * Każdy element musi leżeć w SWOIM kontenerze, nie tylko w oknie: kafel
@@ -213,7 +221,7 @@ async function panelWidoczny(page: Page) {
     const teksty = Object.fromEntries(['pozycja-naglowek', 'wykonano', 'licznik', 'skan-pozycji', 'wynik-zapisu']
       .map(id => [id, opis(q(`[data-testid="${id}"]`, panel))]))
     const przyciski = Object.fromEntries([
-      ...['ile-1', 'ile-3', 'ile-5', 'zapisz', 'skanuj-pozycje', 'korekta', 'szczegoly']
+      ...['ile-1', 'ile-3', 'ile-5', 'zapisz', 'korekta', 'szczegoly']
         .map(id => [id, q(`[data-testid="${id}"]`, panel)] as const),
       ['mniej', q('button[aria-label="mniej"]', panel)] as const,
       ['więcej', q('button[aria-label="więcej"]', panel)] as const,
@@ -254,12 +262,9 @@ async function panelWidoczny(page: Page) {
     expect(p.h, `${id}: cel dotykowy`).toBeGreaterThanOrEqual(36)
     expect(p.w, `${id}: cel dotykowy (szerokość)`).toBeGreaterThanOrEqual(36)
   }
-  for (const id of ['zapisz', 'skanuj-pozycje']) {
-    expect(m.przyciski[id].h, `${id}: główna ścieżka ≥ 44 px`).toBeGreaterThanOrEqual(44)
-  }
-  // Jedyna droga skanu bez wielokropka.
-  expect(m.przyciski['skanuj-pozycje'].pelny, 'skanuj-pozycje: napis nieucięty').toBe(true)
-  expect(m.przyciski['skanuj-pozycje'].tekst).not.toContain('…')
+  expect(m.przyciski.zapisz.h, 'zapisz: główna ścieżka ≥ 44 px').toBeGreaterThanOrEqual(44)
+  // Starej drogi „Skanuj tę pozycję" nie ma — skan idzie z głównego ekranu.
+  expect(await page.getByTestId('skanuj-pozycje').count()).toBe(0)
 
   // Załoga mieści się bez przewijania siatki kafli.
   expect(m.siatka.sh, 'siatka załogi: scrollHeight ≤ clientHeight').toBeLessThanOrEqual(m.siatka.ch + 1)
@@ -304,6 +309,9 @@ test.describe('Produkcja HMI — układ plan + panel', () => {
       await bezPrzewijania(page)
       await wierszeWidoczne(page, 30)
       await expect(page.getByTestId('plan-lista')).toHaveAttribute('data-cols', '2')
+      // Stały pasek skanera: cały w oknie, gotowy bez klikania.
+      await expect(page.getByTestId('pasek-skanera')).toBeInViewport({ ratio: 1 })
+      await expect(page.getByTestId('skaner-stan')).toHaveAttribute('data-gotowy', 'true')
 
       // Wybór pozycji — lista zostaje, panel obok.
       await page.getByTestId('pozycja-planu-l1').click()
@@ -322,6 +330,7 @@ test.describe('Produkcja HMI — układ plan + panel', () => {
       // Biuro zmienia plan → pasek zmian. Dalej wszystko na ekranie.
       stan.plan.lines[1].qty = 32
       await expect(page.getByTestId('pasek-zmian')).toBeVisible({ timeout: 30_000 })
+      await expect(page.getByTestId('pasek-skanera')).toBeInViewport({ ratio: 1 })
       await bezPrzewijania(page)
       await wierszeWidoczne(page, 30)
       await panelWidoczny(page)
@@ -359,7 +368,7 @@ test.describe('Produkcja HMI — układ plan + panel', () => {
       expect(poziomo.sw).toBeLessThanOrEqual(poziomo.cw + 1)
       expect(poziomo.oy).toBe('auto')
       // Kontrolki panelu da się przewinąć do widoku i trafić.
-      for (const id of ['zapisz', 'skanuj-pozycje', 'korekta', 'pracownik-w15']) {
+      for (const id of ['zapisz', 'pole-skanu-glowne', 'skaner-bledy', 'korekta', 'pracownik-w15']) {
         const el = page.getByTestId(id)
         await el.scrollIntoViewIfNeeded()
         await expect(el).toBeInViewport()
@@ -370,9 +379,11 @@ test.describe('Produkcja HMI — układ plan + panel', () => {
     })
   }
 
-  test('StrictMode: zapis sztuk i seria skanów na prawdziwym entry', async ({ page }) => {
+  test('StrictMode: zapis sztuk, potem seria skanów PROSTO z głównego ekranu', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 })
     const stan = nowyStan(30)
+    const A = 'a'.repeat(20), B = 'b'.repeat(20), C = 'c'.repeat(20), D = 'd'.repeat(20)
+    stan.sztuki = { [A]: 'l5', [B]: 'l2', [C]: 'l5', [D]: 'l9' }
     await wejdz(page, stan)
 
     await page.getByTestId('pozycja-planu-l2').click()
@@ -383,27 +394,40 @@ test.describe('Produkcja HMI — układ plan + panel', () => {
     await expect(page.getByTestId('wykonano')).toHaveText('3/20')
     expect(stan.patch).toHaveLength(1)
 
-    await page.getByTestId('skanuj-pozycje').click()
-    const pole = page.getByTestId('pole-skanu')
-    await expect(pole).toBeFocused()
-    for (const kod of ['U|aaaaaaaaaaaaaaaaaaaa', 'U|bbbbbbbbbbbbbbbbbbbb']) {
-      await pole.fill(kod)
-      await pole.press('Enter')
-      await expect(page.getByTestId('kolejka-skanow')).toHaveCount(0)
-    }
-    await expect(page.getByTestId('zeskanowano-teraz')).toHaveText('2')
-    await expect(page.getByTestId('ostatni-skan')).toContainText('Na magazynie')
-    await expect(pole).toBeFocused()
-    expect(stan.skanyWolania.map(s => s.plan_line_id)).toEqual(['l2', 'l2'])
+    // Skaner gotowy bez klikania; fokus stoi na „Zakończ dzień". Skaner
+    // wystukuje kody jednym ciągiem, bez opóźnień i bez Entera (kod sztuki
+    // ma stałą długość), na końcu sufiks Enter — nie może kliknąć przycisku.
+    await expect(page.getByTestId('skaner-stan')).toHaveAttribute('data-gotowy', 'true')
+    await page.getByRole('button', { name: 'Zakończ dzień' }).focus()
+    await page.keyboard.type(`U|${A}U|${B}U|${C}`)
+    await page.keyboard.press('Enter')
 
-    // Tab nie wychodzi z okna skanu na listę pod spodem.
-    for (let i = 0; i < 4; i++) {
-      await page.keyboard.press('Tab')
-      expect(await page.evaluate(() => !!document.activeElement?.closest('[data-testid="okno-skanu"]'))).toBe(true)
-    }
-    await page.getByTestId('zamknij-skan').click()
-    await expect(page.getByTestId('okno-skanu')).toHaveCount(0)
-    await expect(page.getByTestId('plan-lista')).toBeVisible()
+    await expect(page.getByTestId('skaner-zapisane-liczba')).toHaveText('3')
+    await expect(page.getByTestId('skaner-oczekujace-liczba')).toHaveText('0')
+    expect(stan.skanyWolania.map(s => [s.code, s.plan_line_id, s.expected_plan_id])).toEqual([
+      [`U|${A}`, null, 'p1'], [`U|${B}`, null, 'p1'], [`U|${C}`, null, 'p1'],
+    ])
+    // Liczniki z odpowiedzi serwera, per pozycja z etykiety.
+    await expect(page.getByTestId('skan-l5')).toContainText('2/8')
+    await expect(page.getByTestId('skan-l2')).toContainText('1/20')
+    await expect(page.getByTestId('skaner-ostatni')).toContainText(RECEPTURY[4])
+    // Nic nie kliknięte, nic nie przestawione: bez podsumowania, ten sam wybór i osoba, zero PATCH.
+    await expect(page.getByTestId('zakoncz')).toHaveCount(0)
+    await expect(page.getByTestId('pozycja-planu-l2')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('pracownik-w3')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('wykonano')).toHaveText('3/20')
+    expect(stan.patch).toHaveLength(1)
+
+    // Sufiks Tab przy fokusie na „Wyloguj" — sesja zostaje.
+    await page.getByRole('button', { name: 'Wyloguj' }).focus()
+    await page.keyboard.type(`U|${D}`)
+    await page.keyboard.press('Tab')
+    await expect(page.getByTestId('skaner-zapisane-liczba')).toHaveText('4')
+    await expect(page.getByTestId('hmi-produkcja-glowny')).toBeVisible()
+    await expect(page.getByTestId('skan-l9')).toContainText('1/')
+
+    await bezPrzewijania(page)
+    await expect(page.getByTestId('pasek-skanera')).toBeInViewport({ ratio: 1 })
     await page.screenshot({ path: '/tmp/opencode/production-hmi-strictmode-skan.png' })
   })
 })

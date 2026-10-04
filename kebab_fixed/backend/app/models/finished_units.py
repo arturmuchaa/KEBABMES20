@@ -14,3 +14,8 @@ class ScanProducedRequest(BaseModel):
     # Pozycja wybrana na HMI produkcji — skan zamknięty na jedną pozycję planu.
     # Skanowanie mobilne pozycji nie zna i zostawia None.
     plan_line_id: Optional[str] = None
+    # Plan widoczny na HMI w chwili odczytu skanu (skanowanie z głównego
+    # ekranu, bez wyboru pozycji). Sztuka musi należeć do TEGO planu, a plan
+    # musi być otwarty — inaczej odmowa bez żadnego zapisu. None = dotychczasowe
+    # zachowanie (mobile, stare HMI).
+    expected_plan_id: Optional[str] = None

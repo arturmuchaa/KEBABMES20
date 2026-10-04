@@ -2564,6 +2564,10 @@ export interface ScanProducedResult {
   goodsId?: string | null
   /** Pozycja planu, na której wylądował skan. */
   planLineId?: string
+  /** Plan pozycji — z serwera, nie z ekranu (od 03.10.2026). */
+  planId?: string
+  recipeName?: string
+  productTypeName?: string
 }
 
 export const finishedUnitsApi = {
@@ -2572,10 +2576,18 @@ export const finishedUnitsApi = {
       '/finished-units/from-plan-line', { plan_line_id: planLineId }),
   /** `planLineId` — pozycja wybrana na HMI produkcji. Sztuka z innej pozycji
    *  odbija się z 409 i nazwą tej właściwej. Skanowanie mobilne pozycji nie
-   *  zna i zostawia pole puste (zachowanie jak dotąd). */
-  scanProduced: (code: string, trolleyId?: string, planLineId?: string) =>
-    post<ScanProducedResult>('/finished-units/scan-produced',
-      { code, trolley_id: trolleyId ?? null, plan_line_id: planLineId ?? null }),
+   *  zna i zostawia pole puste (zachowanie jak dotąd).
+   *
+   *  `opts.expectedPlanId` — skan z głównego ekranu HMI bez wyboru pozycji:
+   *  plan widoczny w chwili odczytu. Serwer odrzuca sztukę z innego planu,
+   *  zdjętej pozycji albo z planu zamkniętego / wysłanego do biura — bez
+   *  żadnego zapisu. Bez `opts` ciało żądania jest takie jak dotąd. */
+  scanProduced: (code: string, trolleyId?: string, planLineId?: string,
+                 opts?: { expectedPlanId?: string }) =>
+    post<ScanProducedResult>('/finished-units/scan-produced', {
+      code, trolley_id: trolleyId ?? null, plan_line_id: planLineId ?? null,
+      ...(opts?.expectedPlanId ? { expected_plan_id: opts.expectedPlanId } : {}),
+    }),
   /** Postęp skanowania per pozycja planu — źródło stanu POTWIERDZONE na HMI. */
   planScanProgress: (planId: string) =>
     get<{ planLineId: string; total: number; scanned: number }[]>(

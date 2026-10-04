@@ -13,10 +13,21 @@
  *
  * Flow od 01.10.2026: plan stoi po lewej cały czas, panel liczenia po prawej.
  * Osobę wybiera się JAWNIE, odejmowanie siedzi w „Korekta", tuleja
- * i rozliczenie w szczegółach pozycji, skan tylko z „Skanuj tę pozycję".
+ * i rozliczenie w szczegółach pozycji. Skan (od 03.10.2026) idzie PROSTO
+ * z głównego ekranu — bez wyboru pozycji i bez okna; „Skanuj tę pozycję"
+ * zniknęło.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, within, act } from '@testing-library/react'
+
+// jsdom nie zna PointerEvent — bez tego `fireEvent.pointerDown` (przytrzymanie
+// wiersza) tworzy goły Event bez przycisku i współrzędnych.
+if (typeof (window as any).PointerEvent === 'undefined') {
+  ;(window as any).PointerEvent = class extends MouseEvent {
+    pointerId: number
+    constructor(type: string, init: any = {}) { super(type, init); this.pointerId = init.pointerId ?? 1 }
+  }
+}
 
 const stan = vi.hoisted(() => ({
   plany: [] as any[],
@@ -26,6 +37,9 @@ const stan = vi.hoisted(() => ({
   opakowania: [] as any[],
   /** Postęp skanowania per pozycja planu: { [planLineId]: { total, scanned } }. */
   skanPozycji: {} as Record<string, { total: number; scanned: number }>,
+  /** Kod sztuki (małe litery) → pozycja planu, z której jest etykieta. */
+  sztukaPozycji: {} as Record<string, string>,
+  zeskanowane: new Set<string>(),
   przerwy: [] as any[],
 }))
 const wolania = vi.hoisted(() => ({
@@ -53,13 +67,42 @@ const wolania = vi.hoisted(() => ({
   puscPatch: (() => {}) as () => void,
   /** Lista planów zamrożona na starym stanie (zawieszone/stare odpytywanie). */
   staraLista: null as any[] | null,
+  /** POST skanu czeka, aż test go puści (`puscSkan.shift()()`). */
+  wstrzymajSkan: false,
+  puscSkan: [] as (() => void)[],
+  /** Odczyt postępu skanów czeka (`puscPostep.shift()()`) — oddaje stan z chwili wyjścia. */
+  wstrzymajPostep: false,
+  puscPostep: [] as (() => void)[],
+  odczytyPostepu: [] as string[],
+  /** Odczyty listy planów (`productionPlansApi.list`). */
+  odczytyListy: 0,
+  /** Lista planów pada (brak łączności). */
+  listaBlad: false,
+  /** Lista planów czeka (`puscListe.shift()!.ok()` / `.blad()`). */
+  wstrzymajListe: false,
+  puscListe: [] as { ok: () => void; blad: () => void }[],
+  /** Odczyt przerw czeka (`puscPrzerwy.shift()!()`). */
+  wstrzymajPrzerwy: false,
+  puscPrzerwy: [] as (() => void)[],
+  /** POST-y skanu w locie teraz i najwięcej naraz. */
+  skanyWLocie: 0,
+  maxSkanowWLocie: 0,
+  wyloguj: null as any,
 }))
 
 const kopia = <T,>(x: T): T => JSON.parse(JSON.stringify(x))
 
 vi.mock('@/lib/api', () => ({
   productionPlansApi: {
-    list: () => Promise.resolve(kopia(wolania.staraLista ?? stan.plany)),
+    list: () => {
+      wolania.odczytyListy += 1
+      if (wolania.listaBlad) return Promise.reject(new Error('brak łączności'))
+      const wynik = () => kopia(wolania.staraLista ?? stan.plany)
+      if (wolania.wstrzymajListe) {
+        return new Promise((r, j) => { wolania.puscListe.push({ ok: () => r(wynik()), blad: () => j(new Error('timeout')) }) })
+      }
+      return Promise.resolve(wynik())
+    },
     byId: (id: string) => {
       wolania.odczyty.push(id)
       if (wolania.odczytBlad) return Promise.reject(new Error('timeout'))
@@ -111,7 +154,10 @@ vi.mock('@/lib/api', () => ({
       for (const b of stan.przerwy) if (!b.endedAt) b.endedAt = new Date().toISOString()
       return Promise.resolve({ ok: true })
     },
-    breaks: () => Promise.resolve(kopia(stan.przerwy)),
+    breaks: () => {
+      if (wolania.wstrzymajPrzerwy) return new Promise(r => { wolania.puscPrzerwy.push(() => r(kopia(stan.przerwy))) })
+      return Promise.resolve(kopia(stan.przerwy))
+    },
     changeLinePackaging: (planId: string, lineId: string, packagingId: string) => {
       wolania.tuleja.push({ planId, lineId, packagingId })
       if (wolania.tulejaBlad) return Promise.reject(new Error('brak łączności'))
@@ -127,24 +173,46 @@ vi.mock('@/lib/api', () => ({
   },
   finishedUnitsApi: {
     // Skan NIE rusza qtyDone — tak jak backend: `done` to liczba SKANÓW pozycji.
-    scanProduced: (code: string, _trolleyId?: string, planLineId?: string) => {
-      wolania.skany.push({ code, planLineId })
-      const l = stan.plany[0].lines.find((x: any) => x.id === planLineId) ?? stan.plany[0].lines[0]
-      const s = stan.skanPozycji[l.id] ?? { total: l.qty, scanned: 0 }
-      stan.skanPozycji[l.id] = { total: s.total, scanned: s.scanned + 1 }
-      return Promise.resolve({
-        ok: true, unitId: 'u1', status: 'produced', clientName: 'Bulli sp. z o.o.',
-        batchNo: '250826 344', weightKg: 35, done: s.scanned + 1, total: s.total, onStock: true,
-        planLineId: l.id,
-      })
+    // Pozycję wskazuje ETYKIETA (kod sztuki), nie ekran: `sztukaPozycji`.
+    scanProduced: (code: string, trolleyId?: string, planLineId?: string, opts?: { expectedPlanId?: string }) => {
+      wolania.skany.push({ code, trolleyId, planLineId, expectedPlanId: opts?.expectedPlanId })
+      const odpowiedz = () => {
+        const lineId = stan.sztukaPozycji[code.toLowerCase()] ?? planLineId ?? stan.plany[0].lines[0].id
+        const plan = stan.plany.find((p: any) => p.lines.some((x: any) => x.id === lineId)) ?? stan.plany[0]
+        const l = plan.lines.find((x: any) => x.id === lineId)
+        if (opts?.expectedPlanId && opts.expectedPlanId !== plan.id) {
+          return Promise.reject(Object.assign(new Error('Sztuka z innego planu'), { status: 409 }))
+        }
+        if (stan.zeskanowane.has(code)) {
+          return Promise.reject(Object.assign(new Error('Sztuka już zeskanowana (duplikat)'), { status: 409 }))
+        }
+        stan.zeskanowane.add(code)
+        const s = stan.skanPozycji[l.id] ?? { total: l.qty, scanned: 0 }
+        stan.skanPozycji[l.id] = { total: s.total, scanned: s.scanned + 1 }
+        return Promise.resolve({
+          ok: true, unitId: code, status: 'produced', clientName: 'Bulli sp. z o.o.',
+          batchNo: '250826 344', weightKg: l.kgPerUnit, done: s.scanned + 1, total: s.total, onStock: true,
+          planId: plan.id, planLineId: l.id, recipeName: l.recipeName, productTypeName: l.productTypeName,
+        })
+      }
+      wolania.skanyWLocie += 1
+      wolania.maxSkanowWLocie = Math.max(wolania.maxSkanowWLocie, wolania.skanyWLocie)
+      const p: Promise<any> = wolania.wstrzymajSkan
+        ? new Promise((r, j) => { wolania.puscSkan.push(() => { odpowiedz().then(r, j) }) })
+        : odpowiedz()
+      return p.finally(() => { wolania.skanyWLocie -= 1 })
     },
-    planScanProgress: () => Promise.resolve(
-      (stan.plany[0]?.lines ?? []).map((l: any) => ({
+    planScanProgress: (planId: string) => {
+      wolania.odczytyPostepu.push(planId)
+      // Migawka z CHWILI wywołania — wstrzymany odczyt oddaje stary stan.
+      const rows = (stan.plany.find((p: any) => p.id === planId)?.lines ?? []).map((l: any) => ({
         planLineId: l.id,
         total: stan.skanPozycji[l.id]?.total ?? 0,
         scanned: stan.skanPozycji[l.id]?.scanned ?? 0,
-      })),
-    ),
+      }))
+      if (wolania.wstrzymajPostep) return new Promise(r => { wolania.puscPostep.push(() => r(rows)) })
+      return Promise.resolve(rows)
+    },
   },
   wrappingApi: {
     forDay: () => Promise.resolve(kopia(stan.foliowanie)),
@@ -169,7 +237,7 @@ vi.mock('@/lib/api', () => ({
 }))
 
 vi.mock('@/features/auth/AuthContext', () => ({
-  useAuth: () => ({ user: { name: 'MARCIN NOWAK' }, logout: vi.fn(), loading: false }),
+  useAuth: () => ({ user: { name: 'MARCIN NOWAK' }, logout: wolania.wyloguj ?? (() => {}), loading: false }),
 }))
 
 import { ProductionHmiPage } from './ProductionHmiPage'
@@ -211,9 +279,16 @@ beforeEach(() => {
   // Domyślnie biuro wydrukowało etykiety na obie pozycje, ale nic jeszcze
   // nie zeskanowano — czyli stan, w którym hala zaczyna dzień.
   stan.skanPozycji = { l1: { total: 20, scanned: 0 }, l2: { total: 10, scanned: 0 } }
+  stan.sztukaPozycji = {}; stan.zeskanowane = new Set()
   stan.przerwy = []; wolania.przerwy = []
+  wolania.wstrzymajSkan = false; wolania.puscSkan = []
+  wolania.wstrzymajPostep = false; wolania.puscPostep = []; wolania.odczytyPostepu = []
+  wolania.odczytyListy = 0; wolania.listaBlad = false; wolania.wstrzymajListe = false; wolania.puscListe = []
+  wolania.wstrzymajPrzerwy = false; wolania.puscPrzerwy = []
+  wolania.skanyWLocie = 0; wolania.maxSkanowWLocie = 0
+  wolania.wyloguj = vi.fn()
 })
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.useRealTimers() })
 
 // ── Pomocniki flow: pozycja z listy → osoba → ilość → „Dodaj" ──
 const ekran = () => render(<ProductionHmiPage buildLabel="test" />)
@@ -224,6 +299,20 @@ const dodaj = () => fireEvent.click(screen.getByTestId('zapisz'))
 /** Zapis zakończony: blokada zdjęta, przycisk znów żyje. */
 const poZapisie = () => waitFor(() => expect(przycisk('zapisz').disabled).toBe(false))
 const szczegoly = () => fireEvent.click(screen.getByTestId('szczegoly'))
+
+// ── Skaner HID: znaki lecą jak z klawiatury, bez Entera (kod sztuki ma stałą długość) ──
+const sztuka = (n: string) => `u${n.padStart(20, '0')}`
+const SZT_A1 = sztuka('a1'), SZT_A2 = sztuka('a2'), SZT_A3 = sztuka('a3')
+const SZT_B1 = sztuka('b1'), SZT_B2 = sztuka('b2')
+/** Wystukuje kod na elemencie z fokusem (domyślnie body); zwraca, czy sufiks przeszedł dalej. */
+const skanuj = (kod: string, cel: Element = document.body, sufiks?: 'Enter' | 'Tab') => {
+  for (const ch of kod) fireEvent.keyDown(cel, { key: ch })
+  return sufiks ? fireEvent.keyDown(cel, { key: sufiks }) : true
+}
+/** Skaner przyjmuje kody dopiero, gdy zna plan i JEGO przerwy (pierwszy odczyt przerw). */
+const skanerGotowy = () => waitFor(() => expect(screen.getByTestId('skaner-stan').dataset.gotowy).toBe('true'))
+const skanPoz = (id: string) => screen.getByTestId(`skan-${id}`).textContent?.replace('▥', '')
+const liczba = (id: string) => screen.getByTestId(`${id}-liczba`).textContent
 
 describe('ProductionHmiPage — okablowanie', () => {
   it('plan dnia wczytuje się SAM, bez wybierania z listy', async () => {
@@ -380,7 +469,7 @@ describe('ProductionHmiPage — plan obok panelu, seria zapisów', () => {
     expect(screen.getByTestId('pozycja-planu-l1')).toBeTruthy()
   })
 
-  it('po dobiciu planu pozycji panel ZOSTAJE — teraz się ją skanuje', async () => {
+  it('po dobiciu planu pozycji panel ZOSTAJE — skan i tak idzie z głównego ekranu', async () => {
     stan.plany[0].lines[1].qtyDone = 8
     stan.plany[0].lines[1].workerEntries = [{ workerId: 'w1', workerName: 'DAWID NOWAK', pieces: 8, addedAt: '10:00' }]
     ekran()
@@ -390,7 +479,9 @@ describe('ProductionHmiPage — plan obok panelu, seria zapisów', () => {
     expect(screen.getByTestId('panel-pozycji')).toBeTruthy()
     expect(screen.getByTestId('plan-lista')).toBeTruthy()
     expect(przycisk('zapisz').textContent).toMatch(/komplet/)
-    expect(przycisk('skanuj-pozycje').disabled).toBe(false)
+    // Starej drogi „Skanuj tę pozycję" nie ma — skaner stoi gotowy na pasku.
+    expect(screen.queryByTestId('skanuj-pozycje')).toBeNull()
+    expect(screen.getByTestId('skaner-stan').dataset.gotowy).toBe('true')
   })
 
   it('bez wybranej osoby zapis jest zablokowany i nic nie idzie na serwer', async () => {
@@ -469,18 +560,21 @@ describe('ProductionHmiPage — plan obok panelu, seria zapisów', () => {
     await waitFor(() => expect(screen.getByTestId('wykonano').textContent).toBe('1/20'))
   })
 
-  it('zapis w locie blokuje skan, zmianę tulei i przepisanie tej pozycji', async () => {
+  it('zapis w locie wstrzymuje skaner, blokuje zmianę tulei i przepisanie tej pozycji', async () => {
     stan.plany[0].lines[0].qtyDone = 2
     stan.plany[0].lines[0].workerEntries = [{ workerId: 'w1', workerName: 'DAWID NOWAK', pieces: 2, addedAt: '10:00' }]
+    stan.sztukaPozycji = { [SZT_A1]: 'l1', [SZT_A2]: 'l1' }
     ekran()
     await wiersz('l1'); osoba('w1')
     wolania.wstrzymajPatch = true
     dodaj()
     await waitFor(() => expect(wolania.postep).toHaveLength(1))
 
-    expect(przycisk('skanuj-pozycje').disabled).toBe(true)
-    fireEvent.click(screen.getByTestId('skanuj-pozycje'))
-    expect(screen.queryByTestId('okno-skanu')).toBeNull()
+    // Ręczna mutacja w locie: skaner jawnie wstrzymany, skan NIE idzie na serwer.
+    expect(screen.getByTestId('skaner-stan').textContent).toMatch(/wstrzymany: zapis sztuk/)
+    skanuj(SZT_A1)
+    expect(wolania.skany).toHaveLength(0)
+    expect(screen.getByTestId('skaner-bledy-licznik').textContent).toBe('1')
     fireEvent.click(screen.getByTestId('korekta'))
     expect(przycisk('przepisz').disabled).toBe(true)
     szczegoly()
@@ -491,7 +585,10 @@ describe('ProductionHmiPage — plan obok panelu, seria zapisów', () => {
     fireEvent.click(screen.getByTestId('zamknij-szczegoly'))
 
     wolania.puscPatch()
-    await waitFor(() => expect(przycisk('skanuj-pozycje').disabled).toBe(false))
+    // Po zapisie skaner wraca sam — bez klikania.
+    await waitFor(() => expect(screen.getByTestId('skaner-stan').dataset.gotowy).toBe('true'))
+    skanuj(SZT_A2)
+    await waitFor(() => expect(wolania.skany.map(s => s.code)).toEqual([SZT_A2]))
   })
 
   it('przejście na inną pozycję w trakcie zapisu: sztuki idą tam, gdzie kliknięto, wynik w dymku', async () => {
@@ -853,22 +950,255 @@ describe('ProductionHmiPage — poprawka „nie ta osoba"', () => {
   })
 })
 
-describe('ProductionHmiPage — skanowanie na magazyn', () => {
-  it('jedna droga: pozycja z listy → „Skanuj tę pozycję" → skan niesie jej id', async () => {
+describe('ProductionHmiPage — skan prosto z głównego ekranu', () => {
+  const czekajNaPlan = async () => { await screen.findByText('WROCŁAW'); await skanerGotowy() }
+
+  it('BEZ kliknięcia: A, B, A z różnych pozycji → plan p1, bez narzuconej pozycji, bez lookupu i qtyDone', async () => {
+    stan.sztukaPozycji = { [SZT_A1]: 'l1', [SZT_B1]: 'l2', [SZT_A2]: 'l1' }
     ekran()
-    await wiersz('l2')
-    fireEvent.click(screen.getByTestId('skanuj-pozycje'))
+    await czekajNaPlan()
+    expect(screen.queryByTestId('skanuj-pozycje')).toBeNull()
 
-    expect((await screen.findByTestId('wybrana-pozycja')).textContent).toMatch(/KIRMIZI/)
-    const pole = screen.getByTestId('pole-skanu')
-    fireEvent.change(pole, { target: { value: 'KEBAB-u1' } })
-    fireEvent.submit((pole as HTMLInputElement).closest('form')!)
+    skanuj(SZT_A1); skanuj(SZT_B1); skanuj(SZT_A2)
 
-    await waitFor(() => expect(wolania.skany).toEqual([{ code: 'KEBAB-u1', planLineId: 'l2' }]))
-    expect(await screen.findByText(/Na magazynie/i)).toBeTruthy()
-    await waitFor(() => expect(screen.getByTestId('postep-pozycji').textContent).toBe('1 / 10'))
-    // Skan NIE dolicza sztuk — liczy je operator, skan tylko potwierdza.
+    await waitFor(() => expect(liczba('skaner-zapisane')).toBe('3'))
+    expect(wolania.skany).toEqual([SZT_A1, SZT_B1, SZT_A2].map(code => ({
+      code, trolleyId: undefined, planLineId: undefined, expectedPlanId: 'p1',
+    })))
+    // Liczniki z odpowiedzi serwera (done), per pozycja — nie z zaznaczenia.
+    expect(skanPoz('l1')).toBe('2/20')
+    expect(skanPoz('l2')).toBe('1/10')
+    expect(screen.getByTestId('kafel-skanowanie').textContent).toMatch(/3 \/ 30/)
+    expect(screen.getByTestId('skaner-ostatni').textContent).toMatch(/WROCŁAW/)
+    expect(screen.getByTestId('skaner-ostatni').textContent).toMatch(/35 kg/)
+    // Zero odczytu pozycji przed skanem, zero zapisu sztuk/pracy.
+    expect(wolania.odczyty).toHaveLength(0)
     expect(wolania.postep).toHaveLength(0)
+    expect(screen.queryByTestId('panel-pozycji')).toBeNull()
+  })
+
+  it('skan NIE rusza ręcznie wybranej pozycji ani osoby; znacznik ostatniego skanu osobno', async () => {
+    stan.sztukaPozycji = { [SZT_A1]: 'l1' }
+    ekran()
+    await wiersz('l2'); osoba('w2')
+    await skanerGotowy()
+    skanuj(SZT_A1)
+    await waitFor(() => expect(liczba('skaner-zapisane')).toBe('1'))
+
+    expect(przycisk('pozycja-planu-l2').getAttribute('aria-pressed')).toBe('true')
+    expect(przycisk('pozycja-planu-l1').getAttribute('aria-pressed')).toBe('false')
+    await waitFor(() => expect(przycisk('pracownik-w2').getAttribute('aria-pressed')).toBe('true'))
+    expect(screen.getByTestId('skan-l1').dataset.ostatniSkan).toBe('true')
+    expect(screen.getByTestId('skaner-ostatni').textContent).toMatch(/poz\. 1/)
+    expect(wolania.postep).toHaveLength(0)
+  })
+
+  it('sufiks Enter/Tab skanu przy fokusie na „Zakończ dzień", „Wyloguj", „Dodaj" ich NIE uruchamia', async () => {
+    stan.sztukaPozycji = { [SZT_A1]: 'l1', [SZT_A2]: 'l1', [SZT_A3]: 'l1' }
+    ekran()
+    await wiersz('l1'); osoba('w1')
+    await skanerGotowy()
+
+    const zakoncz = screen.getByRole('button', { name: 'Zakończ dzień' })
+    zakoncz.focus()
+    expect(skanuj(SZT_A1, zakoncz, 'Enter')).toBe(false)  // preventDefault = brak kliknięcia
+    await waitFor(() => expect(liczba('skaner-zapisane')).toBe('1'))
+
+    const wyloguj = screen.getByRole('button', { name: 'Wyloguj' })
+    wyloguj.focus()
+    expect(skanuj(SZT_A2, wyloguj, 'Tab')).toBe(false)
+    await waitFor(() => expect(liczba('skaner-zapisane')).toBe('2'))
+
+    const dodajBtn = przycisk('zapisz')
+    await waitFor(() => expect(dodajBtn.disabled).toBe(false))
+    dodajBtn.focus()
+    expect(skanuj(SZT_A3, dodajBtn, 'Enter')).toBe(false)
+    await waitFor(() => expect(liczba('skaner-zapisane')).toBe('3'))
+
+    expect(screen.queryByTestId('zakoncz')).toBeNull()       // podsumowanie się nie otworzyło
+    expect(wolania.postep).toHaveLength(0)
+    expect(wolania.skany.map(s => s.code)).toEqual([SZT_A1, SZT_A2, SZT_A3])
+  })
+
+  it('okno (statystyki) wstrzymuje skaner: zero POST, powód na pasku, błąd na liście', async () => {
+    stan.sztukaPozycji = { [SZT_A1]: 'l1' }
+    ekran()
+    await czekajNaPlan()
+    fireEvent.click(screen.getByRole('button', { name: /Statystyki/i }))
+    expect(screen.getByTestId('skaner-stan').textContent).toMatch(/wstrzymany: otwarte okno/)
+    skanuj(SZT_A1)
+    expect(wolania.skany).toHaveLength(0)
+    expect(screen.getByTestId('skaner-bledy-licznik').textContent).toBe('1')
+    fireEvent.click(screen.getByTestId('skaner-bledy'))
+    expect(screen.getByTestId('blad-skanu').textContent).toMatch(new RegExp(SZT_A1))
+  })
+
+  it('przerwa: zero POST; po „Wracam do pracy" skaner odbiera sam, bez klikania', async () => {
+    stan.sztukaPozycji = { [SZT_A1]: 'l1', [SZT_A2]: 'l1' }
+    ekran()
+    await czekajNaPlan()
+    fireEvent.click(screen.getByRole('button', { name: 'Przerwa' }))
+    expect(screen.getByTestId('skaner-stan').textContent).toMatch(/wstrzymany: przerwa/)
+    skanuj(SZT_A1)
+    expect(wolania.skany).toHaveLength(0)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Wracam do pracy' }))
+    await waitFor(() => expect(screen.getByTestId('skaner-stan').dataset.gotowy).toBe('true'))
+    skanuj(SZT_A2)
+    await waitFor(() => expect(wolania.skany.map(s => s.code)).toEqual([SZT_A2]))
+  })
+
+  it('dzień wysłany do biura: skaner wstrzymany, pole wyłączone, zero POST', async () => {
+    stan.plany[0].tabletFinishedAt = '2026-10-03T15:00:00Z'
+    stan.sztukaPozycji = { [SZT_A1]: 'l1' }
+    ekran()
+    await screen.findByText('WROCŁAW')
+    expect(screen.getByTestId('skaner-stan').textContent).toMatch(/wysłany do biura/)
+    expect((screen.getByTestId('pole-skanu-glowne') as HTMLInputElement).disabled).toBe(true)
+    skanuj(SZT_A1)
+    expect(wolania.skany).toHaveLength(0)
+  })
+
+  it('brak planu: skaner wstrzymany, zero POST', async () => {
+    stan.plany = []
+    ekran()
+    await screen.findByTestId('pasek-skanera')
+    expect(screen.getByTestId('skaner-stan').textContent).toMatch(/brak aktywnego planu/)
+    skanuj(SZT_A1)
+    expect(wolania.skany).toHaveLength(0)
+  })
+
+  it('kolejka: jeden POST w locie, FIFO; kody w kolejce blokują Zakończ dzień / Wyloguj / Przerwę / Dodaj', async () => {
+    stan.sztukaPozycji = { [SZT_A1]: 'l1', [SZT_B1]: 'l2', [SZT_A2]: 'l1' }
+    ekran()
+    await wiersz('l1'); osoba('w1')
+    await skanerGotowy()
+    wolania.wstrzymajSkan = true
+    skanuj(SZT_A1); skanuj(SZT_B1); skanuj(SZT_A2)
+
+    await waitFor(() => expect(wolania.skany).toHaveLength(1))
+    expect(liczba('skaner-oczekujace')).toBe('3')
+    const zakoncz = screen.getByRole('button', { name: 'Zakończ dzień' }) as HTMLButtonElement
+    const wyloguj = screen.getByRole('button', { name: 'Wyloguj' }) as HTMLButtonElement
+    const przerwa = screen.getByRole('button', { name: 'Przerwa' }) as HTMLButtonElement
+    expect([zakoncz.disabled, wyloguj.disabled, przerwa.disabled, przycisk('zapisz').disabled]).toEqual([true, true, true, true])
+    fireEvent.click(zakoncz); fireEvent.click(przerwa)
+    expect(screen.queryByTestId('zakoncz')).toBeNull()
+    expect(wolania.przerwy).toHaveLength(0)
+    // Natywne ostrzeżenie przy zamykaniu karty z kodami w kolejce.
+    const ev = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+
+    wolania.puscSkan.shift()!()
+    await waitFor(() => expect(wolania.skany).toHaveLength(2))
+    wolania.puscSkan.shift()!()
+    await waitFor(() => expect(wolania.skany).toHaveLength(3))
+    wolania.puscSkan.shift()!()
+    await waitFor(() => expect(liczba('skaner-zapisane')).toBe('3'))
+    expect(wolania.skany.map(s => s.code)).toEqual([SZT_A1, SZT_B1, SZT_A2])
+    await waitFor(() => expect(zakoncz.disabled).toBe(false))
+    expect(wyloguj.disabled).toBe(false)
+    const ev2 = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(ev2)
+    expect(ev2.defaultPrevented).toBe(false)
+  })
+
+  it('błąd w środku serii nie zatrzymuje następnych; dubel i obcy plan nie zmieniają liczników', async () => {
+    stan.plany.push({
+      id: 'p0', planNo: 'PP/0', planDate: '2026-01-01', status: 'done',
+      tabletFinishedAt: null, officeConfirmedAt: null, lines: [pozycja({ id: 'l9' })],
+    })
+    stan.sztukaPozycji = { [SZT_A1]: 'l1', [SZT_B1]: 'l2', [SZT_B2]: 'l9', [SZT_A2]: 'l1' }
+    stan.zeskanowane.add(SZT_B1)                       // już na magazynie
+    ekran()
+    await czekajNaPlan()
+    skanuj(SZT_A1); skanuj(SZT_B1); skanuj(SZT_B2); skanuj(SZT_A2)
+
+    await waitFor(() => expect(wolania.skany).toHaveLength(4))
+    await waitFor(() => expect(liczba('skaner-zapisane')).toBe('2'))
+    expect(screen.getByTestId('skaner-bledy-licznik').textContent).toBe('2')
+    expect(skanPoz('l1')).toBe('2/20')
+    expect(skanPoz('l2')).toBe('0/10')
+    fireEvent.click(screen.getByTestId('skaner-bledy'))
+    const bledy = screen.getAllByTestId('blad-skanu').map(b => b.textContent)
+    expect(bledy.some(t => t?.includes(SZT_B2) && /innego planu/.test(t))).toBe(true)
+    expect(bledy.some(t => t?.includes(SZT_B1) && /już zeskanowana/.test(t))).toBe(true)
+  })
+
+  it('STARY odczyt postępu (wysłany przed skanem) nie cofa potwierdzonego licznika', async () => {
+    stan.sztukaPozycji = { [SZT_A1]: 'l1' }
+    wolania.wstrzymajPostep = true
+    ekran()
+    await czekajNaPlan()
+    await waitFor(() => expect(wolania.puscPostep.length).toBeGreaterThan(0))  // odczyt wyszedł: l1 = 0
+
+    skanuj(SZT_A1)
+    await waitFor(() => expect(skanPoz('l1')).toBe('1/20'))
+
+    wolania.wstrzymajPostep = false
+    while (wolania.puscPostep.length) wolania.puscPostep.shift()!()   // stary odczyt wraca z 0
+    await new Promise(r => setTimeout(r, 30))
+    expect(skanPoz('l1')).toBe('1/20')
+  })
+
+  it('seria 20 szybkich skanów: 20 POST, ale najwyżej 2 odczyty postępu (bez pary GET na sztukę)', async () => {
+    const kody = Array.from({ length: 20 }, (_, i) => sztuka(`c${i}`))
+    kody.forEach((k, i) => { stan.sztukaPozycji[k] = i % 2 ? 'l2' : 'l1' })
+    stan.skanPozycji = { l1: { total: 20, scanned: 0 }, l2: { total: 20, scanned: 0 } }
+    ekran()
+    await czekajNaPlan()
+    await waitFor(() => expect(wolania.odczytyPostepu.length).toBeGreaterThan(0))
+    const przed = wolania.odczytyPostepu.length
+
+    for (const k of kody) skanuj(k)
+    await waitFor(() => expect(liczba('skaner-zapisane')).toBe('20'))
+    expect(wolania.skany).toHaveLength(20)
+    await new Promise(r => setTimeout(r, 1000))      // cisza po serii
+    const po = wolania.odczytyPostepu.length - przed
+    expect(po).toBeGreaterThanOrEqual(1)             // końcowe uzgodnienie po ciszy
+    expect(po).toBeLessThanOrEqual(2)
+  })
+
+  it('zmiana planu w trakcie wolnej kolejki NIE przekierowuje starych kodów do nowego planu', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stan.sztukaPozycji = { [SZT_A1]: 'l1', [SZT_A2]: 'l1', [SZT_B1]: 'l7' }
+    wolania.wstrzymajSkan = true
+    ekran()
+    await czekajNaPlan()
+    skanuj(SZT_A1); skanuj(SZT_A2)
+    await waitFor(() => expect(wolania.skany).toHaveLength(1))
+
+    // Biuro zamyka p1 i otwiera p2 na dziś — ekran dowie się z okresowego odczytu.
+    stan.plany = [
+      { ...stan.plany[0], status: 'done' },
+      { id: 'p2', planNo: 'PP/2', planDate: DZIEN, status: 'active', tabletFinishedAt: null, officeConfirmedAt: null,
+        lines: [pozycja({ id: 'l7', recipeName: 'BERLIN' })] },
+    ]
+    await vi.advanceTimersByTimeAsync(5100)
+    await screen.findByText('BERLIN')
+
+    wolania.puscSkan.shift()!()
+    await waitFor(() => expect(wolania.skany).toHaveLength(2))
+    wolania.wstrzymajSkan = false
+    wolania.puscSkan.shift()!()
+    await skanerGotowy()                                  // przerwy p2 wczytane
+    skanuj(SZT_B1)
+    await waitFor(() => expect(wolania.skany).toHaveLength(3))
+    expect(wolania.skany.map(s => s.expectedPlanId)).toEqual(['p1', 'p1', 'p2'])
+  })
+
+  it('odmontowanie z kodami w kolejce: żaden NOWY POST nie wychodzi', async () => {
+    stan.sztukaPozycji = { [SZT_A1]: 'l1', [SZT_A2]: 'l1' }
+    wolania.wstrzymajSkan = true
+    const { unmount } = ekran()
+    await czekajNaPlan()
+    skanuj(SZT_A1); skanuj(SZT_A2)
+    await waitFor(() => expect(wolania.skany).toHaveLength(1))
+    unmount()
+    wolania.puscSkan.shift()!()
+    await new Promise(r => setTimeout(r, 30))
+    expect(wolania.skany).toHaveLength(1)
   })
 
   it('kafel „Zeskanowane" na pasku to sam licznik, nie drugie wejście do skanu', async () => {
@@ -1088,5 +1418,273 @@ describe('ProductionHmiPage — przerwy z serwera', () => {
     fireEvent.click(await screen.findByText(/Wracam do pracy/i))
 
     await waitFor(() => expect(wolania.przerwy).toEqual([{ planId: 'p1', co: 'end' }]))
+  })
+})
+
+// Review automatycznego skanu z głównego ekranu (04.10.2026).
+describe('ProductionHmiPage — skan: okna, zmiana kontekstu, nieaktualny plan, pomiar', () => {
+  const czekajNaPlan = async () => { await screen.findByText('WROCŁAW'); await skanerGotowy() }
+  const stanSkanera = () => screen.getByTestId('skaner-stan')
+  /** Fałszywe timery BEZ fałszywego Date: bufor skanu liczy tempo i ciszę na
+   *  prawdziwym zegarze, a 5-sekundowe odpytywanie przewijamy. */
+  const timeryBezZegara = () => vi.useFakeTimers({
+    shouldAdvanceTime: true, toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+  })
+  const przytrzymaj = async (id: string) => {
+    const w = screen.getByTestId(`pozycja-planu-${id}`)
+    fireEvent.pointerDown(w, { button: 0, clientX: 10, clientY: 10 })
+    await new Promise(r => setTimeout(r, 700))
+    fireEvent.pointerUp(w)
+    fireEvent.click(w)          // przeglądarka po pointerUp zawsze wysyła click — hook go połyka
+  }
+  const bledy = () => {
+    if (screen.queryByTestId('skaner-bledy-lista') === null) fireEvent.click(screen.getByTestId('skaner-bledy'))
+    return screen.getAllByTestId('blad-skanu').map(b => b.textContent ?? '')
+  }
+  const p2 = () => ({ id: 'p2', planNo: 'PP/2', planDate: DZIEN, status: 'active', tabletFinishedAt: null,
+    officeConfirmedAt: null, lines: [pozycja({ id: 'l7', recipeName: 'BERLIN' })] })
+
+  it('kody w kolejce: szczegóły (przycisk, przytrzymanie), foliowanie, prognoza, statystyki, zakończenie, przerwa, wyloguj — zablokowane; po opróżnieniu działają', async () => {
+    stan.sztukaPozycji = { [SZT_A1]: 'l1', [SZT_A2]: 'l1', [SZT_B1]: 'l2' }
+    ekran()
+    await wiersz('l1'); osoba('w1')
+    await skanerGotowy()
+    wolania.wstrzymajSkan = true                      // wolny pierwszy POST
+    skanuj(SZT_A1); skanuj(SZT_A2); skanuj(SZT_B1)
+    await waitFor(() => expect(wolania.skany).toHaveLength(1))
+    expect(liczba('skaner-oczekujace')).toBe('3')
+
+    // Przyciski wygaszone…
+    const kafle = ['szczegoly', 'kafel-foliowanie', 'kafel-prognoza'].map(przycisk)
+    const statystyki = screen.getByRole('button', { name: /Statystyki/i }) as HTMLButtonElement
+    expect([...kafle, statystyki].map(b => b.disabled)).toEqual([true, true, true, true])
+    // …i żadne wejście nie otwiera okna — także przytrzymanie wiersza (bez `disabled`).
+    for (const b of [...kafle, statystyki]) fireEvent.click(b)
+    await przytrzymaj('l2')
+    fireEvent.click(screen.getByRole('button', { name: 'Zakończ dzień' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Przerwa' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Wyloguj' }))
+    expect(screen.queryByTestId('szczegoly-pozycji')).toBeNull()
+    expect(screen.queryByTestId('okno-foliowania')).toBeNull()
+    expect(screen.queryByText(/Przewidywane zakończenie/i)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Zamknij' })).toBeNull()      // statystyki
+    expect(screen.queryByTestId('zakoncz')).toBeNull()                         // podsumowanie dnia
+    expect(wolania.przerwy).toHaveLength(0)
+    expect(wolania.wyloguj).not.toHaveBeenCalled()
+    expect(stanSkanera().textContent).not.toMatch(/otwarte okno/)
+    // Przytrzymanie mówi, czemu nic się nie otworzyło — bez okna.
+    expect(screen.getByText('Poczekaj — zapisują się zeskanowane sztuki')).toBeTruthy()
+    // Ręczny wybór pozycji działa dalej, skan go nie przestawia.
+    await wiersz('l2')
+    expect(przycisk('pozycja-planu-l2').getAttribute('aria-pressed')).toBe('true')
+
+    while (wolania.puscSkan.length || wolania.skany.length < 3) {
+      if (wolania.puscSkan.length) wolania.puscSkan.shift()!()
+      await new Promise(r => setTimeout(r, 5))
+    }
+    await waitFor(() => expect(liczba('skaner-oczekujace')).toBe('0'))
+    expect(przycisk('pozycja-planu-l2').getAttribute('aria-pressed')).toBe('true')
+
+    // Po opróżnieniu kolejki okna działają jak dawniej.
+    await waitFor(() => expect(przycisk('szczegoly').disabled).toBe(false))
+    szczegoly()
+    expect(await screen.findByTestId('szczegoly-pozycji')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('zamknij-szczegoly'))
+    await przytrzymaj('l1')
+    expect(await screen.findByTestId('szczegoly-pozycji')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('zamknij-szczegoly'))
+    fireEvent.click(przycisk('kafel-foliowanie'))
+    expect(await screen.findByTestId('okno-foliowania')).toBeTruthy()
+    fireEvent.click(within(screen.getByTestId('okno-foliowania')).getByRole('button', { name: 'Zamknij' }))
+    fireEvent.click(przycisk('kafel-prognoza'))
+    expect(await screen.findByText(/Przewidywane zakończenie/i)).toBeTruthy()
+  })
+
+  it('pół kodu w oknie → zamknięcie → reszta NIE daje POST (Enter połknięty); następny pełny kod idzie', async () => {
+    stan.sztukaPozycji = { [SZT_A2]: 'l1' }
+    ekran()
+    await czekajNaPlan()
+    fireEvent.click(screen.getByRole('button', { name: /Statystyki/i }))
+    expect(stanSkanera().textContent).toMatch(/otwarte okno/)
+    skanuj(SZT_A1.slice(0, 11))                        // skaner zaczął w oknie
+    fireEvent.click(screen.getByRole('button', { name: 'Zamknij' }))
+    await skanerGotowy()
+
+    expect(skanuj(SZT_A1.slice(11), document.body, 'Enter')).toBe(false)
+    await new Promise(r => setTimeout(r, 30))
+    expect(wolania.skany).toHaveLength(0)
+    expect(bledy().some(t => /Przerwany odczyt/.test(t))).toBe(true)
+
+    skanuj(SZT_A2)
+    await waitFor(() => expect(wolania.skany.map(s => [s.code, s.expectedPlanId])).toEqual([[SZT_A2, 'p1']]))
+  })
+
+  it('pół kodu na p1 → zmiana planu na p2 → reszta NIE idzie; kod z kolejki zostaje przy p1, nowy idzie z p2', async () => {
+    timeryBezZegara()
+    stan.sztukaPozycji = { [SZT_A1]: 'l1', [SZT_B1]: 'l7' }
+    ekran()
+    await czekajNaPlan()
+    // Okresowy odczyt planu rusza i WISI — jego zakończenie wyznacza chwilę
+    // zmiany planu niezależnie od szybkości maszyny (cisza ramki to 800 ms).
+    wolania.wstrzymajListe = true
+    await vi.advanceTimersByTimeAsync(5100)
+    await waitFor(() => expect(wolania.puscListe).toHaveLength(1))
+    wolania.wstrzymajSkan = true
+    skanuj(SZT_A1)                                     // kompletny, w kolejce dla p1
+    await waitFor(() => expect(wolania.skany).toHaveLength(1))
+    skanuj(SZT_A2.slice(0, 11))                        // połowa następnego
+
+    stan.plany = [{ ...stan.plany[0], status: 'done' }, p2()]
+    wolania.wstrzymajListe = false
+    wolania.puscListe.shift()!.ok()                    // plan zmienia się teraz, w środku kodu
+    await screen.findByText('BERLIN')
+
+    expect(skanuj(SZT_A2.slice(11), document.body, 'Enter')).toBe(false)
+    wolania.wstrzymajSkan = false
+    wolania.puscSkan.shift()!()
+    await waitFor(() => expect(liczba('skaner-oczekujace')).toBe('0'))
+    expect(wolania.skany).toHaveLength(1)
+    expect(bledy().some(t => /Przerwany odczyt/.test(t))).toBe(true)
+
+    await skanerGotowy()
+    skanuj(SZT_B1)
+    await waitFor(() => expect(wolania.skany).toHaveLength(2))
+    expect(wolania.skany.map(s => [s.code, s.expectedPlanId])).toEqual([[SZT_A1, 'p1'], [SZT_B1, 'p2']])
+  })
+
+  it('pole skanu: pół kodu na p1 → zmiana planu → reszta w polu NIE idzie; nowy kod z p2', async () => {
+    timeryBezZegara()
+    stan.sztukaPozycji = { [SZT_B1]: 'l7' }
+    ekran()
+    await czekajNaPlan()
+    wolania.wstrzymajListe = true                      // okresowy odczyt planu wisi (jak wyżej)
+    await vi.advanceTimersByTimeAsync(5100)
+    await waitFor(() => expect(wolania.puscListe).toHaveLength(1))
+    const pole = screen.getByTestId('pole-skanu-glowne') as HTMLInputElement
+    pole.focus()
+    fireEvent.change(pole, { target: { value: SZT_A2.slice(0, 11) } })
+    expect(pole.value).toBe(SZT_A2.slice(0, 11))
+
+    stan.plany = [{ ...stan.plany[0], status: 'done' }, p2()]
+    wolania.wstrzymajListe = false
+    wolania.puscListe.shift()!.ok()
+    await screen.findByText('BERLIN')
+    await skanerGotowy()
+    expect(pole.value).toBe('')                        // ogon zrzucony
+
+    fireEvent.change(pole, { target: { value: SZT_A2.slice(11) } })
+    fireEvent.keyDown(pole, { key: 'Enter' })
+    await new Promise(r => setTimeout(r, 30))
+    expect(wolania.skany).toHaveLength(0)
+    expect(bledy().some(t => /Przerwany odczyt/.test(t))).toBe(true)
+
+    fireEvent.change(pole, { target: { value: SZT_B1 } })
+    await waitFor(() => expect(wolania.skany.map(s => [s.code, s.expectedPlanId])).toEqual([[SZT_B1, 'p2']]))
+  })
+
+  it('nieudany odczyt planu: skaner stoi aż do NASTĘPNEGO UDANEGO odczytu — samo ponowienie (wiszące albo nieudane) nie wystarcza', async () => {
+    timeryBezZegara()
+    stan.sztukaPozycji = { [SZT_A1]: 'l1', [SZT_A2]: 'l1', [SZT_A3]: 'l1' }
+    ekran()
+    await czekajNaPlan()
+
+    wolania.listaBlad = true
+    await vi.advanceTimersByTimeAsync(5100)            // okresowy odczyt pada
+    await waitFor(() => expect(stanSkanera().textContent).toMatch(/plan nieaktualny/))
+
+    wolania.listaBlad = false; wolania.wstrzymajListe = true
+    await vi.advanceTimersByTimeAsync(5100)            // ponowienie rusza i wisi
+    await waitFor(() => expect(wolania.puscListe).toHaveLength(1))
+    expect(stanSkanera().textContent).toMatch(/plan nieaktualny/)
+    skanuj(SZT_A1)
+    expect(wolania.skany).toHaveLength(0)
+
+    wolania.puscListe.shift()!.blad()                  // ponowienie też pada
+    await vi.advanceTimersByTimeAsync(5100)            // kolejne rusza i wisi
+    await waitFor(() => expect(wolania.puscListe).toHaveLength(1))
+    expect(stanSkanera().textContent).toMatch(/plan nieaktualny/)
+    skanuj(SZT_A2)
+    expect(wolania.skany).toHaveLength(0)
+
+    wolania.wstrzymajListe = false
+    wolania.puscListe.shift()!.ok()                    // dopiero udany odczyt
+    await skanerGotowy()
+    skanuj(SZT_A3)
+    await waitFor(() => expect(wolania.skany.map(s => s.code)).toEqual([SZT_A3]))
+  })
+
+  it('opóźniony pierwszy odczyt przerw: skaner stoi; trwająca przerwa z serwera nie wpuszcza skanów w międzyczasie', async () => {
+    stan.przerwy = [{ id: 'b1', startedAt: '2026-08-27T09:00:00.000Z', endedAt: null }]
+    stan.sztukaPozycji = { [SZT_A1]: 'l1', [SZT_A2]: 'l1' }
+    wolania.wstrzymajPrzerwy = true
+    ekran()
+    await screen.findByText('WROCŁAW')
+    await waitFor(() => expect(wolania.puscPrzerwy.length).toBeGreaterThan(0))   // odczyt przerw p1 wisi
+    expect(stanSkanera().dataset.gotowy).toBe('false')
+    expect(stanSkanera().textContent).toMatch(/wczytywanie przerw/)
+    skanuj(SZT_A1)
+    expect(wolania.skany).toHaveLength(0)
+
+    wolania.wstrzymajPrzerwy = false
+    while (wolania.puscPrzerwy.length) wolania.puscPrzerwy.shift()!()
+    expect(await screen.findByText(/Liczenie sztuk jest wstrzymane/i)).toBeTruthy()
+    expect(stanSkanera().textContent).toMatch(/przerwa/)
+    skanuj(SZT_A2)
+    await new Promise(r => setTimeout(r, 30))
+    expect(wolania.skany).toHaveLength(0)
+  })
+
+  it('zmiana planu: przerwy poprzedniego planu nie udają stanu nowego — skaner stoi do odczytu przerw p2', async () => {
+    timeryBezZegara()
+    stan.sztukaPozycji = { [SZT_B1]: 'l7', [SZT_B2]: 'l7' }
+    ekran()
+    await czekajNaPlan()
+
+    wolania.wstrzymajPrzerwy = true
+    stan.plany = [{ ...stan.plany[0], status: 'done' }, p2()]
+    await vi.advanceTimersByTimeAsync(5100)
+    await screen.findByText('BERLIN')
+    await waitFor(() => expect(stanSkanera().textContent).toMatch(/wczytywanie przerw/))
+    skanuj(SZT_B1)
+    expect(wolania.skany).toHaveLength(0)
+
+    wolania.wstrzymajPrzerwy = false
+    while (wolania.puscPrzerwy.length) wolania.puscPrzerwy.shift()!()
+    await skanerGotowy()
+    skanuj(SZT_B2)
+    await waitFor(() => expect(wolania.skany.map(s => [s.code, s.expectedPlanId])).toEqual([[SZT_B2, 'p2']]))
+  })
+
+  it('pomiar (symulacja strony, nie sprzęt): 100 kodów co 50 ms, natychmiastowe API → 100 POST, max 1 w locie, ≤ 3 pary GET planu i postępu w 5 s + cisza', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const kody = Array.from({ length: 100 }, (_, i) => sztuka(`d${i}`))
+    kody.forEach((k, i) => { stan.sztukaPozycji[k] = i % 2 ? 'l2' : 'l1' })
+    stan.skanPozycji = { l1: { total: 100, scanned: 0 }, l2: { total: 100, scanned: 0 } }
+    stan.plany[0].lines[0].qty = 100; stan.plany[0].lines[1].qty = 100
+    ekran()
+    await czekajNaPlan()
+    await waitFor(() => expect(wolania.odczytyPostepu.length).toBeGreaterThan(0))
+    // Odczyty inicjalne odejmujemy.
+    const listaPrzed = wolania.odczytyListy
+    const postepPrzed = wolania.odczytyPostepu.length
+
+    for (const k of kody) {
+      skanuj(k)
+      await act(async () => { await vi.advanceTimersByTimeAsync(50) })
+    }
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000) })   // cisza po serii
+
+    const lista = wolania.odczytyListy - listaPrzed
+    const postep = wolania.odczytyPostepu.length - postepPrzed
+    // Faktyczne liczby do raportu (Senior odczytuje je z wyjścia testu).
+    console.info(`[pomiar strony] POST=${wolania.skany.length} maxWLocie=${wolania.maxSkanowWLocie} `
+      + `GET lista=${lista} GET postęp=${postep} lookup=${wolania.odczyty.length}`)
+    expect(wolania.skany).toHaveLength(100)
+    expect(liczba('skaner-zapisane')).toBe('100')
+    expect(wolania.maxSkanowWLocie).toBe(1)
+    expect(wolania.odczyty).toHaveLength(0)             // żadnego osobnego lookupu
+    expect(lista).toBeLessThanOrEqual(3)
+    expect(postep).toBeLessThanOrEqual(3)
+    expect(lista + postep).toBeLessThanOrEqual(6)
   })
 })

@@ -100,10 +100,14 @@ export function MagazynHmiPage() {
   // Karta kartonu — skan gotowego kartonu (np. w mroźni) pokazuje, co w nim jest.
   const [karta, setKarta] = useState<KartonDoWazenia | null>(null)
 
+  // Ile błędów od ostatniego „Przeczytane" — przy serii skanów następny
+  // błąd przykrywa poprzedni w pasku, ale licznik mówi, że było ich więcej.
+  const [nieprzeczytaneBledy, setNieprzeczytaneBledy] = useState(0)
+
   const pokazAlarm = useCallback((a: Omit<StanAlarmu, 'ts'>) => {
     const pelny: StanAlarmu = { ...a, ts: Date.now() }
     setAlarm(pelny)
-    if (a.ton === 'blad') setOstatniBlad(pelny)
+    if (a.ton === 'blad') { setOstatniBlad(pelny); setNieprzeczytaneBledy(n => n + 1) }
     setTimeout(() => setAlarm(x => (x && x.ts === pelny.ts ? null : x)), ALARM_MS)
   }, [])
 
@@ -262,10 +266,17 @@ export function MagazynHmiPage() {
     kolejka.current = kolejka.current.then(() => obsluzSkan(kod, ts, pok)).catch(() => {})
   }, [obsluzSkan])
 
+  /** Odczyt ucięty / nieczytelny złapany poza polem — nic nie wysłano. */
+  const naBladOdczytu = useCallback((komunikat: string) => {
+    grajBlad('L')
+    pokazAlarm({ skaner: 'L', ton: 'blad', naglowek: 'NIECZYTELNY SKAN', szczegol: komunikat })
+  }, [pokazAlarm])
+
   // Na pakowaniu słuchamy też: skan, który trafi obok pola (przejście
   // ekranu, otwarty dialog), idzie do kolejki pakowania, a ta — jeśli nie
   // może go przyjąć — mówi, że trzeba powtórzyć. W polu tekstowym hook milczy.
-  useSkanGlobalny(!menuSerwisowe && !karta && (EKRANY_SKANU_KARTKI.includes(ekran) || ekran === 'kartony-praca'), naSkanGlobalny)
+  useSkanGlobalny(!menuSerwisowe && !karta && (EKRANY_SKANU_KARTKI.includes(ekran) || ekran === 'kartony-praca'),
+    naSkanGlobalny, naBladOdczytu)
 
   useEffect(() => {
     const t = setInterval(() => setTeraz(new Date()), 15000)
@@ -326,8 +337,11 @@ export function MagazynHmiPage() {
       {ostatniBlad && !alarm ? <div className="flex shrink-0 items-center gap-4 px-6 py-2"
         style={{ background: 'var(--redSoft)', color: 'var(--red)' }} role="status">
         <div className="min-w-0 flex-1"><b>Ostatni błąd: {ostatniBlad.naglowek}</b>
+          {nieprzeczytaneBledy > 1 ? <span data-testid="liczba-bledow" className="ml-2 text-sm font-bold">
+            (błędów od ostatniego odczytu: {nieprzeczytaneBledy})</span> : null}
           <div className="text-sm">{ostatniBlad.szczegol} {ostatniBlad.gdzie}</div></div>
-        <button className="min-h-11 rounded-lg border px-4 font-bold" onClick={() => setOstatniBlad(null)}>Przeczytane</button>
+        <button className="min-h-11 rounded-lg border px-4 font-bold"
+          onClick={() => { setOstatniBlad(null); setNieprzeczytaneBledy(0) }}>Przeczytane</button>
       </div> : null}
 
       {/* Właściciel 30.09.2026: stała instrukcja „zeskanuj kartkę — otworzę

@@ -54,9 +54,13 @@ export interface LineCounterProps {
   onMoveFrom?: (workerId: string) => void
   /** Ile sztuk pozycji wygenerowano i zeskanowano — próg odejmowania. */
   scan?: LineScan
-  /** Skanowanie TEJ pozycji — jedyna droga do skanu. */
+  /** PRZESTARZAŁE (03.10.2026): skan sztuk idzie prosto z głównego ekranu
+   *  (pasek skanera), bez wyboru pozycji — ekran produkcji tego NIE podaje.
+   *  Zostaje dla zgodności; bez niego przycisku „Skanuj pozycję" nie ma. */
   onScanLine?: (lineId: string) => void
   onDetails?: (lineId: string) => void
+  /** Szczegóły chwilowo niedostępne (np. kody skanów w kolejce). */
+  detailsDisabled?: boolean
   feedback?: SaveFeedback | null
 }
 
@@ -64,7 +68,7 @@ const PRESETY = [1, 3, 5] as const
 
 export function LineCounter({
   line, lp, workers, selectedWorkerId, onSelectWorker, onSave, canSave, busy = false, syncing = false,
-  onMoveFrom, scan, onScanLine, onDetails, feedback,
+  onMoveFrom, scan, onScanLine, onDetails, detailsDisabled = false, feedback,
 }: LineCounterProps) {
   const zostalo = Math.max(0, line.qty - line.qtyDone)
   const [ile, setIle] = useState(1)
@@ -279,9 +283,8 @@ export function LineCounter({
 
       <div className="phmi-panel__akcje flex gap-2 flex-shrink-0">
         {onScanLine && (
-          // Skan czeka na koniec zapisu sztuk — inaczej odświeżenie po skanie
-          // i zapis tej samej pozycji ścigałyby się o jej stan.
-          // Krótki napis: to GŁÓWNA droga skanu i nie może kończyć się „…".
+          // Stara droga (sprzed 03.10.2026) — widoczna tylko, gdy ktoś poda
+          // `onScanLine`. Czeka na koniec zapisu sztuk, jak dawniej.
           <button type="button" data-testid="skanuj-pozycje" disabled={busy || syncing}
             aria-label="Skanuj tę pozycję"
             onClick={() => { if (!busy && !syncing) onScanLine(line.id) }}
@@ -292,16 +295,17 @@ export function LineCounter({
           </button>
         )}
         <button type="button" data-testid="korekta" aria-pressed={korekta} onClick={() => { setKorekta(k => !k); setIle(1) }}
-          className="phmi-touch phmi-btn text-[14px] font-bold px-3"
+          className={`phmi-touch phmi-btn text-[14px] font-bold px-3 ${onScanLine ? '' : 'flex-1'}`}
           style={{ borderRadius: 9, border: `1.5px solid ${korekta ? 'var(--red)' : 'var(--line)'}`,
                    background: korekta ? 'var(--red)' : 'var(--panel)', color: korekta ? '#fff' : 'var(--ink)' }}>
           {/* Oba napisy tej samej długości — przełączenie nie zwęża skanu. */}
           {korekta ? '← Dodaj' : 'Korekta'}
         </button>
         {onDetails && (
-          <button type="button" data-testid="szczegoly" onClick={() => onDetails(line.id)}
-            className="phmi-touch phmi-btn text-[14px] font-bold px-3"
-            style={{ borderRadius: 9, border: '1.5px solid var(--line)', background: 'var(--panel)', color: 'var(--ink)' }}>
+          <button type="button" data-testid="szczegoly" onClick={() => onDetails(line.id)} disabled={detailsDisabled}
+            className={`phmi-touch phmi-btn text-[14px] font-bold px-3 ${onScanLine ? '' : 'flex-1'}`}
+            style={{ borderRadius: 9, border: '1.5px solid var(--line)', background: 'var(--panel)', color: 'var(--ink)',
+                     opacity: detailsDisabled ? .4 : 1 }}>
             Szczegóły
           </button>
         )}

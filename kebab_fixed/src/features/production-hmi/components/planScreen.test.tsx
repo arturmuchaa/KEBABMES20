@@ -715,7 +715,15 @@ describe('LineCounter — po zeskanowaniu', () => {
     expect(p.onSave).toHaveBeenCalledWith(zapis(1))
   })
 
-  it('prowadzi do skanowania TEJ pozycji', () => {
+  // Od 03.10.2026 ekran produkcji skanuje z głównego ekranu i NIE podaje
+  // `onScanLine` — bez niego panel nie ma przycisku „Skanuj pozycję".
+  it('bez `onScanLine` (ekran produkcji) nie ma starej drogi skanu', () => {
+    render(<LineCounter {...props()} />)
+    expect(screen.queryByTestId('skanuj-pozycje')).toBeNull()
+    expect(screen.getByTestId('korekta')).toBeTruthy()
+  })
+
+  it('zgodność wsteczna: podany `onScanLine` nadal prowadzi do skanowania TEJ pozycji', () => {
     const skanuj = vi.fn()
     render(<LineCounter {...props({ onScanLine: skanuj })} />)
     fireEvent.click(screen.getByTestId('skanuj-pozycje'))
@@ -796,6 +804,18 @@ describe('PlanChangedBanner', () => {
   it('bez zmian nie renderuje niczego', () => {
     const { container } = render(<PlanChangedBanner changes={[]} onAck={() => {}} />)
     expect(container.textContent).toBe('')
+  })
+
+  // Ekran produkcji (03.10.2026): pasek w nagłówku — nad planem stoi pasek skanera.
+  it('kompakt (nagłówek): ta sama treść i przyciski, pełna lista z tytułem po rozwinięciu', () => {
+    const ack = vi.fn()
+    render(<PlanChangedBanner changes={zmiany} onAck={ack} kompakt />)
+    expect(screen.getByText('doszła KIRMIZI 10×40 kg')).toBeTruthy()
+    expect(screen.getByTestId('pasek-zmian').style.height).toBe('42px')
+    fireEvent.click(screen.getByTestId('zmiany-rozwin'))
+    expect(within(screen.getByTestId('zmiany-lista')).getByText('Plan zmieniony przez biuro:')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Rozumiem/i }))
+    expect(ack).toHaveBeenCalled()
   })
 })
 

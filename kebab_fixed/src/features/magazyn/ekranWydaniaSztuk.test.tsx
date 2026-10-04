@@ -75,6 +75,26 @@ describe('wydanie sztuk z kiosku', () => {
     await waitFor(() => expect(s.alarmy[0]?.naglowek).toBe('SZTUKA JUŻ WYDANA'))
   })
 
+  // Szybka seria: skany czekają w kolejce pola. Przekazanie w tym czasie
+  // zamknęłoby wydanie, zanim sztuki na nie weszły.
+  it('dopóki skany czekają na zapis, nie da się przekazać ani cofnąć', async () => {
+    await doSkanowania()
+    skanuj('U|0123456789abcdef0123')
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Zdjęta z kartonu'))
+    await screen.findByRole('button', { name: 'Przekaż do biura' })
+    let zwolnij!: () => void
+    s.skan = new Promise(r => { zwolnij = () => r({ result: 'OK', from: { kind: 'loose' }, ...Z_SZTUKA, qty: 2 }) })
+    skanuj('U|0123456789abcdef0124')
+    const czekaj = await screen.findByRole('button', { name: 'Czekaj — zapisuję skany' }) as HTMLButtonElement
+    expect(czekaj.disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Cofnij' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(czekaj)
+    expect(s.przekazane).toEqual([])
+    zwolnij()
+    const przekaz = await screen.findByRole('button', { name: 'Przekaż do biura' }) as HTMLButtonElement
+    expect(przekaz.disabled).toBe(false)
+  })
+
   it('Cofnij odkłada sztukę do kartonu', async () => {
     await doSkanowania()
     skanuj('U|0123456789abcdef0123')

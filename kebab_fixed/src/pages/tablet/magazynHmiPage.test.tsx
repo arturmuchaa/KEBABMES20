@@ -357,6 +357,30 @@ describe('fokus przechodzi do pola w połowie kodu', () => {
   })
 })
 
+// Hala 02.10.2026: szybko zeskanowane etykiety sklejały się w jeden kod.
+describe('seria skanów na menu bez Entera', () => {
+  it('kartka + dwie sztuki jednym ciągiem: karton się otwiera, obie sztuki idą do niego po kolei', async () => {
+    const U2 = 'U|0123456789abcdef0124'
+    stan.kontenery = [K(ID, '000318', 'YALCIN')]
+    render(<MagazynHmiPage />)
+    wystukaj(`SCARTON|${ID}${SZTUKA}${U2}`)
+    await naPakowaniu()
+    await waitFor(() => expect(stan.skan).toHaveBeenCalledTimes(2))
+    expect(stan.skan.mock.calls).toEqual([[SZTUKA, ID], [U2, ID]])
+  })
+
+  it('ucięty kod na menu — czytelny alarm, nic nie wysłane', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      render(<MagazynHmiPage />)
+      wystukaj('U|ac82b8f61e')
+      await act(async () => { vi.advanceTimersByTime(1500) })
+      expect(await screen.findByText('NIECZYTELNY SKAN')).toBeTruthy()
+      expect(stan.skan).not.toHaveBeenCalled()
+    } finally { vi.useRealTimers() }
+  })
+})
+
 describe('unieważnienie odczytu kartki na menu', () => {
   it('wolny lookup + menu serwisowe: bez przejścia, spinner zgaszony, uczciwy komunikat', async () => {
     const czekaj: Array<(v: unknown) => void> = []

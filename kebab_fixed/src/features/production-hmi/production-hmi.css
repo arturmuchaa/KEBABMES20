@@ -6,6 +6,11 @@
  */
 
 .phmi-bar { height: 76px; }
+/* Stały pasek skanera (03.10.2026) — jedna linia nad planem, w miejscu,
+ * które dotąd zajmował pasek zmian biura (44 px). Budżet wysokości na
+ * 1280×720 (30 pozycji + 15 osób) zostaje dokładnie taki, jak z paskiem
+ * zmian; sam pasek zmian przeszedł do nagłówka (wariant kompaktowy). */
+.phmi-skaner { height: 44px; }
 .phmi-main { padding: 16px; gap: 12px; }
 .phmi-split { gap: 14px; }
 .phmi-side { width: clamp(380px, 31vw, 560px); container-type: size; container-name: phmi-side; }
@@ -53,6 +58,7 @@
   .phmi-root { overflow-y: auto !important; overflow-x: hidden !important; }
   .phmi-root > * { flex-shrink: 0 !important; }
   .phmi-head { height: auto; min-height: 52px; flex-wrap: wrap; row-gap: 6px; padding-block: 6px; }
+  .phmi-skaner { height: auto; min-height: 44px; flex-wrap: wrap; row-gap: 6px; padding-block: 3px; }
   .phmi-dzien { height: auto; grid-template-columns: repeat(4, minmax(0, 1fr)) !important; grid-auto-rows: 56px; }
   .phmi-main { flex: none !important; overflow: visible !important; }
   .phmi-split { flex: none !important; flex-direction: column; overflow: visible !important; }
