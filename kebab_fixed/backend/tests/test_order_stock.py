@@ -205,6 +205,16 @@ def test_klon_po_rozchodzie_wchodzi_na_dokument():
     assert [(p["fg"]["id"], p["take"]) for p in portions] == [("klon", 50)]
 
 
+def test_nowy_dokument_bierze_tylko_to_co_lezy():
+    """Nowy dokument rozchoduje towar, więc wydane sztuki własnego stempla
+    nie mogą powiększyć porcji ponad stan (kurs 5.10.2026: jest 55, potrzeba 56)."""
+    wiersz = _fg(id="a", client_order_no="Z1", qty=56, qty_available=55, qty_shipped=1)
+
+    portions = portion_stock_rows({_key("r1", 40.0): 56}, [wiersz], "Z1", tylko_lezy=True)
+
+    assert [(p["fg"]["id"], p["take"]) for p in portions] == [("a", 55)]
+
+
 def test_stempel_INNEGO_zamowienia_nie_wchodzi_po_wysylce():
     """Sztuki wydane pod cudzym zamowieniem nie moga wejsc na ten dokument."""
     obcy = _fg(id="obcy", client_order_no="Z2", qty=50, qty_available=0, qty_shipped=50)

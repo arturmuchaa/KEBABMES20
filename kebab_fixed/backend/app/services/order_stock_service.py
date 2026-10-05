@@ -121,8 +121,15 @@ def portion_stock_rows(
     fg_rows: List[Dict[str, Any]],
     order_no: str,
     wydane_wg_wiersza: Dict[str, int] = None,
+    tylko_lezy: bool = False,
 ) -> List[Dict[str, Any]]:
     """Rozbij braki na porcje z wierszy finished_goods (w podanej kolejności).
+
+    ``tylko_lezy=True`` — dla NOWEGO dokumentu, który rozchoduje towar: wiersz
+    wnosi wyłącznie ``qty_available``. Bez tego wiersz ostemplowany tym
+    zamówieniem doliczał swoje ``qty_shipped`` i porcja przekraczała stan —
+    rozchód odmawiał „jest 55 szt, potrzeba 56" (kurs 5.10.2026, partia
+    021026 600).
 
     Wiersz wnosi to, co LEŻY (``qty_available``), powiększone o sztuki już
     wydane NA TO ZAMÓWIENIE (`wydane_wg_wiersza`) — dokument wystawiany po WZ
@@ -152,7 +159,8 @@ def portion_stock_rows(
         # w KLONIE, którego pozycja WZ (wskazująca id oryginału) nie zna.
         wlasny_stempel = order_no and (row.get("client_order_no") or "").strip() == order_no
         pool = int(row.get("qty_available") or 0) + (
-            int(row.get("qty_shipped") or 0) if wlasny_stempel
+            0 if tylko_lezy
+            else int(row.get("qty_shipped") or 0) if wlasny_stempel
             else int(wydane_wg_wiersza.get(row.get("id")) or 0)
         )
         take = min(need, pool)
@@ -422,7 +430,7 @@ def picks_for_pallets(order_id: str, pallet_ids: List[str]) -> List[Dict[str, An
         """,
         (order_no, pula, order_no),
     )
-    return portion_stock_rows(braki, fg_rows, order_no)
+    return portion_stock_rows(braki, fg_rows, order_no, tylko_lezy=True)
 
 def picks_for_order(order_id: str) -> List[Dict[str, Any]]:
     """Wiersze magazynu wyrobu gotowego pokrywające CAŁE zamówienie.
@@ -484,4 +492,4 @@ def picks_for_order(order_id: str) -> List[Dict[str, Any]]:
     # Bez `wydane_wg_wiersza`: formularz wystawia NOWY dokument, więc liczy
     # się tylko to, co fizycznie leży. Sztuki już wydane pokazałyby się jako
     # dostępne i biuro wydałoby je drugi raz.
-    return portion_stock_rows(braki, fg_rows, order_no)
+    return portion_stock_rows(braki, fg_rows, order_no, tylko_lezy=True)
