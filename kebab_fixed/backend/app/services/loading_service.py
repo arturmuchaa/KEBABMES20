@@ -254,8 +254,9 @@ def _sprawdz_pokrycie_rozpisu(conn, order, pallet_ids, picks) -> None:
     """
     rozpisano = cx_query_one(
         conn,
-        "SELECT COALESCE(SUM(qty), 0) AS n FROM order_pallet_items WHERE pallet_id = ANY(%s)",
-        (pallet_ids,))
+        "SELECT (SELECT COALESCE(SUM(qty), 0) FROM order_pallet_items WHERE pallet_id = ANY(%s))"
+        "     + (SELECT COALESCE(SUM(target_qty), 0) FROM stock_carton_lines WHERE carton_id = ANY(%s)) AS n",
+        (pallet_ids, pallet_ids))
     trzeba = int((rozpisano or {}).get("n") or 0)
     dobrano = sum(int(p.get("take") or 0) for p in picks)
     if dobrano < trzeba:
@@ -406,7 +407,9 @@ def finalize_loading(
             # Decyzja QR/rozpis jest per karton, nie per całe zamówienie:
             # karton magazynowy z QR może jechać razem z paletą bez sztuk QR.
             with_units = {u["container_id"] for u in units_all}
-            without_units = [p["id"] for p in pallets if p["id"] not in with_units and p["kind"] == "order"]
+            # Karton magazynowy bez sztuk (tryb bez skanera) jedzie jak paleta bez
+            # sztuk QR: zawartość z jego pozycji, partie z magazynu.
+            without_units = [p["id"] for p in pallets if p["id"] not in with_units]
             if not without_units:
                 z_rozpisu = []
             elif wm:

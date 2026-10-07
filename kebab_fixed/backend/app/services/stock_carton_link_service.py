@@ -28,10 +28,9 @@ dopóki nie uruchomimy skanera na produkcji"): karton, do którego nie
 zeskanowano ŻADNEJ sztuki, liczy się jako spakowany, gdy towar tej
 specyfikacji jest już wyprodukowany i leży na magazynie wyrobu gotowego
 (pula zamówienia albo niczyj), po odjęciu innych takich kartonów przypisanych
-do otwartych zamówień tej puli. Karton jest wtedy tylko fizycznym oznaczeniem
-— stan i partie schodzą jak dotąd z pokrycia zamówienia magazynem przy WZ.
-Załadunek takiego kartonu jego etykietą zostaje zablokowany (kurs liczy po
-sztukach). Gdy hala zacznie skanować, karton ze sztukami wraca na zwykłe
+do otwartych zamówień tej puli. Przypisanie nie rusza stanu.
+Załadunek etykietą działa: kurs liczy taki karton jak paletę bez sztuk QR
+(zawartość z pozycji kartonu, partie z magazynu). Gdy hala zacznie skanować, karton ze sztukami wraca na zwykłe
 reguły i ten tryb przestaje mieć zastosowanie.
 """
 from collections import Counter
@@ -291,12 +290,14 @@ def scannerless_stock(conn, order: Dict[str, Any],
              JOIN stock_carton_lines l ON l.carton_id = sc.id
              JOIN client_orders o ON o.id = sc.linked_order_id
              LEFT JOIN clients c ON c.id = NULLIF(o.client_id, '')
-            WHERE sc.id <> %s AND sc.shipped_at IS NULL
+            WHERE sc.id <> %s
               AND o.status NOT IN ('done', 'cancelled')
               AND COALESCE(NULLIF(c.group_id, ''), c.id, NULLIF(o.client_id, ''), '') = %s
               AND COALESCE(sc.packed_qty, 0) = 0
               AND NOT EXISTS (SELECT 1 FROM finished_units fu WHERE fu.carton_id = sc.id)
-              -- Po WZ towar już zszedł ze stanu — liczony drugi raz zablokowałby inne kartony.
+              -- Kurs nie zdejmuje stanu (robi to WZ biura), więc wydany karton dalej
+              -- zajmuje towar; po WZ towar już zszedł ze stanu i liczony drugi raz
+              -- zablokowałby inne kartony.
               AND NOT EXISTS (SELECT 1 FROM wz_documents w
                               WHERE w.source_type = 'order' AND w.source_id = o.id
                                 AND COALESCE(w.status, '') <> 'anulowany')""",

@@ -330,7 +330,7 @@ describe('StockCartonSuggestions', () => {
     expect(screen.queryByRole('button', { name: /Odłącz/ })).toBeNull()
   })
 
-  it('karton bez skanera: „spakowany bez skanera”, sztuki z deklaracji, komunikat bez skanu na aucie', async () => {
+  it('karton bez skanera: „spakowany bez skanera”, sztuki z deklaracji, skan etykiety na aucie', async () => {
     const bez = karton('c5', 347, { status: 'open', packedQty: 0, targetQty: 15, units: 15, scannerless: true, batches: [] })
     api.stockCartonOptions
       .mockResolvedValueOnce(overview({ available: [bez] }))
@@ -339,10 +339,10 @@ describe('StockCartonSuggestions', () => {
     render(<StockCartonSuggestions orderId="o1" orderStatus="confirmed" />)
     await screen.findByText(/spakowany bez skanera/)
     expect(screen.queryByText(/otwarty/)).toBeNull()
-    expect(screen.getByText(/Partia: z magazynu na dokumencie/)).toBeTruthy()
+    expect(screen.getByText(/Partia: z magazynu przy zamknięciu kursu/)).toBeTruthy()
     fireEvent.click(assignBtns()[0])
     await waitFor(() => expect(screen.getByTestId('assigned-totals').textContent).toMatch(/Przypisano: 1 karton \/ 15 szt\./))
     const sukces = screen.getAllByRole('status').find(el => /Przypisano karton 000347 \(15 szt\.\)/.test(el.textContent ?? ''))
-    expect(sukces?.textContent).toMatch(/nie skanuj go na aucie/)
+    expect(sukces?.textContent).toMatch(/skanuj dotychczasową etykietę kartonu/)
   })
 })

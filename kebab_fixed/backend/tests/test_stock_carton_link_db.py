@@ -424,17 +424,25 @@ def test_bez_skanera_karton_z_wyrobu_na_stanie_przypisany_bez_ruchow(db):
         link.assign(b["id"], "o1")
     assert "Brak wyprodukowanego towaru" in e.value.detail
 
-    # Załadunek etykietą kartonu bez sztuk — jawna odmowa (kurs liczy po sztukach).
-    vehicles.add_order("v1", "o1")
-    with pytest.raises(HTTPException) as e:
-        pallets_service.scan(f"SCARTON|{a['id']}", "loaded", vehicle_id="v1")
-    assert "bez zeskanowanych sztuk" in e.value.detail
-    assert query_one("SELECT loaded_vehicle_id FROM stock_cartons WHERE id=%s", (a["id"],))["loaded_vehicle_id"] is None
-
     # Odłączenie zwalnia stan dla drugiego kartonu.
     link.detach(a["id"], "o1", "biuro")
     assert b["id"] in {c["cartonId"] for c in link.options_for_order("o1")["available"]}
     assert _fg_i_ruchy() == stan0
+    link.assign(a["id"], "o1", "biuro")
+
+    # Załadunek etykietą kartonu bez sztuk: operator widzi go na aucie,
+    # kurs liczy go jak paletę bez sztuk QR — pozycje z kartonu, partia z magazynu.
+    vehicles.add_order("v1", "o1")
+    wynik = pallets_service.scan(f"SCARTON|{a['id']}", "loaded", vehicle_id="v1")
+    assert wynik["result"] == "SUCCESS" and wynik["total_qty"] == 2 and wynik["total_kg"] == 60.0
+    assert pallets_service.scan(f"SCARTON|{a['id']}", "loaded", vehicle_id="v1")["result"] == "ALREADY_SCANNED"
+    assert _fg_i_ruchy() == stan0
+    zam = loading_service.finalize_loading("v1", ["o1"], expected_ids=[a["id"]])["orders"][0]
+    assert zam["pozycje"] == [{"stock_id": "f1", "batch_no": BATCH, "szt": 2, "kg_per_unit": 30.0}]
+    assert query_one("SELECT shipped_at FROM stock_cartons WHERE id=%s", (a["id"],))["shipped_at"]
+    assert _fg_i_ruchy() == stan0                  # stan zdejmie dopiero WZ biura
+    # Wydany kursem, ale bez WZ — towar dalej zajęty, drugi karton nie przejdzie.
+    assert b["id"] in {c["cartonId"] for c in link.options_for_order("o1")["unavailable"]}
 
 
 def test_bez_skanera_obcy_wyrob_i_wyrob_innego_zamowienia_nie_licza_sie(db):

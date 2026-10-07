@@ -291,13 +291,23 @@ def rozpis_palet(pallet_ids: List[str]) -> List[Dict[str, Any]]:
     return query_all(
         """
         SELECT l.recipe_id, l.kg_per_unit, l.product_type_id, l.packaging_id,
-               SUM(i.qty) AS qty
-          FROM order_pallet_items i
-          JOIN client_order_lines l ON l.id = i.order_line_id
-         WHERE i.pallet_id = ANY(%s)
+               SUM(l.qty) AS qty
+          FROM (
+                SELECT l.recipe_id, l.kg_per_unit, l.product_type_id, l.packaging_id, i.qty
+                  FROM order_pallet_items i
+                  JOIN client_order_lines l ON l.id = i.order_line_id
+                 WHERE i.pallet_id = ANY(%s)
+                UNION ALL
+                -- Karton magazynowy bez sztuk QR (tryb bez skanera): jego
+                -- rozpisem są własne pozycje kartonu.
+                SELECT l.recipe_id, l.kg_per_unit, l.product_type_id, l.packaging_id, l.target_qty
+                  FROM stock_carton_lines l
+                 WHERE l.carton_id = ANY(%s)
+                   AND NOT EXISTS (SELECT 1 FROM finished_units fu WHERE fu.carton_id = l.carton_id)
+               ) l
          GROUP BY 1, 2, 3, 4
         """,
-        (pallet_ids,),
+        (pallet_ids, pallet_ids),
     )
 
 

@@ -38,11 +38,16 @@ def scan_carton(carton_id, action, vehicle_id, operator=""):
                                 (vehicle_id, order["id"])):
                 raise HTTPException(409, "Najpierw dołóż zamówienie tego kartonu do auta")
             lines = cx_query_all(conn, "SELECT * FROM stock_carton_lines WHERE carton_id=%s", (carton_id,))
-            if is_scannerless(carton, lines, units):
-                # Kurs liczy towar po sztukach — karton bez sztuk wyjechałby jako zero.
-                raise HTTPException(409, "Karton bez zeskanowanych sztuk (tryb bez skanera) — nie skanuj go "
-                                         "na aucie; towar zejdzie z magazynu na dokumencie zamówienia")
-            if (carton.get("status") != "packed" or not units or not lines
+            # Tryb bez skanera: karton bez sztuk jedzie WEDŁUG SWOICH POZYCJI (jak
+            # paleta bez sztuk QR) — partie dobiera zamknięcie kursu z magazynu.
+            # Karton opróżniony cofnięciem pakowania był pakowany sztukami — nie
+            # udaje kartonu bez skanera (hala ma go spakować ponownie).
+            scannerless = is_scannerless(carton, lines, units) and not cx_query_one(
+                conn, "SELECT 1 FROM warehouse_events WHERE container_id=%s AND action='unpack' LIMIT 1",
+                (carton_id,))
+            if scannerless and any(int(l.get("target_qty") or 0) <= 0 for l in lines):
+                raise HTTPException(409, "Karton bez sztuk ma niespójne liczniki — wyjaśnij z biurem")
+            if not scannerless and (carton.get("status") != "packed" or not units or not lines
                     or len(units) != sum(int(l["target_qty"]) for l in lines)
                     or any(int(l["packed_qty"]) != int(l["target_qty"]) for l in lines)
                     or any(u.get("status") != "packed" or u.get("pallet_id") for u in units)):
@@ -52,10 +57,18 @@ def scan_carton(carton_id, action, vehicle_id, operator=""):
             else:
                 cx_execute(conn, "UPDATE stock_cartons SET loaded_vehicle_id=%s, loaded_at=now() WHERE id=%s",
                            (vehicle_id, carton_id))
+        if units:
+            total_qty = len(units)
+            total_kg = sum(float(u.get("weight_kg") or 0) for u in units)
+        else:
+            all_lines = cx_query_all(conn, "SELECT target_qty, kg_per_unit FROM stock_carton_lines "
+                                           "WHERE carton_id=%s", (carton_id,))
+            total_qty = sum(int(l.get("target_qty") or 0) for l in all_lines)
+            total_kg = round(sum(int(l.get("target_qty") or 0) * float(l.get("kg_per_unit") or 0)
+                                 for l in all_lines), 3)
         if result == "SUCCESS":
             cx_execute(conn, "INSERT INTO warehouse_events (id,container_id,action,operator) VALUES (%s,%s,%s,%s)",
                        (cuid(), carton_id, action, operator))
     return {"result": result, "id": carton_id, "pallet_no": 0,
             "carton_no": carton["carton_no"], "carton_label": format_carton_no(carton["carton_no"]),
-            "order": order, "total_qty": len(units),
-            "total_kg": sum(float(u.get("weight_kg") or 0) for u in units), "items": []}
+            "order": order, "total_qty": total_qty, "total_kg": total_kg, "items": []}
