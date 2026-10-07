@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { PalletsEditor } from '@/components/orders/PalletsEditor'
 import { StockCartonSuggestions } from '@/features/finished-goods/components/StockCartonSuggestions'
+import { OrphanPalletsPanel } from '@/features/orders/OrphanPalletsPanel'
 import type { ClientOrder } from '@/lib/mockApi'
 
 import { Button } from '@/components/ui/button'
@@ -527,6 +528,9 @@ export function ClientOrdersPage() {
   return (
     <div className="space-y-3 animate-fade-in">
 
+      {/* Palety z usuniętych/zmienionych zamówień czekające na zgodne zamówienie */}
+      <OrphanPalletsPanel refreshKey={orders} />
+
       {/* Zapotrzebowanie na surowiec dla wszystkich otwartych zamówień */}
       <MaterialSummaryCard />
 
@@ -630,7 +634,8 @@ export function ClientOrdersPage() {
   )
 }
 
-// Usunięcie zamówienia jest NIEODWRACALNE (DELETE z kaskadą pozycji i palet).
+// Usunięcie zamówienia jest NIEODWRACALNE (DELETE z kaskadą pozycji). Rozpisane
+// palety NIE giną — czekają w poczekalni i same wracają do zgodnego zamówienia.
 // Zwykłe confirm() nie wystarczyło — 30.09.2026 biuro skasowało przypadkiem
 // zamówienie YALCIN. Kosz stoi tuż obok ołówka edycji, więc okno pokazuje,
 // CO się usuwa, i wymaga wpisania słowa USUŃ; Enter bez tego nic nie robi.
@@ -662,7 +667,9 @@ function UsunZamowienieDialog({ order, onClose, onDeleted }: {
       <DialogContent className="max-w-md">
         <DialogTitle>Usunąć zamówienie?</DialogTitle>
         <DialogDescription>
-          Tej operacji nie da się cofnąć — zamówienie zniknie razem z pozycjami i rozpisem palet.
+          Tej operacji nie da się cofnąć — zamówienie zniknie razem z pozycjami. Rozpisane palety
+          nie przepadają: czekają na nowe zamówienie tego odbiorcy i przypną się do niego same,
+          a ich stare kartki dalej będą działać na skanerze.
         </DialogDescription>
         <div className="rounded border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm space-y-0.5">
           <div><span className="text-muted-foreground">Numer:</span> <b>{order.orderNo}</b></div>

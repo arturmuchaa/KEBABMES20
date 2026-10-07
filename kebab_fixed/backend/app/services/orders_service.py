@@ -635,6 +635,10 @@ def create_order(dto: ClientOrderCreate) -> Dict:
         # Stempel to przydział, nie fakt fizyczny (patrz
         # `przepnij_do_pilniejszego_cx`).
         przepiete = przepnij_do_pilniejszego_cx(conn, order["id"])
+        # Palety odłożone z usuniętego/zmienionego zamówienia tego odbiorcy
+        # wracają tutaj, jeśli pasują — bez przeklejania kartek.
+        from app.services.pallet_transfer_service import attach_orphans_cx
+        order["movedPallets"] = attach_orphans_cx(conn, order["id"])
 
         order["lines"] = cx_query_all(
             conn,
@@ -667,13 +671,20 @@ def update_order_status(order_id: str, status: str) -> Dict:
             # Anulowanie z przypisanymi kartonami magazynowymi zostawiłoby towar
             # „zaklepany" na martwym zamówieniu — najpierw odłączenie.
             from app.services.stock_carton_link_service import refuse_if_linked_cartons_cx
-            if cx_query_one(conn, "SELECT id FROM client_orders WHERE id=%s FOR UPDATE", (order_id,)):
+            from app.services import pallet_transfer_service as palety
+            current = cx_query_one(conn, "SELECT * FROM client_orders WHERE id=%s FOR UPDATE", (order_id,))
+            if current:
                 refuse_if_linked_cartons_cx(conn, order_id, "Nie można anulować zamówienia")
+                # Spakowane palety nie przepadają z anulowanym zamówieniem.
+                palety.park_order_pallets_cx(conn, current, "anulowanie zamówienia",
+                                             "Nie można anulować zamówienia", keep_shipped=True)
         row = cx_execute_returning(
             conn,
             "UPDATE client_orders SET status=%s WHERE id=%s RETURNING *",
             (status, order_id),
         )
+        if row and status == "cancelled":
+            palety.attach_to_pool_cx(conn, row.get("client_id") or "", order_id)
     if not row:
         raise HTTPException(404, "Zamówienie nie znalezione")
     logger.info("order.status_updated", extra={"order_id": order_id, "status": status})
@@ -717,7 +728,7 @@ def cofnij_realizacje(order_id: str) -> Dict[str, Any]:
 def delete_order(order_id: str) -> Dict[str, bool]:
     with transaction() as conn:
         order = cx_query_one(
-            conn, "SELECT status FROM client_orders WHERE id=%s FOR UPDATE", (order_id,)
+            conn, "SELECT * FROM client_orders WHERE id=%s FOR UPDATE", (order_id,)
         )
         if not order:
             raise HTTPException(404, "Zamówienie nie znalezione")
@@ -741,9 +752,14 @@ def delete_order(order_id: str) -> Dict[str, bool]:
         # zostawienia sierot (linked_order_id bez zamówienia, order_id na sztukach).
         from app.services.stock_carton_link_service import refuse_if_linked_cartons_cx
         refuse_if_linked_cartons_cx(conn, order_id, "Nie można usunąć zamówienia")
+        # Palety NIE giną kaskadą z zamówieniem: czekają w poczekalni i same
+        # wracają do zgodnego zamówienia odbiorcy (stare kartki działają).
+        from app.services import pallet_transfer_service as palety
+        palety.park_order_pallets_cx(conn, order, "usunięcie zamówienia", "Nie można usunąć zamówienia")
         cx_execute(conn, "DELETE FROM client_orders WHERE id=%s", (order_id,))
-    logger.info("order.deleted", extra={"order_id": order_id})
-    return {"ok": True}
+        moved = palety.attach_to_pool_cx(conn, order.get("client_id") or "", order_id)
+    logger.info("order.deleted", extra={"order_id": order_id, "moved_pallets": len(moved)})
+    return {"ok": True, "movedPallets": moved}
 
 
 def _line_identity(product_type_id, recipe_id, packaging_id, kg_per_unit) -> tuple:
@@ -933,7 +949,19 @@ def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
             ),
         )
 
+        from app.services import pallet_transfer_service as palety
+        rozpis_przed = palety.snapshot_items(conn, order_id)
         _reconcile_lines_cx(conn, order_id, dto.lines)
+        # Paleta, której edycja zabrała pozycję, nie zostaje okrojona: wraca do
+        # poczekalni z pełnym rozpisem i od razu próbuje wrócić tutaj albo do
+        # innego zamówienia odbiorcy. Zmiana klienta — tak samo.
+        palety.park_changed_pallets_cx(conn, order, rozpis_przed)
+        if (dto.client_id or "") != (order.get("client_id") or ""):
+            palety.park_order_pallets_cx(conn, order, "zmiana klienta zamówienia",
+                                         "Nie można zmienić klienta")
+        moved = palety.attach_orphans_cx(conn, order_id)
+        if (dto.client_id or "") != (order.get("client_id") or ""):
+            moved += palety.attach_to_pool_cx(conn, order.get("client_id") or "", order_id)
         karton_link.check_order_reservations_cx(conn, order_id, overflow_before)
 
         updated = cx_query_one(
@@ -944,6 +972,7 @@ def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
             conn, "SELECT * FROM client_order_lines WHERE order_id=%s ORDER BY position",
             (order_id,)
         )
+        updated["movedPallets"] = moved
     # Warunek zamknięcia oceniamy PO edycji, nie tylko przy wystawianiu WZ.
     # Biuro (2026-09-09, ZAGROS/Z/1/09/26): „zostało już zrealizowane, a nadal
     # wisi w zamówieniach — przez to, że wykonałem WZ, a potem zmieniłem

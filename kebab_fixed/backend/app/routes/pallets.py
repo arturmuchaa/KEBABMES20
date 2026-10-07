@@ -150,6 +150,14 @@ def in_cold_storage():
     return pallets_service.pallets_in_cold_storage()
 
 
+@router.get("/orphans")
+def orphan_pallets():
+    """Palety z usuniętych/anulowanych/zmienionych zamówień czekające na
+    zgodne zamówienie odbiorcy (przypinają się same)."""
+    from app.services.pallet_transfer_service import list_orphans
+    return list_orphans()
+
+
 @router.get("/to-pack")
 def to_pack():
     return pallets_service.pallets_to_pack()

@@ -84,6 +84,13 @@ export function komunikatSkanu(
         naglowek: 'ZAMÓWIENIE JUŻ ZREALIZOWANE',
         szczegol: 'Dokument został wystawiony, towar zszedł ze stanu. Zgłoś to biuru.',
       }
+    case 'WAITING_FOR_ORDER':
+      return {
+        ok: false,
+        naglowek: 'PALETA CZEKA NA ZAMÓWIENIE',
+        szczegol: ctx.wiadomosc
+          || `${paleta(ctx)} pochodzi z usuniętego lub zmienionego zamówienia. Zawołaj biuro — kartka zacznie działać sama.`,
+      }
     case 'INVALID':
       return {
         ok: false,

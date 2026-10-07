@@ -1905,6 +1905,35 @@ _DDL: list[str] = [
     # podwoiłoby dług.
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS "
     "settlement_basis TEXT NOT NULL DEFAULT 'both'",
+
+    # ── Palety przeżywają usunięcie/anulowanie/zmianę zamówienia (07.10.2026) ──
+    # Poczekalnia palet bez zamówienia (rozpis jako specyfikacja) i aliasy
+    # starych kartek PAL|<zamówienie>|<nr> → paleta w nowym zamówieniu.
+    """CREATE TABLE IF NOT EXISTS orphan_pallets (
+        id               TEXT PRIMARY KEY,
+        source_order_id  TEXT NOT NULL,
+        source_order_no  TEXT DEFAULT '',
+        client_id        TEXT DEFAULT '',
+        client_name      TEXT DEFAULT '',
+        pallet_no        INTEGER NOT NULL,
+        carton_no        INTEGER,
+        notes            TEXT DEFAULT '',
+        status           TEXT NOT NULL DEFAULT 'created',
+        cold_storage_at  TIMESTAMPTZ,
+        created_at       TIMESTAMPTZ,
+        items            JSONB NOT NULL DEFAULT '[]'::jsonb,
+        reason           TEXT DEFAULT '',
+        detached_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_orphan_pallets_source ON orphan_pallets(source_order_id, pallet_no)",
+    """CREATE TABLE IF NOT EXISTS pallet_label_aliases (
+        order_id         TEXT NOT NULL,
+        pallet_no        INTEGER NOT NULL,
+        target_order_id  TEXT NOT NULL,
+        target_pallet_no INTEGER NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (order_id, pallet_no)
+    )""",
 ]
 
 

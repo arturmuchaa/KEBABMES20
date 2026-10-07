@@ -2180,7 +2180,42 @@ export interface PalletToPack {
   orderNo: string; clientName: string; packedQty: number; targetQty: number
 }
 
+/** Paleta z usuniętego/anulowanego/zmienionego zamówienia w poczekalni. */
+export interface OrphanPallet {
+  id: string
+  sourceOrderNo: string
+  clientName: string
+  palletNo: number
+  cartonNo: number | null
+  status: string
+  reason: string
+  detachedAt: string | null
+  items: { recipeName: string; productTypeName: string; packagingName: string; kgPerUnit: number; qty: number }[]
+}
+
+export function mapOrphanPallet(r: any): OrphanPallet {
+  return {
+    id: r?.id ?? '',
+    sourceOrderNo: r?.sourceOrderNo ?? r?.source_order_no ?? '',
+    clientName: r?.clientName ?? r?.client_name ?? '',
+    palletNo: Number(r?.palletNo ?? r?.pallet_no ?? 0),
+    cartonNo: r?.cartonNo ?? r?.carton_no ?? null,
+    status: r?.status ?? '',
+    reason: r?.reason ?? '',
+    detachedAt: r?.detachedAt ?? r?.detached_at ?? null,
+    items: (r?.items ?? []).map((it: any) => ({
+      recipeName: it?.recipeName ?? it?.recipe_name ?? '',
+      productTypeName: it?.productTypeName ?? it?.product_type_name ?? '',
+      packagingName: it?.packagingName ?? it?.packaging_name ?? '',
+      kgPerUnit: Number(it?.kgPerUnit ?? it?.kg_per_unit ?? 0),
+      qty: Number(it?.qty ?? 0),
+    })),
+  }
+}
+
 export const palletsApi = {
+  /** Palety czekające na zgodne zamówienie odbiorcy (przypinają się same). */
+  orphans: () => get<any[]>('/pallets/orphans').then(rows => (rows ?? []).map(mapOrphanPallet)),
   toPack: () =>
     get<any[]>('/pallets/to-pack').then(rows => (rows ?? []).map((r: any): PalletToPack => ({
       id: r.id, orderId: r.order_id, palletNo: Number(r.pallet_no ?? 0),
@@ -2441,6 +2476,8 @@ export const zaladunkiApi = {
 export type ScanResultCode =
   | 'SUCCESS' | 'ALREADY_SCANNED' | 'INVALID'
   | 'WRONG_ORDER' | 'ON_OTHER_VEHICLE' | 'ALREADY_COMPLETED' | 'ERROR'
+  /** Paleta z usuniętego/zmienionego zamówienia czeka na zgodne zamówienie odbiorcy. */
+  | 'WAITING_FOR_ORDER'
 
 export interface VehicleStatePallet {
   cartonNo?: string

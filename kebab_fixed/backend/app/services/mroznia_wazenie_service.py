@@ -200,7 +200,7 @@ def sprawdz(code: str) -> Dict[str, Any]:
         }
 
     try:
-        order_id, pallet_no = pallets_service.parse_code(code)
+        order_id, pallet_no = pallets_service.resolve_code(code)
     except HTTPException:
         return {"result": "INVALID"}
     p = query_one(

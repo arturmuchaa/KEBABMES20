@@ -75,6 +75,13 @@ def parse_code(code: str) -> tuple[str, int]:
     raise HTTPException(400, f"Nieprawidłowy kod palety: {code!r}")
 
 
+def resolve_code(code: str) -> tuple[str, int]:
+    """`parse_code` + stara kartka palety przeniesionej do innego zamówienia
+    (`pallet_transfer_service`). Paleta w poczekalni → czytelna odmowa."""
+    from app.services.pallet_transfer_service import resolve_pallet_ref
+    return resolve_pallet_ref(*parse_code(code))
+
+
 def list_pallets(order_id: str) -> List[Dict]:
     pallets = query_all(
         "SELECT * FROM order_pallets WHERE order_id = %s ORDER BY pallet_no",
@@ -435,7 +442,7 @@ def _pallet_with_items(order_id: str, pallet_no: int) -> Dict:
 
 
 def lookup(code: str) -> Dict:
-    order_id, pallet_no = parse_code(code)
+    order_id, pallet_no = resolve_code(code)
     return _pallet_with_items(order_id, pallet_no)
 
 
@@ -458,7 +465,7 @@ def _cofnij_skan(code: str, operator: str = "", vehicle_id: str = None) -> Dict[
     cofnięcie na jednym stanowisku i skan na drugim mogły się rozminąć:
     oba czytały „loaded", oba pisały, a wynik zależał od kolejności zapisu.
     """
-    order_id, pallet_no = parse_code(code)
+    order_id, pallet_no = resolve_code(code)
 
     with transaction() as conn:
         before = cx_query_one(conn, "SELECT loaded_vehicle_id FROM order_pallets WHERE order_id=%s AND pallet_no=%s",
@@ -550,7 +557,7 @@ def scan(code: str, action: str, operator: str = "", vehicle_id: str | None = No
     if action not in _TRANSITIONS:
         _odmow("ERROR", f"Nieznana akcja skanu: {action}", 400)
 
-    order_id, pallet_no = parse_code(code)
+    order_id, pallet_no = resolve_code(code)
     rule = _TRANSITIONS[action]
     veh_id = (vehicle_id or "").strip() or None
 
