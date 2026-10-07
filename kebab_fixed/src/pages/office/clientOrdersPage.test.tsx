@@ -25,6 +25,7 @@ vi.mock('@/components/cmr/CmrFormModal', () => ({ CmrFormModal: () => null }))
 vi.mock('@/components/orders/PalletsEditor', () => ({ PalletsEditor: () => null }))
 vi.mock('@/features/finished-goods/components/StockCartonSuggestions', () => ({ StockCartonSuggestions: () => null }))
 vi.mock('@/features/orders/MaterialSummaryCard', () => ({ MaterialSummaryCard: () => null }))
+vi.mock('@/features/orders/OrphanPalletsPanel', () => ({ OrphanPalletsPanel: () => null }))
 vi.mock('@/features/orders/OrderMaterialShortfall', () => ({ OrderMaterialShortfall: () => null }))
 
 import { ClientOrdersPage } from './ClientOrdersPage'

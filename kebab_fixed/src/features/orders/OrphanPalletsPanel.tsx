@@ -15,7 +15,7 @@ import { Layers } from 'lucide-react'
 
 export function OrphanPalletsPanel({ refreshKey }: { refreshKey?: unknown }) {
   const { data } = useApi<OrphanPallet[]>(() => palletsApi.orphans(), [refreshKey])
-  if (!data || data.length === 0) return null
+  if (!Array.isArray(data) || data.length === 0) return null
   return (
     <div role="region" aria-label="Palety czekające na zamówienie"
          className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
@@ -34,7 +34,7 @@ export function OrphanPalletsPanel({ refreshKey }: { refreshKey?: unknown }) {
             </span>
             {p.cartonNo != null && <span className="text-slate-500"> · karton {formatCartonNo(p.cartonNo)}</span>}
             {' — '}{p.clientName || '—'}{': '}
-            {p.items.map(it => `${it.qty}× ${it.kgPerUnit} kg ${it.productTypeName || it.recipeName}${it.packagingName ? ` · ${it.packagingName}` : ''}`).join(', ')}
+            {(p.items ?? []).map(it => `${it.qty}× ${it.kgPerUnit} kg ${it.productTypeName || it.recipeName}${it.packagingName ? ` · ${it.packagingName}` : ''}`).join(', ')}
             {p.reason && <span className="text-slate-500"> ({p.reason})</span>}
           </li>
         ))}
