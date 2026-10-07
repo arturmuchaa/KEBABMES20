@@ -1847,8 +1847,14 @@ export const clientOrdersApi = {
   stockCartonSuggestions: (orderId: string) =>
     get<any[]>(`/client-orders/${orderId}/stock-carton-suggestions`)
       .then(rows => (rows ?? []).map(mapStockCartonSuggestion)),
+  /** Przegląd: kartony dostępne, już przypisane i niedostępne (z powodem). */
+  stockCartonOptions: (orderId: string) =>
+    get<any>(`/client-orders/${orderId}/stock-carton-options`).then(mapStockCartonOptions),
   assignStockCarton: (orderId: string, cartonId: string) =>
     post<any>(`/client-orders/${orderId}/assign-stock-carton`, { carton_id: cartonId }),
+  /** Odłączenie omyłkowo przypisanego kartonu (przed autem/wydaniem/dokumentem). */
+  detachStockCarton: (orderId: string, cartonId: string) =>
+    post<any>(`/client-orders/${orderId}/detach-stock-carton`, { carton_id: cartonId }),
 }
 
 // ─── Podział wysyłki na fakturę i WZ (Task 7 backend, ekran w Tasku 8) ────
@@ -1983,6 +1989,88 @@ function mapStockCartonSuggestion(r: any): StockCartonSuggestion {
   }
 }
 
+export interface StockCartonOptionLine extends StockCartonSuggestionLine {
+  targetQty: number
+}
+
+/** Karton w przeglądzie zamówienia (dostępny / przypisany / niedostępny). */
+export interface StockCartonOption {
+  cartonId: string
+  cartonNo: number | null
+  clientName: string
+  /** Karton niczyj — „na magazyn", bez odbiorcy. */
+  generic: boolean
+  status: string
+  inColdStorage: boolean
+  loaded: boolean
+  shipped: boolean
+  packedQty: number
+  targetQty: number
+  /** Liczba realnych sztuk w kartonie. */
+  units: number
+  batches: string[]
+  lines: StockCartonOptionLine[]
+  /** Tylko niedostępne: dlaczego nie można przypisać. */
+  reason: string | null
+  /** Tylko przypisane: czy wolno odłączyć i dlaczego nie. */
+  canDetach: boolean
+  detachBlockedReason: string | null
+}
+
+export interface StockCartonOptions {
+  orderId: string
+  orderNo: string
+  orderStatus: string
+  /** Powód blokady NOWYCH przypisań (zamknięte zamówienie, wystawiony WZ/WM). */
+  assignBlockedReason: string | null
+  available: StockCartonOption[]
+  assigned: StockCartonOption[]
+  unavailable: StockCartonOption[]
+  assignedTotals: { cartons: number; units: number }
+}
+
+export function mapStockCartonOption(r: any): StockCartonOption {
+  return {
+    cartonId: r.cartonId ?? r.carton_id ?? '',
+    cartonNo: r.cartonNo ?? r.carton_no ?? null,
+    clientName: r.clientName ?? r.client_name ?? '',
+    generic: Boolean(r.generic),
+    status: r.status ?? '',
+    inColdStorage: Boolean(r.inColdStorage ?? r.in_cold_storage),
+    loaded: Boolean(r.loaded),
+    shipped: Boolean(r.shipped),
+    packedQty: Number(r.packedQty ?? r.packed_qty ?? 0),
+    targetQty: Number(r.targetQty ?? r.target_qty ?? 0),
+    units: Number(r.units ?? 0),
+    batches: Array.isArray(r.batches) ? r.batches.map(String) : [],
+    lines: (r.lines ?? []).map((l: any): StockCartonOptionLine => ({
+      recipeName: l.recipeName ?? l.recipe_name ?? '',
+      productTypeName: l.productTypeName ?? l.product_type_name ?? '',
+      packagingName: l.packagingName ?? l.packaging_name ?? '',
+      kgPerUnit: Number(l.kgPerUnit ?? l.kg_per_unit ?? 0),
+      packedQty: Number(l.packedQty ?? l.packed_qty ?? 0),
+      targetQty: Number(l.targetQty ?? l.target_qty ?? 0),
+    })),
+    reason: r.reason ?? null,
+    canDetach: Boolean(r.canDetach ?? r.can_detach),
+    detachBlockedReason: r.detachBlockedReason ?? r.detach_blocked_reason ?? null,
+  }
+}
+
+export function mapStockCartonOptions(r: any): StockCartonOptions {
+  const totals = r?.assignedTotals ?? r?.assigned_totals ?? {}
+  return {
+    orderId: r?.orderId ?? r?.order_id ?? '',
+    orderNo: r?.orderNo ?? r?.order_no ?? '',
+    orderStatus: r?.orderStatus ?? r?.order_status ?? '',
+    assignBlockedReason: r?.assignBlockedReason ?? r?.assign_blocked_reason ?? null,
+    available: (r?.available ?? []).map(mapStockCartonOption),
+    assigned: (r?.assigned ?? []).map(mapStockCartonOption),
+    unavailable: (r?.unavailable ?? []).map(mapStockCartonOption),
+    assignedTotals: { cartons: Number(totals.cartons ?? 0), units: Number(totals.units ?? 0) },
+  }
+}
+
 export interface StockCartonLineDto {
   recipeId: string
   recipeName: string
@@ -1995,6 +2083,7 @@ export interface StockCartonLineDto {
 }
 
 export interface StockCartonCreateDto {
+  /** Pusty = karton „na magazyn — bez klienta" (backend zapisuje NULL). */
   clientId: string
   clientName: string
   lines: StockCartonLineDto[]

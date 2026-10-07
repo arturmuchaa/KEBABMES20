@@ -22,14 +22,30 @@ from app.utils.unit_codes import (
 logger = get_logger(__name__)
 
 
+_SCARTON_DOKLADNY = re.compile(r"^SCARTON\|([0-9A-Za-z]+)$", re.IGNORECASE)
+_SCARTON_LUZNY = re.compile(r"^SCARTON[^0-9A-Za-z]?([0-9a-fA-F]{20})$", re.IGNORECASE)
+_HEX20 = re.compile(r"^[0-9a-fA-F]{20}$")
+
+
 def _parse_stock_carton(code: str):
-    s = re.sub(r"^\][A-Za-z][0-9A-Za-z]", "", (code or "").strip())
-    m = re.match(r"^SCARTON\|([0-9A-Za-z]+)", s, re.IGNORECASE)
+    """Id kartonu magazynowego z etykiety `SCARTON|<id>`; None, gdy to nie karton.
+
+    Ta sama reguła co `skanKodu.idKartonu` we froncie. Zdejmujemy znaki
+    sterujące i prefiks AIM. Pełne id (20 hex, `cuid()`) sprowadzamy do
+    małych liter — CapsLock skanera dawał „Nieznany karton" przy załadunku,
+    bo baza trzyma małe. Starsze id alfanumeryczne zostają bez zmian (nie
+    wiemy, czy wielkość liter coś w nich znaczy). Separator przekręcony
+    przez układ klawiatury albo zgubiony — tylko przy pełnym 20-hex id.
+    Kod musi być CAŁY kartonem: sklejone dwa skany ani ucięte id nie przejdą
+    jako jeden z nich.
+    """
+    s = re.sub(r"[\x00-\x1f\x7f]", "", code or "").strip()
+    s = re.sub(r"^\][A-Za-z][0-9A-Za-z]", "", s).strip()
+    m = _SCARTON_DOKLADNY.match(s)
     if m:
-        return m.group(1)
-    # Separator przekręcony przez układ klawiatury skanera (jak w kodzie
-    # sztuki, `unit_codes.parse_unit_qr`) — rozpoznajemy po kształcie id.
-    m = re.search(r"SCARTON[^0-9A-Za-z]?([0-9a-fA-F]{20})(?![0-9A-Za-z])", s, re.IGNORECASE)
+        cid = m.group(1)
+        return cid.lower() if _HEX20.match(cid) else cid
+    m = _SCARTON_LUZNY.match(s)
     return m.group(1).lower() if m else None
 
 

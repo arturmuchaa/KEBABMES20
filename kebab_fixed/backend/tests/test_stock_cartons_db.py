@@ -233,15 +233,23 @@ def _seed_client_order(order_id="ord1", order_no="ZAM/1", client_id="c1"):
 
 
 def test_suggestions_match_packed_carton(db):
-    c = create_stock_carton(_dto())
+    # Sugerowany jest tylko karton spakowany do pełna (10.2026: częściowy nie).
+    c = create_stock_carton(_dto(qty=1))
     _seed_unit("us1"); scan_unit_into_carton(c["id"], unit_qr("us1"))
     _seed_client_order(client_id="c1")
     sugg = suggestions_for_order("ord1")
     assert any(s["cartonId"] == c["id"] for s in sugg)
 
 
+def test_suggestions_skip_partially_packed_carton(db):
+    c = create_stock_carton(_dto(qty=2))
+    _seed_unit("up1"); scan_unit_into_carton(c["id"], unit_qr("up1"))
+    _seed_client_order(client_id="c1")
+    assert all(s["cartonId"] != c["id"] for s in suggestions_for_order("ord1"))
+
+
 def test_assign_links_carton_and_validates_client(db):
-    c = create_stock_carton(_dto(client_id="c1"))
+    c = create_stock_carton(_dto(client_id="c1", qty=1))
     _seed_unit("ua1"); scan_unit_into_carton(c["id"], unit_qr("ua1"))
     _seed_client_order(client_id="c1", order_no="ZAM/5")
     assign_carton_to_order(c["id"], "ord1")
@@ -249,6 +257,17 @@ def test_assign_links_carton_and_validates_client(db):
     assert cc["linked_order_no"] == "ZAM/5"
     u = query_one("SELECT order_id FROM finished_units WHERE id='ua1'")
     assert u["order_id"] == "ord1"
+
+
+def test_assign_rejects_partially_packed_carton(db):
+    # Świadome zaostrzenie: dawniej przypisywał się każdy karton z ≥1 sztuką.
+    c = create_stock_carton(_dto(client_id="c1", qty=2))
+    _seed_unit("uc1"); scan_unit_into_carton(c["id"], unit_qr("uc1"))
+    _seed_client_order(client_id="c1", order_no="ZAM/6")
+    with pytest.raises(HTTPException) as exc:
+        assign_carton_to_order(c["id"], "ord1")
+    assert exc.value.status_code == 409 and "częściowo" in exc.value.detail
+    assert query_one("SELECT order_id FROM finished_units WHERE id='uc1'")["order_id"] is None
 
 
 def test_assign_rejects_empty_carton(db):
@@ -260,12 +279,13 @@ def test_assign_rejects_empty_carton(db):
 
 
 def test_assign_rejects_other_client(db):
-    c = create_stock_carton(_dto(client_id="c1"))
+    c = create_stock_carton(_dto(client_id="c1", qty=1))
     _seed_unit("ub1"); scan_unit_into_carton(c["id"], unit_qr("ub1"))
     _seed_client_order(client_id="INNY", order_no="ZAM/9")
     with pytest.raises(HTTPException) as exc:
         assign_carton_to_order(c["id"], "ord1")
     assert exc.value.status_code == 409
+    assert "innego klienta" in exc.value.detail
 
 
 # ── Usuwanie pustego kartonu (25.09.2026, stary karton MEPA na panelu) ──

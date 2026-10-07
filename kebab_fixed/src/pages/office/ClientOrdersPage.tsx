@@ -443,7 +443,7 @@ export function ClientOrdersPage() {
                               )}
 
                               {/* Pasujące kartony z magazynu (powiązanie „na magazyn" → zamówienie) */}
-                              <StockCartonSuggestions orderId={o.id} />
+                              <StockCartonSuggestions key={o.id} orderId={o.id} orderStatus={o.status} onAssigned={refetch} />
 
                               {/* Palety */}
                               <PalletsEditor orderId={o.id} lines={o.lines} />

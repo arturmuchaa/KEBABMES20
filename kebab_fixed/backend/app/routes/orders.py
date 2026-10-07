@@ -1,6 +1,7 @@
 """Client orders endpoints."""
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
+from app.auth.audit import _subject_label
 from app.models.orders import (
     ClientOrderCreate,
     PalletsRequest,
@@ -9,6 +10,7 @@ from app.models.orders import (
 from app.services import orders_service as svc
 from app.services import material_requirements_service as mrs
 from app.services import pallets_service
+from app.services import stock_carton_link_service
 from app.services import stock_carton_match_service
 from app.services import stock_cartons_service
 
@@ -109,12 +111,30 @@ def przepnij_sztuki(order_id: str):
 
 @router.get("/{order_id}/stock-carton-suggestions")
 def stock_carton_suggestions(order_id: str):
-    """Pasujące kartony magazynowe do tego zamówienia (klient+receptura+rodzaj+tuleja+waga)."""
+    """Kartony magazynowe DOSTĘPNE do przypisania (dawny kształt odpowiedzi)."""
     return stock_carton_match_service.suggestions_for_order(order_id)
 
 
+@router.get("/{order_id}/stock-carton-options")
+def stock_carton_options(order_id: str):
+    """Przegląd: kartony dostępne, już przypisane i niedostępne (z powodem)."""
+    return stock_carton_link_service.options_for_order(order_id)
+
+
+def _carton_id(body: dict) -> str:
+    """Id kartonu z body (`carton_id` albo `cartonId`)."""
+    return (body or {}).get("carton_id") or (body or {}).get("cartonId") or ""
+
+
 @router.post("/{order_id}/assign-stock-carton")
-def assign_stock_carton(order_id: str, body: dict):
-    """Powiąż wskazany karton magazynowy z zamówieniem (biuro zatwierdza)."""
-    carton_id = (body or {}).get("carton_id") or (body or {}).get("cartonId") or ""
-    return stock_cartons_service.assign_carton_to_order(carton_id, order_id)
+def assign_stock_carton(order_id: str, body: dict, request: Request):
+    """Przypisz CAŁY spakowany karton magazynowy do zamówienia (biuro zatwierdza)."""
+    return stock_cartons_service.assign_carton_to_order(
+        _carton_id(body), order_id, _subject_label(getattr(request.state, "subject", None)) or "")
+
+
+@router.post("/{order_id}/detach-stock-carton")
+def detach_stock_carton(order_id: str, body: dict, request: Request):
+    """Odłącz omyłkowo przypisany karton (przed autem/wydaniem/dokumentem)."""
+    return stock_carton_link_service.detach(
+        _carton_id(body), order_id, _subject_label(getattr(request.state, "subject", None)) or "")

@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -109,15 +109,17 @@ class StockCartonLineDto(BaseModel):
 class StockCartonCreate(BaseModel):
     """POST /api/stock-cartons — karton magazynowy „z ręki" (bez zamówienia).
 
-    Karton dla JEDNEGO klienta z listą pozycji `lines` (skład mieszany). Dla
+    Karton dla JEDNEGO klienta albo „na magazyn — bez klienta" (`clientId`
+    pusty/pominięty → karton niczyj; nazwa bez id jest ignorowana, żeby nie
+    tworzyć fałszywej własności) z listą pozycji `lines` (skład mieszany). Dla
     wstecznej zgodności akceptuje też pojedynczy spec (recipe_id/qty/kg_per_unit) —
     wtedy serwis tworzy z niego jedną pozycję. Dostaje globalny carton_no; później
-    biuro wiąże go z pasującym zamówieniem (assign).
+    biuro przypisuje CAŁY spakowany karton do zgodnego zamówienia (assign).
     """
 
     model_config = ConfigDict(populate_by_name=True, validate_default=True)
 
-    client_id: str = Field(..., alias="clientId", min_length=1)
+    client_id: Optional[str] = Field("", alias="clientId")
     client_name: str = Field("", alias="clientName")
     lines: List[StockCartonLineDto] = Field(default_factory=list)
     # ── wstecznie: pojedynczy spec (opcjonalny) ──

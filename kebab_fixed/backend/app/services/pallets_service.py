@@ -175,6 +175,13 @@ def save_pallets(order_id: str, pallets: List[PalletDto]) -> List[Dict]:
 
     # 7) Usuń tylko palety nie-zeskanowane, potem dopisz palety z incoming z numeracją
     with transaction() as conn:
+        # Ta sama blokada zamówienia co przypisanie kartonu magazynowego
+        # (`stock_carton_link_service.assign`): rozpis palet i powiązane kartony
+        # nie mogą razem przekroczyć ilości zamówienia. Stan wyjściowy liczony
+        # PO blokadzie; po zapisie kontrola odmawia (rollback), gdy nadmiar urósł.
+        from app.services.stock_carton_link_service import check_order_reservations_cx
+        cx_query_one(conn, "SELECT id FROM client_orders WHERE id=%s FOR UPDATE", (order_id,))
+        overflow_before = check_order_reservations_cx(conn, order_id)
         # Zachowaj istniejące numery kartonów per pallet_no — re-edycja palety nie
         # zmienia jej numeru kartonu (numer jest stały, „leci po kolei" globalnie).
         carton_by_no = {
@@ -224,6 +231,7 @@ def save_pallets(order_id: str, pallets: List[PalletDto]) -> List[Dict]:
             used.add(next_no)
             next_no += 1
             inserted += 1
+        check_order_reservations_cx(conn, order_id, overflow_before)
 
     logger.info(
         "pallets.saved",

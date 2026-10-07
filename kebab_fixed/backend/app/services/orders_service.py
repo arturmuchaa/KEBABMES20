@@ -663,6 +663,12 @@ def przepnij_sztuki(order_id: str) -> Dict[str, Any]:
 
 def update_order_status(order_id: str, status: str) -> Dict:
     with transaction() as conn:
+        if status == "cancelled":
+            # Anulowanie z przypisanymi kartonami magazynowymi zostawiłoby towar
+            # „zaklepany" na martwym zamówieniu — najpierw odłączenie.
+            from app.services.stock_carton_link_service import refuse_if_linked_cartons_cx
+            if cx_query_one(conn, "SELECT id FROM client_orders WHERE id=%s FOR UPDATE", (order_id,)):
+                refuse_if_linked_cartons_cx(conn, order_id, "Nie można anulować zamówienia")
         row = cx_execute_returning(
             conn,
             "UPDATE client_orders SET status=%s WHERE id=%s RETURNING *",
@@ -731,6 +737,10 @@ def delete_order(order_id: str) -> Dict[str, bool]:
         from app.services.order_split_service import \
             odmow_edycji_gdy_dokumenty_wystawione
         odmow_edycji_gdy_dokumenty_wystawione(order_id)
+        # Kartony magazynowe przypisane do zamówienia: odmowa zamiast cichego
+        # zostawienia sierot (linked_order_id bez zamówienia, order_id na sztukach).
+        from app.services.stock_carton_link_service import refuse_if_linked_cartons_cx
+        refuse_if_linked_cartons_cx(conn, order_id, "Nie można usunąć zamówienia")
         cx_execute(conn, "DELETE FROM client_orders WHERE id=%s", (order_id,))
     logger.info("order.deleted", extra={"order_id": order_id})
     return {"ok": True}
@@ -892,6 +902,13 @@ def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
         )
         if not client:
             raise HTTPException(404, "Klient nie znaleziony")
+        # Przypisane kartony magazynowe trzymają klienta i ilości zamówienia:
+        # zmiana klienta odpada, a spadek ilości/zmiana specyfikacji pod
+        # kartonem jest sprawdzana po uzgodnieniu pozycji (rollback przy odmowie).
+        from app.services import stock_carton_link_service as karton_link
+        if (dto.client_id or "") != (order.get("client_id") or ""):
+            karton_link.refuse_if_linked_cartons_cx(conn, order_id, "Nie można zmienić klienta")
+        overflow_before = karton_link.check_order_reservations_cx(conn, order_id)
 
         total_kg = sum(l.qty * l.kg_per_unit for l in dto.lines)
         total_units = sum(l.qty for l in dto.lines)
@@ -917,6 +934,7 @@ def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
         )
 
         _reconcile_lines_cx(conn, order_id, dto.lines)
+        karton_link.check_order_reservations_cx(conn, order_id, overflow_before)
 
         updated = cx_query_one(
             conn, "SELECT * FROM client_orders WHERE id=%s", (order_id,)

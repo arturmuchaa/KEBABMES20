@@ -1,9 +1,12 @@
 import { useOtworzDokument } from '@/lib/otworzDokument'
 /**
- * „Dodaj karton z ręki" — wyrób na magazyn dla JEDNEGO klienta.
+ * „Dodaj karton z ręki" — wyrób na magazyn dla JEDNEGO klienta albo „na magazyn —
+ * bez klienta" (clientId = '', backend zapisuje NULL; klienta i zamówienie
+ * przypisuje się później z widoku zamówienia).
  * Karton może być mieszany: wiele pozycji (rodzaj+receptura+tuleja+waga+ilość),
  * np. 30×10kg + 20×15kg w jednym kartonie. Po zapisie karton dostaje globalny numer
- * i czeka na powiązanie z zamówieniem (zgodność per pozycja: klient+receptura+rodzaj+tuleja+waga).
+ * i czeka na powiązanie z zamówieniem (zgodność per pozycja: receptura+rodzaj+tuleja+waga,
+ * a klient — jeśli karton go ma).
  */
 import { useState } from 'react'
 import { useApi } from '@/hooks/useApi'
@@ -25,6 +28,8 @@ interface LineDraft {
   kgPerUnit: string
   qty: string
 }
+
+const NO_CLIENT = '__bez_klienta__'
 
 function emptyLine(): LineDraft {
   return { recipeId: '', productTypeId: '', packagingId: '', kgPerUnit: '', qty: '' }
@@ -49,7 +54,8 @@ export function StockCartonModal({ onCreated }: { onCreated?: (cartonId: string)
   const [error, setError] = useState<string | null>(null)
 
   const lineValid = (l: LineDraft) => l.recipeId && l.productTypeId && Number(l.qty) > 0 && Number(l.kgPerUnit) > 0
-  const valid = clientId && lines.length > 0 && lines.every(lineValid)
+  // Pusty clientId = „Na magazyn — bez klienta" — to poprawny wybór, nie brak danych.
+  const valid = lines.length > 0 && lines.every(lineValid)
 
   function reset() {
     setClientId(''); setLines([emptyLine()]); setError(null)
@@ -118,7 +124,20 @@ export function StockCartonModal({ onCreated }: { onCreated?: (cartonId: string)
           </DialogHeader>
           <div className="space-y-3 py-1">
             <Field label="Klient (wspólny dla całego kartonu)">
-              <Picker value={clientId} onChange={setClientId} items={clients} placeholder="Wybierz klienta…" />
+              {/* Radix Select nie przyjmuje pustej wartości — znacznik żyje tylko w UI,
+                  w stanie i w payloadzie „bez klienta" to zawsze pusty clientId. */}
+              <Select value={clientId || NO_CLIENT} onValueChange={v => setClientId(v === NO_CLIENT ? '' : v)}>
+                <SelectTrigger className="h-9 text-sm"><SelectValue placeholder="Wybierz klienta…" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_CLIENT}>Na magazyn — bez klienta</SelectItem>
+                  {(clients ?? []).map((it: any) => (
+                    <SelectItem key={it.id} value={it.id}>{it.name || it.code || it.id}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="mt-1 block text-xs text-slate-500">
+                Klienta i zamówienie można przypisać później — z widoku zamówienia („Kartony z magazynu").
+              </span>
             </Field>
 
             {stockGoods.length > 0 && (

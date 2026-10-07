@@ -1,7 +1,9 @@
-"""Karton magazynowy = jednostka pakowa BEZ zamówienia.
+"""Karton magazynowy = jednostka pakowa BEZ zamówienia (z klientem albo
+„na magazyn — bez klienta").
 
 Biuro tworzy karton (spec + carton_no). Magazynier skanuje WYPRODUKOWANE sztuki
-do kartonu (finished_units.carton_id). Później karton można powiązać z zamówieniem.
+do kartonu (finished_units.carton_id). Później biuro przypisuje CAŁY spakowany
+karton do zgodnego zamówienia (`stock_carton_link_service`).
 Sztuki pochodzą z realnej produkcji — pełna traceability co do sztuki.
 """
 from typing import Any, Dict, List
@@ -63,12 +65,16 @@ def create_stock_carton(dto: StockCartonCreate) -> Dict:
     """Utwórz karton magazynowy (nagłówek + pozycje) z globalnym numerem.
 
     Skład mieszany: lista pozycji (rodzaj+receptura+tuleja+waga+ilość) dla jednego
-    klienta. Blokada duplikatu: otwarty, niepowiązany karton tego klienta o
-    identycznym ZESTAWIE pozycji — najpierw trzeba go spakować.
+    klienta ALBO „na magazyn — bez klienta" (client_id pusty → NULL). Sama nazwa
+    klienta bez karty nie tworzy własności: bez id zapisujemy pustą nazwę.
+    Blokada duplikatu: otwarty, niepowiązany karton tego samego klienta (lub
+    niczyj) o identycznym ZESTAWIE pozycji — najpierw trzeba go spakować.
     """
     lines = _lines_from_dto(dto)
     if not lines:
         raise HTTPException(400, "Karton musi mieć co najmniej jedną pozycję")
+    client_id = (dto.client_id or "").strip()
+    client_name = (dto.client_name or "") if client_id else ""
     sig = _line_signature(lines)
     with transaction() as conn:
         candidates = cx_query_all(
@@ -76,7 +82,7 @@ def create_stock_carton(dto: StockCartonCreate) -> Dict:
             """SELECT id, carton_no FROM stock_cartons
                WHERE status='open' AND linked_order_id IS NULL
                  AND COALESCE(client_id,'')=%s""",
-            (dto.client_id,),
+            (client_id,),
         )
         for cand in candidates:
             cl = cx_query_all(
@@ -105,7 +111,7 @@ def create_stock_carton(dto: StockCartonCreate) -> Dict:
             VALUES (%s,%s,%s,%s,%s,%s,0,'open',%s)
             RETURNING *
             """,
-            (cuid(), carton_no, dto.client_id, dto.client_name or "",
+            (cuid(), carton_no, client_id or None, client_name,
              _kg(lines[0].kg_per_unit), total_qty, now_iso()),
         )
         for l in lines:
@@ -221,45 +227,12 @@ def scan_unit_into_carton(carton_id: str, code: str) -> Dict[str, Any]:
     }
 
 
-def assign_carton_to_order(carton_id: str, order_id: str) -> Dict:
-    """Powiąż karton magazynowy z zamówieniem (Faza 2). Waliduje klienta,
-    ustawia linked_order, stempluje order_id na sztukach kartonu."""
-    with transaction() as conn:
-        carton = cx_query_one(
-            conn, "SELECT * FROM stock_cartons WHERE id=%s FOR UPDATE", (carton_id,)
-        )
-        if not carton:
-            raise HTTPException(404, "Karton nie znaleziony")
-        if carton.get("linked_order_id"):
-            raise HTTPException(409, "Karton jest już powiązany z zamówieniem")
-        packed = cx_query_one(
-            conn,
-            "SELECT COALESCE(SUM(packed_qty),0) AS p FROM stock_carton_lines WHERE carton_id=%s",
-            (carton_id,),
-        )
-        if int(packed["p"]) <= 0:
-            raise HTTPException(409, "Karton jest pusty — najpierw spakuj sztuki")
-        order = cx_query_one(
-            conn, "SELECT id, order_no, client_id FROM client_orders WHERE id=%s",
-            (order_id,),
-        )
-        if not order:
-            raise HTTPException(404, "Zamówienie nie znalezione")
-        if (carton.get("client_id") or "") != (order.get("client_id") or ""):
-            raise HTTPException(409, "Karton należy do innego klienta niż zamówienie")
-        cx_execute(
-            conn,
-            "UPDATE stock_cartons SET linked_order_id=%s, linked_order_no=%s WHERE id=%s",
-            (order["id"], order["order_no"], carton_id),
-        )
-        cx_execute(
-            conn,
-            "UPDATE finished_units SET order_id=%s WHERE carton_id=%s",
-            (order["id"], carton_id),
-        )
-    logger.info("stock_cartons.assigned",
-                extra={"carton_id": carton_id, "order_id": order_id})
-    return {"ok": True, "cartonId": carton_id, "orderNo": order["order_no"]}
+def assign_carton_to_order(carton_id: str, order_id: str, operator: str = "") -> Dict:
+    """Powiąż CAŁY spakowany karton magazynowy z zamówieniem — reguły i blokady
+    w `stock_carton_link_service.assign` (klient/niczyj, ścisła zgodność,
+    kompletność, limit ilości, idempotencja)."""
+    from app.services import stock_carton_link_service
+    return stock_carton_link_service.assign(carton_id, order_id, operator)
 
 
 def _eligible_for_spec(recipe_id, product_type_id, packaging_name, kg) -> List[Dict]:
