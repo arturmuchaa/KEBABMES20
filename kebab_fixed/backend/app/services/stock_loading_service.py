@@ -2,6 +2,7 @@
 from fastapi import HTTPException
 
 from app.db import transaction, cx_query_one, cx_query_all, cx_execute
+from app.services.stock_carton_link_service import is_scannerless
 from app.utils.ids import cuid, format_carton_no
 
 
@@ -37,6 +38,10 @@ def scan_carton(carton_id, action, vehicle_id, operator=""):
                                 (vehicle_id, order["id"])):
                 raise HTTPException(409, "Najpierw dołóż zamówienie tego kartonu do auta")
             lines = cx_query_all(conn, "SELECT * FROM stock_carton_lines WHERE carton_id=%s", (carton_id,))
+            if is_scannerless(carton, lines, units):
+                # Kurs liczy towar po sztukach — karton bez sztuk wyjechałby jako zero.
+                raise HTTPException(409, "Karton bez zeskanowanych sztuk (tryb bez skanera) — nie skanuj go "
+                                         "na aucie; towar zejdzie z magazynu na dokumencie zamówienia")
             if (carton.get("status") != "packed" or not units or not lines
                     or len(units) != sum(int(l["target_qty"]) for l in lines)
                     or any(int(l["packed_qty"]) != int(l["target_qty"]) for l in lines)

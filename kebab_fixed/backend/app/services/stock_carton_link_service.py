@@ -22,6 +22,17 @@ Reguły:
   * limit per specyfikacja: ilość zamówienia minus rozpis palet minus
     WSZYSTKIE kartony już powiązane (także wydane) — z `target_qty`, nie
     z „wykonano" (to obejmuje wolny wyrób gotowy i nie jest rezerwacją).
+
+TRYB BEZ SKANERA (tymczasowy, właściciel 07.10.2026: „nie skanujemy sztuk —
+dopóki nie uruchomimy skanera na produkcji"): karton, do którego nie
+zeskanowano ŻADNEJ sztuki, liczy się jako spakowany, gdy towar tej
+specyfikacji jest już wyprodukowany i leży na magazynie wyrobu gotowego
+(pula zamówienia albo niczyj), po odjęciu innych takich kartonów przypisanych
+do otwartych zamówień tej puli. Karton jest wtedy tylko fizycznym oznaczeniem
+— stan i partie schodzą jak dotąd z pokrycia zamówienia magazynem przy WZ.
+Załadunek takiego kartonu jego etykietą zostaje zablokowany (kurs liczy po
+sztukach). Gdy hala zacznie skanować, karton ze sztukami wraca na zwykłe
+reguły i ten tryb przestaje mieć zastosowanie.
 """
 from collections import Counter
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -128,6 +139,25 @@ def capacity_reason(carton_need: Dict[Spec, int], order_qty: Dict[Spec, int],
     return None
 
 
+def is_scannerless(carton: Dict[str, Any], lines: List[Dict[str, Any]],
+                   units: List[Dict[str, Any]]) -> bool:
+    """Karton, do którego nikt nie zeskanował żadnej sztuki (tryb bez skanera)."""
+    return (bool(lines) and not units and int(carton.get("packed_qty") or 0) == 0
+            and all(int(l.get("packed_qty") or 0) == 0 for l in lines))
+
+
+def scannerless_stock_reason(carton_need: Dict[Spec, int], on_stock: Dict[Spec, int],
+                             claimed: Dict[Spec, int], labels: Dict[Spec, str]) -> Optional[str]:
+    """Karton bez sztuk musi mieć pokrycie w wyprodukowanym towarze na stanie."""
+    for k, need in carton_need.items():
+        s, c = on_stock.get(k, 0), claimed.get(k, 0)
+        if need > s - c:
+            return (f"Brak wyprodukowanego towaru na stanie dla {labels.get(k) or '/'.join(map(str, k))}: "
+                    f"na magazynie {s} szt., inne kartony bez skanowania {c} szt., karton ma {need} szt. "
+                    "— karton liczy się jako spakowany, gdy towar jest już wyprodukowany")
+    return None
+
+
 def _unit_key(u: Dict[str, Any]) -> tuple:
     return (u.get("recipe_id") or "", u.get("product_type_id") or "",
             u.get("tuleja") or "", _kg(u.get("weight_kg")))
@@ -144,6 +174,11 @@ def completeness_reason(carton: Dict[str, Any], lines: List[Dict[str, Any]],
         return "Karton jest na wydaniu — najpierw cofnij go z wydania"
     if not lines:
         return "Karton nie ma pozycji (stary zapis) — nie można go przypisać"
+    if is_scannerless(carton, lines, units):
+        # Ilość potwierdza stan magazynu (`scannerless_stock_reason`), nie sztuki.
+        if carton.get("status") != "open" or any(int(l.get("target_qty") or 0) <= 0 for l in lines):
+            return "Karton bez sztuk ma niespójne liczniki — wyjaśnij z magazynem"
+        return None
     target = sum(int(l.get("target_qty") or 0) for l in lines)
     packed = sum(int(l.get("packed_qty") or 0) for l in lines)
     if packed <= 0 and not units:
@@ -226,6 +261,47 @@ def reservations(conn, order_id: str, exclude_carton_id: str = "") -> Tuple[Dict
               AND NOT EXISTS (SELECT 1 FROM stock_carton_lines l WHERE l.carton_id = sc.id)""",
         (order_id, exclude_carton_id, order_id, exclude_carton_id))
     return qty_by_spec(pallet_rows, "qty"), qty_by_spec(carton_rows, "target_qty")
+
+
+def scannerless_stock(conn, order: Dict[str, Any],
+                      exclude_carton_id: str = "") -> Tuple[Dict[Spec, int], Dict[Spec, int]]:
+    """(na stanie, zajęte) per ścisła specyfikacja — dla kartonów bez sztuk.
+
+    Na stanie: wyrób gotowy ostemplowany tym zamówieniem albo wolny z puli
+    zamówienia lub niczyj (ta sama reguła puli co pokrycie zamówienia).
+    Zajęte: inne kartony bez sztuk, przypisane do otwartych zamówień tej puli
+    jeszcze bez dokumentu WZ/WM."""
+    from app.services.order_stock_service import _PULA_ZAPASU, _pula_zamowienia
+    q = _q(conn)
+    order_no = order.get("order_no") or ""
+    pula = _pula_zamowienia(order["id"])
+    stock_rows = q(
+        f"""SELECT fg.recipe_id, fg.product_type_id, fg.packaging_id, fg.kg_per_unit, fg.qty_available
+             FROM finished_goods fg
+            WHERE COALESCE(fg.qty_available, 0) > 0
+              AND (fg.client_order_no = %s
+                   OR ((COALESCE(fg.client_order_no, '') = ''
+                        OR NOT EXISTS (SELECT 1 FROM client_orders o2
+                                       WHERE o2.order_no = fg.client_order_no
+                                         AND o2.status NOT IN ('done', 'cancelled')))
+                       AND {_PULA_ZAPASU} IN ('', %s)))""", (order_no, pula))
+    claimed_rows = q(
+        """SELECT l.recipe_id, l.product_type_id, l.packaging_id, l.kg_per_unit, l.target_qty
+             FROM stock_cartons sc
+             JOIN stock_carton_lines l ON l.carton_id = sc.id
+             JOIN client_orders o ON o.id = sc.linked_order_id
+             LEFT JOIN clients c ON c.id = NULLIF(o.client_id, '')
+            WHERE sc.id <> %s AND sc.shipped_at IS NULL
+              AND o.status NOT IN ('done', 'cancelled')
+              AND COALESCE(NULLIF(c.group_id, ''), c.id, NULLIF(o.client_id, ''), '') = %s
+              AND COALESCE(sc.packed_qty, 0) = 0
+              AND NOT EXISTS (SELECT 1 FROM finished_units fu WHERE fu.carton_id = sc.id)
+              -- Po WZ towar już zszedł ze stanu — liczony drugi raz zablokowałby inne kartony.
+              AND NOT EXISTS (SELECT 1 FROM wz_documents w
+                              WHERE w.source_type = 'order' AND w.source_id = o.id
+                                AND COALESCE(w.status, '') <> 'anulowany')""",
+        (exclude_carton_id, pula))
+    return qty_by_spec(stock_rows, "qty_available"), qty_by_spec(claimed_rows, "target_qty")
 
 
 def active_documents(conn, order_id: str) -> List[str]:
@@ -334,6 +410,10 @@ def assign(carton_id: str, order_id: str, operator: str = "") -> Dict[str, Any]:
         units = cx_query_all(conn, "SELECT * FROM finished_units WHERE carton_id=%s ORDER BY id FOR UPDATE",
                              (carton_id,))
         reason = completeness_reason(carton, lines, units, order_id)
+        if not reason and is_scannerless(carton, lines, units):
+            on_stock, claimed = scannerless_stock(conn, order, carton_id)
+            reason = scannerless_stock_reason(qty_by_spec(lines, "target_qty"), on_stock, claimed,
+                                              {spec_key(l): spec_label(l) for l in lines})
         if reason:
             raise HTTPException(409, f"Karton {label}: {reason}")
         pallet_res, carton_res = reservations(conn, order_id, carton_id)
@@ -400,6 +480,7 @@ def detach_block_reason(carton: Dict[str, Any], units: List[Dict[str, Any]],
 # ── Przegląd dla biura ────────────────────────────────────────────────────
 
 def _carton_view(c: Dict[str, Any], lines: List[Dict[str, Any]], units: List[Dict[str, Any]]) -> Dict[str, Any]:
+    scannerless = is_scannerless(c, lines, units)
     return {
         "cartonId": c["id"],
         "cartonNo": c.get("carton_no"),
@@ -413,7 +494,9 @@ def _carton_view(c: Dict[str, Any], lines: List[Dict[str, Any]], units: List[Dic
         "shipped": bool(c.get("shipped_at")) or any(u.get("status") == "shipped" for u in units),
         "packedQty": sum(int(l.get("packed_qty") or 0) for l in lines) if lines else int(c.get("packed_qty") or 0),
         "targetQty": sum(int(l.get("target_qty") or 0) for l in lines) if lines else int(c.get("target_qty") or 0),
-        "units": len(units),
+        # Bez skanera sztuk fizycznie w kartonie jest tyle, ile zadeklarowano.
+        "units": sum(int(l.get("target_qty") or 0) for l in lines) if scannerless else len(units),
+        "scannerless": scannerless,
         "batches": sorted({u.get("batch_no") or "" for u in units} - {""}),
         "lines": [{
             "recipeName": l.get("recipe_name") or "",
@@ -455,6 +538,7 @@ def options_for_order(order_id: str) -> Dict[str, Any]:
     lines_by, units_by = _lines_and_units(None, ids)
 
     order_rt = {(l.get("recipe_id") or "", l.get("product_type_id") or "") for l in order_lines}
+    stock = None  # (na stanie, zajęte) — liczone raz, tylko gdy jest karton bez sztuk
     available, unavailable = [], []
     for c in candidate_rows:
         lines, units = lines_by.get(c["id"], []), units_by.get(c["id"], [])
@@ -468,6 +552,11 @@ def options_for_order(order_id: str) -> Dict[str, Any]:
                 continue
         reason = (completeness_reason(c, lines, units, order_id)
                   or match_reason(c, lines, client_id, order_lines, pallet_res, carton_res))
+        if not reason and is_scannerless(c, lines, units):
+            if stock is None:
+                stock = scannerless_stock(None, order)
+            reason = scannerless_stock_reason(qty_by_spec(lines, "target_qty"), stock[0], stock[1],
+                                              {spec_key(l): spec_label(l) for l in lines})
         view = _carton_view(c, lines, units)
         if reason:
             view["reason"] = reason

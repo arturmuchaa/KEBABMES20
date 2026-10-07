@@ -200,11 +200,20 @@ def test_karton_czesciowy_i_pusty_odmowa_z_powodem(db):
     with pytest.raises(HTTPException) as e:
         link.assign(czesciowy["id"], "o1")
     assert "częściowo (1/3" in e.value.detail
+    # Pusty karton = tryb bez skanera; sztuki 30 kg z wyrobu f1 siedzą w częściowym
+    # kartonie, ale stan f1 (3 szt.) pokrywa 1 szt. — przechodzi. Pustego
+    # kartonu 40 kg nikt nie wyprodukował — odmowa z powodem.
+    pusty40 = create_stock_carton(StockCartonCreate(client_id="c1", client_name="YBM",
+                                                    recipe_id="r1", product_type_id="pt1",
+                                                    packaging_name="METAL", kg_per_unit=40, qty=1))
+    execute("INSERT INTO client_order_lines (id, order_id, recipe_id, product_type_id, qty, "
+            " kg_per_unit, total_kg) VALUES ('o1-l2','o1','r1','pt1',5,40,200)")
     with pytest.raises(HTTPException) as e:
-        link.assign(pusty["id"], "o1")
-    assert "pusty" in e.value.detail
+        link.assign(pusty40["id"], "o1")
+    assert "Brak wyprodukowanego towaru" in e.value.detail
     powody = {u["cartonId"]: u["reason"] for u in link.options_for_order("o1")["unavailable"]}
-    assert "częściowo" in powody[czesciowy["id"]] and "pusty" in powody[pusty["id"]]
+    assert "częściowo" in powody[czesciowy["id"]] and "Brak wyprodukowanego" in powody[pusty40["id"]]
+    assert pusty["id"] not in powody
     assert query_one("SELECT linked_order_id FROM stock_cartons WHERE id=%s", (czesciowy["id"],))["linked_order_id"] is None
 
 
@@ -381,3 +390,68 @@ def test_nowy_karton_bez_klienta_nie_zapisuje_pseudo_wlasnosci(db):
     jawny = create_stock_carton(StockCartonCreate(client_id="c1", client_name="YBM", recipe_id="r1",
                                                   product_type_id="pt1", kg_per_unit=30, qty=1))
     assert query_one("SELECT client_id FROM stock_cartons WHERE id=%s", (jawny["id"],))["client_id"] == "c1"
+
+
+# ── Tryb bez skanera (tymczasowy: hala nie skanuje sztuk) ─────────────────
+
+def test_bez_skanera_karton_z_wyrobu_na_stanie_przypisany_bez_ruchow(db):
+    _baza(); _fg_niczyj(qty=3)
+    a = create_stock_carton(StockCartonCreate(client_id="c1", client_name="YBM", lines=[
+        StockCartonLineDto(recipe_id="r1", product_type_id="pt1", packaging_name="METAL",
+                           kg_per_unit=30, qty=2)]))
+    # Drugi taki sam otwarty karton klienta jest blokowany przy tworzeniu — B jest niczyj.
+    b = create_stock_carton(StockCartonCreate(client_id="", client_name="", lines=[
+        StockCartonLineDto(recipe_id="r1", product_type_id="pt1", packaging_name="METAL",
+                           kg_per_unit=30, qty=2)]))
+    _zamowienie(qty=10)
+    stan0 = _fg_i_ruchy()
+
+    opcje = link.options_for_order("o1")
+    dostepne = {c["cartonId"]: c for c in opcje["available"]}
+    assert set(dostepne) == {a["id"], b["id"]}
+    assert dostepne[a["id"]]["scannerless"] is True and dostepne[a["id"]]["units"] == 2
+
+    res = link.assign(a["id"], "o1", "biuro")
+    assert res["ok"] and res["units"] == 0
+    assert _fg_i_ruchy() == stan0                  # przypisanie nie rusza stanu
+    opcje = link.options_for_order("o1")
+    assert opcje["assignedTotals"] == {"cartons": 1, "units": 2}
+    assert opcje["assigned"][0]["scannerless"] is True
+    # Na stanie 3 szt., karton A zajął 2 — drugi karton 2 szt. już się nie mieści.
+    powod = {c["cartonId"]: c["reason"] for c in opcje["unavailable"]}[b["id"]]
+    assert "na magazynie 3 szt." in powod and "inne kartony bez skanowania 2 szt." in powod
+    with pytest.raises(HTTPException) as e:
+        link.assign(b["id"], "o1")
+    assert "Brak wyprodukowanego towaru" in e.value.detail
+
+    # Załadunek etykietą kartonu bez sztuk — jawna odmowa (kurs liczy po sztukach).
+    vehicles.add_order("v1", "o1")
+    with pytest.raises(HTTPException) as e:
+        pallets_service.scan(f"SCARTON|{a['id']}", "loaded", vehicle_id="v1")
+    assert "bez zeskanowanych sztuk" in e.value.detail
+    assert query_one("SELECT loaded_vehicle_id FROM stock_cartons WHERE id=%s", (a["id"],))["loaded_vehicle_id"] is None
+
+    # Odłączenie zwalnia stan dla drugiego kartonu.
+    link.detach(a["id"], "o1", "biuro")
+    assert b["id"] in {c["cartonId"] for c in link.options_for_order("o1")["available"]}
+    assert _fg_i_ruchy() == stan0
+
+
+def test_bez_skanera_obcy_wyrob_i_wyrob_innego_zamowienia_nie_licza_sie(db):
+    _baza()
+    execute("INSERT INTO clients (id, code, name, display_name) VALUES ('c2','ZAG','Zagros GmbH','ZAGROS')")
+    execute("INSERT INTO finished_goods (id, batch_no, recipe_id, recipe_name, product_type_id, "
+            " product_type_name, qty, kg_per_unit, total_kg, qty_available, qty_shipped, "
+            " client_id, client_name, client_order_no, produced_date) VALUES "
+            "('f2','x','r1','KIRMIZI','pt1','UDO',5,30,150,5,0,'c2','Zagros GmbH',NULL,'2026-09-08'),"
+            "('f3','y','r1','KIRMIZI','pt1','UDO',5,30,150,5,0,NULL,'','INNE/1','2026-09-08')")
+    _zamowienie("o9", order_no="INNE/1", qty=5)
+    k = create_stock_carton(StockCartonCreate(client_id="c1", client_name="YBM", lines=[
+        StockCartonLineDto(recipe_id="r1", product_type_id="pt1", packaging_name="METAL",
+                           kg_per_unit=30, qty=1)]))
+    _zamowienie(qty=10)
+    powod = {c["cartonId"]: c["reason"] for c in link.options_for_order("o1")["unavailable"]}[k["id"]]
+    assert "na magazynie 0 szt." in powod
+    # Wyrób ostemplowany TYM zamówieniem się liczy.
+    execute("UPDATE finished_goods SET client_order_no='YALCIN/Z/4/09/26' WHERE id='f3'")
+    assert k["id"] in {c["cartonId"] for c in link.options_for_order("o1")["available"]}

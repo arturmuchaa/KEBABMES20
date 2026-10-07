@@ -106,7 +106,7 @@ def test_kompletny_karton_przechodzi_mroznia_nie_blokuje():
 
 @pytest.mark.parametrize("carton,lines,units,slowo", [
     (_carton(status="open"), [_cl(30, 2, packed=1)], [_u(1)], "częściowo (1/2"),
-    (_carton(status="open"), [_cl(30, 2, packed=0)], [], "pusty"),
+    (_carton(status="packed"), [_cl(30, 2, packed=0)], [], "niespójne liczniki"),
     (_carton(), [_cl(30, 2)], [_u(1)], "Niespójny"),
     (_carton(), [_cl(30, 2)], [_u(1), _u(2, kg=15)], "Niespójny"),
     (_carton(), [_cl(30, 2)], [_u(1), _u(2, pallet_id="p1")], "Niespójny"),
@@ -119,6 +119,34 @@ def test_kompletny_karton_przechodzi_mroznia_nie_blokuje():
 ])
 def test_niekompletny_ma_czytelny_powod(carton, lines, units, slowo):
     assert slowo in link.completeness_reason(carton, lines, units, "o1")
+
+
+# ── Tryb bez skanera (tymczasowy) ─────────────────────────────────────────
+
+def test_karton_bez_zadnej_sztuki_to_tryb_bez_skanera():
+    pusty = _carton(status="open", packed_qty=0)
+    assert link.is_scannerless(pusty, [_cl(30, 2, packed=0)], [])
+    assert link.completeness_reason(pusty, [_cl(30, 2, packed=0)], [], "o1") is None
+    # Jedna zeskanowana sztuka = zwykłe reguły (częściowy), nie tryb bez skanera.
+    assert not link.is_scannerless(_carton(status="open", packed_qty=1), [_cl(30, 2, packed=1)], [_u(1)])
+    assert not link.is_scannerless(pusty, [], [])
+
+
+@pytest.mark.parametrize("carton,slowo", [
+    (_carton(status="open", loaded_vehicle_id="v1"), "aucie"),
+    (_carton(status="open", shipped_at="x"), "wydany"),
+])
+def test_bez_skanera_auto_i_wydanie_nadal_blokuja(carton, slowo):
+    assert slowo in link.completeness_reason(carton, [_cl(30, 2, packed=0)], [], "o1")
+
+
+def test_bez_skanera_potrzebny_wyprodukowany_towar_na_stanie():
+    k = ("r1", "pt1", "", 30.0)
+    assert link.scannerless_stock_reason({k: 2}, {k: 2}, {}, {}) is None
+    assert link.scannerless_stock_reason({k: 2}, {k: 5}, {k: 3}, {}) is None
+    r = link.scannerless_stock_reason({k: 2}, {k: 3}, {k: 2}, {k: "UDO · METAL · 30 kg"})
+    assert "Brak wyprodukowanego towaru" in r and "na magazynie 3 szt." in r and "UDO · METAL · 30 kg" in r
+    assert "Brak wyprodukowanego towaru" in link.scannerless_stock_reason({k: 1}, {}, {}, {})
 
 
 def test_sztuki_juz_tego_zamowienia_nie_blokuja():

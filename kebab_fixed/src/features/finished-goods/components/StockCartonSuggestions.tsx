@@ -89,7 +89,9 @@ export function StockCartonSuggestions({ orderId, orderStatus, onAssigned }: Pro
       }
       setConfirmDetachId(null)
       setSuccess(kind === 'assign'
-        ? `Przypisano karton ${label(c)} (${c.units} szt.) do tego zamówienia. Dodaj zamówienie do auta i skanuj dotychczasową etykietę kartonu.`
+        ? `Przypisano karton ${label(c)} (${c.units} szt.) do tego zamówienia. ` + (c.scannerless
+          ? 'Karton bez zeskanowanych sztuk — nie skanuj go na aucie; towar zejdzie z magazynu na dokumencie zamówienia.'
+          : 'Dodaj zamówienie do auta i skanuj dotychczasową etykietę kartonu.')
         : `Odłączono karton ${label(c)} od tego zamówienia. Karton i towar zostają na magazynie.`)
       await afterMutation()
     } finally {
@@ -296,7 +298,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 function CartonInfo({ c }: { c: StockCartonOption }) {
   const flags = [
-    STATUS_LABEL[c.status] ?? c.status,
+    c.scannerless ? 'spakowany bez skanera (towar na stanie)' : STATUS_LABEL[c.status] ?? c.status,
     c.inColdStorage ? 'w chłodni' : '',
     c.loaded ? 'załadowany' : '',
     c.shipped ? 'wydany' : '',
@@ -321,7 +323,8 @@ function CartonInfo({ c }: { c: StockCartonOption }) {
         </ul>
       )}
       <div className="mt-0.5 text-[11px] text-slate-500">
-        {c.batches.length > 0 ? `Partia: ${c.batches.join(', ')}` : 'Partia: —'}
+        {c.batches.length > 0 ? `Partia: ${c.batches.join(', ')}`
+          : c.scannerless ? 'Partia: z magazynu na dokumencie' : 'Partia: —'}
         {flags.length > 0 && ` · ${flags.join(' · ')}`}
       </div>
     </div>

@@ -2006,8 +2006,11 @@ export interface StockCartonOption {
   shipped: boolean
   packedQty: number
   targetQty: number
-  /** Liczba realnych sztuk w kartonie. */
+  /** Liczba sztuk w kartonie (bez skanera: zadeklarowana ilość). */
   units: number
+  /** Tryb bez skanera (tymczasowy): karton bez zeskanowanych sztuk, spakowany
+   *  na podstawie wyprodukowanego towaru na stanie. */
+  scannerless: boolean
   batches: string[]
   lines: StockCartonOptionLine[]
   /** Tylko niedostępne: dlaczego nie można przypisać. */
@@ -2042,6 +2045,7 @@ export function mapStockCartonOption(r: any): StockCartonOption {
     packedQty: Number(r.packedQty ?? r.packed_qty ?? 0),
     targetQty: Number(r.targetQty ?? r.target_qty ?? 0),
     units: Number(r.units ?? 0),
+    scannerless: Boolean(r.scannerless),
     batches: Array.isArray(r.batches) ? r.batches.map(String) : [],
     lines: (r.lines ?? []).map((l: any): StockCartonOptionLine => ({
       recipeName: l.recipeName ?? l.recipe_name ?? '',

@@ -20,7 +20,7 @@ describe('mapStockCartonOption', () => {
     expect(c).toEqual({
       cartonId: 'c1', cartonNo: 101, clientName: 'DÖNER GMBH', generic: false,
       status: 'packed', inColdStorage: true, loaded: true, shipped: false,
-      packedQty: 6, targetQty: 6, units: 6, batches: ['P-77', '12'],
+      packedQty: 6, targetQty: 6, units: 6, scannerless: false, batches: ['P-77', '12'],
       lines: [{ recipeName: 'KIRMIZI', productTypeName: 'KEBAB', packagingName: 'TULEJA 30', kgPerUnit: 17.5, packedQty: 6, targetQty: 6 }],
       reason: 'inna tuleja', canDetach: false, detachBlockedReason: 'karton jest na aucie',
     })
@@ -29,8 +29,9 @@ describe('mapStockCartonOption', () => {
   it('przepisuje camelCase i flagi prawdziwe', () => {
     const c = mapStockCartonOption({
       cartonId: 'c2', cartonNo: 5, generic: true, inColdStorage: false, canDetach: true,
-      detachBlockedReason: null, units: 3, packedQty: 3, targetQty: 4,
+      detachBlockedReason: null, units: 3, packedQty: 3, targetQty: 4, scannerless: true,
     })
+    expect(c.scannerless).toBe(true)
     expect(c.cartonId).toBe('c2')
     expect(c.generic).toBe(true)
     expect(c.canDetach).toBe(true)
@@ -44,7 +45,7 @@ describe('mapStockCartonOption', () => {
     expect(c).toEqual({
       cartonId: '', cartonNo: null, clientName: '', generic: false, status: '',
       inColdStorage: false, loaded: false, shipped: false,
-      packedQty: 0, targetQty: 0, units: 0, batches: [], lines: [],
+      packedQty: 0, targetQty: 0, units: 0, scannerless: false, batches: [], lines: [],
       reason: null, canDetach: false, detachBlockedReason: null,
     })
     // Zero sztuk to zero, nie brak — i nie przechodzi w „domyślne" coś innego.

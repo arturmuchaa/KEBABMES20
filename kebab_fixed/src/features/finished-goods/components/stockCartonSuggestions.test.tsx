@@ -27,7 +27,7 @@ function karton(id: string, no: number, extra: Record<string, unknown> = {}) {
   return {
     cartonId: id, cartonNo: no, clientName: '', generic: true, status: 'packed',
     inColdStorage: true, loaded: false, shipped: false,
-    packedQty: 4, targetQty: 4, units: 4, batches: ['P-77'],
+    packedQty: 4, targetQty: 4, units: 4, scannerless: false, batches: ['P-77'],
     lines: [{ recipeName: 'KIRMIZI', productTypeName: 'KEBAB UDO 100%', packagingName: 'TULEJA 30', kgPerUnit: 20, packedQty: 4, targetQty: 4 }],
     reason: null, canDetach: false, detachBlockedReason: null,
     ...extra,
@@ -328,5 +328,21 @@ describe('StockCartonSuggestions', () => {
     await screen.findByText(/Zamówienie jest zamknięte \(zrealizowane\)/)
     expect(assignBtns()).toHaveLength(0)
     expect(screen.queryByRole('button', { name: /Odłącz/ })).toBeNull()
+  })
+
+  it('karton bez skanera: „spakowany bez skanera”, sztuki z deklaracji, komunikat bez skanu na aucie', async () => {
+    const bez = karton('c5', 347, { status: 'open', packedQty: 0, targetQty: 15, units: 15, scannerless: true, batches: [] })
+    api.stockCartonOptions
+      .mockResolvedValueOnce(overview({ available: [bez] }))
+      .mockResolvedValue(overview({ assigned: [{ ...bez, canDetach: true }] }))
+    api.assignStockCarton.mockResolvedValue({ ok: true, units: 0 })
+    render(<StockCartonSuggestions orderId="o1" orderStatus="confirmed" />)
+    await screen.findByText(/spakowany bez skanera/)
+    expect(screen.queryByText(/otwarty/)).toBeNull()
+    expect(screen.getByText(/Partia: z magazynu na dokumencie/)).toBeTruthy()
+    fireEvent.click(assignBtns()[0])
+    await waitFor(() => expect(screen.getByTestId('assigned-totals').textContent).toMatch(/Przypisano: 1 karton \/ 15 szt\./))
+    const sukces = screen.getAllByRole('status').find(el => /Przypisano karton 000347 \(15 szt\.\)/.test(el.textContent ?? ''))
+    expect(sukces?.textContent).toMatch(/nie skanuj go na aucie/)
   })
 })
