@@ -242,7 +242,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
                   {z.pallets.map(p => {
                     const na = p.onThisVehicle
                     return (
-                      <div key={p.id || p.palletNo} className="flex items-center gap-3 rounded-xl px-3 py-2.5"
+                      <div key={p.id || p.palletNo} data-testid="kafel-zaladunku" className="flex items-start gap-3 rounded-xl px-3 py-3"
                         style={{ background: na ? 'var(--successSoft)' : 'var(--panel)',
                                  border: `1.5px solid ${na ? 'var(--successLine)' : 'var(--line)'}` }}>
                         <span className="hmi-v10-mono grid shrink-0 place-items-center rounded-full text-[12px] font-extrabold"
@@ -256,6 +256,18 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
                           <span className="hmi-v10-mono block text-[12px]" style={{ color: 'var(--mut)' }}>
                             {Math.round(p.totalKg)} kg · {p.totalQty} szt
                           </span>
+                          <span className="mt-2 block text-[10px] font-bold uppercase tracking-wide"
+                            style={{ color: 'var(--mut)' }}>Rozpis kartonu</span>
+                          {p.items.length ? p.items.map((it, index) => (
+                            <span key={index} className="mt-1.5 block break-words leading-snug">
+                              <span className="block text-[16px] font-bold">
+                                {it.qty} × {it.kgPerUnit.toLocaleString('pl-PL', { maximumFractionDigits: 3 })} kg{' '}
+                                {it.recipeName || 'receptura niepodana'}
+                                {it.packagingName ? ` · ${it.packagingName}` : ''}
+                              </span>
+                              {it.productTypeName ? <span className="block text-[12px]" style={{ color: 'var(--mut)' }}>{it.productTypeName}</span> : null}
+                            </span>
+                          )) : <span className="mt-1 block text-[12px]" style={{ color: 'var(--mut)' }}>Brak szczegółów rozpisu</span>}
                         </span>
                         {na ? (
                           <button type="button" disabled={!!cofana}

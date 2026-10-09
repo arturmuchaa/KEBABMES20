@@ -2487,7 +2487,7 @@ export interface VehicleStatePallet {
   status: string
   totalQty: number
   totalKg: number
-  items: Array<{ qty: number; kgPerUnit: number }>
+  items: Array<{ qty: number; kgPerUnit: number; recipeName?: string; productTypeName?: string; packagingName?: string }>
   /** Załadowana NA TO auto (paleta na innym samochodzie nie jest postępem). */
   onThisVehicle: boolean
 }
@@ -2516,7 +2516,7 @@ export interface VehicleState {
   }
 }
 
-function mapVehicleState(raw: any): VehicleState {
+export function mapVehicleState(raw: any): VehicleState {
   return {
     vehicle: {
       id:    raw?.vehicle?.id ?? '',
@@ -2541,6 +2541,8 @@ function mapVehicleState(raw: any): VehicleState {
         totalKg:   Number(p.total_kg ?? 0),
         items: (p.items ?? []).map((it: any) => ({
           qty: Number(it.qty ?? 0), kgPerUnit: Number(it.kg_per_unit ?? 0),
+          recipeName: it.recipe_name ?? '', productTypeName: it.product_type_name ?? '',
+          packagingName: it.packaging_name ?? '',
         })),
         onThisVehicle: Boolean(p.on_this_vehicle),
       })),

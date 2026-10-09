@@ -171,6 +171,26 @@ function skan(kod: string) {
 }
 
 describe('załadunek na kiosku', () => {
+  it('pokazuje pełny mieszany rozpis i zachowuje przycisk cofnięcia', async () => {
+    loaded()
+    s.migawka.orders[0].pallets[0].items = [
+      { qty: 30, kgPerUnit: 30, recipeName: 'KIRMIZI', productTypeName: 'UDO' },
+      { qty: 12, kgPerUnit: 70, recipeName: 'BEYAZ', packagingName: '80 cm' },
+      { qty: 2, kgPerUnit: 70, recipeName: 'BEYAZ', packagingName: '100 cm' },
+    ]
+    render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
+    expect(await screen.findByText('30 × 30 kg KIRMIZI')).toBeTruthy()
+    expect(screen.getByText('12 × 70 kg BEYAZ · 80 cm')).toBeTruthy()
+    expect(screen.getByText('2 × 70 kg BEYAZ · 100 cm')).toBeTruthy()
+    expect(screen.getByText('UDO')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Cofnij' })).toBeTruthy()
+  })
+
+  it('nie wymyśla składu, gdy stary serwer nie przekazał szczegółów', async () => {
+    render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
+    expect(await screen.findByText('Brak szczegółów rozpisu')).toBeTruthy()
+  })
+
   it('pokazuje auto i zamówienia w kolejności załadunku', async () => {
     render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={() => {}} />)
     expect(await screen.findByText('SOLÓWKA')).toBeTruthy()

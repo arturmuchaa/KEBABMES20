@@ -228,12 +228,18 @@ def vehicle_state(vehicle_id: str) -> Dict[str, Any]:
                 conn,
                 """SELECT pi.pallet_id,
                           COALESCE(l.kg_per_unit, 0)::float AS kg_per_unit,
+                          COALESCE(l.recipe_name, '') AS recipe_name,
+                          COALESCE(l.product_type_name, '') AS product_type_name,
+                          COALESCE(l.packaging_name, '') AS packaging_name,
                           SUM(pi.qty)::int AS qty
                      FROM order_pallet_items pi
                      LEFT JOIN client_order_lines l ON l.id = pi.order_line_id
                     WHERE pi.pallet_id = ANY(%s)
-                    GROUP BY pi.pallet_id, l.kg_per_unit
-                    ORDER BY pi.pallet_id, l.kg_per_unit DESC""",
+                    GROUP BY pi.pallet_id, l.kg_per_unit, l.recipe_id, l.recipe_name,
+                             l.product_type_id, l.product_type_name, l.packaging_id, l.packaging_name
+                    ORDER BY pi.pallet_id, l.kg_per_unit DESC, l.recipe_name,
+                             l.product_type_name, l.packaging_name, l.recipe_id,
+                             l.product_type_id, l.packaging_id""",
                 (id_palet,)) if id_palet else []
         else:
             pozycje = []
@@ -253,11 +259,28 @@ def vehicle_state(vehicle_id: str) -> Dict[str, Any]:
                    WHERE sc.linked_order_id=ANY(%s)
                    GROUP BY sc.id ORDER BY sc.carton_no""", (ids,))
             palety.extend(cartons)
+            carton_ids = [c["id"] for c in cartons]
+            if carton_ids:
+                # Ten sam rozpis i ilości co w sumach kafla, nie licznik skanów.
+                pozycje.extend(cx_query_all(conn,
+                    """SELECT l.carton_id AS pallet_id, l.kg_per_unit::float AS kg_per_unit,
+                              COALESCE(l.recipe_name, '') AS recipe_name,
+                              COALESCE(l.product_type_name, '') AS product_type_name,
+                              COALESCE(l.packaging_name, '') AS packaging_name,
+                              SUM(l.target_qty)::int AS qty
+                       FROM stock_carton_lines l WHERE l.carton_id=ANY(%s)
+                       GROUP BY l.carton_id, l.kg_per_unit, l.recipe_id, l.recipe_name,
+                                l.product_type_id, l.product_type_name, l.packaging_id, l.packaging_name
+                       ORDER BY l.carton_id, l.kg_per_unit DESC, l.recipe_name,
+                                l.product_type_name, l.packaging_name, l.recipe_id,
+                                l.product_type_id, l.packaging_id""", (carton_ids,)))
 
     wg_palety: Dict[str, List[Dict[str, Any]]] = {}
     for poz in pozycje:
         wg_palety.setdefault(poz["pallet_id"], []).append(
-            {"qty": poz["qty"], "kg_per_unit": poz["kg_per_unit"]})
+            {"qty": poz["qty"], "kg_per_unit": poz["kg_per_unit"],
+             "recipe_name": poz["recipe_name"], "product_type_name": poz["product_type_name"],
+             "packaging_name": poz["packaging_name"]})
 
     wg_zamowienia: Dict[str, List[Dict[str, Any]]] = {}
     for p in palety:
