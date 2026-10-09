@@ -60,6 +60,20 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('StockCartonSuggestions', () => {
+  it('lista palet dostaje tę samą migawkę po przypisaniu, bez drugiego GET-a', async () => {
+    const c = karton('c343', 343)
+    api.stockCartonOptions.mockResolvedValueOnce(overview({ available: [c] }))
+      .mockResolvedValueOnce(overview({ assigned: [c] }))
+    api.assignStockCarton.mockResolvedValue({})
+    render(<StockCartonSuggestions orderId="o1" renderPallets={assigned => (
+      <div data-testid="pallet-snapshot">{assigned === null ? 'unknown' : assigned.map(c => c.cartonNo).join(',')}</div>
+    )} />)
+    expect(screen.getByTestId('pallet-snapshot').textContent).toBe('unknown')
+    fireEvent.click(await screen.findByRole('button', { name: /Przypisz do tego zamówienia/ }))
+    await waitFor(() => expect(screen.getByTestId('pallet-snapshot').textContent).toBe('343'))
+    expect(api.stockCartonOptions).toHaveBeenCalledTimes(2)
+  })
+
   it('pokazuje sekcję i stan ładowania; woła nowy przegląd, nie stare sugestie', async () => {
     const d = deferred<any>()
     api.stockCartonOptions.mockReturnValue(d.promise)

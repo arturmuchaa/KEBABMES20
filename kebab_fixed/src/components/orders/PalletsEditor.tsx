@@ -9,7 +9,8 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { orderPalletsApi, type OrderPallet, type OrderLine } from '@/lib/apiClient'
-import { palletsApi, type PalletBatchRow } from '@/lib/api'
+import { palletsApi, type PalletBatchRow, type StockCartonOption } from '@/lib/api'
+import { formatCartonNo } from '@/lib/unitLocation'
 import { fmtKg } from '@/lib/utils'
 import { Plus, Trash2, Pencil, Package, Printer } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -22,6 +23,7 @@ import {
 interface Props {
   orderId: string
   lines:   OrderLine[]
+  assignedCartons?: StockCartonOption[] | null
 }
 
 function lineLabel(l: OrderLine): string {
@@ -31,8 +33,8 @@ function lineLabel(l: OrderLine): string {
   return parts.join(' · ')
 }
 
-export function PalletsEditor({ orderId, lines }: Props) {
-  const { data: pallets, refetch } = useApi(() => orderPalletsApi.list(orderId), [orderId])
+export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
+  const { data: pallets, refetch, loading: palletsLoading, error: palletsError } = useApi(() => orderPalletsApi.list(orderId), [orderId])
   const list = pallets ?? []
 
   const [showAdd,    setShowAdd]    = useState(false)
@@ -114,6 +116,11 @@ export function PalletsEditor({ orderId, lines }: Props) {
     (ss, it) => ss + it.qty * (lines.find(l => l.id === it.orderLineId)?.kgPerUnit ?? 0), 0,
   ), 0)
   const totalUnits = list.reduce((s, p) => s + p.items.reduce((ss, it) => ss + it.qty, 0), 0)
+  // Kartony pozostają odrębnymi jednostkami SCARTON: pokazujemy je razem,
+  // ale nigdy nie wysyłamy ich do save() ani nie drukujemy jako etykiet PAL.
+  const stock = assignedCartons ?? []
+  const stockQty = stock.reduce((s, c) => s + c.lines.reduce((q, l) => q + l.targetQty, 0), 0)
+  const stockKg = stock.reduce((s, c) => s + c.lines.reduce((kg, l) => kg + l.targetQty * l.kgPerUnit, 0), 0)
 
   return (
     <div className="mt-4 space-y-2">
@@ -161,11 +168,21 @@ export function PalletsEditor({ orderId, lines }: Props) {
         </div>
       </div>
 
+      {assignedCartons === null || palletsLoading || palletsError ? (
+        <p className="text-xs text-amber-700">Brak kompletu aktualnych danych palet i kartonów — suma palet powyżej jest częściowa.</p>
+      ) : stock.length > 0 ? (
+        <div className="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs" data-testid="combined-pallet-totals">
+          <b>Łączny rozpis: {list.length + stock.length} palet/kartonów · {fmtKg(totalKg + stockKg, 0)} kg · {totalUnits + stockQty} szt</b>
+          <div>W tym z magazynu: {stock.length} kartonów · {fmtKg(stockKg, 0)} kg · {stockQty} szt. — te ilości są już przypisane, nie twórz ich ponownie.</div>
+          <div>Drukuj wszystkie / zaznaczone dotyczy palet wydania. Kartony z magazynu zachowują swoje etykiety.</div>
+        </div>
+      ) : null}
+
       {error && (
         <CardDescription className="text-destructive text-xs">{error}</CardDescription>
       )}
 
-      {list.length === 0 && !showAdd && (
+      {list.length === 0 && stock.length === 0 && !showAdd && (
         <CardDescription className="text-[11px] italic">
           Brak palet. Dodaj palety aby wygenerować wydruk zamówienia z numerami palet.
         </CardDescription>
@@ -173,6 +190,25 @@ export function PalletsEditor({ orderId, lines }: Props) {
 
       {/* Lista palet */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        {stock.map(c => (
+          <Card key={`stock-${c.cartonId}`} className="border-emerald-400 bg-emerald-50" data-testid="assigned-stock-pallet">
+            <CardContent className="p-3 space-y-2">
+              <CardTitle className="text-xs font-bold text-emerald-900">Karton {formatCartonNo(c.cartonNo)} · Dołączona paleta z magazynu</CardTitle>
+              <div className="text-[11px] font-semibold text-emerald-800">
+                {c.shipped ? 'Wydany' : c.loaded ? 'Na aucie' : c.inColdStorage ? 'W mroźni' : c.scannerless ? 'Bez skanowania sztuk' : `Spakowano ${c.packedQty}/${c.targetQty} szt.`}
+              </div>
+              {c.lines.map((l, i) => <div key={i} className="text-xs break-words">
+                <b>{l.targetQty} × {l.kgPerUnit} kg {l.recipeName}</b>
+                {l.packagingName ? ` · ${l.packagingName}` : ''}
+                {l.productTypeName ? <div className="text-muted-foreground">{l.productTypeName}</div> : null}
+              </div>)}
+              <div className="border-t border-emerald-200 pt-1 text-xs font-bold">
+                Rozpis: {fmtKg(c.lines.reduce((kg, l) => kg + l.targetQty * l.kgPerUnit, 0), 0)} kg
+              </div>
+              <p className="text-[11px] text-emerald-800">Oryginalna etykieta kartonu. Odłączanie w sekcji „Kartony z magazynu” powyżej.</p>
+            </CardContent>
+          </Card>
+        ))}
         {list.map((p, idx) => {
           const palletKg = p.items.reduce(
             (s, it) => s + it.qty * (lines.find(l => l.id === it.orderLineId)?.kgPerUnit ?? 0), 0,

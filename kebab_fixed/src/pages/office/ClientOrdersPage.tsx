@@ -444,10 +444,8 @@ export function ClientOrdersPage() {
                               )}
 
                               {/* Pasujące kartony z magazynu (powiązanie „na magazyn" → zamówienie) */}
-                              <StockCartonSuggestions key={o.id} orderId={o.id} orderStatus={o.status} onAssigned={refetch} />
-
-                              {/* Palety */}
-                              <PalletsEditor orderId={o.id} lines={o.lines} />
+                              <StockCartonSuggestions key={o.id} orderId={o.id} orderStatus={o.status} onAssigned={refetch}
+                                renderPallets={assigned => <PalletsEditor orderId={o.id} lines={o.lines} assignedCartons={assigned} />} />
                             </td>
                           </tr>
                         )}

@@ -25,6 +25,8 @@ interface Props {
   orderStatus?: string
   /** Wołane raz po udanym przypisaniu/odłączeniu (np. odświeżenie listy zamówień). */
   onAssigned?: () => void | Promise<void>
+  /** Wspólna migawka przypisanych kartonów dla listy palet; null = brak pewnych danych. */
+  renderPallets?: (assigned: StockCartonOption[] | null) => ReactNode
 }
 
 type Pending = { kind: 'assign' | 'detach'; cartonId: string }
@@ -33,7 +35,7 @@ const label = (c: StockCartonOption) => formatCartonNo(c.cartonNo) || '—'
 
 const isClosed = (s?: string) => s === 'done' || s === 'cancelled'
 
-export function StockCartonSuggestions({ orderId, orderStatus, onAssigned }: Props) {
+export function StockCartonSuggestions({ orderId, orderStatus, onAssigned, renderPallets }: Props) {
   const { data, loading, error, refetch } = useApi<StockCartonOptions>(
     () => clientOrdersApi.stockCartonOptions(orderId),
     [orderId],
@@ -255,6 +257,7 @@ export function StockCartonSuggestions({ orderId, orderStatus, onAssigned }: Pro
   }
 
   return (
+    <>
     <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
       <div className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-emerald-700">
         <PackageCheck size={14} /> Kartony z magazynu
@@ -281,6 +284,8 @@ export function StockCartonSuggestions({ orderId, orderStatus, onAssigned }: Pro
       )}
       {body}
     </div>
+    {renderPallets?.(!loading && !error && data ? data.assigned : null)}
+    </>
   )
 }
 

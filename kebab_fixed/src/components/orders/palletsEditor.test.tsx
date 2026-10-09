@@ -52,6 +52,30 @@ const zaznacz = (nr: number) =>
   fireEvent.click(screen.getByLabelText(`Zaznacz paletę nr ${nr} do druku`))
 
 describe('PalletsEditor — druk zbiorczy', () => {
+  it('dołącza zielony karton magazynowy do sumy, ale nie do etykiet PAL', async () => {
+    const carton = { cartonId: 'stock343', cartonNo: 343, packedQty: 0, targetQty: 20,
+      lines: [{ targetQty: 20, kgPerUnit: 40, recipeName: 'BEYAZ', packagingName: 'METAL 65CM' }] } as any
+    const view = render(<PalletsEditor orderId="o1" lines={LINIE} assignedCartons={[carton]} />)
+    await screen.findByText('Paleta nr 1')
+    expect(screen.getByTestId('assigned-stock-pallet').textContent).toContain('Karton 000343')
+    expect(screen.getByTestId('assigned-stock-pallet').textContent).toContain('20 × 40 kg BEYAZ')
+    expect(screen.getByTestId('assigned-stock-pallet').textContent).toContain('Spakowano 0/20')
+    const totals = screen.getByTestId('combined-pallet-totals').textContent!.replace(/\s/g, '')
+    expect(totals).toContain('4palet/kartonów·1800kg·35szt')
+    expect(screen.getAllByRole('checkbox')).toHaveLength(3)
+    fireEvent.click(screen.getByRole('button', { name: /drukuj wszystkie/i }))
+    expect(otwarte.url).toBe('/office/zamowienia/o1/palety/druk')
+    view.rerender(<PalletsEditor orderId="o1" lines={LINIE} assignedCartons={[]} />)
+    expect(screen.queryByTestId('assigned-stock-pallet')).toBeNull()
+    expect(screen.queryByTestId('combined-pallet-totals')).toBeNull()
+  })
+
+  it('brak aktualnej migawki nie udaje zerowej liczby kartonów', async () => {
+    render(<PalletsEditor orderId="o1" lines={LINIE} assignedCartons={null} />)
+    await screen.findByText('Paleta nr 1')
+    expect(screen.getByText(/suma palet powyżej jest częściowa/)).toBeTruthy()
+  })
+
   it('bez zaznaczenia przycisk zaznaczonych jest nieaktywny', async () => {
     await pokaz()
     expect(screen.getByRole('button', { name: /drukuj zaznaczone/i })).toHaveProperty('disabled', true)
