@@ -171,6 +171,22 @@ function skan(kod: string) {
 }
 
 describe('załadunek na kiosku', () => {
+  it('przełącza zamówienia bez pokazywania wszystkich kartonów naraz', async () => {
+    s.migawka = { ...MIGAWKA, orders: [MIGAWKA.orders[0], {
+      ...MIGAWKA.orders[0], id: 'yalcin', clientName: 'YALCIN', orderNo: 'YAL/Z/2',
+      pallets: [{ ...MIGAWKA.orders[0].pallets[0], id: 'p2', cartonNo: '000343' }],
+    }] }
+    render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
+    await screen.findByText('SOLÓWKA')
+    expect(document.getElementById('kartony-yalcin')!.hidden).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'YALCIN · 0/1' }))
+    expect(document.getElementById('kartony-yalcin')!.hidden).toBe(false)
+    expect(document.getElementById('kartony-polat')!.hidden).toBe(true)
+    // Skan nadal działa dla całego auta, nie tylko oglądanego zamówienia.
+    skan('PAL|polat|1')
+    await waitFor(() => expect(document.getElementById('kartony-polat')!.hidden).toBe(false))
+  })
+
   it('pokazuje pełny mieszany rozpis i zachowuje przycisk cofnięcia', async () => {
     loaded()
     s.migawka.orders[0].pallets[0].items = [

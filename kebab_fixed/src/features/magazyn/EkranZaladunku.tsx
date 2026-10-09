@@ -59,6 +59,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   const [zamyka, setZamyka] = useState(false)
   const [cofana, setCofana] = useState<string | null>(null)
   const [skanuje, setSkanuje] = useState(false)
+  const [otwarteZamowienie, setOtwarteZamowienie] = useState<string | null>(null)
   const [potwierdzane, setPotwierdzane] = useState(zamowienia)
   const [wynik, setWynik] = useState<Awaited<ReturnType<typeof palletScanApi.finalizeLoading>> | null>(null)
   const proba = useRef<{ id: string; ids: string[]; orders: string[]; plate: string } | null>(null)
@@ -96,6 +97,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
     if (pytanie || zapisuje.current) return
     try {
       const w = await palletScanApi.scan(kod, 'loaded', '', vehicleId)
+      if (w.result === 'SUCCESS' && w.order?.id) setOtwarteZamowienie(w.order.id)
       if (w.result === 'SUCCESS' && w.pozaKolejnoscia) {
         const k = komunikatPozaKolejnoscia(w.pozaKolejnoscia, { palletNo: w.palletNo })
         grajInny('L')
@@ -190,10 +192,9 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <StanPolaczenia blad={!online} aktualizacja={aktualizacja} ladowanie={ladowanie} />
-      <div className="grid min-h-0 flex-1 gap-3 p-4 px-6"
-        style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(280px, .55fr)' }}>
+      <div className="grid min-h-0 flex-1 grid-cols-1 auto-rows-max gap-4 overflow-y-auto p-3 xl:auto-rows-auto xl:grid-cols-[minmax(0,1fr)_280px] xl:overflow-hidden xl:p-4">
 
-        <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
+        <div className="flex min-w-0 flex-col gap-3 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
           <section className="flex shrink-0 flex-wrap items-center gap-4 rounded-2xl px-5 py-4"
             style={{ background: 'var(--panel)', border: '1px solid var(--line)' }}>
             <div className="min-w-0">
@@ -220,47 +221,60 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
             </div>
           </section>
 
+          {zamowienia.length > 1 ? <nav aria-label="Zamówienia na aucie"
+            className="sticky top-0 z-10 flex shrink-0 flex-wrap gap-2 rounded-xl p-2" style={{ background: 'var(--bg)' }}>
+            {zamowienia.map(z => <button key={z.id} type="button"
+              aria-pressed={(otwarteZamowienie ?? zamowienia[0]?.id) === z.id}
+              onClick={() => setOtwarteZamowienie(z.id)}
+              className="min-h-12 rounded-lg border px-4 py-2 text-left text-sm font-bold"
+              style={{ background: (otwarteZamowienie ?? zamowienia[0]?.id) === z.id ? 'var(--accentSoft)' : 'var(--panel)', borderColor: 'var(--line)' }}>
+              {z.clientName} · {z.totals.loadedPallets}/{z.totals.totalPallets}
+            </button>)}
+          </nav> : null}
+
           {zamowienia.map((z, i) => {
             const zl = z.totals.loadedPallets, wsz = z.totals.totalPallets
+            const otwarte = (otwarteZamowienie ?? zamowienia[0]?.id) === z.id
             return (
-              <Karta key={z.id} tresc={false}
-                tytul={`${i + 1}. ${z.clientName}`}
-                prawo={<>
+              <section key={z.id} className="shrink-0 overflow-hidden rounded-xl"
+                style={{ background: 'var(--panel)', border: '1px solid var(--line)' }}>
+                <div className="flex flex-wrap items-center gap-3 p-3" style={{ background: 'var(--bg)' }}>
+                  <button type="button" aria-expanded={otwarte} aria-controls={`kartony-${z.id}`}
+                    onClick={() => setOtwarteZamowienie(otwarte ? '' : z.id)}
+                    className="min-h-12 min-w-0 flex-1 text-left">
+                    <span className="block break-words text-xl font-extrabold">{i + 1}. {z.clientName}</span>
+                    <span className="block text-sm">{z.orderNo} · {zl}/{wsz} załadowanych · {Math.round(z.totals.totalKg).toLocaleString('pl-PL')} kg</span>
+                    <span className="block text-xs font-bold" style={{ color: 'var(--accent)' }}>{otwarte ? '▾ Zwiń kartony' : '▸ Pokaż kartony'}</span>
+                  </button>
                   <Znacznik ton={wsz && zl === wsz ? 'ok' : zl ? 'uwaga' : 'szary'}>
                     {wsz && zl === wsz ? 'załadowane' : zl ? 'w trakcie' : 'czeka'}
                   </Znacznik>
-                  <span className="hmi-v10-mono">{z.orderNo}</span>
                   {zl === 0 ? (
                     <button type="button" onClick={() => zdejmij(z.id)}
-                      className="rounded-md px-2 py-0.5 text-[11px] font-bold"
+                      className="min-h-11 rounded-md px-3 py-2 text-xs font-bold"
                       style={{ border: '1px solid var(--line)', background: 'var(--panel)', color: 'var(--mut)' }}>
                       zdejmij z auta
                     </button>
                   ) : null}
-                </>}>
-                <div className="grid gap-2 p-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))' }}>
+                </div>
+                <div id={`kartony-${z.id}`} hidden={!otwarte}>
+                <div className="grid auto-rows-fr gap-3 p-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))' }}>
                   {z.pallets.map(p => {
                     const na = p.onThisVehicle
                     return (
-                      <div key={p.id || p.palletNo} data-testid="kafel-zaladunku" className="flex items-start gap-3 rounded-xl px-3 py-3"
+                      <div key={p.id || p.palletNo} data-testid="kafel-zaladunku" className="flex min-h-[220px] min-w-0 flex-col overflow-hidden rounded-xl"
                         style={{ background: na ? 'var(--successSoft)' : 'var(--panel)',
                                  border: `1.5px solid ${na ? 'var(--successLine)' : 'var(--line)'}` }}>
-                        <span className="hmi-v10-mono grid shrink-0 place-items-center rounded-full text-[12px] font-extrabold"
-                          style={{ width: 34, height: 34, background: '#fff',
-                                   border: `2px solid ${na ? 'var(--success)' : 'var(--line)'}`,
-                                   color: na ? 'var(--success)' : '#AFB7C4' }}>
-                          {na ? '✓' : p.scanCode?.startsWith('SCARTON') ? 'K' : `P${p.palletNo}`}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-[18px] font-bold">{p.cartonNo ? `Karton ${p.cartonNo}` : `Paleta ${p.palletNo}`}</span>
-                          <span className="hmi-v10-mono block text-[12px]" style={{ color: 'var(--mut)' }}>
-                            {Math.round(p.totalKg)} kg · {p.totalQty} szt
-                          </span>
-                          <span className="mt-2 block text-[10px] font-bold uppercase tracking-wide"
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3" style={{ borderColor: 'var(--line)' }}>
+                          <span className="hmi-v10-mono text-lg font-extrabold">{p.cartonNo ? `Karton ${p.cartonNo}` : `Paleta ${p.palletNo}`}</span>
+                          <Znacznik ton={na ? 'ok' : p.status === 'loaded' ? 'uwaga' : 'szary'}>{na ? '✓ Na aucie' : p.status === 'loaded' ? 'Inne auto' : 'Czeka'}</Znacznik>
+                        </div>
+                        <div className="flex-1 px-4 py-3">
+                          <span className="block text-[10px] font-bold uppercase tracking-wide"
                             style={{ color: 'var(--mut)' }}>Rozpis kartonu</span>
                           {p.items.length ? p.items.map((it, index) => (
                             <span key={index} className="mt-1.5 block break-words leading-snug">
-                              <span className="block text-[16px] font-bold">
+                              <span className="block text-[18px] font-bold">
                                 {it.qty} × {it.kgPerUnit.toLocaleString('pl-PL', { maximumFractionDigits: 3 })} kg{' '}
                                 {it.recipeName || 'receptura niepodana'}
                                 {it.packagingName ? ` · ${it.packagingName}` : ''}
@@ -268,7 +282,9 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
                               {it.productTypeName ? <span className="block text-[12px]" style={{ color: 'var(--mut)' }}>{it.productTypeName}</span> : null}
                             </span>
                           )) : <span className="mt-1 block text-[12px]" style={{ color: 'var(--mut)' }}>Brak szczegółów rozpisu</span>}
-                        </span>
+                        </div>
+                        <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 border-t px-4 py-2" style={{ borderColor: 'var(--line)' }}>
+                          <span className="hmi-v10-mono text-lg font-extrabold">{Math.round(p.totalKg)} kg <span className="text-sm font-normal">· {p.totalQty} szt</span></span>
                         {na ? (
                           <button type="button" disabled={!!cofana}
                             onClick={() => cofnij(z.id, p.palletNo, p.id, p.scanCode)}
@@ -277,6 +293,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
                             {cofana === p.id ? '…' : 'Cofnij'}
                           </button>
                         ) : null}
+                        </div>
                       </div>
                     )
                   })}
@@ -286,7 +303,8 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
                     </div>
                   ) : null}
                 </div>
-              </Karta>
+                </div>
+              </section>
             )
           })}
           {!zamowienia.length && !ladowanie ? (
@@ -298,7 +316,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
           ) : null}
         </div>
 
-        <div className="flex min-h-0 flex-col gap-3">
+        <div className="flex min-h-[280px] flex-col gap-3 xl:min-h-0">
           <Karta tytul="Dołóż zamówienie" tresc={false} className="flex-1"
             prawo={<span>do załadunku · {dostepne.length}</span>}>
             {dostepneRes.error ? <div className="p-4 text-red-700">Nie udało się odświeżyć zamówień. Ponawiam…</div> : null}
