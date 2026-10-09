@@ -88,6 +88,7 @@ export function WazenieKartonu({ karton, palety, onGotowe, onAnuluj, onPozniej }
             Wjedź kartonem na wagę · karton {karton.cartonNo}
           </div>
           <div className="truncate text-[26px] font-extrabold">{karton.clientName || 'na magazyn'}</div>
+          {karton.scannerless ? <p className="text-sm font-bold text-amber-800">Bez skanów sztuk — porównanie z rozpisem. Zatwierdź tylko po sprawdzeniu fizycznej zawartości kartonu.</p> : null}
           <div className="hmi-v10-mono truncate text-[14px]" style={{ color: 'var(--mut)' }}>
             {karton.orderNo || 'MAGAZYN'} · {(karton.lines ?? []).map(opisPozycji).join(' · ')}
           </div>
@@ -98,7 +99,7 @@ export function WazenieKartonu({ karton, palety, onGotowe, onAnuluj, onPozniej }
           ) : null}
         </div>
         <div className="text-right">
-          <div className="text-[12px] font-extrabold uppercase tracking-[0.12em]" style={{ color: 'var(--mut)' }}>Netto ze sztuk</div>
+          <div className="text-[12px] font-extrabold uppercase tracking-[0.12em]" style={{ color: 'var(--mut)' }}>{karton.scannerless ? 'Netto z rozpisu' : 'Netto ze sztuk'}</div>
           <div className="hmi-v10-mono text-[40px] font-bold leading-none">{kgPl(netto)} kg</div>
         </div>
       </header>
@@ -161,7 +162,7 @@ export function WazenieKartonu({ karton, palety, onGotowe, onAnuluj, onPozniej }
               </div>
               <div className="mt-1 text-[14px]">
                 brutto {kgPl(brutto)} − tara ok. {kgPl(podglad.tareKg, 2)} = {kgPl(brutto - podglad.tareKg)} kg
-                · ze sztuk {kgPl(netto)} kg{!podglad.ok ? ' — karton i tak wjedzie, etykieta pokaże różnicę' : ''}
+                · {karton.scannerless ? 'z rozpisu' : 'ze sztuk'} {kgPl(netto)} kg{!podglad.ok ? ' — karton i tak wjedzie, etykieta pokaże różnicę' : ''}
               </div>
             </div>
           ) : !paleta ? (

@@ -4214,6 +4214,8 @@ export interface PozycjaSkladu { qty: number; kgPerUnit: number; recipeName: str
 export interface PartiaWKartonie { batchNo: string; qty: number }
 
 export interface KartonDoWazenia {
+  /** Ważenie według rozpisu, bez potwierdzenia skanami sztuk. */
+  scannerless?: boolean
   result: 'OK' | 'INVALID' | 'GONE'
   /** Gdzie karton jest w procesie — do karty kartonu. */
   status?: 'planned' | 'packing' | 'full' | 'cold_storage' | 'loaded' | 'shipped'
@@ -4236,6 +4238,7 @@ export interface KartonDoWazenia {
 }
 
 export interface WazenieMrozni {
+  scannerless?: boolean
   id: string
   /** Kod kartki kartonu (PAL|… / SCARTON|…) — do QR na etykiecie. */
   code: string

@@ -4,7 +4,7 @@ from app.services.vehicle_loading_service import vehicle_state
 
 
 def test_mixed_pallet_and_stock_carton_keep_recipes_and_tubes_separate(db):
-    execute("INSERT INTO vehicles (id,name,active) VALUES ('v','SOLO',true)")
+    execute("INSERT INTO vehicles (id,name,active) VALUES ('v','SOLO',true) ON CONFLICT (id) DO NOTHING")
     execute("INSERT INTO client_orders (id,order_no,client_name,order_date,created_at) "
             "VALUES ('o','Z/1','YALCIN','2026-10-09',now())")
     execute("INSERT INTO vehicle_loading_orders (id,vehicle_id,order_id,position) VALUES ('vo','v','o',0)")

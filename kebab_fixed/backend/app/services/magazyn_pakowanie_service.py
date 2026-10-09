@@ -536,7 +536,7 @@ def podsumowanie_kafli(dzis: Optional[date] = None) -> Dict[str, Any]:
     }
 
 
-def wstaw_karton_do_mrozni(code: str) -> Dict[str, Any]:
+def wstaw_karton_do_mrozni(code: str, allow_scannerless: bool = False) -> Dict[str, Any]:
     """Skan karty PEŁNEGO kartonu magazynowego = wjazd do mroźni.
 
     Idempotentnie: karton już w mroźni zwraca ALREADY_SCANNED, bez zmiany
@@ -557,7 +557,10 @@ def wstaw_karton_do_mrozni(code: str) -> Dict[str, Any]:
             "SELECT id FROM finished_units WHERE carton_id=%s AND (status='shipped' OR dispatch_id IS NOT NULL) LIMIT 1", (cid,)):
             raise HTTPException(409, "Karton jest na aucie lub został wydany")
         if c.get("status") != "packed":
-            return {"result": "NOT_FULL", **opis}
+            from app.services.mroznia_wazenie_service import _rozpis_bez_skanow
+            if not (allow_scannerless and c.get('status') == 'open' and not c.get('packed_qty')
+                    and _rozpis_bez_skanow('stock', cid)):
+                return {"result": "NOT_FULL", **opis}
         if c.get("cold_storage_at"):
             return {"result": "ALREADY_SCANNED", **opis}
         cx_execute(conn, "UPDATE stock_cartons SET cold_storage_at=now() WHERE id=%s", (cid,))
@@ -570,7 +573,10 @@ def kartony_w_mrozni() -> List[Dict[str, Any]]:
     sztuki wyjadą — tak jak w sekcji „Spakowane kebaby" biura."""
     rows = query_all(
         """SELECT sc.*,
-                  (SELECT COALESCE(SUM(l.packed_qty * l.kg_per_unit), 0)
+                  (SELECT COALESCE(SUM((CASE WHEN sc.packed_qty=0
+                       AND NOT EXISTS (SELECT 1 FROM finished_units fu WHERE fu.carton_id=sc.id)
+                       AND NOT EXISTS (SELECT 1 FROM warehouse_events e WHERE e.container_id=sc.id AND e.action='unpack')
+                       THEN l.target_qty ELSE l.packed_qty END) * l.kg_per_unit), 0)
                      FROM stock_carton_lines l WHERE l.carton_id = sc.id) AS kg
            FROM stock_cartons sc
            WHERE sc.cold_storage_at IS NOT NULL

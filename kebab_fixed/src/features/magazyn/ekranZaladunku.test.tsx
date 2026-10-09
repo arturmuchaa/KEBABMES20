@@ -196,8 +196,10 @@ describe('załadunek na kiosku', () => {
     ]
     render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
     expect(await screen.findByText('30 × 30 kg KIRMIZI')).toBeTruthy()
-    expect(screen.getByText('12 × 70 kg BEYAZ · 80 cm')).toBeTruthy()
-    expect(screen.getByText('2 × 70 kg BEYAZ · 100 cm')).toBeTruthy()
+    expect(screen.getByText('12 × 70 kg BEYAZ')).toBeTruthy()
+    expect(screen.getByText('2 × 70 kg BEYAZ')).toBeTruthy()
+    expect(screen.getByText('80 cm').className).toContain('text-[13px]')
+    expect(screen.getByText('100 cm')).toBeTruthy()
     expect(screen.getByText('UDO')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Cofnij' })).toBeTruthy()
   })

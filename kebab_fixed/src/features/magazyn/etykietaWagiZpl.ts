@@ -113,7 +113,7 @@ export function etykietaWagiZpl(w: WazenieMrozni, { kod }: OpcjeEtykiety): strin
     ...klient(w.clientName),
     t(48, 38.5, 2.8, nosnik, 47),
     kreska(43),
-    t(M, 46, 2.7, 'SKŁAD KARTONU', W),
+    t(M, 46, 2.7, w.scannerless ? 'ROZPIS — BEZ SKANÓW SZTUK' : 'SKŁAD KARTONU', W),
     ...pozycje.map((l, i) => t(M, 50.5 + i * 4.5, 4, opisPozycji(l), W)),
   ]
   if (reszta > 0) body.push(t(62, 46, 2.7, `+ ${reszta} poz. więcej`, 33))
@@ -143,7 +143,7 @@ export function etykietaWagiZpl(w: WazenieMrozni, { kod }: OpcjeEtykiety): strin
 
   body.push(
     kreska(78),
-    t(M, 81, 3, 'NETTO (sztuki)', 43),
+    t(M, 81, 3, w.scannerless ? 'NETTO (rozpis)' : 'NETTO (sztuki)', 43),
     t(M, 85.5, fontMasy, netto, 43),
     t(52, 81, 3, 'BRUTTO (waga)', 43),
     t(52, 85.5, fontMasy, brutto, 43),

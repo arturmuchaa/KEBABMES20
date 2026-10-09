@@ -3,9 +3,9 @@
 Spec: docs/superpowers/specs/2026-09-29-mroznia-wazenie-design.md.
 
 Kolejność na hali: pełny karton → skan kartki → wybór palety → wjazd na wagę
-→ zatwierdzenie → etykieta z wagą na karton → mroźnia. Niepełny karton się
-nie waży (czeka na dokończenie), a paleta zamówienia rozpisana bez skanu sztuk
-wjeżdża po staremu — nie ma z czym porównać wagi.
+→ zatwierdzenie → etykieta z wagą na karton → mroźnia. Częściowo skanowany
+karton czeka na dokończenie. Bez skanów sztuk ważymy według rozpisu,
+jawnie oznaczając źródło netto (decyzja właściciela 09.10.2026).
 
 Niezgodna waga NIE blokuje wjazdu (decyzja właściciela 29.09.2026) — tylko
 etykieta i zapis mówią „NIEZGODNA". Werdykt liczy serwer.
@@ -26,6 +26,28 @@ from app.utils.wazenie_mrozni import werdykt
 logger = get_logger(__name__)
 
 MAX_GROSS_KG = 3000.0
+
+
+def _rozpis_bez_skanow(kind: str, cid: str) -> List[Dict[str, Any]]:
+    """Tryb bez skanera: porównanie z rozpisem, bez udawania fizycznych skanów/partii."""
+    column = 'carton_id' if kind == 'stock' else 'pallet_id'
+    if query_one(f"SELECT id FROM finished_units WHERE {column}=%s LIMIT 1", (cid,)):
+        return []
+    if query_one("SELECT id FROM warehouse_events WHERE container_id=%s AND action='unpack' LIMIT 1", (cid,)):
+        return []  # opróżniony karton nie staje się sam pełnym kartonem bez skanera
+    if kind == 'stock':
+        rows = query_all("SELECT target_qty AS qty, kg_per_unit, recipe_name, product_type_name, packed_qty "
+                         "FROM stock_carton_lines WHERE carton_id=%s ORDER BY id", (cid,))
+    else:
+        rows = query_all("SELECT pi.qty, l.kg_per_unit, l.recipe_name, l.product_type_name "
+                         "FROM order_pallet_items pi JOIN client_order_lines l ON l.id=pi.order_line_id "
+                         "WHERE pi.pallet_id=%s ORDER BY l.position, pi.id", (cid,))
+    if not rows or any(int(r['qty'] or 0) <= 0 or float(r['kg_per_unit'] or 0) <= 0
+                       or int(r.get('packed_qty') or 0) != 0 for r in rows):
+        return []
+    return [{"qty": int(r['qty']), "kgPerUnit": float(r['kg_per_unit']),
+             "recipeName": r.get('recipe_name') or '', "productTypeName": r.get('product_type_name') or '',
+             "source": "plan"} for r in rows]
 
 
 def _sklad(kolumna: str, container_id: str) -> List[Dict[str, Any]]:
@@ -134,6 +156,7 @@ def _publiczne(w: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         "clientName": w.get("client_name") or "",
         "orderNo": w.get("order_no") or "",
         "lines": lines or [],
+        "scannerless": any(l.get('source') == 'plan' for l in (lines or [])),
         "batches": batches or [],
         "palletTypeId": w.get("pallet_type_id") or "",
         "palletTypeName": w.get("pallet_type_name") or "",
@@ -171,6 +194,10 @@ def sprawdz(code: str) -> Dict[str, Any]:
         if not c:
             return {"result": "INVALID"}
         lines = _sklad("carton_id", cid)
+        scannerless = False
+        if not lines and c.get('status') == 'open' and not c.get('packed_qty'):
+            lines = _rozpis_bez_skanow('stock', cid)
+            scannerless = bool(lines)
         if c.get("shipped_at"):
             stan = "shipped"
         elif c.get("loaded_vehicle_id"):
@@ -190,6 +217,7 @@ def sprawdz(code: str) -> Dict[str, Any]:
             "clientName": c.get("client_name") or "", "orderNo": c.get("linked_order_no") or "",
             "palletNo": 0,
             "full": c.get("status") == "packed" and bool(lines),
+            "scannerless": scannerless,
             # Karton w trakcie pakowania — kiosk otwiera go do pakowania.
             "open": c.get("status") == "open",
             "inColdStorage": bool(c.get("cold_storage_at")),
@@ -211,19 +239,24 @@ def sprawdz(code: str) -> Dict[str, Any]:
         return {"result": "INVALID"}
     status = p.get("status") or "created"
     lines = _sklad("pallet_id", p["id"])
+    scannerless = False
+    if not lines and status in ('created', 'cold_storage'):
+        lines = _rozpis_bez_skanow('order', p['id'])
+        scannerless = bool(lines)
     stan = {"loaded": "loaded", "shipped": "shipped", "cold_storage": "cold_storage",
-            "packed": "full"}.get(status, "packing" if lines else "planned")
+            "packed": "full"}.get(status, "packing" if lines and not scannerless else "planned")
     return {
         "result": "GONE" if stan in ("loaded", "shipped") else "OK", "status": stan,
         "kind": "order", "id": p["id"], "code": f"PAL|{order_id}|{pallet_no}",
         "cartonNo": format_carton_no(p["carton_no"]) if p.get("carton_no") else "",
         "clientName": p.get("client_name") or "", "orderNo": p.get("order_no") or "",
         "palletNo": int(pallet_no),
-        # Rozpisana paleta bez skanu sztuk (`created`) nie ma z czym porównać wagi.
-        "full": status in ("packed", "cold_storage") and bool(lines),
+        # Pełność ze skanów i tryb bez skanera to dwie osobne informacje.
+        "full": status in ("packed", "cold_storage") and bool(lines) and not scannerless,
+        "scannerless": scannerless,
         # Zaczęta skanem sztuk, niepełna — kiosk otwiera ją do pakowania.
-        # Rozpisana bez sztuk (`created`, 0 szt.) wjeżdża po staremu (09.09).
-        "open": status == "packing" or (status == "created" and bool(lines)),
+        # Rozpisana bez sztuk może być ważona według deklarowanego składu.
+        "open": status == "packing" or (status == "created" and bool(lines) and not scannerless),
         "inColdStorage": status == "cold_storage",
         "netKg": round(sum(x["qty"] * x["kgPerUnit"] for x in lines), 3),
         "qty": sum(x["qty"] for x in lines), "lines": lines,
@@ -240,7 +273,7 @@ def zwaz_i_wstaw(code: str, pallet_type_id: str, gross_kg: float, mode: str,
         raise HTTPException(409, {"code": "GONE", "message": "Karton jest już na aucie albo wydany"})
     if info["result"] != "OK":
         raise HTTPException(404, {"code": "INVALID", "message": "Nieznany karton"})
-    if not info["full"]:
+    if not info["full"] and not info.get('scannerless'):
         raise HTTPException(409, {"code": "NOT_FULL",
                                   "message": "Ważymy tylko pełny karton — dopakuj go najpierw"})
     try:
@@ -259,7 +292,9 @@ def zwaz_i_wstaw(code: str, pallet_type_id: str, gross_kg: float, mode: str,
     if not info["inColdStorage"]:
         if info["kind"] == "stock":
             from app.services.magazyn_pakowanie_service import wstaw_karton_do_mrozni
-            wstaw_karton_do_mrozni(info["code"])
+            result = wstaw_karton_do_mrozni(info["code"], allow_scannerless=bool(info.get('scannerless')))
+            if result['result'] not in ('SUCCESS', 'ALREADY_SCANNED'):
+                raise HTTPException(409, "Karton zmienił się — odczytaj go ponownie przed ważeniem")
         else:
             pallets_service.scan(info["code"], "cold_storage", operator=operator)
 

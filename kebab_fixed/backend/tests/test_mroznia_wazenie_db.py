@@ -116,6 +116,53 @@ def test_palety_z_biura(db):
     assert get_pallet_types() == [{"id": "euro", "name": "EURO", "tareMinKg": 34.0, "tareMaxKg": 36.0, "marginPct": 2.0}]
 
 
+@pytest.mark.parametrize('kind', ['stock', 'order'])
+def test_wazenie_bez_skanow_z_rozpisu_nie_udaje_sztuk_ani_partii(db, kind):
+    _receptury()
+    if kind == 'stock':
+        cid = _karton('YALCIN', qty=3)['id']
+        code = f'SCARTON|{cid}'
+    else:
+        cid = _paleta('o1', 'YALCIN', qty=3)
+        code = 'PAL|o1|1'
+    info = sprawdz(code)
+    assert info['scannerless'] is True
+    assert info['full'] is False
+    assert info['netKg'] == 45
+    assert info['batches'] == []
+    w = zwaz_i_wstaw(code, 'euro', 80, 'manual', 'Jan')
+    assert w['scannerless'] is True and w['netKg'] == 45 and w['grossKg'] == 80
+    assert w['lines'][0]['source'] == 'plan'
+    assert w['batches'] == []
+    assert sprawdz(code)['inColdStorage'] is True
+    assert query_one('SELECT count(*) AS n FROM finished_units')['n'] == 0
+    assert ostatnie_wazenie(cid)['scannerless'] is True
+    if kind == 'stock':
+        c = query_one('SELECT status,packed_qty FROM stock_cartons WHERE id=%s', (cid,))
+        assert c == {'status': 'open', 'packed_qty': 0}
+        from app.services.magazyn_pakowanie_service import kartony_w_mrozni
+        assert kartony_w_mrozni()[0]['kg'] == 45
+
+
+def test_karton_oprozniony_korekta_nie_udaje_trybu_bez_skanera(db):
+    _receptury()
+    k = _karton('YALCIN', qty=3)
+    execute("INSERT INTO warehouse_events (id,container_id,action,operator) VALUES ('e',%s,'unpack','Jan')", (k['id'],))
+    assert not sprawdz(f"SCARTON|{k['id']}")['scannerless']
+    with pytest.raises(HTTPException):
+        zwaz_i_wstaw(f"SCARTON|{k['id']}", 'euro', 80, 'auto')
+
+
+@pytest.mark.parametrize('state', ['loaded', 'shipped'])
+def test_paleta_bez_skanow_na_aucie_lub_wydana_nie_moze_byc_wazona(db, state):
+    _receptury()
+    cid = _paleta('o1', 'YALCIN', qty=3)
+    execute('UPDATE order_pallets SET status=%s WHERE id=%s', (state, cid))
+    with pytest.raises(HTTPException) as exc:
+        zwaz_i_wstaw('PAL|o1|1', 'euro', 80, 'auto')
+    assert exc.value.detail['code'] == 'GONE'
+
+
 def test_wykaz_partii_w_kartonie_i_w_wazeniu(db):
     """Właściciel 29.09.2026: etykieta ma rozpisać partie — „3 szt 290926 591,
     12 szt 290926 592". Liczone ze SZTUK w kartonie, zapisane z ważeniem."""

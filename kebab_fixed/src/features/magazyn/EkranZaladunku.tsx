@@ -277,9 +277,8 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
                               <span className="block text-[18px] font-bold">
                                 {it.qty} × {it.kgPerUnit.toLocaleString('pl-PL', { maximumFractionDigits: 3 })} kg{' '}
                                 {it.recipeName || 'receptura niepodana'}
-                                {it.packagingName ? ` · ${it.packagingName}` : ''}
                               </span>
-                              {it.productTypeName ? <span className="block text-[12px]" style={{ color: 'var(--mut)' }}>{it.productTypeName}</span> : null}
+                              {(it.packagingName || it.productTypeName) ? <span className="mt-1 block text-[13px] font-normal" style={{ color: 'var(--mut)' }}>{[it.packagingName, it.productTypeName].filter(Boolean).join(' · ')}</span> : null}
                             </span>
                           )) : <span className="mt-1 block text-[12px]" style={{ color: 'var(--mut)' }}>Brak szczegółów rozpisu</span>}
                         </div>

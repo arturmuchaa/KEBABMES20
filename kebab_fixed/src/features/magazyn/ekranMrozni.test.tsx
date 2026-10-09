@@ -37,6 +37,7 @@ vi.mock('@/lib/api', () => ({
       s.wazenia.push(b)
       return Promise.resolve({
         id: 'w1', code: b.code, containerKind: 'stock', containerId: 'c1', cartonNo: '000123',
+        scannerless: !!s.sprawdz.scannerless,
         clientName: 'YALCIN', orderNo: '', lines: [{ qty: 15, kgPerUnit: 50, recipeName: 'ZAGROS', productTypeName: '' }],
         palletTypeId: b.palletTypeId, palletTypeName: 'EURO', tareMinKg: 33.25, tareMaxKg: 36.75, tareKg: 35,
         marginPct: 1, grossKg: b.grossKg, netKg: 750, diffKg: s.ok ? -5 : 40, ok: s.ok, weighMode: b.mode,
@@ -86,6 +87,23 @@ beforeEach(() => {
 afterEach(() => { cleanup(); (window as any).__scaleSim?.(null) })
 
 describe('mroźnia — ważenie pełnego kartonu', () => {
+  it('bez skanów otwiera ważenie zamiast pakowania i drukuje etykietę z rozpisu', async () => {
+    s.sprawdz = { ...PELNY, full: false, open: true, scannerless: true, status: 'packing' }
+    const otworz = vi.fn()
+    render(<EkranMrozni onAlarm={a => s.alarmy.push(a)} onOtworzKarton={otworz} />)
+    wjazd()
+    skanuj(PELNY.code)
+    await screen.findByRole('dialog', { name: 'Ważenie kartonu' })
+    expect(otworz).not.toHaveBeenCalled()
+    expect(screen.getByText('Netto z rozpisu')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /EURO/ }))
+    fireEvent.change(screen.getByLabelText('Brutto ręcznie'), { target: { value: '780' } })
+    fireEvent.click(screen.getByRole('button', { name: /Zatwierdź/ }))
+    await waitFor(() => expect(s.druki).toHaveLength(1))
+    expect(s.druki[0]).toContain('ROZPIS — BEZ SKANÓW SZTUK')
+    expect(s.druki[0]).toContain('NETTO (rozpis)')
+  })
+
   it('skan → EURO → waga 780 → ZGODNA → zapis, etykieta, bez alarmu', async () => {
     render(<EkranMrozni onAlarm={a => s.alarmy.push(a)} />)
     wjazd()

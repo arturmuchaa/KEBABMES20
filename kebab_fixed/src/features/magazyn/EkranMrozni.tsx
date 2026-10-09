@@ -60,11 +60,11 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
     const k = await magazynApi.mrozniaSprawdz(kod)
     // Właściciel 29.09.2026: kartka kartonu otwiera karton z KAŻDEGO ekranu.
     // Niedopakowany nie ma czego szukać w mroźni — idzie do pakowania.
-    if (!wymus && k.result === 'OK' && k.open && k.id && onOtworzKarton) {
+    if (!wymus && k.result === 'OK' && k.open && !k.scannerless && k.id && onOtworzKarton) {
       onOtworzKarton(k.id)
       return true
     }
-    if (k.result !== 'OK' || !k.full || (k.inColdStorage && !wymus)) return false
+    if (k.result !== 'OK' || (!k.full && !k.scannerless) || (k.inColdStorage && !wymus)) return false
     let lista = palety
     if (!lista.length) {
       lista = await magazynApi.paletyMrozni().catch(() => [])
@@ -110,7 +110,7 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
     try {
       if (!(await otworzWazenie(kod, true))) {
         onAlarm({ skaner: 'L', ton: 'uwaga', naglowek: 'TEGO KARTONU NIE ZWAŻYSZ',
-          szczegol: 'Sztuki nie były skanowane do kartonu — nie ma z czym porównać wagi.' })
+          szczegol: 'Sprawdź rozpis i stan kartonu. Karton częściowo skanowany wymaga dokończenia pakowania.' })
       }
     } catch (e) {
       onAlarm({ skaner: 'L', ton: 'blad', naglowek: 'BRAK POŁĄCZENIA',
@@ -209,6 +209,7 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
     }
 
     // WJAZD
+    if (k.result === 'OK' && k.scannerless && !k.inColdStorage) return void otworzWazenie(kanon)
     switch (k.status) {
       case 'full':
         return void otworzWazenie(kanon)
@@ -296,7 +297,8 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
               opis={`karton ${k.cartonNo} · magazyn`}
               kg={k.kg}
               termin="na magazyn"
-              pelnosc={k.full === false || (k.targetQty && k.packedQty < k.targetQty)
+              pelnosc={!k.packedQty ? { pelny: false, t: `BEZ SKANU SZTUK · ${k.targetQty || '?'} szt rozpis` }
+                : k.full === false || (k.targetQty && k.packedQty < k.targetQty)
                 ? { pelny: false, t: `NIEPEŁNY ${k.packedQty}/${k.targetQty || '?'} szt` }
                 : { pelny: true, t: `PEŁNY ${k.packedQty}${k.targetQty ? `/${k.targetQty}` : ''} szt` }}
               w={wazenia[k.id]}
@@ -318,7 +320,7 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
       {doWazenia ? (
         <WazenieKartonu karton={doWazenia} palety={palety} onGotowe={poWazeniu}
           onAnuluj={() => setDoWazenia(null)}
-          onPozniej={doWazenia.inColdStorage ? undefined : () => void zwazPozniej(doWazenia)} />
+          onPozniej={doWazenia.inColdStorage || doWazenia.scannerless ? undefined : () => void zwazPozniej(doWazenia)} />
       ) : null}
     </div>
   )

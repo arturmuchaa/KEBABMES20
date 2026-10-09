@@ -24,6 +24,14 @@ function polaPozaTasma(zpl: string): string[] {
 }
 
 describe('etykieta ważenia 100×150', () => {
+  it('oznacza źródło netto bez skanów i mieści się na taśmie', () => {
+    const z = etykietaWagiZpl({ ...W, scannerless: true, batches: [] }, { kod: W.code })
+    expect(z).toContain('ROZPIS — BEZ SKANÓW SZTUK')
+    expect(z).toContain('NETTO (rozpis)')
+    expect(z).not.toContain('NETTO (sztuki)')
+    expect(polaPozaTasma(z)).toEqual([])
+  })
+
   it('rozmiar taśmy i UTF-8', () => {
     const z = etykietaWagiZpl(W, { kod: 'SCARTON|c1' })
     expect(z).toContain(`^PW${mm(WAGA_W_MM)}`)
