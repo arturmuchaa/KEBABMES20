@@ -16,6 +16,7 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft, Printer } from 'lucide-react'
 import { drukuj } from '@/lib/print'
 import { formatKgCompact } from './cartonLabelLines'
+import { CARTON_QR_SIZE_MM } from './cartonQr'
 
 export { formatKgCompact }
 
@@ -166,7 +167,7 @@ function Kartka(props: CartonLabelProps & { egzemplarz: number }) {
           </div>
         </div>
 
-        <div className="flex items-end justify-between gap-6" style={{ fontFamily: 'Arial, sans-serif' }}>
+        <div className="flex shrink-0 items-end justify-between gap-6" style={{ fontFamily: 'Arial, sans-serif' }}>
           <div className="text-left leading-tight">
             <div className="text-[13pt] font-semibold tracking-wide text-slate-700">WAGA NETTO</div>
             <div className="text-[18pt] font-bold">{formatKgCompact(totalKg)} KG</div>
@@ -174,12 +175,14 @@ function Kartka(props: CartonLabelProps & { egzemplarz: number }) {
               {footerLabel}{footerValue ? ` ${footerValue}` : ''}
             </div>
           </div>
-          {qrDataUrl && (
-            <div className="flex flex-col items-center text-center">
-              <img src={qrDataUrl} alt="QR" className="block" style={{ width: '38mm', height: '38mm', imageRendering: 'pixelated' }} />
+            <div className="flex shrink-0 flex-col items-center text-center">
+              {/* Miejsce na QR od pierwszego renderu: późniejsze dogranie
+                  bitmapy nie może zabrać miejsca już dopasowanej treści. */}
+              <div data-testid="label-qr-slot" style={{ width: `${CARTON_QR_SIZE_MM}mm`, height: `${CARTON_QR_SIZE_MM}mm` }}>
+                {qrDataUrl && <img src={qrDataUrl} alt="QR" className="block h-full w-full" style={{ imageRendering: 'pixelated' }} />}
+              </div>
               <div className="mt-1 text-[8pt] font-mono leading-none text-slate-700">{qrCaption}</div>
             </div>
-          )}
         </div>
       </div>
     </div>
@@ -234,7 +237,7 @@ export function CartonLabel(props: CartonLabelProps) {
         <Link to={backTo} className="flex items-center gap-1.5 text-sm text-slate-700 hover:text-slate-900">
           <ArrowLeft size={14} /> {backLabel}
         </Link>
-        <button onClick={() => void drukuj()} className="flex items-center gap-1.5 rounded bg-brand px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand-dark">
+        <button disabled={!qrDataUrl} onClick={() => void drukuj()} className="flex items-center gap-1.5 rounded bg-brand px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50">
           <Printer size={14} /> Drukuj etykietę ({KOPII_NA_PALETE} kopie)
         </button>
       </div>

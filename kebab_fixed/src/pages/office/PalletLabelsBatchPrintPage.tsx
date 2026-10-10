@@ -24,6 +24,7 @@ import {
   CARTON_LABEL_STYLES, CartonLabelPages, KOPII_NA_PALETE,
 } from '@/features/labels/CartonLabel'
 import { buildCartonLabelContent, cartonLabelTotalKg } from '@/features/labels/cartonLabelLines'
+import { CARTON_QR_OPTIONS, palletQrPayload } from '@/features/labels/cartonQr'
 
 /** Numery palet z `?palety=1,3,4`. Brak parametru = wszystkie (null).
  *  Śmieci w parametrze pomijamy zamiast wywracać wydruk — adres bywa
@@ -43,7 +44,8 @@ export function PalletLabelsBatchPrintPage() {
   const [params] = useSearchParams()
   const orderRes = useApi(() => clientOrdersApi.byId(id), [id])
   const palletsRes = useApi(() => orderPalletsApi.list(id), [id])
-  const [qrByPallet, setQrByPallet] = useState<Record<number, string>>({})
+  // Pełny adres, nie sam numer: P1 innego zamówienia to inny karton.
+  const [qrByCode, setQrByCode] = useState<Record<string, string>>({})
 
   const order = orderRes.data
   const pallets = palletsRes.data ?? []
@@ -81,6 +83,7 @@ export function PalletLabelsBatchPrintPage() {
       const { recipeHeader, lines } = buildCartonLabelContent(items)
       return {
         palletNo: paleta.palletNo,
+        qrCode: palletQrPayload(order.id, paleta.palletNo),
         cornerNo: paleta.cartonNo || `P${paleta.palletNo}`,
         recipeHeader,
         // Paleta bez ani jednej pozycji z wagą — zostaje sama liczba sztuk,
@@ -99,25 +102,20 @@ export function PalletLabelsBatchPrintPage() {
 
   useEffect(() => {
     if (!order || !kartki.length) return
-    const origin = typeof window !== 'undefined' ? window.location.origin : ''
     let porzucone = false
     Promise.all(kartki.map(async k => {
-      const url = `${origin}/m/p/${order.id}/${k.palletNo}`
-      const dataUrl = await QRCode.toDataURL(url, {
-        errorCorrectionLevel: 'Q', margin: 4, width: 480,
-        color: { dark: '#000000', light: '#FFFFFF' },
-      }).catch(() => '')
-      return [k.palletNo, dataUrl] as const
+      const dataUrl = await QRCode.toDataURL(k.qrCode, CARTON_QR_OPTIONS).catch(() => '')
+      return [k.qrCode, dataUrl] as const
     })).then(pary => {
       if (porzucone) return
-      setQrByPallet(Object.fromEntries(pary))
+      setQrByCode(Object.fromEntries(pary))
     })
     return () => { porzucone = true }
   }, [order, kartki])
 
   // Auto-druk dopiero, gdy KAŻDA kartka ma swój kod — inaczej z drukarki
   // wychodzą palety bez QR, którego magazynier nie ma jak zeskanować.
-  const qrKomplet = kartki.length > 0 && kartki.every(k => qrByPallet[k.palletNo])
+  const qrKomplet = kartki.length > 0 && kartki.every(k => qrByCode[k.qrCode])
   useEffect(() => {
     if (!qrKomplet) return
     const t = window.setTimeout(() => void drukuj(), 400)
@@ -167,14 +165,14 @@ export function PalletLabelsBatchPrintPage() {
         <div className="text-sm text-slate-700">
           {order.orderNo} · palety {opisPalet} · {kartki.length * KOPII_NA_PALETE} kartek
         </div>
-        <button onClick={() => void drukuj()} className="flex items-center gap-1.5 rounded bg-brand px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand-dark">
+        <button disabled={!qrKomplet} onClick={() => void drukuj()} className="flex items-center gap-1.5 rounded bg-brand px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50">
           <Printer size={14} /> Drukuj wszystkie
         </button>
       </div>
 
       {kartki.map(k => (
         <CartonLabelPages
-          key={k.palletNo}
+          key={k.qrCode}
           cornerNo={k.cornerNo}
           clientName={clientDisplay(order.clientName)}
           recipeHeader={k.recipeHeader}
@@ -182,7 +180,7 @@ export function PalletLabelsBatchPrintPage() {
           totalKg={k.totalKg}
           footerLabel="ZAMÓWIENIE:"
           footerValue={order.orderNo}
-          qrDataUrl={qrByPallet[k.palletNo] ?? ''}
+          qrDataUrl={qrByCode[k.qrCode] ?? ''}
           qrCaption={`${k.cornerNo} · ${order.orderNo}`}
           backTo="/office/zamowienia"
         />

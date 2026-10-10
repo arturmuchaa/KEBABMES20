@@ -4,7 +4,7 @@
  * i ta sama nazwa receptury: ta z kartoteki odbiorcy („BEYAZ AFIYET" u nas =
  * „BEYAZ" u POLATa).
  */
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 
@@ -19,11 +19,14 @@ vi.mock('@/lib/clientNames', () => ({
   useClientRecipeNames: () => nazwaReceptury,
 }))
 vi.mock('@/lib/print', () => ({ drukuj: vi.fn() }))
-vi.mock('qrcode', () => ({ default: { toDataURL: () => Promise.resolve('data:image/png;base64,AAA') } }))
+vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(() => Promise.resolve('data:image/png;base64,AAA')) } }))
 
 import { StockCartonLabelPage } from './StockCartonLabelPage'
+import QRCode from 'qrcode'
+import { CARTON_QR_OPTIONS } from '@/features/labels/cartonQr'
 
 afterEach(cleanup)
+beforeEach(() => vi.mocked(QRCode.toDataURL).mockClear())
 
 async function pokaz() {
   render(
@@ -47,6 +50,11 @@ describe('StockCartonLabelPage — nazwa receptury odbiorcy', () => {
       kgPerUnit: 20, targetQty: 10, packedQty: 0, status: 'open',
     }
     await pokaz()
+    expect(QRCode.toDataURL).toHaveBeenCalledWith('SCARTON|k1', CARTON_QR_OPTIONS)
+    for (const slot of screen.getAllByTestId('label-qr-slot')) {
+      expect(slot.style.width).toBe('60mm')
+      expect(slot.style.height).toBe('60mm')
+    }
     expect(screen.getAllByText('POLAT').length).toBeGreaterThan(0)
     expect(screen.getAllByText('BEYAZ').length).toBeGreaterThan(0)
     expect(screen.queryAllByText('BEYAZ AFIYET')).toHaveLength(0)

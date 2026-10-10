@@ -53,6 +53,6 @@ def test_save_pallets_preserves_carton_no_on_reedit(db):
     _seed_order_with_line("oc_keep", "lc_keep", qty=10)
     save_pallets("oc_keep", [PalletDto(notes="", items=[PalletItemDto(order_line_id="lc_keep", qty=5)])])
     first = query_all("SELECT carton_no FROM order_pallets WHERE order_id='oc_keep'")[0]["carton_no"]
-    save_pallets("oc_keep", [PalletDto(notes="zmiana", items=[PalletItemDto(order_line_id="lc_keep", qty=6)])])
+    save_pallets("oc_keep", [PalletDto(pallet_no=1, notes="zmiana", items=[PalletItemDto(order_line_id="lc_keep", qty=6)])])
     second = query_all("SELECT carton_no FROM order_pallets WHERE order_id='oc_keep'")[0]["carton_no"]
     assert second == first

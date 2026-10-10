@@ -154,3 +154,23 @@ def test_paleta_na_aucie_blokuje_usuniecie(db):
         delete_order(o["id"])
     assert "na aucie" in e.value.detail
     assert len(_palety(o["id"])) == 1 and list_orphans() == []
+
+
+def test_powrot_do_tego_samego_zamowienia_nie_zajmuje_starego_adresu(db):
+    _slownik()
+    o = _z_paletami([_poz(30, 10), _poz(40, 10)], [[(0, 10), (1, 10)]])
+    old = _palety(o["id"])[0]
+    update_order(o["id"], _dto([{**_poz(30, 10), "id": o["lines"][0]["id"]}]))
+    update_order(o["id"], _dto([{**_poz(30, 11), "id": o["lines"][0]["id"]}, _poz(40, 10)]))
+    moved = _palety(o["id"])[0]
+    assert moved["id"] == old["id"] and moved["pallet_no"] == 2
+    assert pallets_service.lookup(_kartka(o["id"], 1))["id"] == old["id"]
+
+    # Dodanie następnej palety nie zajmie starego adresu P1 (aliasu).
+    lines = query_all("SELECT id FROM client_order_lines WHERE order_id=%s ORDER BY kg_per_unit", (o["id"],))
+    pallets_service.save_pallets(o["id"], [
+        PalletDto.model_validate(pallets_service.list_pallets(o["id"])[0]),
+        PalletDto(items=[{"order_line_id": lines[0]["id"], "qty": 1}]),
+    ])
+    assert [p["pallet_no"] for p in _palety(o["id"])] == [2, 3]
+    assert pallets_service.lookup(_kartka(o["id"], 1))["id"] == old["id"]

@@ -2155,6 +2155,7 @@ export const orderPalletsApi = {
   save: (orderId: string, pallets: OrderPallet[]) =>
     put<any[]>(`/client-orders/${orderId}/pallets`, {
       pallets: pallets.map(p => ({
+        id:        p.id ?? '',
         pallet_no: p.palletNo,
         notes:     p.notes,
         items:     p.items.map(it => ({ order_line_id: it.orderLineId, qty: it.qty })),

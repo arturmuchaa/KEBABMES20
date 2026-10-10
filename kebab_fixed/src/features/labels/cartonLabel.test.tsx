@@ -38,6 +38,20 @@ function pokaz(props: Partial<React.ComponentProps<typeof CartonLabel>> = {}) {
 }
 
 describe('CartonLabel — dwie kopie', () => {
+  it('rezerwuje QR 60 × 60 mm także przed wygenerowaniem bitmapy', () => {
+    const view = pokaz({ qrDataUrl: '' })
+    for (const slot of screen.getAllByTestId('label-qr-slot')) {
+      expect(slot.style.width).toBe('60mm')
+      expect(slot.style.height).toBe('60mm')
+    }
+    expect(screen.queryAllByAltText('QR')).toHaveLength(0)
+    expect(screen.getByRole('button', { name: /drukuj/i })).toHaveProperty('disabled', true)
+    view.unmount()
+    pokaz()
+    expect(screen.getAllByAltText('QR')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: /drukuj/i })).toHaveProperty('disabled', false)
+  })
+
   it('drukuje kartke DWA razy', () => {
     pokaz()
     expect(screen.getAllByTestId('label-page')).toHaveLength(2)

@@ -1,8 +1,7 @@
 """Pallets — palety wydania dla zamówień klientów.
 
-Numeracja: per zamówienie, 1..N (zawsze przeliczana przy zapisie).
-Zapis działa jako pełen replace zestawu palet zamówienia — żeby uniknąć
-edge case'ów częściowej synchronizacji UI/DB.
+Numeracja jest stała: id, pallet_no (adres QR) i carton_no przeżywają edycję.
+Usunięcie palety nie przesuwa pozostałych ani nie zwalnia jej numeru.
 """
 import re
 from typing import Any, Dict, List, Optional
@@ -15,6 +14,7 @@ from app.models.orders import PalletDto
 from app.utils.ids import cuid, next_seq
 from app.utils.client_aliases import nazwy_klienta
 from app.utils.pallet_packing import counted_lines, line_accepts
+from app.utils.pallet_numbers import reserve_pallet_numbers_cx
 from app.utils.unit_codes import (
     PACKED, pallet_line_key, parse_unit_qr, validate_pack_to_pallet,
 )
@@ -110,122 +110,100 @@ def list_pallets(order_id: str) -> List[Dict]:
 
 
 def save_pallets(order_id: str, pallets: List[PalletDto]) -> List[Dict]:
-    """Zapisz palety zamówienia.
+    """Uzgodnij zestaw po tożsamości, NIGDY po indeksie na liście.
 
-    Palety które są już w obiegu skanowania (status != 'created') pozostają
-    nietknięte. Można dodawać nowe palety i edytować/usuwać palety jeszcze nie
-    zeskanowane (status = 'created'). Próba zmiany zawartości / usunięcia
-    zeskanowanej palety kończy się błędem 409.
+    Incydent YALCIN 09.10.2026: replace kasował rekordy i przydzielał
+    zawartości numery od 1. Po usunięciu P9 kartka P10 wskazywała inny towar.
+    Starszy klient może podać sam pallet_no, ale brak id/numeru oznacza
+    wyłącznie nową paletę — nie zgadujemy, którą kartkę miał na myśli.
+    Cała walidacja pod blokadą: skan równoległy nie może zostać skasowany.
     """
-    # 1) Stan w DB — które palety są zamrożone (status != created)
-    existing = query_all(
-        "SELECT id, pallet_no, status FROM order_pallets WHERE order_id=%s ORDER BY pallet_no",
-        (order_id,),
-    )
-    scanned = [r for r in existing if (r.get("status") or "created") != "created"]
-    scanned_nos = {int(r["pallet_no"]) for r in scanned}
-    scanned_ids = [r["id"] for r in scanned]
-
-    # 2) Aktualne pozycje zeskanowanych palet — do weryfikacji "nic się nie zmieniło"
-    scanned_items: Dict[int, List[tuple]] = {}
-    if scanned_ids:
-        no_by_id = {r["id"]: int(r["pallet_no"]) for r in scanned}
-        item_rows = query_all(
-            "SELECT pallet_id, order_line_id, qty FROM order_pallet_items WHERE pallet_id = ANY(%s)",
-            (scanned_ids,),
-        )
-        for it in item_rows:
-            no = no_by_id[it["pallet_id"]]
-            scanned_items.setdefault(no, []).append((it["order_line_id"], int(it["qty"])))
-
-    # 3) Podział incoming na: dotyczące zeskanowanych vs nowe/edytowalne
-    incoming_for_scanned: Dict[int, PalletDto] = {}
-    other_incoming: List[PalletDto] = []
-    for p in pallets:
-        pn = int(p.pallet_no) if p.pallet_no else 0
-        if pn > 0 and pn in scanned_nos:
-            incoming_for_scanned[pn] = p
-        else:
-            other_incoming.append(p)
-
-    # 4) Wszystkie zeskanowane palety muszą być nadal obecne w liście
-    missing = scanned_nos - set(incoming_for_scanned.keys())
-    if missing:
-        nums = ", ".join(f"P{n}" for n in sorted(missing))
-        raise HTTPException(
-            409,
-            f"Palety {nums} są w obiegu skanowania — nie można ich usunąć. "
-            f"Cofnij skan, aby umożliwić usunięcie.",
-        )
-
-    # 5) Zawartość zeskanowanych palet musi być identyczna z tym co jest w DB
-    for pn, p in incoming_for_scanned.items():
-        db_items = sorted(scanned_items.get(pn, []))
-        in_items = sorted((it.order_line_id, int(it.qty)) for it in p.items)
-        if db_items != in_items:
-            raise HTTPException(
-                409,
-                f"Paleta P{pn} jest w obiegu skanowania — nie można zmienić jej zawartości.",
-            )
-
-    # 6) Walidacja: linie tylko z nowych/edytowalnych palet muszą należeć do tego zamówienia
-    line_ids = {it.order_line_id for p in other_incoming for it in p.items}
-    if line_ids:
-        rows = query_all(
-            "SELECT id FROM client_order_lines WHERE order_id = %s AND id = ANY(%s)",
-            (order_id, list(line_ids)),
-        )
-        valid_ids = {r["id"] for r in rows}
-        invalid = line_ids - valid_ids
-        if invalid:
-            raise HTTPException(400, f"Pozycje nie należą do zamówienia: {sorted(invalid)}")
-
-    # 7) Usuń tylko palety nie-zeskanowane, potem dopisz palety z incoming z numeracją
     with transaction() as conn:
-        # Ta sama blokada zamówienia co przypisanie kartonu magazynowego
-        # (`stock_carton_link_service.assign`): rozpis palet i powiązane kartony
-        # nie mogą razem przekroczyć ilości zamówienia. Stan wyjściowy liczony
-        # PO blokadzie; po zapisie kontrola odmawia (rollback), gdy nadmiar urósł.
         from app.services.stock_carton_link_service import check_order_reservations_cx
-        cx_query_one(conn, "SELECT id FROM client_orders WHERE id=%s FOR UPDATE", (order_id,))
-        overflow_before = check_order_reservations_cx(conn, order_id)
-        # Zachowaj istniejące numery kartonów per pallet_no — re-edycja palety nie
-        # zmienia jej numeru kartonu (numer jest stały, „leci po kolei" globalnie).
-        carton_by_no = {
-            int(r["pallet_no"]): r["carton_no"]
-            for r in cx_query_all(
-                conn,
-                "SELECT pallet_no, carton_no FROM order_pallets WHERE order_id=%s",
-                (order_id,),
-            )
-            if r.get("carton_no") is not None
-        }
-        if scanned_ids:
-            cx_execute(
-                conn,
-                "DELETE FROM order_pallets WHERE order_id=%s AND id NOT IN %s",
-                (order_id, tuple(scanned_ids)),
-            )
-        else:
-            cx_execute(conn, "DELETE FROM order_pallets WHERE order_id=%s", (order_id,))
+        if not cx_query_one(conn, "SELECT id FROM client_orders WHERE id=%s FOR UPDATE", (order_id,)):
+            raise HTTPException(404, "Zamówienie nie istnieje")
+        existing = cx_query_all(conn,
+            "SELECT * FROM order_pallets WHERE order_id=%s ORDER BY pallet_no FOR UPDATE", (order_id,))
+        by_id = {r["id"]: r for r in existing}
+        by_no = {int(r["pallet_no"]): r for r in existing}
+        old_items: Dict[str, List[tuple]] = {}
+        for it in cx_query_all(conn,
+                "SELECT pallet_id, order_line_id, qty FROM order_pallet_items WHERE pallet_id=ANY(%s)",
+                (list(by_id),)):
+            old_items.setdefault(it["pallet_id"], []).append((it["order_line_id"], int(it["qty"])))
 
-        used = set(scanned_nos)
-        next_no = 1
-        inserted = 0
-        for p in other_incoming:
+        incoming = {}
+        new = []
+        for p in pallets:
+            pn = int(p.pallet_no or 0)
+            current = by_id.get(p.id) if p.id else by_no.get(pn)
+            if (p.id or pn) and not current:
+                raise HTTPException(409, "Paleta została usunięta lub przeniesiona — odśwież rozpis")
+            if current:
+                if pn and pn != current["pallet_no"]:
+                    raise HTTPException(409, "Identyfikator i numer palety nie zgadzają się — odśwież rozpis")
+                if current["id"] in incoming:
+                    raise HTTPException(400, "Ta sama paleta występuje w rozpisie więcej niż raz")
+                incoming[current["id"]] = p
+            else:
+                new.append(p)
+
+        # Nawet po cofnięciu skanu zachowujemy historię i powiązania sztuk.
+        protected = {r["pallet_id"] for r in cx_query_all(conn,
+            "SELECT pallet_id FROM pallet_scans WHERE pallet_id=ANY(%s) "
+            "UNION SELECT pallet_id FROM finished_units WHERE pallet_id=ANY(%s)",
+            (list(by_id), list(by_id)))}
+        for r in existing:
+            p = incoming.get(r["id"])
+            before = sorted(old_items.get(r["id"], []))
+            after = sorted((it.order_line_id, int(it.qty)) for it in p.items) if p else None
+            if ((r.get("status") or "created") != "created" or r["id"] in protected) and before != after:
+                raise HTTPException(409,
+                    f"Paleta P{r['pallet_no']} jest w obiegu skanowania lub ma historię skanów — "
+                    "nie można jej usunąć ani zmienić zawartości.")
+
+        line_ids = {it.order_line_id for p in pallets for it in p.items}
+        if line_ids:
+            valid = {r["id"] for r in cx_query_all(conn,
+                "SELECT id FROM client_order_lines WHERE order_id=%s AND id=ANY(%s)",
+                (order_id, list(line_ids)))}
+            if line_ids - valid:
+                raise HTTPException(400, f"Pozycje nie należą do zamówienia: {sorted(line_ids - valid)}")
+
+        overflow_before = check_order_reservations_cx(conn, order_id)
+        reserve_pallet_numbers_cx(conn, order_id)  # PRZED usunięciem, także ostatniej palety
+        removed = [r["id"] for r in existing if r["id"] not in incoming]
+        if removed and new:
+            # Stary desktop przy edycji wysyłał pallet_no=0. Nie traktuj
+            # takiego zapisu jako usunięcia wydrukowanej kartki i nowej palety.
+            raise HTTPException(409,
+                "Brak tożsamości edytowanej palety — odśwież lub zaktualizuj aplikację. "
+                "Usuwanie i dodawanie palet wykonuj osobno.")
+        if removed:
+            cx_execute(conn, "DELETE FROM order_pallets WHERE id=ANY(%s)", (removed,))
+
+        for pid, p in incoming.items():
+            cx_execute(conn, "UPDATE order_pallets SET notes=%s WHERE id=%s", (p.notes or "", pid))
+            items = sorted((it.order_line_id, int(it.qty)) for it in p.items if it.qty > 0)
+            if items == sorted(old_items.get(pid, [])):
+                continue
+            cx_execute(conn, "DELETE FROM order_pallet_items WHERE pallet_id=%s", (pid,))
+            for lid, qty in items:
+                cx_execute(conn,
+                    "INSERT INTO order_pallet_items (id, pallet_id, order_line_id, qty) VALUES (%s,%s,%s,%s)",
+                    (cuid(), pid, lid, qty))
+
+        for p in new:
             if not p.items:
                 continue
-            while next_no in used:
-                next_no += 1
             pallet_id = cuid()
-            carton_no = carton_by_no.get(next_no)
-            if carton_no is None:
-                carton_no = next_seq("carton_seq")
+            pallet_no = reserve_pallet_numbers_cx(conn, order_id, allocate=True)
+            carton_no = next_seq("carton_seq")
             cx_execute(
                 conn,
                 "INSERT INTO order_pallets (id, order_id, pallet_no, notes, carton_no) "
                 "VALUES (%s,%s,%s,%s,%s)",
-                (pallet_id, order_id, next_no, p.notes or "", carton_no),
+                (pallet_id, order_id, pallet_no, p.notes or "", carton_no),
             )
             for it in p.items:
                 if it.qty <= 0:
@@ -235,14 +213,11 @@ def save_pallets(order_id: str, pallets: List[PalletDto]) -> List[Dict]:
                     "INSERT INTO order_pallet_items (id, pallet_id, order_line_id, qty) VALUES (%s,%s,%s,%s)",
                     (cuid(), pallet_id, it.order_line_id, it.qty),
                 )
-            used.add(next_no)
-            next_no += 1
-            inserted += 1
         check_order_reservations_cx(conn, order_id, overflow_before)
 
     logger.info(
         "pallets.saved",
-        extra={"order_id": order_id, "kept_scanned": len(scanned), "inserted": inserted},
+        extra={"order_id": order_id, "kept": len(incoming), "inserted": len(new), "removed_ids": removed},
     )
     return list_pallets(order_id)
 

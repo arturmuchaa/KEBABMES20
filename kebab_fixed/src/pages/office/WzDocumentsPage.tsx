@@ -166,7 +166,7 @@ export function WzDocumentsPage() {
   const [priceStrs, setPriceStrs] = useState<string[]>([])
   const [qtyStrs, setQtyStrs]     = useState<string[]>([])
   const [contStrs, setContStrs]   = useState<string[]>([])
-  /** 'prices' = uzupełnianie cen (WZ z zamówień); 'full' = pełna edycja ręcznego WZ. */
+  /** 'prices' = uzupełnianie/korekta cen (WZ z zamówień); 'full' = pełna edycja ręcznego WZ. */
   const [editMode, setEditMode]   = useState<'prices' | 'full'>('prices')
   // Waluta dokumentu przy uzupełnianiu cen. Do 22.09.2026 dało się ją ustawić
   // WYŁĄCZNIE przy tworzeniu, więc WZ wystawiony z kursu zostawał z PLN.
@@ -524,11 +524,11 @@ export function WzDocumentsPage() {
                                   onClick={() => editId === d.id ? setEditId(null) : openEditor(d.id, 'full')}>
                             {editId === d.id ? <><ChevronUp size={12} /> Zwiń</> : <><Pencil size={12} /> Edytuj</>}
                           </Button>
-                        ) : !d.valued && d.status === 'wstepny' && (
+                        ) : d.status === 'wstepny' && (
                           <Button variant="outline" size="sm"
                                   className="h-7 text-[11px] gap-1 text-amber-700 border-amber-200 hover:bg-amber-50"
                                   onClick={() => editId === d.id ? setEditId(null) : openEditor(d.id, 'prices')}>
-                            {editId === d.id ? <><ChevronUp size={12} /> Zwiń</> : <><Pencil size={12} /> Uzupełnij ceny</>}
+                            {editId === d.id ? <><ChevronUp size={12} /> Zwiń</> : <><Pencil size={12} /> {d.valued ? 'Edytuj ceny' : 'Uzupełnij ceny'}</>}
                           </Button>
                         ))}
                         {/* HDI do ręcznej sprzedaży WYROBU z magazynu. WZ
@@ -561,8 +561,14 @@ export function WzDocumentsPage() {
                       <TableCell colSpan={7} className="bg-muted/30 p-4">
                         <div className="max-w-2xl">
                           <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
-                            {editMode === 'full' ? 'Edycja dokumentu' : 'Uzupełnij ceny'} — {d.number}
+                            {editMode === 'full' ? 'Edycja dokumentu' : d.valued ? 'Edycja cen' : 'Uzupełnij ceny'} — {d.number}
                           </div>
+                          {editMode === 'prices' && (
+                            <p className="text-[12px] text-muted-foreground mb-2">
+                              Zmiana cen przelicza wartość dokumentu, bez zmiany ilości i magazynu.
+                              Jeśli dokument był wydrukowany, po korekcie wydrukuj go ponownie.
+                            </p>
+                          )}
                           {editMode === 'full' && (
                             <div className="flex items-start gap-2 text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-2">
                               <AlertTriangle size={14} className="mt-0.5 shrink-0" />
@@ -613,6 +619,7 @@ export function WzDocumentsPage() {
                                     )}
                                     <TableCell className="py-1.5 px-2">
                                       <Input type="text" inputMode="decimal" placeholder="0,00"
+                                             aria-label={`Cena pozycji ${i + 1}`}
                                              value={priceStrs[i] ?? ''}
                                              className="h-8 w-24 font-mono"
                                              onFocus={e => e.target.select()}
@@ -647,6 +654,7 @@ export function WzDocumentsPage() {
                                 <Input
                                   className="h-7 w-28 text-[12px]"
                                   placeholder="kurs NBP"
+                                  aria-label="Kurs EUR"
                                   inputMode="decimal"
                                   value={kursStr}
                                   onChange={e => setKursStr(sanitizeDecimal(e.target.value))}
@@ -673,6 +681,7 @@ export function WzDocumentsPage() {
                               <Input
                                 className="h-7 w-28 text-[12px]"
                                 placeholder={`za kg [${waluta === 'EUR' ? '€' : 'zł'}]`}
+                                aria-label="Jedna cena dla wszystkich"
                                 inputMode="decimal"
                                 value={cenaWszystkie}
                                 onChange={e => setCenaWszystkie(sanitizeDecimal(e.target.value))}

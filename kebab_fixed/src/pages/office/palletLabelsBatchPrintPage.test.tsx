@@ -11,8 +11,8 @@
  * potem wszystkie drugie) zmusiłby go do sortowania stosu.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
-import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { render, screen, cleanup, waitFor, act } from '@testing-library/react'
+import { MemoryRouter, Routes, Route, createMemoryRouter, RouterProvider } from 'react-router-dom'
 
 const stan = vi.hoisted(() => ({
   zamowienie: null as any,
@@ -35,11 +35,14 @@ vi.mock('@/lib/clientNames', () => ({
   useClientRecipeNames: () => nazwaReceptury,
 }))
 vi.mock('@/lib/print', () => ({ drukuj: vi.fn() }))
-vi.mock('qrcode', () => ({ default: { toDataURL: () => Promise.resolve('data:image/png;base64,AAA') } }))
+vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(() => Promise.resolve('data:image/png;base64,AAA')) } }))
 
 import { PalletLabelsBatchPrintPage } from './PalletLabelsBatchPrintPage'
+import QRCode from 'qrcode'
+import { CARTON_QR_OPTIONS } from '@/features/labels/cartonQr'
 
 beforeEach(() => {
+  vi.mocked(QRCode.toDataURL).mockReset().mockImplementation(() => Promise.resolve('data:image/png;base64,AAA'))
   stan.zamowienie = {
     id: 'o1', orderNo: 'YALCIN/Z/4/09/26', clientName: 'YALCIN',
     lines: [
@@ -69,6 +72,39 @@ async function pokaz(query: string) {
 }
 
 describe('PalletLabelsBatchPrintPage — ile kartek', () => {
+  it('po zmianie zamówienia nie drukuje QR poprzedniej palety o tym samym numerze', async () => {
+    const router = createMemoryRouter([
+      { path: '/office/zamowienia/:id/palety/druk', element: <PalletLabelsBatchPrintPage /> },
+    ], { initialEntries: ['/office/zamowienia/o1/palety/druk?palety=1'] })
+    render(<RouterProvider router={router} />)
+    await waitFor(() => expect(screen.getAllByAltText('QR')).toHaveLength(2))
+
+    stan.zamowienie = { ...stan.zamowienie, id: 'o2', orderNo: 'NOWE/Z/1/10/26' }
+    stan.palety = [{ ...stan.palety[0], id: 'p4', cartonNo: '000004' }]
+    let finishQr!: (url: string) => void
+    vi.mocked(QRCode.toDataURL).mockImplementationOnce(() => new Promise<string>(resolve => { finishQr = resolve }))
+    await act(async () => { await router.navigate('/office/zamowienia/o2/palety/druk?palety=1') })
+    await waitFor(() => expect(screen.getAllByTestId('label-corner-no')[0].textContent).toBe('000004'))
+    expect(screen.queryAllByAltText('QR')).toHaveLength(0)
+    expect(screen.getByRole('button', { name: /drukuj wszystkie/i })).toHaveProperty('disabled', true)
+
+    await act(async () => { finishQr('data:image/png;base64,NEW') })
+    for (const img of screen.getAllByAltText('QR')) expect(img.getAttribute('src')).toBe('data:image/png;base64,NEW')
+    expect(screen.getByRole('button', { name: /drukuj wszystkie/i })).toHaveProperty('disabled', false)
+  })
+
+  it('luki i inna kolejność wydruku nie zmieniają adresu QR kartonu', async () => {
+    stan.palety = [stan.palety[1], { ...stan.palety[2], cartonNo: '000366' }]
+    await pokaz('?palety=3,2')
+    await waitFor(() => expect(QRCode.toDataURL).toHaveBeenCalledTimes(2))
+    expect(vi.mocked(QRCode.toDataURL).mock.calls.map(c => c[0])).toEqual([
+      'PAL|o1|3', 'PAL|o1|2',
+    ])
+    expect(QRCode.toDataURL).toHaveBeenCalledWith('PAL|o1|3', CARTON_QR_OPTIONS)
+    expect(screen.getAllByTestId('label-corner-no').map(el => el.textContent))
+      .toEqual(['000366', '000366', '000002', '000002'])
+  })
+
   it('bez parametru drukuje WSZYSTKIE palety, po dwie kartki', async () => {
     await pokaz('')
     expect(screen.getAllByTestId('label-page')).toHaveLength(6)   // 3 palety × 2

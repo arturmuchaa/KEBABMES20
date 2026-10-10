@@ -105,6 +105,26 @@ async function stronDruku(page: Page, plik: string): Promise<number> {
 }
 
 test.describe('kartki palet — dopasowanie do jednej strony', () => {
+  test('QR ma 60 mm, jest załadowany i nie jest przycięty w druku', async ({ page }) => {
+    await otworz(page, [paleta(13, '000366', [['l1', 10], ['l2', 5], ['l3', 8]])])
+    await expect(page.getByAltText('QR')).toHaveCount(2)
+    await page.emulateMedia({ media: 'print' })
+    const sizes = await page.getByAltText('QR').evaluateAll(images => images.map(el => {
+      const img = el as HTMLImageElement
+      const r = img.getBoundingClientRect()
+      const sheet = img.closest('[data-testid="label-page"]')!.getBoundingClientRect()
+      return { width: r.width, height: r.height, ready: img.complete && img.naturalWidth > 0,
+        inside: r.left >= sheet.left && r.right <= sheet.right && r.top >= sheet.top && r.bottom <= sheet.bottom }
+    }))
+    for (const size of sizes) {
+      expect(size.width).toBeCloseTo(60 * 96 / 25.4, 0)
+      expect(size.height).toBeCloseTo(60 * 96 / 25.4, 0)
+      expect(size.ready).toBe(true)
+      expect(size.inside).toBe(true)
+    }
+    for (const k of await zmierz(page)) expect(k.miesciSieW).toBe(true)
+  })
+
   test('jedna pozycja: duża czcionka, treść w granicach strony', async ({ page }) => {
     await otworz(page, [paleta(1, '000001', [['l1', 10]])], '?palety=1')
     const kartki = await zmierz(page)

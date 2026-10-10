@@ -44,7 +44,8 @@ class PalletItemDto(BaseModel):
 
 
 class PalletDto(BaseModel):
-    pallet_no: int | None = None  # ignorowane przy zapisie — numerujemy 1..N
+    id: str = ""
+    pallet_no: int | None = None  # stały adres QR; None/0 bez id = NOWA paleta
     notes: str = ""
     items: List[PalletItemDto]
 

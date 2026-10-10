@@ -26,6 +26,7 @@ vi.mock('@/lib/api', () => ({
 }))
 
 import { PalletsEditor } from './PalletsEditor'
+import { orderPalletsApi } from '@/lib/apiClient'
 
 const LINIE = [
   { id: 'l1', qty: 10, kgPerUnit: 80, recipeName: 'BEYAZ AFIYET', productTypeName: 'KEBAB UDO 100%' },
@@ -33,6 +34,7 @@ const LINIE = [
 ] as any
 
 beforeEach(() => {
+  vi.mocked(orderPalletsApi.save).mockReset().mockResolvedValue([])
   otwarte.url = ''
   vi.stubGlobal('open', vi.fn((url: string) => { otwarte.url = url; return { closed: false } }))
   stan.palety = [
@@ -52,6 +54,39 @@ const zaznacz = (nr: number) =>
   fireEvent.click(screen.getByLabelText(`Zaznacz paletę nr ${nr} do druku`))
 
 describe('PalletsEditor — druk zbiorczy', () => {
+  it('edycja kartonu zachowuje id i numer QR zamiast wysyłać nową paletę z numerem zero', async () => {
+    stan.palety[2].cartonNo = '000366'
+    await pokaz()
+    expect(screen.getByText('Karton 000366 · P3')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Edytuj paletę nr 3' }))
+    expect(screen.getByText(/Po zmianie zawartości wydrukuj ponownie/)).toBeTruthy()
+    fireEvent.change(screen.getAllByRole('spinbutton')[1], { target: { value: '4' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Zapisz zmiany' }))
+    await waitFor(() => expect(orderPalletsApi.save).toHaveBeenCalledTimes(1))
+    const saved = vi.mocked(orderPalletsApi.save).mock.calls[0][1]
+    expect(saved[2]).toMatchObject({ id: 'p3', palletNo: 3, cartonNo: '000366', items: [{ orderLineId: 'l2', qty: 4 }] })
+    expect(saved.slice(0, 2)).toEqual(stan.palety.slice(0, 2))
+  })
+
+  it('usunięcie pierwszej palety nie przenumerowuje pozostałych w żądaniu', async () => {
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    await pokaz()
+    fireEvent.click(screen.getByRole('button', { name: 'Usuń paletę nr 1' }))
+    await waitFor(() => expect(orderPalletsApi.save).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(orderPalletsApi.save).mock.calls[0][1]).toEqual(stan.palety.slice(1))
+  })
+
+  it('odmowa zapisu nie zamyka formularza i nie gubi korekty operatora', async () => {
+    vi.mocked(orderPalletsApi.save).mockRejectedValueOnce(new Error('Paleta jest w obiegu skanowania'))
+    await pokaz()
+    fireEvent.click(screen.getByRole('button', { name: 'Edytuj paletę nr 3' }))
+    fireEvent.change(screen.getAllByRole('spinbutton')[1], { target: { value: '4' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Zapisz zmiany' }))
+    await screen.findByText('Paleta jest w obiegu skanowania')
+    expect(screen.getByText('Edycja palety nr 3')).toBeTruthy()
+    expect(screen.getAllByRole('spinbutton')[1]).toHaveProperty('value', '4')
+  })
+
   it('dołącza zielony karton magazynowy do sumy, ale nie do etykiet PAL', async () => {
     const carton = { cartonId: 'stock343', cartonNo: 343, packedQty: 0, targetQty: 20,
       lines: [{ targetQty: 20, kgPerUnit: 40, recipeName: 'BEYAZ', packagingName: 'METAL 65CM' }] } as any

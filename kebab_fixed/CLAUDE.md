@@ -31,6 +31,7 @@ Frontend = React + TypeScript + Vite + Tailwind (font Fira). Desktop = Tauri.
 5. **Traceability both ways:** raw → finished AND finished → raw. `batch_allocation` is the source of truth per piece.
 6. **No data loss:** no silent updates, no deletes.
 7. **Use DB transactions** — stock writes use `SELECT … FOR UPDATE` row locks.
+8. **Printed carton identity is permanent:** keep pallet `id`, `carton_no` and the QR address `(order_id, pallet_no)` on edits; never renumber by list index or reuse a deleted/transferred QR address. Test deletion, reordering, transfer aliases and concurrent scanning (YALCIN incident, 2026-10-09).
 
 > 🚨 If stock changes without a movement, **the system is broken.**
 

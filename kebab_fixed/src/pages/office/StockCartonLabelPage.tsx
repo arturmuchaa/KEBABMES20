@@ -11,6 +11,7 @@ import { formatCartonNo } from '@/lib/unitLocation'
 import { useClientNames, useClientRecipeNames } from '@/lib/clientNames'
 import { CartonLabel } from '@/features/labels/CartonLabel'
 import { buildCartonLabelContent, cartonLabelTotalKg } from '@/features/labels/cartonLabelLines'
+import { CARTON_QR_OPTIONS } from '@/features/labels/cartonQr'
 
 export function StockCartonLabelPage() {
   const { id = '' } = useParams<{ id: string }>()
@@ -21,10 +22,12 @@ export function StockCartonLabelPage() {
 
   useEffect(() => {
     if (!id) return
-    QRCode.toDataURL(`SCARTON|${id}`, {
-      errorCorrectionLevel: 'Q', margin: 4, width: 480,
-      color: { dark: '#000000', light: '#FFFFFF' },
-    }).then(setQrUrl).catch(() => setQrUrl(''))
+    let porzucone = false
+    setQrUrl('')
+    QRCode.toDataURL(`SCARTON|${id}`, CARTON_QR_OPTIONS)
+      .then(url => { if (!porzucone) setQrUrl(url) })
+      .catch(() => { if (!porzucone) setQrUrl('') })
+    return () => { porzucone = true }
   }, [id])
 
   if (!carton) return <div className="p-10 text-center text-slate-500">Ładowanie etykiety…</div>

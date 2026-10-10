@@ -32,6 +32,7 @@ from fastapi import HTTPException
 from app.db import cx_execute, cx_query_all, cx_query_one, query_all, query_one
 from app.logging_config import get_logger
 from app.utils.ids import cuid
+from app.utils.pallet_numbers import reserve_pallet_numbers_cx
 
 logger = get_logger(__name__)
 
@@ -134,6 +135,8 @@ def _refuse_moving(pallets: List[Dict[str, Any]], what: str) -> None:
 
 
 def _park(conn, order: Dict[str, Any], pallets: List[Dict[str, Any]], reason: str) -> int:
+    if pallets:
+        reserve_pallet_numbers_cx(conn, order["id"])
     n = 0
     for p in pallets:
         items = [{k: (float(it[k]) if k == "kg_per_unit" else it.get(k))
@@ -221,8 +224,7 @@ def attach_orphans_cx(conn, order_id: str) -> List[Dict[str, Any]]:
         plan = plan_attach(items, lines, line_used, spec_free)
         if not plan:
             continue
-        nxt = cx_query_one(conn, "SELECT COALESCE(MAX(pallet_no), 0) + 1 AS n FROM order_pallets WHERE order_id=%s",
-                           (order_id,))["n"]
+        nxt = reserve_pallet_numbers_cx(conn, order_id, allocate=True)
         skad = f"z {o['source_order_no'] or 'usuniętego zamówienia'} P{o['pallet_no']}"
         notes = f"{o['notes']} · {skad}" if o.get("notes") else skad
         cx_execute(
@@ -239,8 +241,8 @@ def attach_orphans_cx(conn, order_id: str) -> List[Dict[str, Any]]:
         for it in items:
             spec_free[item_spec(it)] = spec_free.get(item_spec(it), 0) - int(it.get("qty") or 0)
         # Stara kartka wskazuje nowy adres palety (zamówienie + nr — jak kartka
-        # natywna; nr palety przeżywa edycję rozpisu). Starsze kartki tej palety
-        # dochodzą tu łańcuchem aliasów.
+        # natywna; nr palety przeżywa edycję rozpisu i nie wraca do puli).
+        # Starsze kartki tej palety dochodzą tu łańcuchem aliasów.
         cx_execute(
             conn,
             """INSERT INTO pallet_label_aliases (order_id, pallet_no, target_order_id, target_pallet_no)

@@ -15,7 +15,7 @@ from datetime import date
 import pytest
 from fastapi import HTTPException
 
-from app.db import execute, query_one
+from app.db import execute, query_all, query_one
 from app.services.wz_service import update_wz_prices
 
 
@@ -123,3 +123,29 @@ def test_dokument_potwierdzony_odmawia_takze_zmiany_waluty(db):
     with pytest.raises(HTTPException) as e:
         update_wz_prices("w1", [{"index": 0, "price": 3.10}], currency="EUR", eur_rate=4.27)
     assert e.value.status_code == 409
+
+
+def test_korekta_wycenionego_wz_z_kursu_nie_zmienia_ilosci_ani_ruchow(db):
+    """WZ/23/10/26: 2345 + 1655 kg, 3,10 → 3,15 EUR/kg."""
+    _wz(currency="EUR")
+    lines = [
+        {"name": "KIRMIZI", "qty": 104, "unit": "szt", "total_kg": 2345, "price": 3.1, "value": 7269.5},
+        {"name": "BEYAZ", "qty": 52, "unit": "szt", "total_kg": 1655, "price": 3.1, "value": 5130.5},
+    ]
+    execute("UPDATE wz_documents SET lines=%s::jsonb, valued=TRUE, total_value=12400, "
+            "eur_rate=4.39, source_type='order', source_id='yalcin', split_scope='wz_klienta' WHERE id='w1'",
+            (json.dumps(lines),))
+    movements = query_all("SELECT * FROM stock_movements ORDER BY id")
+    stock = query_all("SELECT * FROM finished_goods ORDER BY id")
+    update_wz_prices("w1", [{"index": 0, "price": 3.15}, {"index": 1, "price": 3.15}],
+                     currency="EUR", eur_rate=4.39)
+    doc = query_one("SELECT * FROM wz_documents WHERE id='w1'")
+    assert float(doc['total_value']) == 12600
+    assert doc['currency'] == 'EUR' and float(doc['eur_rate']) == 4.39
+    assert [l['value'] for l in doc['lines']] == [7386.75, 5213.25]
+    for old, new in zip(lines, doc['lines']):
+        assert {k: v for k, v in old.items() if k not in ('price', 'value')} == {
+            k: v for k, v in new.items() if k not in ('price', 'value')}
+    assert query_all("SELECT * FROM stock_movements ORDER BY id") == movements
+    assert query_all("SELECT * FROM finished_goods ORDER BY id") == stock
+    assert doc['split_scope'] == 'wz_klienta' and doc['status'] == 'wstepny'

@@ -2,7 +2,7 @@
  * PalletsEditor — edytor palet wydania dla zamówienia klienta.
  *
  * Cechy:
- * - Numeracja palet 1..N nadawana przez backend (pełny replace przy zapisie).
+ * - Stałe numery palet i kartonów nadawane przez backend (nie indeks listy).
  * - Paleta może zawierać pozycje z różnych linii zamówienia (połączone palety).
  * - Pokazuje pozostałe szt do rozdysponowania per linia.
  */
@@ -81,9 +81,11 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
     setSaving(true); setError(null)
     try {
       await orderPalletsApi.save(orderId, updated)
-      refetch()
+      await refetch()
+      return true
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Błąd zapisu palet')
+      return false
     } finally {
       setSaving(false)
     }
@@ -91,7 +93,7 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
 
   async function handleSavePallet(idx: number | null, items: { lineId: string; qty: number }[], notes: string) {
     const newPallet: OrderPallet = {
-      palletNo: 0,  // backend nadaje
+      ...(idx == null ? { palletNo: 0 } : list[idx]),
       notes,
       items: items.filter(i => i.qty > 0).map(i => ({ orderLineId: i.lineId, qty: i.qty })),
     }
@@ -102,9 +104,10 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
     const updated = idx == null
       ? [...list, newPallet]
       : list.map((p, i) => i === idx ? newPallet : p)
-    await persist(updated)
-    setShowAdd(false)
-    setEditingIdx(null)
+    if (await persist(updated)) {
+      setShowAdd(false)
+      setEditingIdx(null)
+    }
   }
 
   async function handleRemove(idx: number) {
@@ -244,7 +247,7 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
                     <div className="w-7 h-7 rounded-full bg-amber-100 flex items-center justify-center">
                       <span className="text-amber-900 font-bold text-xs">{p.palletNo}</span>
                     </div>
-                    <CardTitle className="text-xs font-bold">Paleta nr {p.palletNo}</CardTitle>
+                    <CardTitle className="text-xs font-bold">{p.cartonNo ? `Karton ${p.cartonNo} · P${p.palletNo}` : `Paleta nr ${p.palletNo}`}</CardTitle>
                   </div>
                   <div className="flex gap-0.5">
                     <Button
@@ -260,6 +263,7 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
                     <Button
                       variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-primary"
                       onClick={() => { setShowAdd(false); setEditingIdx(idx); setError(null) }}
+                      aria-label={`Edytuj paletę nr ${p.palletNo}`}
                       disabled={saving}
                     >
                       <Pencil size={11} />
@@ -267,6 +271,7 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
                     <Button
                       variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive"
                       onClick={() => handleRemove(idx)}
+                      aria-label={`Usuń paletę nr ${p.palletNo}`}
                       disabled={saving}
                     >
                       <Trash2 size={11} />
@@ -310,7 +315,7 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
 
         {showAdd && (
           <PalletForm
-            title={`Nowa paleta nr ${list.length + 1}`}
+            title="Nowa paleta — numer nada system"
             lines={lines}
             initial={null}
             remainingForLine={lineId => remainingForLine(lineId)}
@@ -412,6 +417,7 @@ function PalletForm({
         </div>
 
         <div className="space-y-1.5">
+          {initial && <p className="text-xs text-amber-800">Numer kartonu pozostaje stały. Po zmianie zawartości wydrukuj ponownie jego etykiety.</p>}
           {lines.map(l => {
             const remaining = remainingForLine(l.id)
             const cur       = qtys[l.id] ?? 0
