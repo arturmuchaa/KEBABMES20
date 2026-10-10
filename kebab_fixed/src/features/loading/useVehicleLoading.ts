@@ -1,17 +1,15 @@
 /**
  * Wspólny stan załadunku auta — JEDYNE źródło prawdy ekranu skanera.
  *
- * Zasada: ekran nie liczy niczego sam i niczego o załadunku nie pamięta
- * między odświeżeniami. Każda operacja idzie na serwer i kończy się
- * PRZYJĘCIEM ŚWIEŻEJ MIGAWKI stamtąd. Dzięki temu nie może powstać
+ * Zasada: ekran nie liczy potwierdzeń sam. Każda operacja idzie na serwer
+ * i kończy się PRZYJĘCIEM ŚWIEŻEJ MIGAWKI stamtąd. HMI dostaje migawkę
+ * razem z potwierdzeniem skanu — bez dodatkowego round-tripu GET. Dzięki temu nie może powstać
  * rozjazd „front mówi 10/10, backend 8/10".
  *
- * Synchronizacja to POLLING, nie SSE/WebSocket — świadomie. Tak działa
- * reszta MES (`useApi` ma wbudowane porównanie JSON, żeby identyczna
- * odpowiedź nie powodowała przerysowania; rozbiór HMI odpytuje co 5 s),
- * a dokładanie drugiego kanału transportowego do działającego systemu
- * kosztowałoby więcej niż daje: różnica między 0 a 4 s nie zmienia pracy
- * magazyniera, a poprawność zapewnia backend, nie szybkość powiadomienia.
+ * POLLING służy synchronizacji INNYCH stanowisk. Identyczna odpowiedź nie
+ * powoduje przerysowania, podobnie jak w `useApi` w pozostałych ekranach.
+ * Własny skan nie czeka na polling:
+ * zielony kafel pojawia się po odpowiedzi POST, bez optymistycznego +1.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -27,8 +25,12 @@ export interface UseVehicleLoading {
   ladowanie: boolean
   /** Czy ostatni kontakt z serwerem się udał. */
   online: boolean
+  /** Zapis bez migawki wymaga synchronizacji przed zamknięciem kursu. */
+  czekaNaStan: boolean
   /** Wymuś odczyt teraz (po skanie, po akcji, po kliknięciu odśwież). */
   odswiez: () => Promise<VehicleState | null>
+  /** Odczyt po zapisie, bez zajmowania kolejki skanera. */
+  odswiezPoZapisie: () => void
   /** Przyjmij migawkę zwróconą przez operację zapisu — bez dodatkowego GET-a. */
   przyjmij: (s: VehicleState) => void
 }
@@ -50,6 +52,7 @@ export function useVehicleLoading(vehicleId: string): UseVehicleLoading {
   const [ladowanie, setLadowanie] = useState(true)
   const [online, setOnline] = useState(true)
   const [aktualizacja, setAktualizacja] = useState<Date | null>(null)
+  const [czekaNaStan, setCzekaNaStan] = useState(false)
   const numer = useRef(0)
   // Żywotność komponentu — polling nie może pisać po odmontowaniu.
   const zywy = useRef(true)
@@ -68,6 +71,7 @@ export function useVehicleLoading(vehicleId: string): UseVehicleLoading {
       }
       setOnline(true)
       setAktualizacja(new Date())
+      setCzekaNaStan(false)
       return s
     } catch (e) {
       // Zerwana sieć NIE kasuje ostatniej znanej migawki — magazynier ma
@@ -80,6 +84,13 @@ export function useVehicleLoading(vehicleId: string): UseVehicleLoading {
     }
   }, [vehicleId])
 
+  const odswiezPoZapisie = useCallback(() => {
+    setCzekaNaStan(true)
+    // odswiez podbija numer synchronicznie: starszy GET nie może zdjąć tej
+    // blokady. Zdejmuje ją dopiero przyjęta migawka z nowego odczytu/pollingu.
+    void odswiez()
+  }, [odswiez])
+
   const przyjmij = useCallback((s: VehicleState) => {
     if (!zywy.current) return
     numer.current++
@@ -87,6 +98,7 @@ export function useVehicleLoading(vehicleId: string): UseVehicleLoading {
     setStan(s)
     setOnline(true)
     setAktualizacja(new Date())
+    setCzekaNaStan(false)
   }, [])
 
   useEffect(() => {
@@ -108,5 +120,5 @@ export function useVehicleLoading(vehicleId: string): UseVehicleLoading {
     }
   }, [odswiez])
 
-  return { stan, ladowanie, online, aktualizacja, odswiez, przyjmij }
+  return { stan, ladowanie, online, aktualizacja, czekaNaStan, odswiez, odswiezPoZapisie, przyjmij }
 }

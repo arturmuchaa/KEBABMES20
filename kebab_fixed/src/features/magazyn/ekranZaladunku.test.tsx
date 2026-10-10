@@ -7,24 +7,25 @@
  * 2. odmowa niesie KOD z backendu, nie zdanie.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react'
 
 const s = vi.hoisted(() => ({
   migawka: null as any, wynik: null as any, odmowa: null as any,
   skany: [] as string[], dodane: [] as string[],
   finalize: vi.fn(),
+  state: vi.fn(), scan: vi.fn(),
 }))
 
 vi.mock('@/lib/api', () => ({
   vehicleLoadingApi: {
-    state: () => Promise.resolve(s.migawka),
+    state: () => s.state(),
     addOrder: (_v: string, id: string) => { s.dodane.push(id); return Promise.resolve(s.migawka) },
     removeOrder: () => Promise.resolve(s.migawka),
   },
   palletScanApi: {
-    scan: (kod: string) => {
+    scan: (kod: string, ...args: unknown[]) => {
       s.skany.push(kod)
-      return s.odmowa ? Promise.reject(s.odmowa) : Promise.resolve(s.wynik)
+      return s.scan(kod, ...args)
     },
     activeLoading: () => Promise.resolve([
       { id: 'nazar', orderNo: 'NAZAR/Z/4/09/26', clientName: 'NAZAR', deliveryDate: null,
@@ -53,6 +54,8 @@ const MIGAWKA = {
 beforeEach(() => {
   sessionStorage.clear()
   s.finalize.mockReset()
+  s.state.mockReset().mockImplementation(() => Promise.resolve(s.migawka))
+  s.scan.mockReset().mockImplementation(() => s.odmowa ? Promise.reject(s.odmowa) : Promise.resolve(s.wynik))
   s.migawka = MIGAWKA; s.odmowa = null; s.skany = []; s.dodane = []
   s.wynik = { result: 'SUCCESS', palletNo: 1, totalKg: 620,
     order: { id: 'polat', orderNo: 'POLAT/Z/2/09/26' }, pozaKolejnoscia: null }
@@ -162,7 +165,7 @@ describe('potwierdzanie kursu', () => {
     expect(koniec).not.toHaveBeenCalled()
   })
 })
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.useRealTimers() })
 
 function skan(kod: string) {
   const pole = screen.getByLabelText('Pole skanowania')
@@ -171,6 +174,81 @@ function skan(kod: string) {
 }
 
 describe('załadunek na kiosku', () => {
+  it('symulacja: automatyczny Enter → POST → zielony po 25 ms odpowiedzi, bez 800 ms ani pollingu', async () => {
+    vi.useFakeTimers()
+    render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
+    await act(async () => {})
+    loaded()
+    s.scan.mockImplementation(() => new Promise(resolve => {
+      setTimeout(() => resolve({ ...s.wynik, vehicleState: s.migawka }), 25)
+    }))
+    await act(async () => { skan('PAL|polat|1') })
+    expect(s.skany).toEqual(['PAL|polat|1']) // już wysłane, bez przesuwania zegara
+    expect(screen.getByLabelText('Pole skanowania')).toHaveProperty('value', '')
+    await act(async () => { vi.advanceTimersByTime(24) })
+    expect(screen.queryByText('✓ Na aucie')).toBeNull()
+    await act(async () => { vi.advanceTimersByTime(1) })
+    expect(screen.getByText('✓ Na aucie')).toBeTruthy()
+    expect(screen.getByLabelText('Pole skanowania')).toHaveProperty('disabled', false)
+    expect(s.state).toHaveBeenCalledTimes(1)
+  })
+
+  it('zielony kafel od razu po POST, bez drugiego GET; kolejny skan czeka tylko na zapis', async () => {
+    let potwierdz!: (w: any) => void
+    s.scan.mockImplementationOnce(() => new Promise(resolve => { potwierdz = resolve }))
+    render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
+    await screen.findByText('SOLÓWKA')
+    s.state.mockImplementation(() => new Promise(() => {})) // odczyt nie może opóźnić ani zablokować skanu
+    skan('PAL|polat|1')
+    skan('PAL|polat|2')
+    await waitFor(() => expect(s.skany).toHaveLength(1))
+    expect(screen.queryByText('✓ Na aucie')).toBeNull() // bez fałszywego sukcesu przed commitem
+    expect(screen.getByLabelText('Pole skanowania')).toHaveProperty('disabled', false)
+    expect(screen.getByLabelText('Pole skanowania')).toHaveProperty('value', '')
+    loaded()
+    const potwierdzenie = { ...s.wynik, vehicleState: s.migawka }
+    s.scan.mockResolvedValue(potwierdzenie)
+    await act(async () => { potwierdz(potwierdzenie) })
+    expect(screen.getByText('✓ Na aucie')).toBeTruthy()
+    expect(s.skany).toEqual(['PAL|polat|1', 'PAL|polat|2'])
+    expect(s.state).toHaveBeenCalledTimes(1) // tylko wejście na ekran
+    expect(s.scan).toHaveBeenNthCalledWith(1, 'PAL|polat|1', 'loaded', '', 'v1', true)
+    expect(screen.queryByTestId('skany-oczekujace')).toBeNull()
+  })
+
+  it('stary serwer lub błąd GET nie blokuje kolejnych skanów; zamknięcie kursu czeka na synchronizację', async () => {
+    loaded()
+    render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
+    await screen.findByText('SOLÓWKA')
+    let zakonczGet!: (w: any) => void
+    s.state.mockImplementation(() => new Promise(resolve => { zakonczGet = resolve }))
+    skan('PAL|polat|1')
+    await waitFor(() => expect(s.state).toHaveBeenCalledTimes(2))
+    skan('PAL|polat|2')
+    await waitFor(() => expect(s.skany).toHaveLength(2))
+    await waitFor(() => expect(s.state).toHaveBeenCalledTimes(3))
+    expect(screen.getByText('Zakończ załadunek').closest('button')).toHaveProperty('disabled', true)
+    expect(screen.getByLabelText('Pole skanowania')).toHaveProperty('disabled', false)
+    await act(async () => { zakonczGet(s.migawka) })
+    expect(screen.getByText('Zakończ załadunek').closest('button')).toHaveProperty('disabled', false)
+  })
+
+  it('starszy polling nie cofa zielonego kafla potwierdzonego przez skan', async () => {
+    vi.useFakeTimers()
+    render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
+    await act(async () => {})
+    expect(screen.getByText('SOLÓWKA')).toBeTruthy()
+    let zakonczPolling!: (w: any) => void
+    s.state.mockImplementationOnce(() => new Promise(resolve => { zakonczPolling = resolve }))
+    await act(async () => { vi.advanceTimersByTime(4000) })
+    loaded()
+    s.wynik = { ...s.wynik, vehicleState: s.migawka }
+    await act(async () => { skan('PAL|polat|1') })
+    expect(screen.getByText('✓ Na aucie')).toBeTruthy()
+    await act(async () => { zakonczPolling(MIGAWKA) })
+    expect(screen.getByText('✓ Na aucie')).toBeTruthy()
+  })
+
   it('przełącza zamówienia bez pokazywania wszystkich kartonów naraz', async () => {
     s.migawka = { ...MIGAWKA, orders: [MIGAWKA.orders[0], {
       ...MIGAWKA.orders[0], id: 'yalcin', clientName: 'YALCIN', orderNo: 'YAL/Z/2',

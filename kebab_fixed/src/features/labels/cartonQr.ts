@@ -14,7 +14,11 @@ export const CARTON_QR_OPTIONS: QRCodeToDataURLOptions = {
 /** Format już rozpoznawany przez backend i skanery MES, także na telefonie.
  * Nie drukujemy hosta (np. tauri.localhost) ani indeksu palety w tablicy.
  * Stare etykiety z URL-em nadal obsługują te same parsery.
+ * CR kończy odczyt jak Enter: skaner HID może zatwierdzić zmienną długość
+ * numeru natychmiast, bez 800 ms ciszy i bez zgadywania „1 czy 12”.
+ * Backend i kamera usuwają CR przy normalizacji. Jeśli czytnik usuwa znaki
+ * sterujące, należy w nim włączyć sufiks Enter (także dla starych kartek).
  */
 export function palletQrPayload(orderId: string, palletNo: number): string {
-  return `PAL|${orderId}|${palletNo}`
+  return `PAL|${orderId}|${palletNo}\r`
 }

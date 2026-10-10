@@ -2596,12 +2596,16 @@ export const palletScanApi = {
     action: 'cold_storage' | 'loaded' | 'undo',
     operator = '',
     vehicleId = '',
+    includeVehicleState = false,
   ) =>
-    post<any>('/pallets/scan', { code, action, operator, vehicle_id: vehicleId })
+    post<any>('/pallets/scan', { code, action, operator, vehicle_id: vehicleId,
+      ...(includeVehicleState ? { include_vehicle_state: true } : {}),
+    })
       .then(raw => ({
         ...mapScanResult(raw),
         result: (raw?.result ?? 'SUCCESS') as ScanResultCode,
         pozaKolejnoscia: mapPozaKolejnoscia(raw?.out_of_sequence),
+        vehicleState: raw?.vehicle_state ? mapVehicleState(raw.vehicle_state) : null,
       })),
   /** Zamówienia, których palety STOJĄ na tym aucie — wspólna prawda dla
    *  wszystkich skanerów (do 12.09.2026 lista żyła w localStorage telefonu). */

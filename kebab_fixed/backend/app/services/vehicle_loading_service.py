@@ -183,6 +183,21 @@ def release_orders(conn, vehicle_id: str, order_ids: List[str]) -> None:
 
 
 # ── Migawka stanu auta ────────────────────────────────────────────────────
+def with_vehicle_state(scan_result: Dict[str, Any], vehicle_id: str) -> Dict[str, Any]:
+    """Potwierdzenie skanu i świeży ekran w jednym round-tripie, PO commicie.
+
+    Nie wyliczamy stanu na froncie ani nie czekamy na dodatkowy GET w FIFO
+    skanera. Starsze klienty nie proszą o migawkę i nie ponoszą jej kosztu.
+    Awaria ODCZYTU nie może udawać nieudanego ZAPISU: sam skan już się udał;
+    klient bez migawki odświeży ekran w tle, bez automatycznej powtórki POST.
+    """
+    try:
+        return {**scan_result, "vehicle_state": vehicle_state(vehicle_id)}
+    except Exception:
+        logger.exception("vehicle_loading.snapshot_after_scan_failed", extra={"vehicle_id": vehicle_id})
+        return scan_result
+
+
 def vehicle_state(vehicle_id: str) -> Dict[str, Any]:
     """CAŁA prawda o aucie w JEDNYM spójnym odczycie.
 

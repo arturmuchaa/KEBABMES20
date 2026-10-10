@@ -98,9 +98,9 @@ describe('PalletLabelsBatchPrintPage — ile kartek', () => {
     await pokaz('?palety=3,2')
     await waitFor(() => expect(QRCode.toDataURL).toHaveBeenCalledTimes(2))
     expect(vi.mocked(QRCode.toDataURL).mock.calls.map(c => c[0])).toEqual([
-      'PAL|o1|3', 'PAL|o1|2',
+      'PAL|o1|3\r', 'PAL|o1|2\r',
     ])
-    expect(QRCode.toDataURL).toHaveBeenCalledWith('PAL|o1|3', CARTON_QR_OPTIONS)
+    expect(QRCode.toDataURL).toHaveBeenCalledWith('PAL|o1|3\r', CARTON_QR_OPTIONS)
     expect(screen.getAllByTestId('label-corner-no').map(el => el.textContent))
       .toEqual(['000366', '000366', '000002', '000002'])
   })

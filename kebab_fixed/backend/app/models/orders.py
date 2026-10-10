@@ -60,6 +60,7 @@ class PalletScanRequest(BaseModel):
     action: str
     operator: str = ""
     vehicle_id: str = ""
+    include_vehicle_state: bool = False  # HMI: zapis + potwierdzony stan auta w jednym żądaniu
 
 
 class PackUnitRequest(BaseModel):

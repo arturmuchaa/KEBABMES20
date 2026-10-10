@@ -33,12 +33,15 @@ def loading_document(body: dict):
 
 @router.post("/scan")
 def scan(body: PalletScanRequest, request: Request):
-    return pallets_service.scan(
+    result = pallets_service.scan(
         body.code,
         body.action,
         operator=_subject_label(getattr(request.state, "subject", None)) or "",
         vehicle_id=body.vehicle_id or None,
     )
+    if body.include_vehicle_state and body.vehicle_id.strip() and body.action in ("loaded", "undo"):
+        return vehicle_loading_service.with_vehicle_state(result, body.vehicle_id.strip())
+    return result
 
 
 @router.get("/slad/{order_id}")

@@ -38,7 +38,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   onAlarm: PokazAlarm
   onKoniec: () => void
 }) {
-  const { stan, ladowanie, online, aktualizacja, odswiez, przyjmij } = useVehicleLoading(vehicleId)
+  const { stan, ladowanie, online, aktualizacja, czekaNaStan, odswiez, odswiezPoZapisie, przyjmij } = useVehicleLoading(vehicleId)
   const zamowienia = stan?.orders ?? []
   const suma = stan?.totals ?? { totalPallets: 0, loadedPallets: 0, shippedPallets: 0, totalKg: 0, loadedKg: 0 }
   const pojazd = stan?.vehicle
@@ -95,8 +95,15 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
 
   async function skanuj(kod: string) {
     if (pytanie || zapisuje.current) return
+    let maMigawke = false
     try {
-      const w = await palletScanApi.scan(kod, 'loaded', '', vehicleId)
+      const w = await palletScanApi.scan(kod, 'loaded', '', vehicleId, true)
+      if (w.vehicleState?.vehicle.id === vehicleId) {
+        // Jedyna prawda to odpowiedź serwera, nie optymistyczne +1.
+        // przyjmij unieważnia też starszy, wciąż lecący polling.
+        przyjmij(w.vehicleState)
+        maMigawke = true
+      }
       if (w.result === 'SUCCESS' && w.order?.id) setOtwarteZamowienie(w.order.id)
       if (w.result === 'SUCCESS' && w.pozaKolejnoscia) {
         const k = komunikatPozaKolejnoscia(w.pozaKolejnoscia, { palletNo: w.palletNo })
@@ -113,7 +120,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
         : komunikatSkanu(kod2, { wiadomosc: e instanceof Error ? e.message : undefined })
       blad(k.naglowek, k.szczegol)
     }
-    await odswiez()
+    if (!maMigawke) odswiezPoZapisie() // GET nie zajmuje kolejki skanów
   }
 
   async function dodaj(orderId: string) {
@@ -136,7 +143,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   }
 
   async function zakoncz() {
-    if (zapisuje.current || skanuje) return
+    if (zapisuje.current || skanuje || czekaNaStan) return
     const plate = rejestracja.trim().toUpperCase()
     if (/[|:/\\]/.test(plate) || /^(SCARTON|PAL|UNIT)[^A-Z]/.test(plate)) {
       blad('TO KOD SKANERA, NIE REJESTRACJA', 'Wpisz numer rejestracyjny auta. Skanowanie jest w tym oknie wyłączone.')
@@ -345,7 +352,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
             ) : null}
           </Karta>
 
-          <button type="button" disabled={!online || skanuje || !!cofana || !zamowienia.length || suma.loadedPallets === 0}
+          <button type="button" disabled={!online || skanuje || czekaNaStan || !!cofana || !zamowienia.length || suma.loadedPallets === 0}
             onClick={() => { setPotwierdzane(zamowienia); proba.current = null; setRejestracja(pojazd?.plate ?? ''); setPytanie(true) }}
             className="shrink-0 rounded-2xl px-5 py-5 text-left text-white transition active:scale-[0.99] disabled:cursor-not-allowed"
             style={{ background: (!zamowienia.length || suma.loadedPallets === 0) ? '#AFB7C4'
@@ -353,7 +360,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
             <span className="block text-[22px] font-extrabold leading-tight">
               {komplet ? 'Zakończ załadunek' : `Zakończ częściowo (${suma.loadedPallets}/${suma.totalPallets})`}
             </span>
-            <span className="mt-1 block text-[13.5px] opacity-90">Zapisuje kurs — dokumenty wystawia biuro.</span>
+            <span className="mt-1 block text-[13.5px] opacity-90">{czekaNaStan ? 'Odświeżam skład auta — możesz skanować dalej.' : 'Zapisuje kurs — dokumenty wystawia biuro.'}</span>
           </button>
         </div>
       </div>

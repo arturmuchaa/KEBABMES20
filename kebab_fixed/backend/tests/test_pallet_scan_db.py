@@ -68,6 +68,30 @@ def _status(pid="p1"):
 KOD = "PAL|o1|1"
 
 
+@pytest.mark.parametrize("code", [KOD, KOD + "\r", "http://tauri.localhost/m/p/o1/1"])
+def test_scan_response_contains_committed_vehicle_snapshot(db, code):
+    from starlette.requests import Request
+    from app.models.orders import PalletScanRequest
+    from app.routes.pallets import scan
+
+    _zamowienie(); _paleta(); _pojazd()
+    execute("INSERT INTO client_order_lines (id,order_id,qty,kg_per_unit,total_kg) VALUES ('l1','o1',10,25,250)")
+    execute("INSERT INTO order_pallet_items (id,pallet_id,order_line_id,qty) VALUES ('i1','p1','l1',10)")
+    req = Request({"type": "http", "state": {}})
+    dto = PalletScanRequest(code=code, action="loaded", vehicle_id="v1", include_vehicle_state=True)
+    for result in ("SUCCESS", "ALREADY_SCANNED"):
+        out = scan(dto, req)
+        assert out["result"] == result
+        state = out["vehicle_state"]
+        assert state["totals"]["loaded_pallets"] == 1
+        assert state["totals"]["loaded_kg"] == 250
+        assert state["orders"][0]["pallets"][0]["on_this_vehicle"] is True
+    dto.action = "undo"
+    state = scan(dto, req)["vehicle_state"]
+    assert state["totals"]["loaded_pallets"] == 0
+    assert state["orders"][0]["pallets"][0]["on_this_vehicle"] is False
+
+
 class TestRozpisanaPaletaJedzie:
     """Paleta w statusie `created` — stan, w jakim są WSZYSTKIE palety zakładu."""
 
