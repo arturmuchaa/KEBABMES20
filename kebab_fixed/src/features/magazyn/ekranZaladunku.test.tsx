@@ -7,7 +7,7 @@
  * 2. odmowa niesie KOD z backendu, nie zdanie.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor, act } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, act, within } from '@testing-library/react'
 
 const s = vi.hoisted(() => ({
   migawka: null as any, wynik: null as any, odmowa: null as any,
@@ -276,10 +276,10 @@ describe('załadunek na kiosku', () => {
     expect(await screen.findByText('30 × 30 kg KIRMIZI')).toBeTruthy()
     expect(screen.getByText('12 × 70 kg BEYAZ')).toBeTruthy()
     expect(screen.getByText('2 × 70 kg BEYAZ')).toBeTruthy()
-    expect(screen.getByText('80 cm').className).toContain('text-[13px]')
+    expect(screen.getByText('80 cm').className).toContain('text-[15px]')
     expect(screen.getByText('100 cm')).toBeTruthy()
     expect(screen.getByText('UDO')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Cofnij' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Cofnij Karton 000318' })).toBeTruthy()
   })
 
   it('nie wymyśla składu, gdy stary serwer nie przekazał szczegółów', async () => {
@@ -329,7 +329,69 @@ describe('załadunek na kiosku', () => {
 
   it('zamówienie dokłada się do auta z listy „Dołóż zamówienie"', async () => {
     render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Dołóż zamówienie/ }))
     fireEvent.click((await screen.findByText('NAZAR')).closest('button')!)
     await waitFor(() => expect(s.dodane).toEqual(['nazar']))
+  })
+})
+
+describe('lista załadunku dla operatora', () => {
+  it('17 kartonów: osobne stany ważenia, waga brutto nie podmienia kilogramów z rozpisu', async () => {
+    const weighing = { id: 'w1', grossKg: 655.5, diffKg: 0, ok: true, weighedAt: '2026-10-11T10:00:00Z' }
+    const pallets = Array.from({ length: 17 }, (_, i) => ({
+      ...MIGAWKA.orders[0].pallets[0], id: `p${i + 1}`, palletNo: i + 1, cartonNo: String(318 + i).padStart(6, '0'),
+      onThisVehicle: i < 12, status: i < 12 ? 'loaded' : 'created',
+      weighing: i === 0 ? weighing : i === 1 ? { ...weighing, ok: false, diffKg: -12 } : i === 2 ? undefined : null,
+      items: [{ qty: 10, kgPerUnit: 30, recipeName: 'KIRMIZI', packagingName: '80 cm' }],
+    }))
+    s.migawka = { ...MIGAWKA, orders: [{ ...MIGAWKA.orders[0], pallets }],
+      totals: { ...MIGAWKA.totals, totalPallets: 17, loadedPallets: 12, loadedKg: 7440 } }
+    render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
+    await screen.findByText('SOLÓWKA')
+    const rows = screen.getAllByTestId('kafel-zaladunku')
+    expect(rows).toHaveLength(17)
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('12')
+    expect(screen.getByRole('progressbar').getAttribute('aria-valuemax')).toBe('17')
+    expect(within(rows[0]).getByText('Zważony')).toBeTruthy()
+    expect(within(rows[0]).getByText('655,5 kg brutto')).toBeTruthy()
+    expect(within(rows[0]).getByText('620 kg')).toBeTruthy()
+    expect(within(rows[1]).getByText('Waga niezgodna · −12 kg')).toBeTruthy()
+    expect(within(rows[2]).getByText('Brak danych ważenia')).toBeTruthy()
+    expect(within(rows[3]).getByText('Nie zważony')).toBeTruthy()
+    expect(within(rows[3]).getByText('✓ Na aucie')).toBeTruthy() // to dwa różne statusy!
+    expect(within(rows[16]).getByText('10 × 30 kg KIRMIZI')).toBeTruthy()
+    expect(screen.getByTestId('postep-zaladunku').textContent).toContain('Zważone: 2/17 · niezgodne: 1 · brak danych: 1')
+  })
+
+  it('stałe potwierdzenie dopiero z zapisanego skanu; odmowa nie zostawia zielonego komunikatu', async () => {
+    let finish!: (s: any) => void
+    s.scan.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
+    await screen.findByText('SOLÓWKA')
+    skan('PAL|polat|1')
+    await waitFor(() => expect(s.skany).toHaveLength(1))
+    const banner = screen.getByTestId('potwierdzenie-zaladunku')
+    expect(banner.textContent).not.toContain('zapisano na aucie')
+    loaded()
+    await act(async () => { finish({ ...s.wynik, id: 'p1', vehicleState: s.migawka }) })
+    expect(banner.textContent).toContain('Karton 000318 · POLAT')
+    expect(banner.textContent).toContain('zapisano na aucie')
+    s.odmowa = Object.assign(new Error('obce'), { code: 'WRONG_ORDER' })
+    skan('PAL|obce|1')
+    await waitFor(() => expect(s.skany).toHaveLength(2))
+    expect(banner.textContent).not.toContain('zapisano na aucie')
+  })
+
+  it('cofnięcie usuwa potwierdzenie z paska i nadal używa adresu kartonu magazynowego', async () => {
+    loaded()
+    s.migawka.orders[0].pallets[0].scanCode = 'SCARTON|abcdef12345678901234'
+    s.wynik = { ...s.wynik, id: 'p1', vehicleState: s.migawka }
+    render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
+    await screen.findByText('SOLÓWKA')
+    skan('PAL|polat|1')
+    await screen.findByText('Ostatni potwierdzony skan')
+    fireEvent.click(screen.getByRole('button', { name: 'Cofnij Karton 000318' }))
+    await waitFor(() => expect(s.scan).toHaveBeenLastCalledWith('SCARTON|abcdef12345678901234', 'undo', '', 'v1'))
+    expect(screen.getByTestId('potwierdzenie-zaladunku').textContent).not.toContain('zapisano na aucie')
   })
 })

@@ -290,6 +290,24 @@ def vehicle_state(vehicle_id: str) -> Dict[str, Any]:
                                 l.product_type_name, l.packaging_name, l.recipe_id,
                                 l.product_type_id, l.packaging_id""", (carton_ids,)))
 
+        # Jedno zbiorcze zapytanie, także dla towaru już NA AUCIE. Endpoint
+        # mroźni pomijałby go po załadunku. Unieważnione ważenie (np. po
+        # wyjęciu sztuki) nigdy nie daje znaczka „zważony”.
+        wazenia = cx_query_all(conn,
+            """SELECT DISTINCT ON (container_kind, container_id)
+                      container_kind, container_id, id, gross_kg::float AS gross_kg,
+                      diff_kg::float AS diff_kg, ok, weighed_at
+                 FROM cold_storage_weighings
+                WHERE container_id = ANY(%s) AND invalid_at IS NULL
+                ORDER BY container_kind, container_id, weighed_at DESC, id DESC""",
+            ([p["id"] for p in palety],)) if palety else []
+        wg_wazenia = {
+            (w["container_kind"], w["container_id"]): {
+                "id": w["id"], "gross_kg": w["gross_kg"], "diff_kg": w["diff_kg"],
+                "ok": w["ok"], "weighed_at": w["weighed_at"],
+            } for w in wazenia
+        }
+
     wg_palety: Dict[str, List[Dict[str, Any]]] = {}
     for poz in pozycje:
         wg_palety.setdefault(poz["pallet_id"], []).append(
@@ -300,6 +318,8 @@ def vehicle_state(vehicle_id: str) -> Dict[str, Any]:
     wg_zamowienia: Dict[str, List[Dict[str, Any]]] = {}
     for p in palety:
         p["items"] = wg_palety.get(p["id"], [])
+        kind = "stock" if p.get("scan_code", "").startswith("SCARTON|") else "order"
+        p["weighing"] = wg_wazenia.get((kind, p["id"]))
         # `loaded` liczy się TYLKO na TYM aucie. Paleta tego samego zamówienia
         # stojąca na innym samochodzie nie jest postępem tego załadunku.
         p["on_this_vehicle"] = (

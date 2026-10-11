@@ -28,9 +28,9 @@ import { useApi } from '@/hooks/useApi'
 import { useVehicleLoading } from '@/features/loading/useVehicleLoading'
 import { komunikatOdmowy, komunikatPozaKolejnoscia, komunikatSkanu } from '@/features/loading/scanMessages'
 import { PasSkanowania } from './components/PasSkanowania'
-import { Karta, Znacznik } from './components/Karta'
+import { ListaZaladunku } from './components/ListaZaladunku'
+import { ZALADUNEK_OK } from './components/WierszZaladunku'
 import { grajBlad, grajInny } from './dzwiek'
-import { krotkaData } from './pula'
 import type { PokazAlarm } from './magazynTypes'
 
 export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
@@ -40,7 +40,6 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
 }) {
   const { stan, ladowanie, online, aktualizacja, czekaNaStan, odswiez, odswiezPoZapisie, przyjmij } = useVehicleLoading(vehicleId)
   const zamowienia = stan?.orders ?? []
-  const suma = stan?.totals ?? { totalPallets: 0, loadedPallets: 0, shippedPallets: 0, totalKg: 0, loadedKg: 0 }
   const pojazd = stan?.vehicle
   const spedycja = !!pojazd?.kind && pojazd.kind !== 'own'
 
@@ -59,6 +58,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   const [zamyka, setZamyka] = useState(false)
   const [cofana, setCofana] = useState<string | null>(null)
   const [skanuje, setSkanuje] = useState(false)
+  const [ostatniSkan, setOstatniSkan] = useState<{ vehicleId: string; orderId: string; palletId: string; palletNo: number } | null>(null)
   const [otwarteZamowienie, setOtwarteZamowienie] = useState<string | null>(null)
   const [potwierdzane, setPotwierdzane] = useState(zamowienia)
   const [wynik, setWynik] = useState<Awaited<ReturnType<typeof palletScanApi.finalizeLoading>> | null>(null)
@@ -95,6 +95,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
 
   async function skanuj(kod: string) {
     if (pytanie || zapisuje.current) return
+    setOstatniSkan(null) // nowy odczyt nie może wyglądać jak sukces poprzedniego
     let maMigawke = false
     try {
       const w = await palletScanApi.scan(kod, 'loaded', '', vehicleId, true)
@@ -104,7 +105,10 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
         przyjmij(w.vehicleState)
         maMigawke = true
       }
-      if (w.result === 'SUCCESS' && w.order?.id) setOtwarteZamowienie(w.order.id)
+      if (w.result === 'SUCCESS' && w.order?.id) {
+        setOtwarteZamowienie(w.order.id)
+        setOstatniSkan({ vehicleId, orderId: w.order.id, palletId: w.id, palletNo: w.palletNo })
+      }
       if (w.result === 'SUCCESS' && w.pozaKolejnoscia) {
         const k = komunikatPozaKolejnoscia(w.pozaKolejnoscia, { palletNo: w.palletNo })
         grajInny('L')
@@ -137,6 +141,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   async function cofnij(orderId: string, palletNo: number, id: string, scanCode?: string) {
     if (cofana) return
     setCofana(id)
+    setOstatniSkan(null)
     try { await palletScanApi.scan(scanCode || `PAL|${orderId}|${palletNo}`, 'undo', '', vehicleId) }
     catch (e) { const k = komunikatOdmowy(e, isOfflineError(e)); blad(k.naglowek, k.szczegol) }
     finally { setCofana(null); await odswiez() }
@@ -193,181 +198,24 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
     }
   }
 
-  const proc = suma.totalPallets ? suma.loadedPallets / suma.totalPallets : 0
-  const komplet = suma.totalPallets > 0 && suma.loadedPallets === suma.totalPallets
+  const ostatnieZamowienie = ostatniSkan?.vehicleId === vehicleId ? zamowienia.find(z => z.id === ostatniSkan.orderId) : undefined
+  const ostatniaPaleta = ostatnieZamowienie?.pallets.find(p => ostatniSkan?.palletId ? p.id === ostatniSkan.palletId : p.palletNo === ostatniSkan?.palletNo)
+  // Cofnięcie na innym stanowisku usuwa potwierdzenie także z tego paska.
+  const ostatni = ostatniaPaleta?.onThisVehicle ? { paleta: ostatniaPaleta, klient: ostatnieZamowienie!.clientName } : null
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <StanPolaczenia blad={!online} aktualizacja={aktualizacja} ladowanie={ladowanie} />
-      <div className="grid min-h-0 flex-1 grid-cols-1 auto-rows-max gap-4 overflow-y-auto p-3 xl:auto-rows-auto xl:grid-cols-[minmax(0,1fr)_280px] xl:overflow-hidden xl:p-4">
+      <ListaZaladunku stan={stan} ladowanie={ladowanie} online={online} skanuje={skanuje}
+        czekaNaStan={czekaNaStan} cofana={cofana} otwarte={otwarteZamowienie} ostatni={ostatni}
+        dostepne={dostepne} bladDostepnych={!!dostepneRes.error} ladujeDostepne={dostepneRes.loading}
+        onOtworz={setOtwarteZamowienie} onDodaj={dodaj} onZdejmij={zdejmij}
+        onCofnij={(orderId, p) => cofnij(orderId, p.palletNo, p.id, p.scanCode)}
+        onZakoncz={() => { setPotwierdzane(zamowienia); proba.current = null; setRejestracja(pojazd?.plate ?? ''); setPytanie(true) }} />
 
-        <div className="flex min-w-0 flex-col gap-3 xl:min-h-0 xl:overflow-y-auto xl:pr-1">
-          <section className="flex shrink-0 flex-wrap items-center gap-4 rounded-2xl px-5 py-4"
-            style={{ background: 'var(--panel)', border: '1px solid var(--line)' }}>
-            <div className="min-w-0">
-              <div className="truncate text-[28px] font-extrabold leading-tight">{pojazd?.name ?? '…'}</div>
-              <div className="hmi-v10-mono text-[15px] font-bold" style={{ color: 'var(--mut)' }}>{pojazd?.plate ?? ''}</div>
-            </div>
-            <div className="ml-auto text-right">
-              <div className="hmi-v10-mono font-bold leading-none"
-                style={{ fontSize: 44, color: komplet ? 'var(--success)' : 'var(--accent)' }}>
-                {suma.loadedPallets}<span style={{ color: '#9AA3B0' }}>/{suma.totalPallets}</span>
-              </div>
-              <div className="mt-1 text-[13px]" style={{ color: 'var(--mut)' }}>
-              kartonów/palet · {Math.round(suma.loadedKg).toLocaleString('pl-PL')} / {Math.round(suma.totalKg).toLocaleString('pl-PL')} kg
-              </div>
-            </div>
-            <div className="min-w-[160px] flex-1">
-              <div className="h-3 overflow-hidden rounded-full" style={{ background: 'var(--lineSoft)' }}>
-                <div className="h-full rounded-full transition-all"
-                  style={{ width: `${Math.round(proc * 100)}%`, background: komplet ? 'var(--success)' : 'var(--accent)' }} />
-              </div>
-              {!online ? (
-                <div className="mt-2 text-[12px] font-bold" style={{ color: 'var(--red)' }}>OFFLINE — dane sprzed chwili</div>
-              ) : null}
-            </div>
-          </section>
-
-          {zamowienia.length > 1 ? <nav aria-label="Zamówienia na aucie"
-            className="sticky top-0 z-10 flex shrink-0 flex-wrap gap-2 rounded-xl p-2" style={{ background: 'var(--bg)' }}>
-            {zamowienia.map(z => <button key={z.id} type="button"
-              aria-pressed={(otwarteZamowienie ?? zamowienia[0]?.id) === z.id}
-              onClick={() => setOtwarteZamowienie(z.id)}
-              className="min-h-12 rounded-lg border px-4 py-2 text-left text-sm font-bold"
-              style={{ background: (otwarteZamowienie ?? zamowienia[0]?.id) === z.id ? 'var(--accentSoft)' : 'var(--panel)', borderColor: 'var(--line)' }}>
-              {z.clientName} · {z.totals.loadedPallets}/{z.totals.totalPallets}
-            </button>)}
-          </nav> : null}
-
-          {zamowienia.map((z, i) => {
-            const zl = z.totals.loadedPallets, wsz = z.totals.totalPallets
-            const otwarte = (otwarteZamowienie ?? zamowienia[0]?.id) === z.id
-            return (
-              <section key={z.id} className="shrink-0 overflow-hidden rounded-xl"
-                style={{ background: 'var(--panel)', border: '1px solid var(--line)' }}>
-                <div className="flex flex-wrap items-center gap-3 p-3" style={{ background: 'var(--bg)' }}>
-                  <button type="button" aria-expanded={otwarte} aria-controls={`kartony-${z.id}`}
-                    onClick={() => setOtwarteZamowienie(otwarte ? '' : z.id)}
-                    className="min-h-12 min-w-0 flex-1 text-left">
-                    <span className="block break-words text-xl font-extrabold">{i + 1}. {z.clientName}</span>
-                    <span className="block text-sm">{z.orderNo} · {zl}/{wsz} załadowanych · {Math.round(z.totals.totalKg).toLocaleString('pl-PL')} kg</span>
-                    <span className="block text-xs font-bold" style={{ color: 'var(--accent)' }}>{otwarte ? '▾ Zwiń kartony' : '▸ Pokaż kartony'}</span>
-                  </button>
-                  <Znacznik ton={wsz && zl === wsz ? 'ok' : zl ? 'uwaga' : 'szary'}>
-                    {wsz && zl === wsz ? 'załadowane' : zl ? 'w trakcie' : 'czeka'}
-                  </Znacznik>
-                  {zl === 0 ? (
-                    <button type="button" onClick={() => zdejmij(z.id)}
-                      className="min-h-11 rounded-md px-3 py-2 text-xs font-bold"
-                      style={{ border: '1px solid var(--line)', background: 'var(--panel)', color: 'var(--mut)' }}>
-                      zdejmij z auta
-                    </button>
-                  ) : null}
-                </div>
-                <div id={`kartony-${z.id}`} hidden={!otwarte}>
-                <div className="grid auto-rows-fr gap-3 p-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))' }}>
-                  {z.pallets.map(p => {
-                    const na = p.onThisVehicle
-                    return (
-                      <div key={p.id || p.palletNo} data-testid="kafel-zaladunku" className="flex min-h-[220px] min-w-0 flex-col overflow-hidden rounded-xl"
-                        style={{ background: na ? 'var(--successSoft)' : 'var(--panel)',
-                                 border: `1.5px solid ${na ? 'var(--successLine)' : 'var(--line)'}` }}>
-                        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3" style={{ borderColor: 'var(--line)' }}>
-                          <span className="hmi-v10-mono text-lg font-extrabold">{p.cartonNo ? `Karton ${p.cartonNo}` : `Paleta ${p.palletNo}`}</span>
-                          <Znacznik ton={na ? 'ok' : p.status === 'loaded' ? 'uwaga' : 'szary'}>{na ? '✓ Na aucie' : p.status === 'loaded' ? 'Inne auto' : 'Czeka'}</Znacznik>
-                        </div>
-                        <div className="flex-1 px-4 py-3">
-                          <span className="block text-[10px] font-bold uppercase tracking-wide"
-                            style={{ color: 'var(--mut)' }}>Rozpis kartonu</span>
-                          {p.items.length ? p.items.map((it, index) => (
-                            <span key={index} className="mt-1.5 block break-words leading-snug">
-                              <span className="block text-[18px] font-bold">
-                                {it.qty} × {it.kgPerUnit.toLocaleString('pl-PL', { maximumFractionDigits: 3 })} kg{' '}
-                                {it.recipeName || 'receptura niepodana'}
-                              </span>
-                              {(it.packagingName || it.productTypeName) ? <span className="mt-1 block text-[13px] font-normal" style={{ color: 'var(--mut)' }}>{[it.packagingName, it.productTypeName].filter(Boolean).join(' · ')}</span> : null}
-                            </span>
-                          )) : <span className="mt-1 block text-[12px]" style={{ color: 'var(--mut)' }}>Brak szczegółów rozpisu</span>}
-                        </div>
-                        <div className="flex min-h-16 flex-wrap items-center justify-between gap-2 border-t px-4 py-2" style={{ borderColor: 'var(--line)' }}>
-                          <span className="hmi-v10-mono text-lg font-extrabold">{Math.round(p.totalKg)} kg <span className="text-sm font-normal">· {p.totalQty} szt</span></span>
-                        {na ? (
-                          <button type="button" disabled={!!cofana}
-                            onClick={() => cofnij(z.id, p.palletNo, p.id, p.scanCode)}
-                            className="min-h-11 rounded-md px-3 py-2 text-[13px] font-bold"
-                            style={{ border: '1px solid var(--line)', background: '#fff', color: 'var(--mut)' }}>
-                            {cofana === p.id ? '…' : 'Cofnij'}
-                          </button>
-                        ) : null}
-                        </div>
-                      </div>
-                    )
-                  })}
-                  {!z.pallets.length ? (
-                    <div className="p-2 text-[13px]" style={{ color: 'var(--amb)' }}>
-                      Zamówienie nie ma rozpisanych palet — biuro musi je rozpisać.
-                    </div>
-                  ) : null}
-                </div>
-                </div>
-              </section>
-            )
-          })}
-          {!zamowienia.length && !ladowanie ? (
-            <div className="rounded-2xl p-8 text-center text-[16px]"
-              style={{ border: '1.5px dashed var(--accentLine)', color: 'var(--mut)', background: 'var(--panel)' }}>
-              Na aucie nie ma jeszcze zamówień. Dołóż je z listy po prawej —
-              ostatni klient na trasie wjeżdża pierwszy.
-            </div>
-          ) : null}
-        </div>
-
-        <div className="flex min-h-[280px] flex-col gap-3 xl:min-h-0">
-          <Karta tytul="Dołóż zamówienie" tresc={false} className="flex-1"
-            prawo={<span>do załadunku · {dostepne.length}</span>}>
-            {dostepneRes.error ? <div className="p-4 text-red-700">Nie udało się odświeżyć zamówień. Ponawiam…</div> : null}
-            {dostepne.map(o => (
-              <button key={o.id} type="button" onClick={() => dodaj(o.id)}
-                className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-[var(--accentSoft)]"
-                style={{ borderTop: '1px solid var(--lineSoft)', color: 'var(--ink)' }}>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[15.5px] font-extrabold">{o.clientName}</span>
-                  <span className="hmi-v10-mono block truncate text-[12px]" style={{ color: 'var(--mut)' }}>
-                    {o.orderNo}{o.deliveryDate ? ` · ${krotkaData(o.deliveryDate)}` : ''}
-                  </span>
-                </span>
-                <span className="shrink-0 text-right text-[12px]" style={{ color: 'var(--mut)' }}>
-                  <span className="hmi-v10-mono block text-[15px] font-bold" style={{ color: 'var(--ink)' }}>
-                    {o.totalPallets} pal.
-                  </span>
-                  {o.coldPallets ? `${o.coldPallets} w mroźni` : ''}
-                </span>
-                <span className="grid shrink-0 place-items-center rounded-lg text-[20px] font-bold"
-                  style={{ width: 36, height: 36, background: 'var(--accentSoft)', color: 'var(--accent)',
-                           border: '1.5px solid var(--accentLine)' }}>+</span>
-              </button>
-            ))}
-            {!dostepne.length && !dostepneRes.error && !dostepneRes.loading ? (
-              <div className="p-4 text-[13.5px]" style={{ color: 'var(--mut)' }}>Nic więcej nie czeka na załadunek.</div>
-            ) : null}
-          </Karta>
-
-          <button type="button" disabled={!online || skanuje || czekaNaStan || !!cofana || !zamowienia.length || suma.loadedPallets === 0}
-            onClick={() => { setPotwierdzane(zamowienia); proba.current = null; setRejestracja(pojazd?.plate ?? ''); setPytanie(true) }}
-            className="shrink-0 rounded-2xl px-5 py-5 text-left text-white transition active:scale-[0.99] disabled:cursor-not-allowed"
-            style={{ background: (!zamowienia.length || suma.loadedPallets === 0) ? '#AFB7C4'
-              : komplet ? 'var(--success)' : 'var(--amb)' }}>
-            <span className="block text-[22px] font-extrabold leading-tight">
-              {komplet ? 'Zakończ załadunek' : `Zakończ częściowo (${suma.loadedPallets}/${suma.totalPallets})`}
-            </span>
-            <span className="mt-1 block text-[13.5px] opacity-90">{czekaNaStan ? 'Odświeżam skład auta — możesz skanować dalej.' : 'Zapisuje kurs — dokumenty wystawia biuro.'}</span>
-          </button>
-        </div>
-      </div>
-
-      <PasSkanowania placeholder="Skanuj kartkę palety…" onSkan={skanuj}
+      <PasSkanowania placeholder="Skanuj karton lub paletę…" onSkan={skanuj}
         disabled={pytanie || zamyka || !!wynik || !!cofana} onPendingChange={setSkanuje}
-        podpis="Paleta z zamówienia na tym aucie. Udany skan — cisza." />
+        podpis="Skanuj kolejne kartony. Zielony wiersz oznacza zapis na aucie." />
 
       <Dialog open={pytanie} onOpenChange={open => { if (!zamyka && !niepewny) setPytanie(open) }}>
           <DialogContent style={HMI_VARS} className="max-h-[90vh] overflow-y-auto" onInteractOutside={e => e.preventDefault()}>
@@ -395,7 +243,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
                 style={{ border: '1px solid var(--line)', background: 'var(--panel)' }}>Wróć</button>
               <button type="button" onClick={zakoncz} disabled={zamyka}
                 className="flex-1 rounded-xl py-4 text-[16px] font-extrabold text-white"
-                style={{ background: 'var(--success)' }}>{zamyka ? 'Zapisuję…' : 'Zakończ'}</button>
+                style={{ background: ZALADUNEK_OK }}>{zamyka ? 'Zapisuję…' : 'Zakończ'}</button>
             </div>
           </DialogContent>
       </Dialog>

@@ -2480,6 +2480,14 @@ export type ScanResultCode =
   /** Paleta z usuniętego/zmienionego zamówienia czeka na zgodne zamówienie odbiorcy. */
   | 'WAITING_FOR_ORDER'
 
+export interface VehiclePalletWeighing {
+  id: string
+  grossKg: number
+  diffKg: number | null
+  ok: boolean
+  weighedAt: string
+}
+
 export interface VehicleStatePallet {
   cartonNo?: string
   scanCode?: string
@@ -2491,6 +2499,8 @@ export interface VehicleStatePallet {
   items: Array<{ qty: number; kgPerUnit: number; recipeName?: string; productTypeName?: string; packagingName?: string }>
   /** Załadowana NA TO auto (paleta na innym samochodzie nie jest postępem). */
   onThisVehicle: boolean
+  /** undefined = stary serwer bez danych; null = brak aktualnego ważenia. */
+  weighing?: VehiclePalletWeighing | null
 }
 
 export interface VehicleStateOrder {
@@ -2546,6 +2556,13 @@ export function mapVehicleState(raw: any): VehicleState {
           packagingName: it.packaging_name ?? '',
         })),
         onThisVehicle: Boolean(p.on_this_vehicle),
+        weighing: p.weighing === undefined ? undefined : p.weighing === null ? null : {
+          id: p.weighing.id,
+          grossKg: Number(p.weighing.gross_kg),
+          diffKg: p.weighing.diff_kg == null ? null : Number(p.weighing.diff_kg),
+          ok: p.weighing.ok === true,
+          weighedAt: p.weighing.weighed_at ?? '',
+        },
       })),
       totals: {
         totalPallets:   Number(o.totals?.total_pallets   ?? 0),
