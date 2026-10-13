@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Download, Printer } from 'lucide-react'
 import QRCode from 'qrcode'
@@ -13,6 +13,7 @@ import { useApi } from '@/hooks/useApi'
 import { finishedUnitsApi, labelTemplatesApi, recipesApi, clientsApi } from '@/lib/apiClient'
 import type { FinishedUnitCard, LabelTemplate, LabelSlotOffset, LabelFieldPos } from '@/lib/api'
 import { drukuj } from '@/lib/print'
+import { UNIT_QR_OPTIONS } from '@/features/labels/unitQr'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -162,7 +163,7 @@ function resolveFieldPos(
   return { ...base, x: base.x + offsetX, y: base.y + offsetY }
 }
 
-async function buildVectorPdf(
+export async function buildVectorPdf(
   template: LabelTemplate,
   units: FinishedUnitCard[],
   perSheet: number,
@@ -170,9 +171,9 @@ async function buildVectorPdf(
   qrMapRef: Record<string, string>,
   orgCode = '',
 ): Promise<string> {
-  const MM = 2.83465 // mm → pt
+  const MM = 72 / 25.4 // mm → pt
 
-  const { PDFDocument, rgb } = await import('pdf-lib')
+  const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib')
   const { default: fontkit } = await import('@pdf-lib/fontkit')
 
   const srcDoc = await PDFDocument.load(dataUrlToBytes(template.backgroundPdf!))
@@ -184,6 +185,15 @@ async function buildVectorPdf(
   ])
   const font = await out.embedFont(regBytes, { subset: true })
   const fontBold = await out.embedFont(boldBytes, { subset: true })
+  const times = await out.embedFont(StandardFonts.TimesRoman)
+  const timesBold = await out.embedFont(StandardFonts.TimesRomanBold)
+  const courier = await out.embedFont(StandardFonts.Courier)
+  const courierBold = await out.embedFont(StandardFonts.CourierBold)
+  function fieldFont(pos: LabelFieldPos, bold = !!pos.bold) {
+    if (pos.fontFamily === 'Times New Roman') return bold ? timesBold : times
+    if (pos.fontFamily === 'Courier New') return bold ? courierBold : courier
+    return bold ? fontBold : font
+  }
   const fp = template.fieldPositions
   const slotOffsets = template.slotOffsets
   const slotFP = template.slotFieldPositions
@@ -195,22 +205,23 @@ async function buildVectorPdf(
   const scale = (calib.scale ?? 100) / 100
   const dxPt = (calib.dxMm ?? 0) * MM
   const dyPt = (calib.dyMm ?? 0) * MM
-  // „Dopasuj tło do A4" — wypełnia arkusz: (1) rozciąga źródłowy PDF do A4, oraz
-  // (2) gdy treść ma białe marginesy WtopioNE w grafikę, przybliża do samej treści
-  // (crop), skalując tło I pola razem, więc nic się nie rozjeżdża.
+  // Opcjonalne przycięcie białych marginesów. Format wyjściowy jest ZAWSZE A4,
+  // tak jak układ współrzędnych edytora — niezależnie od tej opcji.
   const fit = !!calib.fit
   const fitStretch = !!calib.fitStretch
-  const A4W = 595.276   // 210 mm w pt
-  const A4H = 841.89    // 297 mm w pt
+  const A4W = 210 * MM
+  const A4H = 297 * MM
 
   const srcPage = srcDoc.getPage(0)
   const srcW = srcPage.getWidth()
   const srcH = srcPage.getHeight()
   const embedded = await out.embedPage(srcPage)
-  // Wymiar strony wyjściowej + układ współrzędnych pól: A4 gdy „fit", inaczej rozmiar źródła.
-  const pageW = fit ? A4W : srcW
-  const pageH = fit ? A4H : srcH
-  const srcToPageX = pageW / srcW   // rozciągnięcie źródła do strony (object-fit: fill przy fit)
+  // Najpierw normalizuj samo TŁO do A4, dopiero potem nakładaj pola w mm/pt.
+  // Truva: PDF 259 × 367 mm + QR 35 mm zmniejszał się w sterowniku do ~28 mm.
+  // Rozmiar źródła nie może określać rozmiaru gotowego arkusza ani nadruku.
+  const pageW = A4W
+  const pageH = A4H
+  const srcToPageX = pageW / srcW   // identycznie jak object-fit: fill w edytorze
   const srcToPageY = pageH / srcH
 
   // Crop do treści — tylko gdy fit, mamy obraz tła i są realne marginesy do usunięcia.
@@ -283,7 +294,7 @@ async function buildVectorPdf(
           const spaceIdx = raw.indexOf(' ')
           const numberPart = spaceIdx >= 0 ? raw.slice(0, spaceIdx) : raw
           const unitPart = spaceIdx >= 0 ? raw.slice(spaceIdx) : ''
-          const activeFont = pos.bold ? fontBold : font
+          const activeFont = fieldFont(pos)
           page.drawText(numberPart, {
             x: xPt,
             y: yPt,
@@ -297,7 +308,7 @@ async function buildVectorPdf(
               x: xPt + numberWidth,
               y: yPt,
               size: sizePt,
-              font,
+              font: fieldFont(pos, false),
               color: rgb(0, 0, 0),
             })
           }
@@ -306,7 +317,7 @@ async function buildVectorPdf(
             x: xPt,
             y: yPt,
             size: sizePt,
-            font: pos.bold ? fontBold : font,
+            font: fieldFont(pos),
             color: rgb(0, 0, 0),
           })
         }
@@ -343,7 +354,7 @@ export function LabelPrintPage() {
   const clientId   = params.get('clientId')   || ''
   const recipeId   = params.get('recipeId')   || ''
   // Dodruk pojedynczej/wybranych sztuk: ?unitIds=id1,id2 → drukuj tylko te.
-  const unitIdsFilter = (params.get('unitIds') || '').split(',').map(s => s.trim()).filter(Boolean)
+  const unitIdsParam = params.get('unitIds') || ''
 
   const unitsRes    = useApi(() => finishedUnitsApi.listByPlanLine(planLineId), [planLineId])
   const templateRes = useApi(() => labelTemplatesApi.get(clientId, recipeId),  [clientId, recipeId])
@@ -367,10 +378,13 @@ export function LabelPrintPage() {
 
   const [qrMap, setQrMap] = useState<Record<string, string>>({})
   const [pdfUrl, setPdfUrl] = useState('')
+  const [pdfError, setPdfError] = useState('')
   const printedRef = useRef(false)
   const iframeRef = useRef<HTMLIFrameElement>(null)
 
-  const units    = filterUnitsByIds(unitsRes.data ?? [], unitIdsFilter)
+  const units = useMemo(() => filterUnitsByIds(
+    unitsRes.data ?? [], unitIdsParam.split(',').map(s => s.trim()).filter(Boolean),
+  ), [unitsRes.data, unitIdsParam])
   const tplResp  = templateRes.data
   const template = tplResp?.template ?? null
   const recipe   = recipeRes.data
@@ -385,11 +399,7 @@ export function LabelPrintPage() {
     Promise.all(
       units.map(async (u) => {
         try {
-          const url = await QRCode.toDataURL(u.qrCode, {
-            width: 1000,               // wysoka rozdzielczość → ostre krawędzie modułów w druku (~1000px na ~25mm = ~1000dpi)
-            margin: 4,                 // quiet zone — wymagane 4 moduły białego marginesu
-            errorCorrectionLevel: 'H', // 30% korekcji: odporność na szron/stretch/refleksy w szokówce i mroźni
-          })
+          const url = await QRCode.toDataURL(u.qrCode, UNIT_QR_OPTIONS)
           map[u.id] = url
         } catch {
           map[u.id] = ''
@@ -411,19 +421,24 @@ export function LabelPrintPage() {
     if (!dataReady || !template?.backgroundPdf) return
     if (Object.keys(qrMap).length === 0) return
     let objectUrl = ''
+    let cancelled = false
+    setPdfUrl('')
+    setPdfError('')
     buildVectorPdf(template, units, template.labelsPerSheet || 2, shelfLifeDays, qrMap, orgCode)
       .then((url) => {
+        if (cancelled) { URL.revokeObjectURL(url); return }
         objectUrl = url
         setPdfUrl(url)
       })
       .catch((err) => {
         console.error('buildVectorPdf failed:', err)
+        if (!cancelled) setPdfError(err instanceof Error ? err.message : 'Nie udało się utworzyć PDF')
       })
     return () => {
+      cancelled = true
       if (objectUrl) URL.revokeObjectURL(objectUrl)
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataReady, template?.backgroundPdf, qrMap, orgCode])
+  }, [dataReady, template, units, shelfLifeDays, qrMap, orgCode])
 
   // Auto-print for raster (image background) mode only
   useEffect(() => {
@@ -559,9 +574,17 @@ export function LabelPrintPage() {
           </div>
         </div>
 
+        <div className="border-b border-slate-200 bg-white px-4 py-2 text-sm text-slate-700">
+          Gotowy arkusz <b>A4 · 210 × 297 mm</b>, {perSheet} etykiet na stronie.
+          {' '}Drukuj: <b>rozmiar rzeczywisty / 100%</b>, <b>1 strona na arkusz</b>.
+          {' '}Układ etykiet jest już złożony w PDF.
+        </div>
+
         {/* PDF viewer */}
         <div className="flex-1 flex items-stretch">
-          {!pdfUrl ? (
+          {pdfError ? (
+            <div role="alert" className="p-6 text-sm text-red-700">Błąd generowania PDF: {pdfError}</div>
+          ) : !pdfUrl ? (
             <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm py-20">
               Generuję PDF wektorowy…
             </div>

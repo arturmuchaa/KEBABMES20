@@ -10,12 +10,14 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
-import { Save, Upload, ImageIcon, Tag, ZoomIn, ZoomOut, ArrowLeft } from 'lucide-react'
+import { Save, Upload, ImageIcon, Tag, ZoomIn, ZoomOut, ArrowLeft, Download } from 'lucide-react'
 import QRCode from 'qrcode'
 import { useApi } from '@/hooks/useApi'
 import { clientsApi, recipesApi, labelTemplatesApi } from '@/lib/apiClient'
 import { pdfFirstPageToPng } from '@/lib/pdfToImage'
-import type { LabelFieldPos, LabelSlotOffset, LabelPrintCalib } from '@/lib/api'
+import type { FinishedUnitCard, LabelFieldPos, LabelSlotOffset, LabelPrintCalib, LabelTemplate } from '@/lib/api'
+import { SAMPLE_UNIT_QR, UNIT_QR_OPTIONS } from '@/features/labels/unitQr'
+import { buildVectorPdf } from './LabelPrintPage'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -235,7 +237,7 @@ function FieldRow({
             value={pos?.size ?? (FIELDS.find(f => f.key === fieldKey)?.defaultSize ?? 8)}
             onChange={e => onSizeChange(Number(e.target.value))}
             className="h-6 w-14 text-[11px] px-1.5 py-0"
-            title={isQr ? 'Rozmiar (mm)' : 'Rozmiar (pt)'}
+            title={isQr ? 'Rozmiar na A4 w mm (razem z białym marginesem)' : 'Rozmiar (pt)'}
           />
           <span className="text-[10px] text-muted-foreground">{isQr ? 'mm' : 'pt'}</span>
           {pos && (
@@ -249,6 +251,12 @@ function FieldRow({
           )}
         </div>
       </div>
+
+      {isQr && (
+        <div className="pl-5 text-[10px] text-muted-foreground">
+          Bok pola na A4, razem z białym marginesem. Kalibracja skali dotyczy też QR.
+        </div>
+      )}
 
       {/* Kontrolki czcionki — tylko dla pól tekstowych */}
       {!isQr && (
@@ -386,6 +394,7 @@ export function LabelTemplateSetupPage() {
   const [selectedField,   setSelectedField]   = useState<string | null>(null)
   const [pdfNote,         setPdfNote]         = useState(false)
   const [saving,          setSaving]          = useState(false)
+  const [buildingProof,   setBuildingProof]   = useState(false)
   const [templateLoaded,  setTemplateLoaded]  = useState(false)
   const [zoom,            setZoom]            = useState(1)
   const [sampleQrUrl,     setSampleQrUrl]     = useState('')
@@ -402,7 +411,7 @@ export function LabelTemplateSetupPage() {
 
   // Wygeneruj przykładowy QR raz przy montowaniu
   useEffect(() => {
-    QRCode.toDataURL('U|PODGLAD', { width: 240, margin: 0 })
+    QRCode.toDataURL(SAMPLE_UNIT_QR, UNIT_QR_OPTIONS)
       .then(url => setSampleQrUrl(url))
       .catch(() => {})
   }, [])
@@ -636,6 +645,35 @@ export function LabelTemplateSetupPage() {
     }
   }
 
+  async function downloadProof() {
+    if (!backgroundPdf || !sampleQrUrl) return
+    setBuildingProof(true)
+    try {
+      // Ten sam generator co wydruk partii. Bieżące, również niezapisane ustawienia.
+      const template: LabelTemplate = {
+        id: 'preview', clientId, recipeId, kind: 'overlay', zpl: '',
+        backgroundData, backgroundPdf, fieldPositions, pageSize: 'a4',
+        labelsPerSheet, slotOffsets, printCalib, slotFieldPositions,
+      }
+      const units: FinishedUnitCard[] = Array.from({ length: labelsPerSheet }, (_, i) => ({
+        id: `preview-${i}`, qrCode: SAMPLE_UNIT_QR, status: 'preview', clientName: clientId,
+        productTypeId: '', recipeId, tuleja: '', weightKg: 50, batchNo: '346',
+        trolleyId: null, cartonId: null, cartonNo: '', producedAt: '2026-06-03',
+      }))
+      const qrMap = Object.fromEntries(units.map(u => [u.id, sampleQrUrl]))
+      const url = await buildVectorPdf(template, units, labelsPerSheet, 365, qrMap, '7J8EX')
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'proba-etykiet-A4.pdf'
+      a.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (err) {
+      toast.error(`Błąd próbnego PDF: ${err instanceof Error ? err.message : 'Nieznany błąd'}`)
+    } finally {
+      setBuildingProof(false)
+    }
+  }
+
   // BUG 2 FIX: clientId now holds the client NAME (Select value={c.name}),
   // so clientName === clientId; fallback to clientId is correct for both new and legacy.
   const clientName = clientId
@@ -787,7 +825,7 @@ export function LabelTemplateSetupPage() {
               <label className="flex flex-col items-center justify-center border-2 border-dashed border-border rounded-xl p-6 cursor-pointer hover:bg-muted/30 transition-colors gap-2">
                 <Upload size={22} className="text-muted-foreground" />
                 <span className="text-sm text-muted-foreground">
-                  Kliknij, aby wgrać obraz (PNG, JPG, WebP)
+                  Kliknij, aby wgrać PDF lub obraz (PNG, JPG, WebP)
                 </span>
                 <span className="text-[11px] text-muted-foreground/70">lub przeciągnij plik tutaj</span>
                 <input
@@ -800,7 +838,7 @@ export function LabelTemplateSetupPage() {
 
               {pdfNote && (
                 <div className="text-[12px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                  PDF jest obsługiwany — wgrywany jako tło (renderowana 1. strona). Jeśli etykieta to A4 z 2 sztukami, wytnij wcześniej do jednej etykiety.
+                  Nie udało się przygotować podglądu PDF. Wgraj ponownie plik z całym arkuszem etykiet (renderowana jest 1. strona).
                 </div>
               )}
 
@@ -809,6 +847,29 @@ export function LabelTemplateSetupPage() {
                   {backgroundPdf
                     ? '✓ PDF wektorowy (ostry druk)'
                     : '⚠ tło rastrowe — druk mniej ostry'}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-5 space-y-3">
+              <div className="text-[13px] font-semibold">Gotowy wydruk: A4 · 210 × 297 mm</div>
+              <p className="text-[12px] text-muted-foreground">
+                Tło PDF jest dopasowywane do A4 przed naniesieniem pól. Rozmiar QR w mm
+                dotyczy tego arkusza, nawet gdy wgrany PDF ma inny format.
+                Wgraj cały arkusz z {labelsPerSheet} etykietami — system nanosi na nie pola.
+              </p>
+              <p className="text-[12px] text-slate-700">
+                W drukarce wybierz <b>A4, rozmiar rzeczywisty / 100%, 1 strona na arkusz</b>.
+                Liczba etykiet na arkuszu jest już uwzględniona w PDF.
+              </p>
+              {backgroundPdf && (
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button variant="outline" onClick={downloadProof} disabled={buildingProof || !sampleQrUrl} className="gap-2">
+                    <Download size={14} /> {buildingProof ? 'Generuję…' : 'Pobierz próbny PDF A4'}
+                  </Button>
+                  <span className="text-[11px] text-muted-foreground">Bieżące ustawienia · przykładowe dane i testowy QR.</span>
                 </div>
               )}
             </CardContent>
@@ -1239,8 +1300,8 @@ export function LabelTemplateSetupPage() {
                   onChange={e => setPrintCalib(p => ({ ...p, fit: e.target.checked }))}
                 />
                 <span className="text-[12px] text-slate-700">
-                  <b>Dopasuj tło do A4 (przytnij białe marginesy)</b> — wykrywa rzeczywistą treść
-                  etykiety i przybliża ją do brzegów (bez deformacji). Dotyczy tła PDF.
+                  <b>Przytnij białe marginesy tła PDF</b> — dodatkowo przybliża treść i pola
+                  do brzegów A4. Zmienia też rozmiar QR. Wynik sprawdź w próbnym PDF.
                 </span>
               </label>
               {printCalib.fit && (
