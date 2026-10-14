@@ -343,7 +343,7 @@ export function ReceptionTags({
  * milimetrami. Odwrotnie kończy się tak, że nastawa kompensuje źle zmierzoną
  * taśmę i po wymianie rolki wszystko trzeba ustawiać od nowa.
  */
-function PrinterCalibration({
+export function PrinterCalibration({
   calibration, onChange, onCalibratePrinter, onTestPrint, onReadPrinter,
   eplSuspected = false, onSetZplMode, printerInfo,
   printerLabelLengthMm, onApplyPrinterLabelLength, busy,

@@ -36,7 +36,7 @@ export function ZebraPrintPage() {
     try {
       const { default: device } = await getDevices()
       if (!device) throw new Error('Wybrana drukarka Zebra jest niedostępna. Odśwież listę i sprawdź USB.')
-      await sendZpl(device, zpl)
+      await sendZpl(device, zpl, { onStatus: text => setMsg({ ok: true, text }) })
       setMsg({ ok: true, text: `${label} — przekazano do BrowserPrint` })
     } catch (e) { setMsg({ ok: false, text: zebraErrorMessage(e) }) }
     finally { setBusy(false); busyRef.current = false }
@@ -60,8 +60,6 @@ export function ZebraPrintPage() {
           <ArrowLeft size={16} /> Szablony etykiet
         </Link>
         <h1 className="flex items-center gap-2 text-xl font-black"><Printer size={20} /> Druk Zebra</h1>
-
-        <ZebraPrinterPanel defaultProfile="100x150" disabled={busy} onBusyChange={setPrinterBusy} />
 
         {render && !render.ok && (
           <div className="rounded-lg border border-red-200 bg-white p-4 text-sm">
@@ -89,6 +87,7 @@ export function ZebraPrintPage() {
             {msg.ok ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />} {msg.text}
           </div>
         )}
+        <ZebraPrinterPanel defaultProfile="100x150" disabled={busy} onBusyChange={setPrinterBusy} />
       </div>
     </div>
   )

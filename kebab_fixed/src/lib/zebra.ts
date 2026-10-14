@@ -1,5 +1,9 @@
-import { parsePrinterStatus, printerProblems } from '@/features/raw-batches/printerStatus'
-import { checkZebraMedia, selectedZebraUid } from './zebraProfiles'
+import { parsePrinterIdentity, parsePrinterStatus, printerProblems } from '@/features/raw-batches/printerStatus'
+import {
+  beginZebraCalibration, checkZebraMedia, loadedZebraMedia, rememberZebraMedia, selectedZebraUid,
+  ZEBRA_PROFILES, zebraCalibrationPending, zebraLengthMatches, zebraMediaSetupZpl, zebraProfileForZpl,
+  type ZebraProfileId,
+} from './zebraProfiles'
 
 declare global { interface Window { BrowserPrint?: any } }
 
@@ -147,12 +151,87 @@ async function checkReady(device: ZebraDevice, io: ZebraConnection) {
   if (!status.valid) throw new Error('Brak pełnej odpowiedzi ~HS. Sprawdź zieloną kontrolkę, papier, zamknięcie pokrywy i USB; użyj „Odczytaj stan”. Nie wysłano etykiety.')
   const problems = printerProblems(status)
   if (problems.length) throw new Error(problems.join(' '))
+  return status
 }
 
-export function sendZpl(device: ZebraDevice, zpl: string): Promise<void> {
+/** Już pod blokadą urządzenia: nie wolno ponownie wchodzić do kolejki. */
+async function calibrateConnection(device: ZebraDevice, io: ZebraConnection, profile: ZebraProfileId,
+  onProgress: (text: string) => void = () => {}) {
+  if (!device.sendThenRead) throw new Error('Kalibracja z kontrolą wyniku wymaga odczytu BrowserPrint. Zaktualizuj BrowserPrint na stanowisku.')
+  const identity = parsePrinterIdentity(await io.read('~HI'))
+  if (identity.dpi && identity.dpi !== 203) throw new Error(`Drukarka zgłasza ${identity.dpi} dpi. Te profile są przeznaczone dla GC420t 203 dpi.`)
+  const before = await readZebraStatus(io)
+  if (before.status.valid && (before.status.formatsInBuffer || before.status.labelsRemaining)) {
+    throw new Error('Drukarka ma jeszcze zadania w buforze. Poczekaj na zakończenie wydruków przed zmianą rolki.')
+  }
+  beginZebraCalibration(device.uid, profile)
+  onProgress('Ustawiam czujnik przerwy i druk bez kalki…')
+  await io.send(zebraMediaSetupZpl(profile))
+  await io.send('~JC')
+  onProgress('Dopasowuję drukarkę do etykiet — trwa automatyczna kalibracja…')
+  await zebraWait(5000)
+  const deadline = Date.now() + 30000
+  let previous: number | null = null
+  let last = 'Brak pełnej odpowiedzi drukarki.'
+  while (Date.now() < deadline) {
+    const { status } = await readZebraStatus(io)
+    const problems = printerProblems(status)
+    if (status.valid && problems.length) throw new Error(problems.join(' '))
+    if (status.valid && !status.formatsInBuffer && !status.labelsRemaining) {
+      const mm = status.labelLengthMm!
+      last = `Drukarka zgłasza ${mm} mm, wybrana etykieta ma ${ZEBRA_PROFILES[profile].height} mm długości.`
+      if (previous === status.labelLengthDots && zebraLengthMatches(profile, mm)) {
+        rememberZebraMedia(device.uid, profile)
+        return { lengthMm: mm, message: `${last} Odczyt jest stabilny. Wydrukuj jedną etykietę testową i sprawdź ramkę oraz zatrzymanie na przerwie.` }
+      }
+      previous = status.labelLengthDots
+    } else { previous = null }
+    await zebraWait(1000)
+  }
+  throw new Error(`Nie potwierdzono wyniku kalibracji. ${last} Sprawdź założenie rolki, prowadnice i czujnik; potem powtórz wydruk lub kalibrację.`)
+}
+
+/** ~HS nie ma flagi końca kalibracji: wymagamy dwóch stabilnych odczytów,
+ * bez wpisywania ^LL przed pomiarem. Używane przez automat i konfigurację. */
+export function calibrateZebra(device: ZebraDevice, profile: ZebraProfileId,
+  onProgress?: (text: string) => void) {
+  return withZebraPrinter(device, io => calibrateConnection(device, io, profile, onProgress))
+}
+
+interface ZebraPrintOptions {
+  /** Test ręczny ma sprawdzić wybraną rolkę, bez automatycznej zmiany profilu. */
+  autoCalibrate?: boolean
+  onStatus?: (text: string) => void
+}
+
+async function preparePrint(device: ZebraDevice, io: ZebraConnection, zpl: string, options: ZebraPrintOptions): Promise<string> {
+  const profile = options.autoCalibrate === false ? null : zebraProfileForZpl(zpl)
+  if (!profile) { checkZebraMedia(device.uid, zpl); await checkReady(device, io); return zpl }
+
+  let status = await checkReady(device, io)
+  const needsCalibration = loadedZebraMedia(device.uid) !== profile || zebraCalibrationPending(device.uid)
+    || Boolean(status && !zebraLengthMatches(profile, status.labelLengthMm))
+  if (needsCalibration) {
+    // BrowserPrint potwierdza przekazanie danych, więc poprzedni wydruk może
+    // jeszcze trwać. Zaczekaj na opróżnienie bufora przed ~JC.
+    const deadline = Date.now() + 30000
+    while (status && (status.formatsInBuffer || status.labelsRemaining)) {
+      if (Date.now() >= deadline) throw new Error('Poprzedni wydruk nadal trwa. Poczekaj na jego zakończenie i ponów druk etykiet.')
+      options.onStatus?.('Czekam na zakończenie poprzedniego wydruku…')
+      await zebraWait(1000)
+      status = await checkReady(device, io)
+    }
+    await calibrateConnection(device, io, profile, options.onStatus)
+  }
+  checkZebraMedia(device.uid, zpl)
+  // Przełożenie takiej samej rolki nie zmienia wymiarów w ~HS. Kalibrację
+  // po zamknięciu pokrywy wykonuje sama GC420t, także gdy panel jest zwinięty.
+  return zpl.replace(/\^XA/g, '^XA^MFC,C')
+}
+
+export function sendZpl(device: ZebraDevice, zpl: string, options: ZebraPrintOptions = {}): Promise<void> {
   return withZebraPrinter(device, async io => {
-    if (isPrint(zpl)) { checkZebraMedia(device.uid, zpl); await checkReady(device, io) }
-    await io.send(zpl)
+    await io.send(isPrint(zpl) ? await preparePrint(device, io, zpl, options) : zpl)
   })
 }
 
@@ -160,7 +239,7 @@ export function sendThenReadZpl(device: ZebraDevice, zpl: string): Promise<strin
   return withZebraPrinter(device, io => io.read(zpl))
 }
 
-export async function sendZplJobs(device: ZebraDevice, jobs: readonly string[], options: {
+export async function sendZplJobs(device: ZebraDevice, jobs: readonly string[], options: ZebraPrintOptions & {
   delayMs?: number
   onProgress?: (sent: number, total: number) => void
 } = {}): Promise<void> {
@@ -169,8 +248,7 @@ export async function sendZplJobs(device: ZebraDevice, jobs: readonly string[], 
     options.onProgress?.(0, jobs.length)
     try {
       for (const zpl of jobs) {
-        if (isPrint(zpl)) { checkZebraMedia(device.uid, zpl); await checkReady(device, io) }
-        await io.send(zpl)
+        await io.send(isPrint(zpl) ? await preparePrint(device, io, zpl, options) : zpl)
         sent++
         options.onProgress?.(sent, jobs.length)
         if (sent < jobs.length) await zebraWait(options.delayMs ?? 400)

@@ -5,15 +5,17 @@ import {
   ZEBRA_TIMEOUT_MS, type ZebraDevice,
 } from './zebra'
 import { calibrateZebra } from './zebraPrinter'
-import { loadedZebraMedia, rememberZebraMedia, selectZebra, zebraMediaTestZpl } from './zebraProfiles'
+import { loadedZebraMedia, rememberZebraMedia, selectZebra, zebraMediaTestZpl, zebraProfileForZpl } from './zebraProfiles'
 import { parsePrinterIdentity, parsePrinterStatus, printerProblems } from '@/features/raw-batches/printerStatus'
 
 const status = (length = 639) => `\x02030,0,0,${length},000,0,0,0,000,0,0,0\x03\r\n`
   + '\x02001,0,0,0,0,2,4,0,00000000,1,000\x03\r\n\x021234,0\x03\r\n'
 let serial = 0
 function printer(): ZebraDevice {
+  const uid = `usb-${++serial}`
+  rememberZebraMedia(uid, '50x80')
   return {
-    uid: `usb-${++serial}`, name: 'GC420t',
+    uid, name: 'GC420t',
     send: vi.fn((_data, ok) => ok()),
     sendThenRead: vi.fn((data, ok) => ok(data === '~HI' ? 'GC420t,V61,8,8192' : status())),
   }
@@ -145,7 +147,7 @@ describe('zmiana rolki GC420t', () => {
       expect(finished).toBe(false)
       const commands = vi.mocked(device.send).mock.calls.map(c => c[0])
       expect(commands[commands.length - 1]).toBe('~JC')
-      expect(commands[commands.length - 2]).toContain('^MNY^MTD^PW')
+      expect(commands[commands.length - 2]).toContain('^MNY^MTD^MFC,C^PW')
       expect(commands[commands.length - 2]).not.toContain('^LL')
       await vi.runAllTimersAsync()
       const result = await calibrating; await print
@@ -159,8 +161,8 @@ describe('zmiana rolki GC420t', () => {
     device.sendThenRead = vi.fn((cmd, ok) => ok(cmd === '~HI' ? '' : status(1199)))
     const result = expect(calibrateZebra(device, '50x80')).rejects.toThrow('Nie potwierdzono wyniku kalibracji')
     await vi.runAllTimersAsync(); await result
-    await expect(sendZpl(device, zebraMediaTestZpl('50x80'))).rejects.toThrow('Nie potwierdzono ostatniej kalibracji')
-    expect(vi.mocked(device.send).mock.calls.map(c => c[0])).toEqual(['^XA^MNY^MTD^PW400^XZ', '~JC'])
+    await expect(sendZpl(device, zebraMediaTestZpl('50x80'), { autoCalibrate: false })).rejects.toThrow('Nie potwierdzono ostatniej kalibracji')
+    expect(vi.mocked(device.send).mock.calls.map(c => c[0])).toEqual(['^XA^MNY^MTD^MFC,C^PW400^XZ', '~JC'])
   })
 
   it('nie kalibruje, jeśli w drukarce nadal są wcześniejsze zadania', async () => {
@@ -173,7 +175,7 @@ describe('zmiana rolki GC420t', () => {
   it('odrzuca projekt 100×150 na zapamiętanej rolce 50×80 przed wysłaniem', async () => {
     const device = printer()
     rememberZebraMedia(device.uid, '50x80')
-    await expect(sendZpl(device, zebraMediaTestZpl('100x150'))).rejects.toThrow('nie pasuje')
+    await expect(sendZpl(device, zebraMediaTestZpl('100x150'), { autoCalibrate: false })).rejects.toThrow('nie pasuje')
     expect(device.send).not.toHaveBeenCalled()
   })
 
@@ -182,6 +184,89 @@ describe('zmiana rolki GC420t', () => {
     device.sendThenRead = vi.fn((_cmd, ok) => ok(''))
     const result = expect(calibrateZebra(device, '50x80')).rejects.toThrow('Nie potwierdzono')
     await vi.runAllTimersAsync(); await result
+  })
+})
+
+describe('automatyczna kalibracja przy zwykłym wydruku', () => {
+  it('rozpoznaje wyłącznie kompletne, jednakowe formaty termiczne o znanych wymiarach', () => {
+    expect(zebraProfileForZpl(zebraMediaTestZpl('80x100'))).toBe('80x100')
+    expect(zebraProfileForZpl('^XA^FDTEST^FS^XZ')).toBeNull()
+    expect(zebraProfileForZpl(zebraMediaTestZpl('50x80').replace('^MTD', '^MTT'))).toBeNull()
+    expect(zebraProfileForZpl(zebraMediaTestZpl('50x80') + zebraMediaTestZpl('100x150'))).toBeNull()
+    expect(zebraProfileForZpl(zebraMediaTestZpl('50x80').replace('^PW400', '^PW591'))).toBeNull()
+  })
+
+  it('bez otwierania panelu: 100×150 → 50×80 → 80×100, kalibracja raz na zmianę, potem cała seria', async () => {
+    const device = printer()
+    let actualLength = 1217
+    device.sendThenRead = vi.fn((cmd, ok) => ok(cmd === '~HI' ? 'GC420t,V61,8,8192' : status(actualLength)))
+    for (const [id, length] of [['100x150', 1217], ['50x80', 658], ['80x100', 818]] as const) {
+      actualLength = length
+      const progress = vi.fn()
+      const before = vi.mocked(device.send).mock.calls.length
+      const printing = sendZplJobs(device, [zebraMediaTestZpl(id), zebraMediaTestZpl(id)], { onStatus: progress })
+      await vi.advanceTimersByTimeAsync(4900)
+      expect(vi.mocked(device.send).mock.calls.slice(before).some(c => c[0].includes('^FD'))).toBe(false)
+      await vi.runAllTimersAsync(); await printing
+      const writes = vi.mocked(device.send).mock.calls.slice(before).map(c => c[0])
+      expect(writes.filter(c => c === '~JC')).toHaveLength(1)
+      expect(writes.filter(c => c.includes('^FD'))).toHaveLength(2)
+      expect(writes.filter(c => c.includes('^FD')).every(c => c.includes('^MFC,C'))).toBe(true)
+      expect(writes.join('')).not.toMatch(/~TA|\^JUS/)
+      expect(progress).toHaveBeenCalledWith(expect.stringContaining('automatyczna kalibracja'))
+    }
+  })
+
+  it('pierwszy wydruk na nieznanej drukarce kalibruje i nie wymaga wyboru rolki w menu', async () => {
+    const device = printer()
+    localStorage.clear()
+    const printing = sendZpl(device, zebraMediaTestZpl('50x80'))
+    await vi.runAllTimersAsync(); await printing
+    expect(loadedZebraMedia(device.uid)).toBe('50x80')
+    expect(vi.mocked(device.send).mock.calls.filter(c => c[0] === '~JC')).toHaveLength(1)
+  })
+
+  it('nie kalibruje ponownie przy kolejnym wydruku tego samego formatu', async () => {
+    const device = printer()
+    await sendZpl(device, zebraMediaTestZpl('50x80'))
+    await sendZpl(device, zebraMediaTestZpl('50x80'))
+    expect(vi.mocked(device.send).mock.calls.filter(c => c[0] === '~JC')).toHaveLength(0)
+    expect(vi.mocked(device.send).mock.calls.every(c => c[0].includes('^MFC,C'))).toBe(true)
+  })
+
+  it('inna zmierzona długość wyzwala pomiar mimo zgodnego starego profilu', async () => {
+    const device = printer()
+    let length = 1199
+    device.sendThenRead = vi.fn((cmd, ok) => ok(cmd === '~HI' ? 'GC420t,V61,8,8192' : status(length)))
+    device.send = vi.fn((zpl, ok) => { if (zpl === '~JC') length = 658; ok() })
+    const printing = sendZpl(device, zebraMediaTestZpl('50x80'))
+    await vi.runAllTimersAsync(); await printing
+    expect(vi.mocked(device.send).mock.calls.filter(c => c[0] === '~JC')).toHaveLength(1)
+  })
+
+  it('nie drukuje, jeśli faktyczna rolka nadal nie pasuje; kolejny ręczny druk ponownie sprawdza po poprawieniu rolki', async () => {
+    const device = printer()
+    let length = 1199
+    device.sendThenRead = vi.fn((cmd, ok) => ok(cmd === '~HI' ? '' : status(length)))
+    const failed = expect(sendZpl(device, zebraMediaTestZpl('50x80'))).rejects.toThrow('Nie potwierdzono wyniku kalibracji')
+    await vi.runAllTimersAsync(); await failed
+    expect(vi.mocked(device.send).mock.calls.some(c => c[0].includes('^FD'))).toBe(false)
+    length = 658
+    const retry = sendZpl(device, zebraMediaTestZpl('50x80'))
+    await vi.runAllTimersAsync(); await retry
+    expect(vi.mocked(device.send).mock.calls.filter(c => c[0].includes('^FD'))).toHaveLength(1)
+  })
+
+  it('czeka na poprzedni wydruk przed automatyczną kalibracją', async () => {
+    const device = printer()
+    let buffered = true
+    device.sendThenRead = vi.fn((cmd, ok) => ok(cmd === '~HI' ? '' : status(1217).replace('1217,000', buffered ? '1217,002' : '1217,000')))
+    const printing = sendZpl(device, zebraMediaTestZpl('100x150'))
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(device.send).not.toHaveBeenCalled()
+    buffered = false
+    await vi.runAllTimersAsync(); await printing
+    expect(vi.mocked(device.send).mock.calls.filter(c => c[0] === '~JC')).toHaveLength(1)
   })
 })
 

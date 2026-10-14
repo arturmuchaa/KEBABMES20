@@ -19,6 +19,7 @@ it('blokuje test podczas kalibracji i nie pokazuje sukcesu po błędzie', async 
   vi.mocked(calibrateZebra).mockImplementation(() => new Promise((_ok, reject) => { fail = reject }))
   const onCalibrated = vi.fn()
   render(<ZebraPrinterPanel defaultProfile="100x150" onCalibrated={onCalibrated} />)
+  fireEvent.click(screen.getByText('Konfiguracja drukarki'))
   fireEvent.change(screen.getByLabelText('Rozmiar rolki'), { target: { value: '50x80' } })
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Zmieniam rolkę / kalibruj' })) })
   expect(screen.getByRole('button', { name: 'Jedna etykieta testowa' })).toBeDisabled()
@@ -34,6 +35,7 @@ it('przekazuje pomiar do ekranu przyjęcia dopiero po weryfikacji', async () => 
   vi.mocked(calibrateZebra).mockResolvedValue({ lengthMm: 102.3, message: 'Odczyt stabilny' })
   const onCalibrated = vi.fn()
   render(<ZebraPrinterPanel defaultProfile="80x100" onCalibrated={onCalibrated} />)
+  fireEvent.click(screen.getByText('Konfiguracja drukarki'))
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Zmieniam rolkę / kalibruj' })) })
   expect(onCalibrated).toHaveBeenCalledWith('80x100', 102.3)
   expect(sendZpl).not.toHaveBeenCalled() // test wysyła dopiero osobny przycisk

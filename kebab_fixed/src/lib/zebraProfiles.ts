@@ -28,11 +28,32 @@ export function beginZebraCalibration(uid: string, id: ZebraProfileId) {
   set(mediaKey(uid), id)
   set(`${mediaKey(uid)}.calibration`, 'pending')
 }
+export const zebraCalibrationPending = (uid: string) => get(`${mediaKey(uid)}.calibration`) === 'pending'
 export const zebraDots = (mm: number) => Math.round(mm * 203 / 25.4)
+
+export function zebraLengthMatches(id: ZebraProfileId, mm: number | null): boolean {
+  const height = ZEBRA_PROFILES[id].height
+  return mm !== null && mm >= height - 2 && mm <= height + 10
+}
+
+/** Tylko jednoznaczne projekty naszych termicznych etykiet z przerwami.
+ * Nie zgadujemy rozmiaru z treści ani ze starego profilu drukarki. */
+export function zebraProfileForZpl(zpl: string): ZebraProfileId | null {
+  if (!zpl.includes('^MNY') || !zpl.includes('^MTD')) return null
+  const formats = zpl.match(/\^XA[\s\S]*?\^XZ/g) ?? []
+  if (!formats.length) return null
+  return (Object.keys(ZEBRA_PROFILES) as ZebraProfileId[]).find(id => formats.every(format => {
+    const widths = [...format.matchAll(/\^PW(\d+)/g)].map(m => Number(m[1]) * 25.4 / 203)
+    const lengths = [...format.matchAll(/\^LL(\d+)/g)].map(m => Number(m[1]) * 25.4 / 203)
+    return widths.length > 0 && lengths.length > 0
+      && widths.every(w => Math.abs(w - ZEBRA_PROFILES[id].width) <= 2)
+      && lengths.every(h => zebraLengthMatches(id, h))
+  })) ?? null
+}
 
 /** Sprawdzamy znaną rolkę, zanim ^LL nadpisze długość w drukarce. */
 export function checkZebraMedia(uid: string, zpl: string): void {
-  if (get(`${mediaKey(uid)}.calibration`) === 'pending') {
+  if (zebraCalibrationPending(uid)) {
     throw new Error('Nie potwierdzono ostatniej kalibracji tej drukarki. Sprawdź rolkę i ponownie użyj „Zmieniam rolkę / kalibruj” przed wydrukiem.')
   }
   const id = loadedZebraMedia(uid)
@@ -48,7 +69,9 @@ export function checkZebraMedia(uid: string, zpl: string): void {
 
 export function zebraMediaSetupZpl(id: ZebraProfileId): string {
   // Bez ^LL: przed pomiarem nie wpisujemy wyniku, który chcemy potem odczytać.
-  return `^XA^MNY^MTD^PW${zebraDots(ZEBRA_PROFILES[id].width)}^XZ`
+  // ^MF: kalibracja po włączeniu / zamknięciu głowicy. Bez zapisu ^JUS
+  // w każdym wydruku; ustawienie odnawiamy też w nagłówku etykiety.
+  return `^XA^MNY^MTD^MFC,C^PW${zebraDots(ZEBRA_PROFILES[id].width)}^XZ`
 }
 
 export function zebraMediaTestZpl(id: ZebraProfileId): string {

@@ -20,7 +20,7 @@ import { receptionsApi, suppliersApi } from '@/lib/apiClient'
 import { getDevices, probeBrowserPrint, readZebraStatus, sendZplJobs, withZebraPrinter, zebraErrorMessage } from '@/lib/zebra'
 import { ZebraPrinterPanel } from '@/components/ZebraPrinterPanel'
 
-import { ReceptionTags } from '../components/ReceptionTags'
+import { PrinterCalibration, ReceptionTags } from '../components/ReceptionTags'
 import { DEFAULT_CONTAINERS_PER_PALLET } from '../palletTags'
 import {
   IDENTIFY_ZPL, parsePrinterIdentity, printerSummary,
@@ -74,6 +74,7 @@ export function ReceptionTagsPage() {
       await sendZplJobs(dev, jobs, {
         delayMs: tagPrintDelayMs(calibration.labelLengthMm),
         onProgress: (sent, total) => setMessage({ ok: true, text: `Przekazano do BrowserPrint: ${sent}/${total} zadań…` }),
+        onStatus: text => setMessage({ ok: true, text }),
       })
       setMessage({ ok: true, text: ok })
     } catch (e: any) {
@@ -203,8 +204,6 @@ export function ReceptionTagsPage() {
 
   return (
     <div className="space-y-4">
-    <ZebraPrinterPanel defaultProfile="80x100" disabled={printing} onBusyChange={setPrinterBusy}
-      onCalibrated={(profile, mm) => { if (profile === '80x100') setPrinterLabelLengthMm(mm) }} />
     <ReceptionTags
       reception={reception.data}
       defaultContainersPerPallet={dostawca?.containersPerPallet ?? DEFAULT_CONTAINERS_PER_PALLET}
@@ -214,13 +213,14 @@ export function ReceptionTagsPage() {
       printing={printing || printerBusy}
       message={message}
       calibration={calibration}
-      onCalibrationChange={changeCalibration}
-      onTestPrint={testPrint}
-      onReadPrinter={readPrinter}
-      printerInfo={printerInfo}
-      printerLabelLengthMm={printerLabelLengthMm}
-      onApplyPrinterLabelLength={applyPrinterLabelLength}
     />
+    <ZebraPrinterPanel defaultProfile="80x100" disabled={printing} onBusyChange={setPrinterBusy}
+      onCalibrated={(profile, mm) => { if (profile === '80x100') setPrinterLabelLengthMm(mm) }}>
+      <PrinterCalibration calibration={calibration} onChange={changeCalibration}
+        onTestPrint={testPrint} onReadPrinter={readPrinter} printerInfo={printerInfo}
+        printerLabelLengthMm={printerLabelLengthMm} onApplyPrinterLabelLength={applyPrinterLabelLength}
+        busy={printing || printerBusy} />
+    </ZebraPrinterPanel>
     </div>
   )
 }

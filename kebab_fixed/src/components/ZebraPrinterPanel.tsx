@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { discoverZebraDevices, sendZpl, zebraErrorMessage, type ZebraDevice } from '@/lib/zebra'
 import { calibrateZebra, readZebraDiagnostics } from '@/lib/zebraPrinter'
 import {
@@ -7,11 +7,12 @@ import {
 } from '@/lib/zebraProfiles'
 import { tearOffMaxMm, tearOffZpl } from '@/features/deboning/labelPrinterSetup'
 
-export function ZebraPrinterPanel({ defaultProfile = '50x80', disabled = false, onBusyChange, onCalibrated }: {
+export function ZebraPrinterPanel({ defaultProfile = '50x80', disabled = false, onBusyChange, onCalibrated, children }: {
   defaultProfile?: ZebraProfileId
   disabled?: boolean
   onBusyChange?: (busy: boolean) => void
   onCalibrated?: (profile: ZebraProfileId, lengthMm: number) => void
+  children?: ReactNode
 }) {
   const [devices, setDevices] = useState<ZebraDevice[]>([])
   const [uid, setUid] = useState(selectedZebraUid)
@@ -46,7 +47,9 @@ export function ZebraPrinterPanel({ defaultProfile = '50x80', disabled = false, 
   }
 
   return (
-    <section className="rounded-lg border border-slate-300 bg-white p-3 text-slate-900 space-y-3">
+    <details className="border-t border-slate-200 pt-2 text-slate-900">
+      <summary className="cursor-pointer py-2 text-xs text-slate-500 hover:text-slate-800">Konfiguracja drukarki</summary>
+      <section className="mt-2 rounded-lg border border-slate-300 bg-white p-3 space-y-3">
       <h3 className="font-bold text-sm">Drukarka etykiet — Zebra GC420t</h3>
       <p className="text-xs">203 dpi · etykiety z przerwami · termiczne, bez kalki</p>
       <div className="flex flex-wrap gap-2">
@@ -81,7 +84,7 @@ export function ZebraPrinterPanel({ defaultProfile = '50x80', disabled = false, 
           })}>Zmieniam rolkę / kalibruj</button>
         <button type="button" disabled={locked} className="min-h-12 rounded border border-slate-300 px-3 py-2 text-sm font-bold disabled:opacity-50"
           onClick={() => void run(async () => {
-            await sendZpl(await printer(), zebraMediaTestZpl(profile))
+            await sendZpl(await printer(), zebraMediaTestZpl(profile), { autoCalibrate: false })
             return 'Przekazano jedną etykietę testową do BrowserPrint. Sprawdź całą ramkę, podziałkę co 10 mm i zatrzymanie na przerwie.'
           })}>Jedna etykieta testowa</button>
         <button type="button" disabled={locked} className="min-h-12 rounded border border-slate-300 px-3 py-2 text-sm disabled:opacity-50"
@@ -101,8 +104,10 @@ export function ZebraPrinterPanel({ defaultProfile = '50x80', disabled = false, 
             })}>Ustaw punkt odrywania</button>
         </div>
       </details>
-      <p className="text-xs text-slate-600">Zmiana rolki nie skaluje projektu etykiety. Kalibracja wysunie kilka naklejek; poczekaj na odczyt. Przy prawidłowej kalibracji pojedyncze naciśnięcie FEED wysuwa jedną etykietę.</p>
+      <p className="text-xs text-slate-600">Przy zwykłym wydruku MES dobiera format z etykiety i w razie zmiany kalibruje drukarkę automatycznie. Włącza też kalibrację po zamknięciu pokrywy. Założona rolka musi pasować do projektu; ręczna konfiguracja służy do diagnostyki.</p>
       {message && <pre role={error ? 'alert' : 'status'} className={`whitespace-pre-wrap break-words rounded p-2 text-xs ${error ? 'bg-red-50 text-red-800' : 'bg-slate-100'}`}>{message}</pre>}
-    </section>
+      {children}
+      </section>
+    </details>
   )
 }

@@ -233,10 +233,6 @@ export function ServiceMenuModal({
                 {scaleDiag ?? '…'}
               </pre>
             </div>
-            {extra}
-
-            {pokazDrukarke && <ZebraPrinterPanel defaultProfile={channel === 'magazyn' ? '100x150' : '50x80'} />}
-
             {/* Wzory podpisów — to JEDYNY dotykowy ekran w zakładzie, więc
                 wzór podpisu HACCP musi powstawać właśnie tutaj. Ekran
                 otwiera się na pełną szerokość: w panelu 380 px nikt nie
@@ -269,6 +265,8 @@ export function ServiceMenuModal({
               style={{ borderRadius: 10, background: 'var(--svcRed)', color: '#fff' }}>
               <LogOut size={20} /> Wyjdź do Windows (wyloguj)
             </button>
+            {extra}
+            {pokazDrukarke && <ZebraPrinterPanel defaultProfile={channel === 'magazyn' ? '100x150' : '50x80'} />}
           </>
         )}
         <button type="button" onClick={onClose}

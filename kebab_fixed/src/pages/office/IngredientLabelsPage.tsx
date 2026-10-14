@@ -59,6 +59,7 @@ export function IngredientLabelsPage() {
       }
       await sendZplJobs(dev, zadania, {
         onProgress: (sent, total) => setProgress(`Przekazano do BrowserPrint ${sent}/${total} zadań (zadanie może zawierać kilka kopii).`),
+        onStatus: setProgress,
       })
       toast.success(komunikat)
     } catch (e) {
@@ -104,7 +105,6 @@ export function IngredientLabelsPage() {
         </CardDescription>
       </div>
 
-      <ZebraPrinterPanel defaultProfile="100x150" disabled={drukuje} onBusyChange={setPrinterBusy} />
       {progress && <p role="status" className="text-sm">{progress}</p>}
       <Card>
         <CardContent className="p-0">
@@ -170,6 +170,7 @@ export function IngredientLabelsPage() {
           </Button>
         </div>
       )}
+      <ZebraPrinterPanel defaultProfile="100x150" disabled={drukuje} onBusyChange={setPrinterBusy} />
     </div>
   )
 }
