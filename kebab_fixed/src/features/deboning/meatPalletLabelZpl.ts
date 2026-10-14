@@ -237,6 +237,7 @@ export function meatPalletLabelZpl(
     `^LL${mmToDots(LABEL_H_MM, dpi)}`,
     '^LH0,0',
     '^MNY',
+    '^MTD',
     '^LS0',
     ...body,
     '^XZ',

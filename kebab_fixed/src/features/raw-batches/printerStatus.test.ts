@@ -66,11 +66,12 @@ describe('printerSummary — zdanie dla biura', () => {
     expect(linie.join(' ')).not.toContain('⚠')
   })
 
-  it('rozjazd długości nazywa wprost przyczyną', () => {
+  it('różnicę długości pokazuje do sprawdzenia, bez zgadywania przyczyny', () => {
     const status = parsePrinterStatus('030,0,0,0478,000,0,0,0,000,0,0,0')
     const linie = printerSummary(parsePrinterIdentity(''), status, 80)
     expect(linie.join(' ')).toContain('⚠')
-    expect(linie.join(' ')).toContain('Rozjazd')
+    expect(linie.join(' ')).toContain('Różnica')
+    expect(linie.join(' ')).not.toContain('TO jest przyczyna')
   })
 
   it('różnicę poniżej milimetra puszcza — to szum pomiaru, nie usterka', () => {

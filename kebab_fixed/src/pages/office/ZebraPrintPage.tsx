@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { Printer, ArrowLeft, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { labelsZebraApi, zebraDesignsApi, type ZebraRenderResult } from '@/lib/api'
-import { getDevices, sendZpl, probeBrowserPrint, type ZebraDevice } from '@/lib/zebra'
-
-const TEST_ZPL = '^XA^FO50,50^A0N,40,40^FDTest Zebra^FS^XZ'
+import { getDevices, sendZpl, zebraErrorMessage } from '@/lib/zebra'
+import { ZebraPrinterPanel } from '@/components/ZebraPrinterPanel'
 
 export function ZebraPrintPage() {
   const [params] = useSearchParams()
@@ -13,12 +12,10 @@ export function ZebraPrintPage() {
   const recipeId = params.get('recipeId') || ''
 
   const [render, setRender] = useState<ZebraRenderResult | null>(null)
-  const [devices, setDevices] = useState<ZebraDevice[]>([])
-  const [deviceUid, setDeviceUid] = useState('')
-  const [sdkError, setSdkError] = useState('')
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
-  const [bpHint, setBpHint] = useState('')   // diagnostyka połączenia z BrowserPrint
+  const busyRef = useRef(false)
+  const [printerBusy, setPrinterBusy] = useState(false)
 
   useEffect(() => {
     // Projekt Zebra z projektanta (per klient+receptura); rozmiar zapisany w projekcie.
@@ -32,29 +29,17 @@ export function ZebraPrintPage() {
         .catch(() => setRender({ ok: false, reason: 'Błąd pobierania ZPL' })))
   }, [planLineId, clientId, recipeId])
 
-  useEffect(() => {
-    getDevices()
-      .then(async ({ default: def, list }) => {
-        setDevices(list); setDeviceUid(def?.uid || list[0]?.uid || '')
-        // BrowserPrint załadował się, ale nie zwrócił żadnej drukarki → zdiagnozuj połączenie.
-        if (list.length === 0) {
-          const probe = await probeBrowserPrint()
-          setBpHint(probe.ok
-            ? 'Połączono z BrowserPrint, ale brak drukarki. Ustaw drukarkę w aplikacji Zebra BrowserPrint (jako domyślną).'
-            : (probe.reason || ''))
-        } else { setBpHint('') }
-      })
-      .catch((e) => setSdkError(e instanceof Error ? e.message : 'BrowserPrint niedostępny'))
-  }, [])
-
-  const device = devices.find(d => d.uid === deviceUid) || null
-
   async function print(zpl: string, label: string) {
-    if (!device) { setMsg({ ok: false, text: 'Nie wybrano drukarki Zebra' }); return }
+    if (busyRef.current || printerBusy) return
+    busyRef.current = true
     setBusy(true)
-    try { await sendZpl(device, zpl); setMsg({ ok: true, text: `${label} — wysłano` }) }
-    catch (e) { setMsg({ ok: false, text: e instanceof Error ? e.message : 'Błąd druku' }) }
-    finally { setBusy(false) }
+    try {
+      const { default: device } = await getDevices()
+      if (!device) throw new Error('Wybrana drukarka Zebra jest niedostępna. Odśwież listę i sprawdź USB.')
+      await sendZpl(device, zpl)
+      setMsg({ ok: true, text: `${label} — przekazano do BrowserPrint` })
+    } catch (e) { setMsg({ ok: false, text: zebraErrorMessage(e) }) }
+    finally { setBusy(false); busyRef.current = false }
   }
 
   function downloadZpl() {
@@ -76,11 +61,7 @@ export function ZebraPrintPage() {
         </Link>
         <h1 className="flex items-center gap-2 text-xl font-black"><Printer size={20} /> Druk Zebra</h1>
 
-        {sdkError && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-            <AlertTriangle size={18} /> {sdkError}. Zainstaluj aplikację Zebra BrowserPrint i wgraj pliki SDK do <code>public/browserprint/</code>.
-          </div>
-        )}
+        <ZebraPrinterPanel defaultProfile="100x150" disabled={busy} onBusyChange={setPrinterBusy} />
 
         {render && !render.ok && (
           <div className="rounded-lg border border-red-200 bg-white p-4 text-sm">
@@ -90,31 +71,10 @@ export function ZebraPrintPage() {
           </div>
         )}
 
-        {!sdkError && (
-          <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
-            <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">Drukarka</label>
-            <select value={deviceUid} onChange={e => setDeviceUid(e.target.value)} className="w-full rounded-lg border-2 border-slate-300 px-3 py-2 text-base">
-              {devices.length === 0 && <option value="">— brak drukarek —</option>}
-              {devices.map(d => <option key={d.uid} value={d.uid}>{d.name}</option>)}
-            </select>
-            {devices.length === 0 && bpHint && (
-              <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
-                <AlertTriangle size={16} className="mt-0.5 shrink-0" /> {bpHint}
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <button disabled={busy || !render?.ok} onClick={() => render?.zpl && print(render.zpl, `Druk ${render.count} szt`)}
-                className="flex-1 rounded-lg bg-brand px-4 py-3 text-base font-bold text-white hover:bg-brand-dark disabled:opacity-50">
-                Drukuj {render?.ok ? `(${render.count})` : ''}
-              </button>
-              <button disabled={busy} onClick={() => print(TEST_ZPL, 'Test druku')}
-                className="rounded-lg bg-slate-200 px-4 py-3 text-base font-semibold text-slate-700">
-                Test druku
-              </button>
-            </div>
-          </div>
-        )}
+        <button disabled={busy || printerBusy || !render?.ok} onClick={() => render?.zpl && print(render.zpl, `Druk ${render.count} szt`)}
+          className="w-full rounded-lg bg-brand px-4 py-3 text-base font-bold text-white hover:bg-brand-dark disabled:opacity-50">
+          Drukuj {render?.ok ? `(${render.count})` : ''}
+        </button>
 
         {/* Awaryjny druk USB bez BrowserPrint: pobierz ZPL i wyślij przez Zebra Setup Utilities */}
         {render?.ok && (

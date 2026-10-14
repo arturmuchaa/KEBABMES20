@@ -25,12 +25,23 @@ export const STATUS_ZPL = '~HS'
 export const PRINT_CONFIG_ZPL = '~WC'
 
 export interface PrinterStatus {
+  /** Pełne trzy wiersze ~HS; pustej odpowiedzi nie wolno uznać za gotowość. */
+  valid: boolean
   /** Długość etykiety, jaką drukarka ma u siebie — w punktach. */
   labelLengthDots: number | null
   /** To samo w milimetrach, przy rozdzielczości drukarki. */
   labelLengthMm: number | null
   paperOut: boolean
   paused: boolean
+  bufferFull: boolean
+  formatsInBuffer: number
+  labelsRemaining: number
+  headOpen: boolean
+  ribbonOut: boolean
+  tooCold: boolean
+  tooHot: boolean
+  corruptRam: boolean
+  partialFormat: boolean
 }
 
 export interface PrinterIdentity {
@@ -52,9 +63,12 @@ function odczyszczone(raw: string): string {
  */
 export function parsePrinterStatus(raw: string, dpi: number = LABEL_DPI): PrinterStatus {
   const pusty: PrinterStatus = {
-    labelLengthDots: null, labelLengthMm: null, paperOut: false, paused: false,
+    valid: false, labelLengthDots: null, labelLengthMm: null, paperOut: false, paused: false,
+    bufferFull: false, formatsInBuffer: 0, labelsRemaining: 0, headOpen: false,
+    ribbonOut: false, tooCold: false, tooHot: false, corruptRam: false, partialFormat: false,
   }
-  const wiersz = odczyszczone(raw).split('\n').map(w => w.trim()).find(w => w.includes(','))
+  const rows = (raw ?? '').replace(/[\x02\r]/g, '').split(/[\x03\n]/).map(w => w.trim()).filter(Boolean)
+  const wiersz = rows.find(w => /^\d{3},[01],[01],\d+,/.test(w))
   if (!wiersz) return pusty
 
   const pola = wiersz.split(',')
@@ -62,11 +76,24 @@ export function parsePrinterStatus(raw: string, dpi: number = LABEL_DPI): Printe
 
   const dots = Number.parseInt(pola[3], 10)
   const ok = Number.isFinite(dots) && dots > 0
+  const second = rows[rows.indexOf(wiersz) + 1]?.split(',') ?? []
+  const third = rows[rows.indexOf(wiersz) + 2]?.split(',') ?? []
   return {
+    valid: pola.length === 12 && second.length === 11 && third.length === 2
+      && [...pola, ...second, ...third].every(p => /^\d+$/.test(p.trim())) && ok,
     labelLengthDots: ok ? dots : null,
     labelLengthMm: ok ? Math.round((dots * 25.4) / dpi * 10) / 10 : null,
     paperOut: pola[1]?.trim() === '1',
     paused: pola[2]?.trim() === '1',
+    formatsInBuffer: Number(pola[4]) || 0,
+    bufferFull: pola[5] === '1',
+    partialFormat: pola[7] === '1',
+    corruptRam: pola[9] === '1',
+    tooCold: pola[10] === '1',
+    tooHot: pola[11] === '1',
+    headOpen: second[2] === '1',
+    ribbonOut: second[3] === '1',
+    labelsRemaining: Number(second[8]) || 0,
   }
 }
 
@@ -74,7 +101,9 @@ export function parsePrinterStatus(raw: string, dpi: number = LABEL_DPI): Printe
 export function parsePrinterIdentity(raw: string): PrinterIdentity {
   const tekst = odczyszczone(raw).trim()
   const pola = tekst.split(',').map(p => p.trim())
-  const dpi = Number.parseInt((pola[2] ?? '').replace(/[^0-9]/g, ''), 10)
+  const resolution = Number.parseInt((pola[2] ?? '').replace(/[^0-9]/g, ''), 10)
+  // ~HI na serii G podaje dots/mm (8), nie zawsze dpi (203).
+  const dpi = ({ 6: 152, 8: 203, 12: 300, 24: 600 } as Record<number, number>)[resolution] ?? resolution
   return {
     model: pola[0] || '',
     firmware: pola[1] || '',
@@ -103,14 +132,30 @@ export function printerSummary(
     )
     if (Math.abs(roznica) >= 1) {
       linie.push(
-        `⚠ Rozjazd ${roznica > 0 ? '+' : ''}${String(roznica).replace('.', ',')} mm — TO jest przyczyna.`
-        + ' Wpisz zmierzoną długość w „Skok taśmy" albo uruchom „Kalibruj etykiety".',
+        `⚠ Różnica ${roznica > 0 ? '+' : ''}${String(roznica).replace('.', ',')} mm.`
+        + ' Sprawdź rolkę i kalibrację; odczyt może uwzględniać przerwę między etykietami.',
       )
     }
   }
-  if (status.paperOut) linie.push('⚠ Drukarka zgłasza brak papieru.')
-  if (status.paused) linie.push('⚠ Drukarka jest w pauzie.')
+  linie.push(...printerProblems(status).map(p => `⚠ ${p}`))
+  if (status.formatsInBuffer || status.labelsRemaining) {
+    linie.push(`W buforze: ${status.formatsInBuffer} formatów; pozostało etykiet: ${status.labelsRemaining}.`)
+  }
   return linie
+}
+
+export function printerProblems(status: PrinterStatus): string[] {
+  return [
+    status.paperOut && 'Drukarka zgłasza brak papieru.',
+    status.paused && 'Drukarka jest w pauzie.',
+    status.headOpen && 'Pokrywa / głowica drukarki jest otwarta.',
+    status.ribbonOut && 'Drukarka zgłasza brak kalki. Dla Waszych rolek wybierz druk termiczny bez kalki.',
+    status.bufferFull && 'Bufor drukarki jest pełny. Poczekaj na zakończenie poprzednich wydruków.',
+    status.tooHot && 'Głowica drukarki jest przegrzana.',
+    status.tooCold && 'Głowica drukarki jest zbyt zimna.',
+    status.corruptRam && 'Drukarka zgłasza błąd pamięci RAM.',
+    status.partialFormat && 'W buforze jest niekompletny format. Sprawdź poprzednie zadanie i połączenie USB.',
+  ].filter((p): p is string => Boolean(p))
 }
 
 /**

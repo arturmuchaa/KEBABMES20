@@ -31,12 +31,9 @@ export const LABEL_H_MM = 150
 export const LABEL_DPI_KEY = 'kebab.masownia.labelDpi'
 
 export function labelDpi(): number {
-  try {
-    const zapisane = Number(localStorage.getItem(LABEL_DPI_KEY))
-    return zapisane === 300 || zapisane === 203 ? zapisane : LABEL_DPI
-  } catch {
-    return LABEL_DPI   // prywatne okno / zablokowane dane — działa jak 203
-  }
+  // Wszystkie stanowiska mają GC420t 203 dpi (potwierdzone 14.10.2026).
+  // Stare przełączenie w menu na 300 dpi nie może powiększać wydruku o 48%.
+  return LABEL_DPI
 }
 
 /** Wysokość wiersza składu w mm. */
@@ -261,6 +258,7 @@ export function mixingLabelZpl(
     // `^LH` tego ustawienia NIE zeruje (zgłoszenie z hali 18.09.2026).
     '^LT0',
     '^MNY',                              // etykiety wykrawane — szukaj przerwy
+    '^MTD',                              // druk termiczny bez kalki
     '^LS0',
     ...body,
     '^XZ',
@@ -297,7 +295,7 @@ export function labelTestZpl({ dpi = labelDpi() }: { dpi?: number } = {}): strin
     '^XA', '^CI28',
     `^PW${mmToDots(LABEL_W_MM, dpi)}`,
     `^LL${mmToDots(LABEL_H_MM, dpi)}`,
-    '^LH0,0', '^LT0', '^MNY', '^LS0',
+    '^LH0,0', '^LT0', '^MNY', '^MTD', '^LS0',
     ...body,
     '^XZ',
   ].join('\n')

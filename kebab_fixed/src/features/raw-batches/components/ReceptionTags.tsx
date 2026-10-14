@@ -376,7 +376,7 @@ function PrinterCalibration({
           <div className="space-y-1">
             <CardTitle className="text-sm">Kalibracja drukarki</CardTitle>
             <CardDescription className="max-w-2xl">
-              Jeśli zawieszki schodzą przesunięte, zacznij od „Kalibruj etykiety" — drukarka
+              Jeśli zawieszki schodzą przesunięte, zacznij od „Zmieniam rolkę / kalibruj" w panelu drukarki — drukarka
               wypuści kilka sztuk i sama zmierzy etykietę z przerwą. Przesunięcia poniżej
               dosuwają sam WYDRUK i pamięta je ten komputer. <strong>Punkt odrywania</strong> to
               nastawa samej drukarki: zapisuje się w niej i zostaje tam także po wyłączeniu —
@@ -393,13 +393,13 @@ function PrinterCalibration({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button
+          {onCalibratePrinter && <Button
             variant="outline" size="sm" className="gap-2"
             aria-label="Kalibruj etykiety" disabled={busy || !onCalibratePrinter}
             onClick={() => onCalibratePrinter?.()}
           >
             <Crosshair size={14} /> Kalibruj etykiety
-          </Button>
+          </Button>}
           <Button
             variant="outline" size="sm" className="gap-2"
             aria-label="Wydruk testowy" disabled={busy || !onTestPrint}

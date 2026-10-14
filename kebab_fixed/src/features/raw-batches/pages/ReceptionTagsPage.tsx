@@ -11,29 +11,25 @@
  * dokumentu, most do drukarki i nastawa kalibracyjna stanowiska
  * (`tagPrinterCalibration` — tam opisane, dlaczego wychodziła „co druga krzywo").
  */
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 
 import { useApi } from '@/hooks/useApi'
 import { receptionsApi, suppliersApi } from '@/lib/apiClient'
-import { getDevices, probeBrowserPrint, sendThenReadZpl, sendZpl } from '@/lib/zebra'
-
-import { LABEL_H_MM } from '@/features/deboning/byproductLabelZpl'
+import { getDevices, probeBrowserPrint, readZebraStatus, sendZplJobs, withZebraPrinter, zebraErrorMessage } from '@/lib/zebra'
+import { ZebraPrinterPanel } from '@/components/ZebraPrinterPanel'
 
 import { ReceptionTags } from '../components/ReceptionTags'
 import { DEFAULT_CONTAINERS_PER_PALLET } from '../palletTags'
 import {
-  IDENTIFY_ZPL, PRINT_CONFIG_ZPL, SET_ZPL_MODE, STATUS_ZPL,
-  epLModeSuspected, parsePrinterIdentity, parsePrinterStatus, printerSummary,
+  IDENTIFY_ZPL, parsePrinterIdentity, printerSummary,
 } from '../printerStatus'
 import type { ReceptionTagInput } from '../receptionTagZpl'
 import { receptionTagsPrintJobs, tagPrintDelayMs } from '../receptionTagsPrint'
 
-/** Czekanie między zawieszkami — patrz komentarz w `send`. */
-const pauza = (ms: number) => new Promise<void>(res => setTimeout(res, ms))
 import {
-  CALIBRATE_ZPL, calibrationTestZpl, loadCalibration, saveCalibration,
+  calibrationTestZpl, LABEL_LENGTH_MIN_MM, LABEL_LENGTH_MAX_MM, loadCalibration, saveCalibration,
   tearOffZpl, type TagPrinterCalibration,
 } from '../tagPrinterCalibration'
 
@@ -47,6 +43,8 @@ export function ReceptionTagsPage() {
   const suppliers = useApi(() => suppliersApi.list())
 
   const [printing, setPrinting] = useState(false)
+  const printingRef = useRef(false)
+  const [printerBusy, setPrinterBusy] = useState(false)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
   // Nastawa jest cechą TEGO stanowiska (drukarka + rolka), więc czytamy ją z
   // localStorage, a nie z bazy — drugie biurko ma inną drukarkę.
@@ -55,12 +53,13 @@ export function ReceptionTagsPage() {
   const [printerInfo, setPrinterInfo] = useState<string | null>(null)
   // Długość etykiety ZMIERZONA przez drukarkę; to ona rozstrzyga spór o skok taśmy.
   const [printerLabelLengthMm, setPrinterLabelLengthMm] = useState<number | null>(null)
-  const [eplPodejrzenie, setEplPodejrzenie] = useState(false)
 
   const dostawca = (suppliers.data ?? []).find(s => s.id === reception.data?.supplierId)
 
   /** Wyślij ciąg zadań na drukarkę etykiet; komunikat błędu tłumaczy sonda. */
   const send = useCallback(async (jobs: string[], ok: string) => {
+    if (printingRef.current) return
+    printingRef.current = true
     setPrinting(true)
     setMessage(null)
     try {
@@ -72,10 +71,10 @@ export function ReceptionTagsPage() {
       // ląduje w buforze naraz i GC420t dojeżdża do punktu odrywania dopiero
       // po ostatniej etykiecie — wcześniejsze biuro odrywało w poprzek
       // (zgłoszenie 26.08.2026).
-      for (let i = 0; i < jobs.length; i++) {
-        await sendZpl(dev, jobs[i])
-        if (i < jobs.length - 1) await pauza(tagPrintDelayMs(calibration.labelLengthMm))
-      }
+      await sendZplJobs(dev, jobs, {
+        delayMs: tagPrintDelayMs(calibration.labelLengthMm),
+        onProgress: (sent, total) => setMessage({ ok: true, text: `Przekazano do BrowserPrint: ${sent}/${total} zadań…` }),
+      })
       setMessage({ ok: true, text: ok })
     } catch (e: any) {
       // Zwykle to nie błąd druku, tylko brak/zablokowana usługa BrowserPrint —
@@ -83,12 +82,11 @@ export function ReceptionTagsPage() {
       const probe = await probeBrowserPrint()
       setMessage({
         ok: false,
-        text: probe.ok
-          ? (e?.message || 'Nie udało się wysłać na drukarkę')
-          : (probe.reason ?? 'Brak połączenia z drukarką etykiet'),
+        text: `${zebraErrorMessage(e)}${!probe.ok && probe.reason ? ` ${probe.reason}` : ''}`,
       })
     } finally {
       setPrinting(false)
+      printingRef.current = false
     }
   }, [calibration.labelLengthMm])
 
@@ -120,17 +118,6 @@ export function ReceptionTagsPage() {
     }
   }, [calibration.tearOffMm, send])
 
-  /** Trwałe przestawienie drukarki na ZPL — raz na drukarkę. */
-  const setZplMode = useCallback(() => void send(
-    [SET_ZPL_MODE],
-    'Wysłano przestawienie na ZPL. Wyłącz i włącz drukarkę, potem odczytaj ustawienia ponownie.',
-  ), [send])
-
-  const calibratePrinter = useCallback(() => void send(
-    [CALIBRATE_ZPL],
-    'Kalibracja uruchomiona — drukarka wypuści kilka etykiet i zmierzy taśmę.',
-  ), [send])
-
   const testPrint = useCallback(() => void send(
     [calibrationTestZpl(calibration)],
     'Wydruk testowy wysłany — sprawdź, czy ramka mieści się w całości na etykiecie.',
@@ -141,11 +128,12 @@ export function ReceptionTagsPage() {
    *
    * `^HH` odpadło: GC420t oddaje na nie pustkę (biuro 22.08.2026), choć zapis
    * działa. Stara seria G zna komendy natychmiastowe `~HI` i `~HS`, a `~HS`
-   * niesie DŁUGOŚĆ ETYKIETY w punktach — jedyną liczbę, która rozstrzyga, czy
-   * drukarka i my mówimy o tej samej etykiecie. Gdy i to milczy, każemy jej
-   * WYDRUKOWAĆ etykietę konfiguracyjną (`~WC`) — z papieru odczyta się zawsze.
+   * niesie DŁUGOŚĆ ETYKIETY w punktach. Brak odpowiedzi nie potwierdza
+   * gotowości i nie uruchamia automatycznie kolejnego wydruku.
    */
   const readPrinter = useCallback(async () => {
+    if (printingRef.current) return
+    printingRef.current = true
     setPrinting(true)
     setMessage(null)
     try {
@@ -153,54 +141,32 @@ export function ReceptionTagsPage() {
       const dev = def ?? list[0]
       if (!dev) throw new Error('Nie znaleziono drukarki etykiet')
 
-      const surowaId = await sendThenReadZpl(dev, IDENTIFY_ZPL).catch(() => '')
-      const surowyStatus = await sendThenReadZpl(dev, STATUS_ZPL).catch(() => '')
-
+      const { surowaId, status, surowyStatus } = await withZebraPrinter(dev, async io => {
+        const surowaId = await io.read(IDENTIFY_ZPL)
+        const result = await readZebraStatus(io)
+        return { surowaId, status: result.status, surowyStatus: result.raw }
+      })
       const identity = parsePrinterIdentity(surowaId)
-      const status = parsePrinterStatus(surowyStatus)
       const podsumowanie = printerSummary(identity, status, calibration.labelLengthMm)
-      setPrinterLabelLengthMm(status.labelLengthMm)
+      setPrinterLabelLengthMm(status.valid ? status.labelLengthMm : null)
 
-      if (podsumowanie.length === 0) {
-        // Drukarka nie gada — niech wydrukuje konfigurację na taśmie.
-        setPrinterLabelLengthMm(null)
-        await sendZpl(dev, PRINT_CONFIG_ZPL)
-        setPrinterInfo(
-          'Drukarka nie odpowiada na pytania (stary firmware).\n'
-          + 'Wysłałem polecenie wydruku etykiety konfiguracyjnej — wyjdzie z drukarki.\n'
-          + 'Szukaj na niej wiersza LABEL LENGTH i porównaj go ze 100 mm zawieszki.',
-        )
-        setMessage({ ok: true, text: 'Drukarka wypuści etykietę z konfiguracją' })
-        return
-      }
-
-      // Milczące `~HI` przy działającym `~HS` znaczy, że drukarka stoi
-      // w EPL — wtedy trwałe nastawy ZPL (punkt odrywania, śledzenie taśmy)
-      // przechodzą bez echa i biuro widzi „wpisane, a nic nie zmienia".
-      const epl = epLModeSuspected({ identify: surowaId, status: surowyStatus })
-      setEplPodejrzenie(epl)
       setPrinterInfo([
         ...podsumowanie,
-        ...(epl ? [
-          '',
-          '⚠ Drukarka pracuje w trybie EPL, nie ZPL.',
-          'Formaty jeszcze się drukują, ale punkt odrywania i śledzenie taśmy',
-          'nie mają się gdzie zapisać — stąd urwane etykiety i czerwona kontrolka.',
-          'Kliknij „Przestaw na ZPL" — to nastawa trwała, raz na drukarkę.',
-        ] : []),
+        ...(!status.valid ? ['Brak pełnego statusu. Sprawdź zieloną kontrolkę, papier, pokrywę i USB.'] : []),
         '',
         `~HI: ${surowaId.trim() || '(brak odpowiedzi)'}`,
         `~HS: ${surowyStatus.trim() || '(brak odpowiedzi)'}`,
       ].join('\n'))
-      setMessage({ ok: true, text: 'Odczytano ustawienia drukarki' })
+      setMessage({ ok: status.valid, text: status.valid ? 'Odczytano ustawienia drukarki' : 'Nie otrzymano pełnego statusu drukarki' })
     } catch (e: any) {
       setPrinterInfo(null)
       setPrinterLabelLengthMm(null)
       setMessage({ ok: false, text: e?.message || 'Nie udało się odczytać ustawień drukarki' })
     } finally {
       setPrinting(false)
+      printingRef.current = false
     }
-  }, [])
+  }, [calibration.labelLengthMm])
 
   /** Przenieś ZMIERZONĄ przez drukarkę długość etykiety do nastawy stanowiska.
    *  Spór o skok taśmy rozstrzyga drukarka, nie nasza stała 100 mm: po `~JC`
@@ -208,6 +174,10 @@ export function ReceptionTagsPage() {
    *  wypychały odrywanie dokładnie na nagłówek następnej zawieszki. */
   const applyPrinterLabelLength = useCallback(() => {
     if (printerLabelLengthMm === null) return
+    if (printerLabelLengthMm < LABEL_LENGTH_MIN_MM || printerLabelLengthMm > LABEL_LENGTH_MAX_MM) {
+      toast.error('Odczyt nie pasuje do zawieszki 80 × 100 mm. Sprawdź rolkę i kalibrację.')
+      return
+    }
     changeCalibration({ ...calibration, labelLengthMm: printerLabelLengthMm })
     toast.success(`Skok taśmy z drukarki: ${String(printerLabelLengthMm).replace('.', ',')} mm`)
   }, [printerLabelLengthMm, calibration, changeCalibration])
@@ -232,22 +202,25 @@ export function ReceptionTagsPage() {
   }
 
   return (
+    <div className="space-y-4">
+    <ZebraPrinterPanel defaultProfile="80x100" disabled={printing} onBusyChange={setPrinterBusy}
+      onCalibrated={(profile, mm) => { if (profile === '80x100') setPrinterLabelLengthMm(mm) }} />
     <ReceptionTags
       reception={reception.data}
       defaultContainersPerPallet={dostawca?.containersPerPallet ?? DEFAULT_CONTAINERS_PER_PALLET}
       onPrint={print}
       onRememberLayout={dostawca ? rememberLayout : undefined}
       onClose={() => navigate(LIST_PATH)}
-      printing={printing}
+      printing={printing || printerBusy}
       message={message}
       calibration={calibration}
       onCalibrationChange={changeCalibration}
-      onCalibratePrinter={calibratePrinter}
       onTestPrint={testPrint}
       onReadPrinter={readPrinter}
       printerInfo={printerInfo}
       printerLabelLengthMm={printerLabelLengthMm}
       onApplyPrinterLabelLength={applyPrinterLabelLength}
     />
+    </div>
   )
 }

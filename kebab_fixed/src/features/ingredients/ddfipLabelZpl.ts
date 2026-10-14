@@ -196,6 +196,7 @@ export function ddfipLabelZpl(
     `^LL${mmToDots(labelLengthMm, dpi)}`,
     '^LH0,0',
     '^MNY',
+    '^MTD',
     ...body,
     '^XZ',
   ].join('')

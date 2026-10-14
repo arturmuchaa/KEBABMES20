@@ -128,6 +128,7 @@ export function byproductLabelZpl(
     // przerwy, a nie traktować taśmy jako ciągłej. Bez tego dojeżdża w połowie
     // następnej etykiety i miga na czerwono (hala, 14.08.2026).
     '^MNY',
+    '^MTD', // GC420t: etykiety termiczne, bez kalki
     '^LS0',
     ...body,
     '^XZ',

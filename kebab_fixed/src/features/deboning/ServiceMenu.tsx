@@ -13,14 +13,10 @@
  * fizycznego dostępu do BIOS-u.
  */
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Delete, History, LogOut, PenLine, Printer, Wrench } from 'lucide-react'
+import { Delete, History, LogOut, PenLine, Wrench } from 'lucide-react'
 import { invoke } from '@tauri-apps/api/core'
 import { BASE } from '@/lib/api'
-import { getDevices, sendZpl } from '@/lib/zebra'
-import { byproductLabelZpl } from '@/features/deboning/byproductLabelZpl'
-import {
-  CALIBRATE_ZPL, TEAR_OFF_STORAGE_KEY, tearOffMaxMm, tearOffZpl,
-} from '@/features/deboning/labelPrinterSetup'
+import { ZebraPrinterPanel } from '@/components/ZebraPrinterPanel'
 import { SignatureSamplesScreen } from '@/features/signatures/SignatureSamplesScreen'
 
 export const SERVICE_CODE = '0099'
@@ -180,56 +176,6 @@ export function ServiceMenuModal({
       .catch(e => setScaleDiag(`Błąd diagnostyki: ${e}`))
   }, [ok])
 
-  // ── Drukarka etykiet ──────────────────────────────────────────────────────
-  //
-  // Punkt zatrzymania taśmy po wydruku to cecha KONKRETNEJ drukarki i rolki,
-  // nie układu etykiety — hala ustawia go tutaj raz, a drukarka zapamiętuje
-  // wartość u siebie (hala 14.08.2026: „przerywa w złym miejscu").
-  const [tearOffMm, setTearOffMm] = useState(() => {
-    const zapisane = Number(localStorage.getItem(TEAR_OFF_STORAGE_KEY) ?? '0')
-    return Number.isFinite(zapisane) ? zapisane : 0
-  })
-  const [printerMsg, setPrinterMsg] = useState<string | null>(null)
-  const [printerBusy, setPrinterBusy] = useState(false)
-  const maxMm = tearOffMaxMm()
-
-  const sendToPrinter = useCallback(async (zpl: string, komunikat: string) => {
-    setPrinterBusy(true)
-    setPrinterMsg(null)
-    try {
-      const { default: def, list } = await getDevices()
-      const dev = def ?? list[0]
-      if (!dev) throw new Error('Nie znaleziono drukarki etykiet')
-      await sendZpl(dev, zpl)
-      setPrinterMsg(komunikat)
-    } catch (e: any) {
-      setPrinterMsg(`Błąd: ${e?.message || e}`)
-    } finally {
-      setPrinterBusy(false)
-    }
-  }, [])
-
-  /** Przesuń punkt odrywania o `krok` mm i zapamiętaj nastawę. */
-  const nudgeTearOff = useCallback((krok: number) => {
-    const nowa = Math.round(Math.min(maxMm, Math.max(-maxMm, tearOffMm + krok)) * 10) / 10
-    setTearOffMm(nowa)
-    localStorage.setItem(TEAR_OFF_STORAGE_KEY, String(nowa))
-    void sendToPrinter(tearOffZpl(nowa), `Punkt odrywania: ${nowa > 0 ? '+' : ''}${nowa} mm`)
-  }, [maxMm, tearOffMm, sendToPrinter])
-
-  const printTestLabel = useCallback(() => {
-    const dzis = new Date()
-    const p = (n: number) => String(n).padStart(2, '0')
-    const iso = `${dzis.getFullYear()}-${p(dzis.getMonth() + 1)}-${p(dzis.getDate())}`
-    void sendToPrinter(
-      byproductLabelZpl({
-        kind: 'backs', batchNo: '000', netKg: 123.4,
-        productionDate: iso, expiryDate: iso,
-      }),
-      'Wydruk testowy wysłany',
-    )
-  }, [sendToPrinter])
-
   const pressKey = useCallback((k: string) => {
     setErr(false)
     setCode(prev => k === '⌫' ? prev.slice(0, -1) : (prev + k).slice(0, 4))
@@ -248,7 +194,7 @@ export function ServiceMenuModal({
   }
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40" style={SVC_VARS}>
-      <div className="w-[380px] p-8 flex flex-col gap-6" style={{ borderRadius: 14, background: 'var(--svcPanel)', border: '1px solid var(--svcLine)', color: 'var(--svcInk)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.3)' }}>
+      <div className="w-[560px] max-w-[95vw] max-h-[95vh] overflow-y-auto p-6 flex flex-col gap-6" style={{ borderRadius: 14, background: 'var(--svcPanel)', border: '1px solid var(--svcLine)', color: 'var(--svcInk)', boxShadow: '0 20px 60px -20px rgba(0,0,0,.3)' }}>
         <div className="flex items-center gap-4">
           <div className="w-14 h-14 flex items-center justify-center flex-shrink-0" style={{ borderRadius: 12, background: 'var(--svcBg)', border: '1px solid var(--svcLine)', color: 'var(--svcMut)' }}><Wrench size={26} /></div>
           <div>
@@ -289,54 +235,7 @@ export function ServiceMenuModal({
             </div>
             {extra}
 
-            {/* Regulacja drukarki etykiet — wprost na ekranie hali, bo tu stoi
-                drukarka i tu widać efekt każdego kroku. */}
-            {pokazDrukarke && (
-            <div className="flex flex-col gap-2">
-              <span className="text-xs font-bold uppercase flex items-center gap-2"
-                style={{ color: 'var(--svcMut)', letterSpacing: '.1em' }}>
-                <Printer size={14} /> Drukarka etykiet
-              </span>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={() => nudgeTearOff(-1)} disabled={printerBusy}
-                  className="h-12 flex-1 text-lg font-bold"
-                  style={{ borderRadius: 10, border: '1px solid var(--svcLine)', background: 'var(--svcBg)' }}>
-                  − 1 mm
-                </button>
-                <div className="w-24 text-center font-extrabold text-lg" style={{ fontFamily: MONO }}>
-                  {tearOffMm > 0 ? '+' : ''}{tearOffMm} mm
-                </div>
-                <button type="button" onClick={() => nudgeTearOff(1)} disabled={printerBusy}
-                  className="h-12 flex-1 text-lg font-bold"
-                  style={{ borderRadius: 10, border: '1px solid var(--svcLine)', background: 'var(--svcBg)' }}>
-                  + 1 mm
-                </button>
-              </div>
-              <p className="text-[11px] leading-snug" style={{ color: 'var(--svcMut)' }}>
-                Plus wysuwa taśmę dalej, minus cofa. Ustaw tak, żeby oderwanie wypadało
-                na przerwie między naklejkami.
-              </p>
-              <div className="flex gap-2">
-                <button type="button" onClick={() => void sendToPrinter(CALIBRATE_ZPL, 'Kalibracja uruchomiona — drukarka wypuści kilka etykiet')}
-                  disabled={printerBusy}
-                  className="h-12 flex-1 text-sm font-bold"
-                  style={{ borderRadius: 10, border: '1px solid var(--svcLine)', background: 'var(--svcBg)' }}>
-                  Kalibruj etykiety
-                </button>
-                <button type="button" onClick={printTestLabel} disabled={printerBusy}
-                  className="h-12 flex-1 text-sm font-bold"
-                  style={{ borderRadius: 10, border: '1px solid var(--svcLine)', background: 'var(--svcBg)' }}>
-                  Wydruk testowy
-                </button>
-              </div>
-              {printerMsg && (
-                <div className="text-xs font-semibold px-3 py-2"
-                  style={{ borderRadius: 8, background: 'var(--svcBg)', border: '1px solid var(--svcLine)' }}>
-                  {printerMsg}
-                </div>
-              )}
-            </div>
-            )}
+            {pokazDrukarke && <ZebraPrinterPanel defaultProfile={channel === 'magazyn' ? '100x150' : '50x80'} />}
 
             {/* Wzory podpisów — to JEDYNY dotykowy ekran w zakładzie, więc
                 wzór podpisu HACCP musi powstawać właśnie tutaj. Ekran

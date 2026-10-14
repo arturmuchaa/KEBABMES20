@@ -171,6 +171,7 @@ export function etykietaWagiZpl(w: WazenieMrozni, { kod }: OpcjeEtykiety): strin
     '^FWN',
     '^LRN',
     '^MNY',
+    '^MTD',
     '^LS0',
     ...body,
     '^XZ',

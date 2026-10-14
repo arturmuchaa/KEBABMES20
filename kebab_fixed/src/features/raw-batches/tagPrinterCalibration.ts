@@ -12,7 +12,7 @@
  * w każdej etykiecie. Wyniesienie ich do preambuły wysyłanej raz na serię
  * urwało wydruki w 3/4 etykiety na Zebrze GC420t — bez `^LL` w formacie
  * drukarka bierze długość zapisaną u siebie. Komendy wróciły do każdej
- * etykiety, a serię wysyłamy jednym strumieniem (`receptionTagsStreamZpl`).
+ * etykiety; seria ma osobne zadania i przerwy (`receptionTagsPrintJobs`).
  *
  * Jeżeli po kalibracji wydruk nadal siedzi krzywo o stałą wartość — to już
  * cecha rolki i drukarki, nie logiki — biuro dosuwa go `offsetXMm`/`offsetYMm`.
@@ -190,6 +190,7 @@ export function calibrationTestZpl(
     `^LL${mmToDots(c.labelLengthMm, dpi)}`,
     '^LH0,0',
     '^MNY',
+    '^MTD',
     '^LS0',
     // Krawędź etykiety — musi wyjść w całości, na wszystkich czterech bokach.
     `${fo(0, 0)}^GB${dot(TAG_W_MM)},${dot(TAG_H_MM)},${gruba}^FS`,

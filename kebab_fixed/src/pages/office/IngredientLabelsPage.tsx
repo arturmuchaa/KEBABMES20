@@ -9,7 +9,7 @@
  * JEDNA etykieta na POZYCJĘ, nie na dokument: jedno auto przywozi przyprawę,
  * folię i osłonkę naraz, a każda z nich stoi potem gdzie indziej.
  */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ArrowLeft, Printer } from 'lucide-react'
@@ -17,7 +17,8 @@ import { ArrowLeft, Printer } from 'lucide-react'
 import { useApi } from '@/hooks/useApi'
 import { ingredientReceptionsApi } from '@/lib/apiClient'
 import type { IngredientReception } from '@/lib/api'
-import { getDevices, probeBrowserPrint, sendZpl } from '@/lib/zebra'
+import { getDevices, probeBrowserPrint, sendZplJobs, zebraErrorMessage } from '@/lib/zebra'
+import { ZebraPrinterPanel } from '@/components/ZebraPrinterPanel'
 import { fmtDatePl } from '@/lib/utils'
 import { ddfipLabelZpl } from '@/features/ingredients/ddfipLabelZpl'
 
@@ -30,10 +31,6 @@ import {
 
 const LIST_PATH = '/office/przyjecie-ddfip'
 
-/** Przerwa MIĘDZY etykietami: BrowserPrint oddaje sterowanie zanim drukarka
- *  zdąży odciąć poprzednią, a zlepione zadania wychodzą krzywo. */
-const pauza = (ms: number) => new Promise<void>(res => setTimeout(res, ms))
-
 export function IngredientLabelsPage() {
   const { receptionId = '' } = useParams()
   const navigate = useNavigate()
@@ -42,10 +39,15 @@ export function IngredientLabelsPage() {
 
   const [kopie, setKopie] = useState<Record<string, string>>({})
   const [drukuje, setDrukuje] = useState(false)
+  const busyRef = useRef(false)
+  const [printerBusy, setPrinterBusy] = useState(false)
+  const [progress, setProgress] = useState('')
 
   const dokument = data as IngredientReception | null
 
   async function drukuj(zadania: string[], komunikat: string) {
+    if (busyRef.current || printerBusy) return
+    busyRef.current = true
     setDrukuje(true)
     try {
       const { default: def, list } = await getDevices()
@@ -55,15 +57,16 @@ export function IngredientLabelsPage() {
         throw new Error(sonda.reason
           ?? 'Nie znaleziono drukarki etykiet — sprawdź, czy Zebra jest włączona.')
       }
-      for (let i = 0; i < zadania.length; i++) {
-        await sendZpl(dev, zadania[i])
-        if (i < zadania.length - 1) await pauza(400)
-      }
+      await sendZplJobs(dev, zadania, {
+        onProgress: (sent, total) => setProgress(`Przekazano do BrowserPrint ${sent}/${total} zadań (zadanie może zawierać kilka kopii).`),
+      })
       toast.success(komunikat)
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Błąd druku')
+      setProgress(zebraErrorMessage(e))
+      toast.error(zebraErrorMessage(e))
     } finally {
       setDrukuje(false)
+      busyRef.current = false
     }
   }
 
@@ -101,6 +104,8 @@ export function IngredientLabelsPage() {
         </CardDescription>
       </div>
 
+      <ZebraPrinterPanel defaultProfile="100x150" disabled={drukuje} onBusyChange={setPrinterBusy} />
+      {progress && <p role="status" className="text-sm">{progress}</p>}
       <Card>
         <CardContent className="p-0">
           <Table>
@@ -133,7 +138,7 @@ export function IngredientLabelsPage() {
                       onChange={e => setKopie(k => ({ ...k, [l.id]: e.target.value }))} />
                   </TableCell>
                   <TableCell>
-                    <Button size="sm" variant="outline" disabled={drukuje}
+                    <Button size="sm" variant="outline" disabled={drukuje || printerBusy}
                       onClick={() => drukuj([zplDlaPozycji(l)], `Etykieta „${l.ingredientName}" wysłana`)}>
                       <Printer size={13} className="mr-1" /> Drukuj
                     </Button>
@@ -157,7 +162,7 @@ export function IngredientLabelsPage() {
       {dokument.lines.length > 0 && (
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => navigate(LIST_PATH)}>Gotowe</Button>
-          <Button disabled={drukuje}
+          <Button disabled={drukuje || printerBusy}
             onClick={() => drukuj(dokument.lines.map(zplDlaPozycji),
               `Wysłano ${dokument.lines.length} etykiet`)}>
             <Printer size={15} className="mr-1.5" />

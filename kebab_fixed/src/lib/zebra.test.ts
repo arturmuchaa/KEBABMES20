@@ -1,0 +1,196 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  discoverZebraDevices, getDevices, sendThenReadZpl, sendZpl, sendZplJobs,
+  ZEBRA_TIMEOUT_MS, type ZebraDevice,
+} from './zebra'
+import { calibrateZebra } from './zebraPrinter'
+import { loadedZebraMedia, rememberZebraMedia, selectZebra, zebraMediaTestZpl } from './zebraProfiles'
+import { parsePrinterIdentity, parsePrinterStatus, printerProblems } from '@/features/raw-batches/printerStatus'
+
+const status = (length = 639) => `\x02030,0,0,${length},000,0,0,0,000,0,0,0\x03\r\n`
+  + '\x02001,0,0,0,0,2,4,0,00000000,1,000\x03\r\n\x021234,0\x03\r\n'
+let serial = 0
+function printer(): ZebraDevice {
+  return {
+    uid: `usb-${++serial}`, name: 'GC420t',
+    send: vi.fn((_data, ok) => ok()),
+    sendThenRead: vi.fn((data, ok) => ok(data === '~HI' ? 'GC420t,V61,8,8192' : status())),
+  }
+}
+beforeEach(() => { localStorage.clear(); vi.useFakeTimers() })
+afterEach(() => { vi.useRealTimers(); delete window.BrowserPrint })
+
+describe('wspólny transport Zebra', () => {
+  it('zachowuje tekst błędu USB i nie ponawia niepewnego wydruku', async () => {
+    const device = printer()
+    device.send = vi.fn((_data, _ok, fail) => fail('USB write failed: device disconnected'))
+    await expect(sendZpl(device, zebraMediaTestZpl('50x80'))).rejects.toThrow('USB write failed: device disconnected')
+    expect(device.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('po błędzie callbacka odblokowuje kolejkę dla ręcznej kolejnej próby', async () => {
+    const device = printer()
+    vi.mocked(device.send).mockImplementationOnce((_data, _ok, fail) => fail({ responseText: 'busy' }))
+    await expect(sendZpl(device, '~TA000')).rejects.toThrow('busy')
+    await expect(sendZpl(device, '~TA001')).resolves.toBeUndefined()
+  })
+
+  it('serializuje zapis i odczyt nawet przez różne obiekty tego samego USB', async () => {
+    const device = printer()
+    let finish!: () => void
+    device.send = vi.fn((_data, ok) => { finish = ok })
+    const first = sendZpl(device, '~TA000')
+    const second = sendThenReadZpl({ ...device }, '~HS')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(device.sendThenRead).not.toHaveBeenCalled()
+    finish()
+    await first
+    expect(await second).toBe(status())
+  })
+
+  it('timeout kończy oczekiwanie, blokuje dalszy zapis i ignoruje spóźniony sukces', async () => {
+    const device = printer()
+    let finish!: () => void
+    device.send = vi.fn((_data, ok) => { finish = ok })
+    const first = expect(sendZpl(device, '~TA000')).rejects.toThrow('Wynik operacji jest nieznany')
+    const queued = expect(sendZpl(device, '~TA001')).rejects.toThrow('nadal nie odpowiedziała')
+    await vi.advanceTimersByTimeAsync(ZEBRA_TIMEOUT_MS + 1)
+    await first; await queued
+    finish()
+    expect(device.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('zatrzymuje serię dokładnie przy awarii i podaje liczbę przekazanych zadań', async () => {
+    const device = printer()
+    vi.mocked(device.send).mockImplementationOnce((_zpl, ok) => ok())
+      .mockImplementationOnce((_zpl, _ok, fail) => fail('write error'))
+    const progress = vi.fn()
+    const done = expect(sendZplJobs(device, ['^XA^FD1^FS^XZ', '^XA^FD2^FS^XZ', '^XA^FD3^FS^XZ'], { onProgress: progress }))
+      .rejects.toThrow('Przekazano do BrowserPrint 1/3 zadań; zatrzymano na zadaniu 2')
+    await vi.runAllTimersAsync(); await done
+    expect(device.send).toHaveBeenCalledTimes(2)
+    expect(progress.mock.calls).toEqual([[0, 3], [1, 3]])
+  })
+
+  it('nie wpuszcza kalibracji w przerwę między etykietami serii', async () => {
+    const device = printer()
+    const batch = sendZplJobs(device, ['^XA^FD1^FS^XZ', '^XA^FD2^FS^XZ'], { delayMs: 2000 })
+    const command = sendZpl(device, '~JC')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(vi.mocked(device.send).mock.calls.map(c => c[0])).toEqual(['^XA^FD1^FS^XZ'])
+    await vi.runAllTimersAsync(); await batch; await command
+    expect(vi.mocked(device.send).mock.calls.map(c => c[0])).toEqual(['^XA^FD1^FS^XZ', '^XA^FD2^FS^XZ', '~JC'])
+  })
+
+  it.each(['', '\x02030,0,0,0639,000,0,0,0,000,0,0,0\x03'])('nie uznaje niepełnego statusu za gotowość', async raw => {
+    const device = printer()
+    device.sendThenRead = vi.fn((_cmd, ok) => ok(raw))
+    await expect(sendZpl(device, zebraMediaTestZpl('50x80'))).rejects.toThrow('Brak pełnej odpowiedzi')
+    expect(device.send).not.toHaveBeenCalled()
+  })
+
+  it('odbiera status podzielony przez USB na trzy ramki', async () => {
+    const device = printer()
+    const rows = status().split('\r\n')
+    device.sendThenRead = vi.fn((_cmd, ok) => ok(rows[0]))
+    device.read = vi.fn().mockImplementationOnce(ok => ok(rows[1])).mockImplementationOnce(ok => ok(rows[2]))
+    const job = sendZpl(device, zebraMediaTestZpl('50x80'))
+    await vi.runAllTimersAsync(); await job
+    expect(device.send).toHaveBeenCalledTimes(1)
+    expect(device.sendThenRead).toHaveBeenCalledTimes(1)
+  })
+
+  it('odmawia zapisu przy otwartej głowicy', async () => {
+    const device = printer()
+    device.sendThenRead = vi.fn((_cmd, ok) => ok(status().replace('001,0,0,0', '001,0,1,0')))
+    await expect(sendZpl(device, zebraMediaTestZpl('50x80'))).rejects.toThrow('głowica')
+    expect(device.send).not.toHaveBeenCalled()
+  })
+
+  it('respektuje wybór USB i nie przechodzi na inną drukarkę po odłączeniu', async () => {
+    const chosen = printer(), other = printer()
+    selectZebra(chosen.uid)
+    window.BrowserPrint = {
+      getDefaultDevice: (_type: string, ok: Function) => ok(other),
+      getLocalDevices: (ok: Function) => ok([chosen, other]),
+    }
+    expect((await getDevices()).default?.uid).toBe(chosen.uid)
+    window.BrowserPrint.getLocalDevices = (ok: Function) => ok([other])
+    expect(await getDevices()).toEqual({ default: null, list: [] })
+    expect(await discoverZebraDevices()).toEqual([other]) // panel pozwala naprawić wybór
+  })
+
+  it('nie maskuje błędu wykrywania pustą listą', async () => {
+    window.BrowserPrint = {
+      getDefaultDevice: (_type: string, _ok: Function, fail: Function) => fail('offline'),
+      getLocalDevices: (_ok: Function, fail: Function) => fail('connection refused'),
+    }
+    await expect(getDevices()).rejects.toThrow('connection refused')
+  })
+})
+
+describe('zmiana rolki GC420t', () => {
+  it('100×150 → 50×80 → 100×150: pomiar, blokada kolejki i rozmiar testu', async () => {
+    const device = printer()
+    let measured = 1199
+    device.sendThenRead = vi.fn((cmd, ok) => ok(cmd === '~HI' ? 'GC420t,V61,8,8192' : status(measured)))
+    for (const [id, dots] of [['100x150', 1199], ['50x80', 658], ['100x150', 1217]] as const) {
+      measured = dots
+      const calibrating = calibrateZebra(device, id)
+      let finished = false
+      void calibrating.then(() => { finished = true })
+      const print = sendZpl(device, zebraMediaTestZpl(id))
+      await vi.advanceTimersByTimeAsync(4900)
+      expect(finished).toBe(false)
+      const commands = vi.mocked(device.send).mock.calls.map(c => c[0])
+      expect(commands[commands.length - 1]).toBe('~JC')
+      expect(commands[commands.length - 2]).toContain('^MNY^MTD^PW')
+      expect(commands[commands.length - 2]).not.toContain('^LL')
+      await vi.runAllTimersAsync()
+      const result = await calibrating; await print
+      expect(result.lengthMm).toBeCloseTo(dots * 25.4 / 203, 1)
+      expect(loadedZebraMedia(device.uid)).toBe(id)
+    }
+  })
+
+  it('nie zatwierdza starej długości po założeniu krótszej rolki', async () => {
+    const device = printer()
+    device.sendThenRead = vi.fn((cmd, ok) => ok(cmd === '~HI' ? '' : status(1199)))
+    const result = expect(calibrateZebra(device, '50x80')).rejects.toThrow('Nie potwierdzono wyniku kalibracji')
+    await vi.runAllTimersAsync(); await result
+    await expect(sendZpl(device, zebraMediaTestZpl('50x80'))).rejects.toThrow('Nie potwierdzono ostatniej kalibracji')
+    expect(vi.mocked(device.send).mock.calls.map(c => c[0])).toEqual(['^XA^MNY^MTD^PW400^XZ', '~JC'])
+  })
+
+  it('nie kalibruje, jeśli w drukarce nadal są wcześniejsze zadania', async () => {
+    const device = printer()
+    device.sendThenRead = vi.fn((cmd, ok) => ok(cmd === '~HI' ? '' : status().replace('639,000', '639,002')))
+    await expect(calibrateZebra(device, '50x80')).rejects.toThrow('zadania w buforze')
+    expect(device.send).not.toHaveBeenCalled()
+  })
+
+  it('odrzuca projekt 100×150 na zapamiętanej rolce 50×80 przed wysłaniem', async () => {
+    const device = printer()
+    rememberZebraMedia(device.uid, '50x80')
+    await expect(sendZpl(device, zebraMediaTestZpl('100x150'))).rejects.toThrow('nie pasuje')
+    expect(device.send).not.toHaveBeenCalled()
+  })
+
+  it('pusty lub uszkodzony status nie potwierdza zakończenia kalibracji', async () => {
+    const device = printer()
+    device.sendThenRead = vi.fn((_cmd, ok) => ok(''))
+    const result = expect(calibrateZebra(device, '50x80')).rejects.toThrow('Nie potwierdzono')
+    await vi.runAllTimersAsync(); await result
+  })
+})
+
+describe('status i rozdzielczość GC420t', () => {
+  it('8 punktów/mm to 203 dpi', () => expect(parsePrinterIdentity('GC420t,V61,8,8192').dpi).toBe(203))
+  it('czyta błąd kalki, głowicy i temperatury z właściwych pól', () => {
+    const raw = status().replace('000,0,0,0\x03', '000,0,0,1\x03').replace('001,0,0,0', '001,0,1,1')
+    const parsed = parsePrinterStatus(raw)
+    expect(parsed.valid).toBe(true)
+    expect(printerProblems(parsed).join(' ')).toMatch(/głowica.*kalki.*przegrzana/i)
+  })
+})

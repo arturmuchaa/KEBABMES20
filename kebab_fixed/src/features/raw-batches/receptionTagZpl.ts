@@ -417,6 +417,7 @@ export function receptionTagZpl(
     `^LL${mmToDots(labelLengthMm, dpi)}`,
     '^LH0,0',
     '^MNY',
+    '^MTD',
     '^LS0',
     ...body,
     '^XZ',

@@ -58,6 +58,7 @@ Frontend = React + TypeScript + Vite + Tailwind (font Fira). Desktop = Tauri.
 - **Root cause before fixes** — diagnose from logs/tests/diffs; never patch a symptom.
 - **Verify before claiming done** — actually run the tests/commands and report real output; no "should work".
 - **PDF label dimensions:** the editor uses A4 coordinates. Normalize imported PDF artwork to A4 BEFORE drawing fields in mm/pt; never emit the source page size and rely on printer “Fit” (Truva, 2026-10-13: a 259 × 367 mm source shrank a configured 35 mm QR to ~28 mm). Preview and print must use the same QR margin and correction level.
+- **Zebra GC420t:** all current stations use 203 dpi, gap labels and direct thermal (no ribbon). Use the shared Zebra queue for whole batches/calibration, preserve BrowserPrint string errors, and never automatically retry an uncertain write. Each label keeps its own `^PW`/`^LL`/`^MNY`/`^MTD`; ordinary prints must not reset `~TA` or recalibrate. Calibration must not set `^LL` before reading the measurement. A BrowserPrint callback confirms transport, not physical printing; an empty/partial `~HS` is not a ready printer.
 - **Smallest change that fixes the root cause** — don't bundle drive-by refactors; but for non-trivial changes, pause and pick the sound design, not the quick hack.
 - **Solve bugs autonomously** from available diagnostics; don't bounce trivial questions back to the user.
 - **Encode lessons** — after a correction, add a rule (here or in memory) so it can't recur.

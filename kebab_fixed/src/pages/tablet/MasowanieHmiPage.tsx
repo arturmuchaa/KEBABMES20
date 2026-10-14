@@ -596,16 +596,7 @@ export function MasowanieHmiPage() {
         channel="masowanie" version={__MASOWANIE_VERSION__}
         buildLabel={`Masowanie · ${__MASOWANIE_VERSION__}`}
         sections={serviceSections('masowanie')}
-        extra={<PrinterPanel onSend={async (zpl, komunikat) => {
-          try {
-            const { default: dom, list } = await getDevices()
-            const dev = dom ?? list[0]
-            if (!dev) throw new Error('Nie znaleziono drukarki etykiet')
-            await sendZpl(dev, zpl)
-          } catch (e: any) {
-            setKomunikat(`${komunikat} — nie poszło: ${e?.message ?? 'brak drukarki'}`)
-          }
-        }} />} />
+        extra={<PrinterPanel />} />
     </div>
   )
 }
