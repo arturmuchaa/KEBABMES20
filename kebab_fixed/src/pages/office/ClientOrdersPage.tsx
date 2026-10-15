@@ -1,24 +1,28 @@
 /**
- * ClientOrdersPage — Zamówienia od kontrahentów (lista, styl Subiekt GT).
+ * ClientOrdersPage — zamówienia i zapotrzebowanie planisty.
  *
  * Sama LISTA. Wprowadzanie i edycja zamówienia mieszkają od 2026-08-23 na
  * osobnej stronie (features/orders/order-entry) — modal był za ciasny na
  * ekran, na którym operator wbija kilkanaście pozycji z klawiatury.
  */
-import { Fragment, useState, useMemo } from 'react'
+import { Fragment, useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
+import { useLiveRefresh } from '@/hooks/useLiveRefresh'
 import { clientOrdersApi } from '@/lib/apiClient'
-import { hdiApi, wzApi } from '@/lib/api'
 import { CmrFormModal } from '@/components/cmr/CmrFormModal'
 import { SplitDialog } from '@/features/orders/split/SplitDialog'
 import { useClientNames } from '@/lib/clientNames'
 import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
-import { wydane, wydaneWCalosci } from '@/features/orders/lineShipping'
+import { OrderPlanningSummary, CoverageBar } from '@/features/orders/OrderPlanningSummary'
+import { OrderLinesTable } from '@/features/orders/OrderLinesTable'
+import { OrderDocumentsMenu } from '@/features/orders/OrderDocumentsMenu'
+import { totalLines, summarizeOrders, kgText, coveragePercent, productionState } from '@/features/orders/orderPlanning'
+import '@/features/orders/order-planning.css'
 import { podzielZamowienia } from '@/features/orders/orderBuckets'
 import {
-  Check, CheckCircle2, ChevronDown, ChevronUp, ChevronsUpDown, Clock,
-  Pencil, Plus, Printer, RotateCcw, ShoppingCart, Trash2, Truck, X, Search, Download,
+  Check, ChevronDown, ChevronUp, ChevronsUpDown,
+  Pencil, Plus, RotateCcw, ShoppingCart, Trash2, X, Search, Download,
 } from 'lucide-react'
 import { PalletsEditor } from '@/components/orders/PalletsEditor'
 import { StockCartonSuggestions } from '@/features/finished-goods/components/StockCartonSuggestions'
@@ -27,7 +31,7 @@ import type { ClientOrder } from '@/lib/mockApi'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Badge, StatusBadge } from '@/components/ui/badge'
+import { StatusBadge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Card, CardContent, CardDescription, CardTitle,
@@ -43,32 +47,26 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/compone
 const STATUS_LABELS: Record<ClientOrder['status'], string> = {
   draft: 'Szkic', confirmed: 'Potwierdzone', in_production: 'W produkcji', done: 'Zrealizowane', cancelled: 'Anulowane',
 }
-const STATUS_VARIANT: Record<ClientOrder['status'], 'secondary' | 'info' | 'warning' | 'success' | 'danger'> = {
-  draft: 'secondary', confirmed: 'info', in_production: 'warning', done: 'success', cancelled: 'danger',
-}
 const ORDER_TONE: Record<ClientOrder['status'], 'gray' | 'blue' | 'amber' | 'green' | 'red'> = {
   draft: 'gray', confirmed: 'blue', in_production: 'amber', done: 'green', cancelled: 'red',
 }
 
-type SortCol = 'orderNo' | 'clientName' | 'orderDate' | 'deliveryDate' | 'status' | 'totalUnits' | 'totalKg' | 'progress'
-
-function progressOf(o: ClientOrder): number {
-  if (!o.totalUnits) return 0
-  const done = o.lines.reduce((s, l) => s + ((l as any).qtyDone ?? 0), 0)
-  return Math.min(100, Math.round((done / o.totalUnits) * 100))
-}
+type SortCol = 'orderNo' | 'clientName' | 'orderDate' | 'deliveryDate' | 'status' | 'totalUnits' | 'totalKg' | 'progress' | 'remaining'
+const EMPTY_ORDERS: ClientOrder[] = []
+const PAGE_SIZE = 50
 
 function exportCsv(rows: ClientOrder[]) {
-  const headers = ['Nr zam.','Klient','Data zam.','Dostawa','Status','Szt','Razem kg','% wykonania','Uwagi']
+  const headers = ['Nr zam.','Klient','Data zam.','Dostawa','Status','Szt','Zamówiono kg','Pokryte wyrobem kg','Pozostało kg','Uwagi']
   const csv = [headers.join(';')].concat(rows.map(o => [
     o.orderNo, o.clientName,
     o.orderDate, o.deliveryDate || '',
     STATUS_LABELS[o.status],
     String(o.totalUnits),
-    String(o.totalKg).replace('.', ','),
-    String(progressOf(o)),
+    String(totalLines(o.lines).orderedKg).replace('.', ','),
+    String(totalLines(o.lines).coveredKg ?? '').replace('.', ','),
+    o.status === 'cancelled' ? '' : String(totalLines(o.lines).remainingKg ?? '').replace('.', ','),
     o.notes || '',
-  ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(';'))).join('\n')
+  ].map(v => `"${String(v).replace(/^[=+@-]/, "'$&").replace(/"/g,'""')}"`).join(';'))).join('\n')
   const blob = new Blob([new TextEncoder().encode('﻿' + csv)], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -79,7 +77,7 @@ function exportCsv(rows: ClientOrder[]) {
 export function ClientOrdersPage() {
   const navigate      = useNavigate()
   const clientDisplay = useClientNames()
-  const { data: orders, loading, refetch } = useApi(() => clientOrdersApi.list())
+  const { data: orders, loading, error, refetch } = useApi(() => clientOrdersApi.list())
   const [cmrOrderId,   setCmrOrderId]   = useState<string | null>(null)
   const [splitOrder,   setSplitOrder]   = useState<ClientOrder | null>(null)
   const [doUsuniecia,  setDoUsuniecia]  = useState<ClientOrder | null>(null)
@@ -90,13 +88,43 @@ export function ClientOrdersPage() {
   const [search,       setSearch]       = useState(() => new URLSearchParams(window.location.search).get('q') ?? '')
   const [sortCol,      setSortCol]      = useState<SortCol>('orderDate')
   const [sortDir,      setSortDir]      = useState<'asc'|'desc'>('desc')
+  const [filterProgress, setFilterProgress] = useState('all')
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [page, setPage] = useState(0)
+  const [archivePage, setArchivePage] = useState(0)
+  const [showMaterials, setShowMaterials] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const refreshingRef = useRef(false)
+  const refresh = useCallback(async () => {
+    if (refreshingRef.current) return
+    refreshingRef.current = true; setRefreshing(true)
+    try { await refetch() } finally { refreshingRef.current = false; setRefreshing(false) }
+  }, [refetch])
+  useLiveRefresh({ orders: { refetch: () => { if (!document.hidden && !loading) void refresh() } } }, 30_000)
 
-  const rawList = orders ?? []
+  const rawList = orders ?? EMPTY_ORDERS
+  const metrics = useMemo(() => new Map(rawList.map(o => [o.id, totalLines(o.lines)])), [rawList])
+  useEffect(() => {
+    if (!orders || error) return
+    const ids = new Set(orders.map(o => o.id))
+    setSelected(prev => {
+      const next = new Set([...prev].filter(id => ids.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [orders, error])
+  useEffect(() => { setPage(0); setArchivePage(0) }, [search, filterStatus, filterProgress, sortCol, sortDir])
+  // Refresh after returning from another MES screen/window; retain the list and selection.
+  useEffect(() => {
+    const onFocus = () => { void refresh() }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [refresh])
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
     let result = rawList
     if (filterStatus) result = result.filter(o => o.status === filterStatus)
+    if (filterProgress !== 'all') result = result.filter(o => o.status !== 'cancelled' && productionState(metrics.get(o.id)!) === filterProgress)
     if (q) {
       result = result.filter(o =>
         (o.orderNo || '').toLowerCase().includes(q)
@@ -117,57 +145,74 @@ export function ClientOrdersPage() {
       if (sortCol === 'deliveryDate') cmp = (a.deliveryDate || '').localeCompare(b.deliveryDate || '')
       if (sortCol === 'status')       cmp = a.status.localeCompare(b.status)
       if (sortCol === 'totalUnits')   cmp = a.totalUnits - b.totalUnits
-      if (sortCol === 'totalKg')      cmp = a.totalKg - b.totalKg
-      if (sortCol === 'progress')     cmp = progressOf(a) - progressOf(b)
+      if (sortCol === 'totalKg')      cmp = metrics.get(a.id)!.orderedKg - metrics.get(b.id)!.orderedKg
+      if (sortCol === 'progress')     cmp = (coveragePercent(metrics.get(a.id)!) ?? -1) - (coveragePercent(metrics.get(b.id)!) ?? -1)
+      if (sortCol === 'remaining')    cmp = (metrics.get(a.id)!.remainingKg ?? -1) - (metrics.get(b.id)!.remainingKg ?? -1)
       return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [rawList, filterStatus, search, sortCol, sortDir])
+  }, [rawList, filterStatus, filterProgress, metrics, search, sortCol, sortDir])
 
   const { biezace, zamkniete } = useMemo(() => podzielZamowienia(filtered), [filtered])
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(biezace.length / PAGE_SIZE) - 1))
+  const closedPage = Math.min(archivePage, Math.max(0, Math.ceil(zamkniete.length / PAGE_SIZE) - 1))
+  const archiveVisible = archiwum || filterStatus === 'done' || filterStatus === 'cancelled'
+  const currentRows = biezace.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE)
+  const closedRows = archiveVisible ? zamkniete.slice(closedPage * PAGE_SIZE, (closedPage + 1) * PAGE_SIZE) : []
+  const visibleRows = [...currentRows, ...closedRows]
+  const selectedOrders = useMemo(() => rawList.filter(o => selected.has(o.id)), [rawList, selected])
+  const summary = useMemo(() => summarizeOrders(selectedOrders), [selectedOrders])
+  const selectedVisible = visibleRows.filter(o => selected.has(o.id)).length
+  const toggleSelection = (id: string) => setSelected(prev => {
+    const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
+  })
+  const toggleVisible = () => setSelected(prev => {
+    const next = new Set(prev)
+    const all = visibleRows.every(o => prev.has(o.id))
+    visibleRows.forEach(o => all ? next.delete(o.id) : next.add(o.id))
+    return next
+  })
 
   const tabela = (rows: ClientOrder[]) => {
-    const sumaSzt = rows.reduce((s, o) => s + o.totalUnits, 0)
-    const sumaKg  = rows.reduce((s, o) => s + o.totalKg, 0)
+    const totals = totalLines(rows.filter(o => o.status !== 'cancelled').flatMap(o => o.lines))
     if (rows.length === 0) return null
     return (
-            <div className="overflow-auto max-h-[calc(100vh-12rem)]">
-              <table className="w-full text-xs tabular-nums">
+            <div className="orders-scroll overflow-auto max-h-[min(65vh,720px)]" tabIndex={0} role="region" aria-label="Lista zamówień">
+              <table className="w-full min-w-[1100px] text-sm tabular-nums">
                 <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
                   <tr>
-                    <th className="w-6" />
+                    <th scope="col" className="w-10"><span className="sr-only">Zaznaczenie</span></th>
+                    <th className="w-8"><span className="sr-only">Szczegóły</span></th>
                     {[
-                      { col: 'orderNo'      as SortCol, label: 'Nr zam.',   align: 'left'  },
-                      { col: 'clientName'   as SortCol, label: 'Klient',    align: 'left'  },
-                      { col: 'orderDate'    as SortCol, label: 'Data',      align: 'left'  },
+                      { col: 'orderNo'      as SortCol, label: 'Zamówienie / klient', align: 'left' },
                       { col: 'deliveryDate' as SortCol, label: 'Dostawa',   align: 'left'  },
                       { col: 'status'       as SortCol, label: 'Status',    align: 'left'  },
-                      { col: 'totalUnits'   as SortCol, label: 'Szt',       align: 'right' },
-                      { col: 'totalKg'      as SortCol, label: 'Razem kg',  align: 'right' },
-                      { col: 'progress'     as SortCol, label: 'Postęp',    align: 'left'  },
+                      { col: 'totalKg'      as SortCol, label: 'Zamówiono', align: 'right' },
+                      { col: 'remaining'    as SortCol, label: 'Pozostało', align: 'right' },
+                      { col: 'progress'     as SortCol, label: 'Pokryte wyrobem', align: 'right' },
                     ].map(h => (
                       <th
                         key={h.col}
-                        onClick={() => toggleSort(h.col)}
+                        scope="col"
+                        aria-sort={sortCol === h.col ? (sortDir === 'asc' ? 'ascending' : 'descending') : undefined}
                         className={cn(
                           'group cursor-pointer select-none px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 hover:text-ink whitespace-nowrap',
-                          h.align === 'right' && 'text-right',
+                           h.align === 'right' ? 'text-right' : 'text-left',
                         )}
                       >
-                        <span className={cn('inline-flex items-center gap-1', h.align === 'right' && 'flex-row-reverse')}>
+                        <button type="button" onClick={() => toggleSort(h.col)} className={cn('inline-flex items-center gap-1 py-2', h.align === 'right' && 'flex-row-reverse')}>
                           {h.label}
                           <SortIcon col={h.col} />
-                        </span>
+                        </button>
                       </th>
                     ))}
-                    <th className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2 text-right">Akcja</th>
+                    <th className="px-2.5 py-2 text-xs font-medium text-ink-3 text-right">Dokumenty / akcje</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((o, idx) => {
                     const isExp = expanded === o.id
-                    const qtyDone = o.lines.reduce((s, l) => s + ((l as any).qtyDone ?? 0), 0)
-                    const kgDone  = o.lines.reduce((s, l) => s + ((l as any).qtyDone ?? 0) * l.kgPerUnit, 0)
-                    const pct     = progressOf(o)
+                    const metric = metrics.get(o.id)!
+                    const state = productionState(metric)
                     const isDue   = o.deliveryDate
                       ? new Date(o.deliveryDate).getTime() - Date.now() < 1000 * 60 * 60 * 48
                       : false
@@ -177,22 +222,24 @@ export function ClientOrdersPage() {
                         <tr
                           onClick={() => setExpanded(isExp ? null : o.id)}
                           className={cn(
-                            'cursor-pointer border-b border-surface-3 transition-colors',
+                            'cursor-pointer border-b border-surface-4 transition-colors',
                             idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
                             isExp ? 'bg-surface-3/50' : 'hover:bg-surface-3/60',
+                            selected.has(o.id) && 'order-selected',
                           )}
                         >
-                          <td className="px-1 py-2 text-center text-muted-foreground">
-                            {isExp ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                          <td className="px-3 py-3 text-center" onClick={e => e.stopPropagation()}>
+                            <input type="checkbox" checked={selected.has(o.id)} onChange={() => toggleSelection(o.id)} aria-label={`Zaznacz ${o.orderNo}`} />
                           </td>
-                          <td className="px-2.5 py-2 whitespace-nowrap">
-                            <code className="font-mono font-bold text-primary text-[13px]">{o.orderNo}</code>
+                          <td className="px-1 py-3 text-center text-muted-foreground">
+                            <button type="button" className="flex h-8 w-8 items-center justify-center rounded hover:bg-surface-4" aria-label={`Szczegóły ${o.orderNo}`} aria-expanded={isExp}
+                              aria-controls={`order-${o.id}`} onClick={e => { e.stopPropagation(); setExpanded(isExp ? null : o.id) }}>
+                              {isExp ? <ChevronUp size={16} aria-hidden="true"/> : <ChevronDown size={16} aria-hidden="true"/>}
+                            </button>
                           </td>
-                          <td className="px-2.5 py-2 whitespace-nowrap text-ink font-medium max-w-[240px] truncate" title={o.clientName}>
-                            {clientDisplay(o.clientName)}
-                          </td>
-                          <td className="px-2.5 py-2 whitespace-nowrap text-ink-2">
-                            {fmtDatePl(o.orderDate)}
+                          <td className="max-w-[280px] px-2.5 py-3" title={o.clientName}>
+                            <span className="block break-words text-[13px] font-semibold text-ink">{o.orderNo}</span>
+                            <span className="mt-1 block truncate text-xs text-ink-3">{clientDisplay(o.clientName)}</span>
                           </td>
                           <td className="px-2.5 py-2 whitespace-nowrap">
                             {o.deliveryDate ? (
@@ -204,106 +251,23 @@ export function ClientOrdersPage() {
                           <td className="px-2.5 py-2 whitespace-nowrap">
                             <StatusBadge tone={ORDER_TONE[o.status]} label={STATUS_LABELS[o.status]} />
                           </td>
-                          <td className="px-2.5 py-2 whitespace-nowrap text-right">
-                            {qtyDone > 0 ? (
-                              <>
-                                <span className={pct >= 100 ? 'text-emerald-700 font-bold' : 'text-amber-700 font-bold'}>
-                                  {qtyDone}
-                                </span>
-                                <span className="text-muted-foreground">/{o.totalUnits}</span>
-                              </>
-                            ) : (
-                              <span className="font-bold">{o.totalUnits}</span>
-                            )}
-                            <span className="text-muted-foreground font-normal text-[11px]"> szt</span>
+                          <td className="px-2.5 py-3 whitespace-nowrap text-right">
+                            {kgText(metric.orderedKg)}
+                            <span className="mt-1 block text-xs text-ink-3">{o.totalUnits} szt.</span>
                           </td>
-                          <td className="px-2.5 py-2 whitespace-nowrap text-right font-bold text-emerald-700">
-                            {fmtKg(o.totalKg, 0)}<span className="font-normal text-[11px]"> kg</span>
+                          <td className="px-2.5 py-3 whitespace-nowrap text-right font-semibold">
+                            {o.status === 'cancelled' ? <span className="text-xs font-normal text-ink-3">Nie planuj</span> : kgText(metric.remainingKg)}
+                            {o.status !== 'cancelled' && <span className={cn('mt-1 block text-xs font-normal', state === 'complete' ? 'text-emerald-700' : 'text-ink-3')}>
+                              {{ partial: 'Częściowo pokryte', complete: 'Pełne pokrycie', none: 'Bez pokrycia', unknown: 'Brak danych MES' }[state]}
+                            </span>}
                           </td>
-                          <td className="px-2.5 py-2 whitespace-nowrap min-w-[140px]">
-                            {qtyDone > 0 ? (
-                              <div className="flex items-center gap-2">
-                                <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden flex-1 max-w-[100px]">
-                                  <div
-                                    className={cn('h-full rounded-full', pct >= 100 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-400' : 'bg-orange-400')}
-                                    style={{ width: `${pct}%` }}
-                                  />
-                                </div>
-                                <span className={cn('text-[11px] font-semibold tabular-nums', pct >= 100 ? 'text-emerald-700' : 'text-amber-700')}>
-                                  {pct}%
-                                </span>
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground text-[11px]">—</span>
-                            )}
+                          <td className="min-w-[160px] px-2.5 py-3">
+                            <span className="mb-2 block text-right text-xs">{kgText(metric.coveredKg)}</span>
+                            <CoverageBar totals={metric} />
                           </td>
-                          <td className="px-2 py-2 whitespace-nowrap text-right">
+                          <td className="px-2 py-2 whitespace-nowrap text-right" onClick={e => e.stopPropagation()}>
                             <div className="inline-flex items-center gap-0.5">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  const url = `/office/zamowienia/${o.id}/druk`
-                                  const win = window.open(url, '_blank')
-                                  if (!win || win.closed || typeof win.closed === 'undefined') {
-                                    window.location.href = url
-                                  }
-                                }}
-                                className="inline-flex items-center justify-center w-7 h-7 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
-                                title="Drukuj"
-                              >
-                                <Printer size={13}/>
-                              </button>
-                              <button
-                                onClick={async (e) => {
-                                  e.stopPropagation()
-                                  try {
-                                    const r = await hdiApi.generate(o.id)
-                                    if (r.incomplete) {
-                                      alert(`Uwaga: nie wszystkie sztuki z zamówienia zostały wyprodukowane.\n` +
-                                            `HDI ${r.number} wystawiono na stan faktyczny: ` +
-                                            `${r.totals?.qty ?? 0} szt. / ${(r.totals?.kg ?? 0).toFixed(0)} kg.`)
-                                    }
-                                    const url = `/office/hdi/${r.id}/druk`
-                                    const win = window.open(url, '_blank')
-                                    if (!win || win.closed || typeof win.closed === 'undefined') window.location.href = url
-                                  } catch (err) {
-                                    alert(err instanceof Error ? err.message : 'Błąd generowania HDI')
-                                  }
-                                }}
-                                className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-violet-700 hover:bg-violet-50"
-                                title={o.status === 'done' || o.status === 'cancelled'
-                                  ? 'Podgląd HDI — zamówienie zamknięte, dokument jest zamrożony'
-                                  : 'Generuj HDI'}
-                              >
-                                HDI
-                              </button>
-                              <button
-                                /* Od 30.08.2026 zamówienie przenosi się do ZWYKŁEGO
-                                   formularza WZ — z pickerem, VAT-em, paletami
-                                   i podglądem. Osobne okno miało z tego ułamek. */
-                                onClick={(e) => { e.stopPropagation(); navigate(`/office/wz/nowy?order=${o.id}`) }}
-                                className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-amber-700 hover:bg-amber-50"
-                                title="Wystaw WZ — otwiera formularz z pozycjami zamówienia"
-                              >
-                                WZ
-                              </button>
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setCmrOrderId(o.id) }}
-                                className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-teal-700 hover:bg-teal-50"
-                                title="Wystaw CMR"
-                              >
-                                CMR
-                              </button>
-                              <button
-                                /* Rozłożenie dostawy na część fakturowaną (Subiekt,
-                                   poza tym systemem) i część na WZ — kilogram w kilogram
-                                   z ledgerem, patrz features/orders/split/SplitDialog. */
-                                onClick={(e) => { e.stopPropagation(); setSplitOrder(o) }}
-                                className="inline-flex items-center justify-center h-7 px-1.5 rounded text-[10px] font-bold text-indigo-700 hover:bg-indigo-50"
-                                title="Podział wysyłki na fakturę i WZ"
-                              >
-                                Podział
-                              </button>
+                              <OrderDocumentsMenu order={o} onCmr={() => setCmrOrderId(o.id)} onSplit={() => setSplitOrder(o)} />
                               {o.status === 'draft' && (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); handleStatus(o.id, 'confirmed') }}
@@ -346,8 +310,10 @@ export function ClientOrdersPage() {
 
                         {/* Rozwinięcie: pozycje + palety */}
                         {isExp && (
-                          <tr>
-                            <td colSpan={10} className="bg-surface-2/60 border-b border-surface-3 px-4 py-3">
+                          <tr id={`order-${o.id}`}>
+                            <td colSpan={9} className="bg-surface-2/60 border-b border-surface-4 px-4 py-4">
+                              <p className="mb-3 text-xs text-ink-3">Data zamówienia: {fmtDatePl(o.orderDate)} · Pokrycie MES nie jest pomiarem produkcji brutto.
+                                {o.status === 'done' && ' Zamknięte zamówienie: wydanie przyjęte jako pełne.'}</p>
                               {o.notes && (
                                 <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs">
                                   <span className="font-bold text-amber-700">Uwagi: </span>
@@ -355,93 +321,12 @@ export function ClientOrdersPage() {
                                 </div>
                               )}
 
-                              {/* Lines */}
                               <div className="mb-3">
-                                <CardDescription className="text-[11px] font-bold uppercase tracking-wide mb-1.5">
-                                  Pozycje zamówienia ({o.lines.length})
-                                </CardDescription>
-                                <div className="overflow-x-auto rounded border border-surface-3 bg-white">
-                                  <table className="w-full text-xs tabular-nums">
-                                    <thead className="bg-surface-2">
-                                      <tr>
-                                        {['Status','Szt','kg','Razem kg','Rodzaj','Receptura','Tuleja'].map(h => (
-                                          <th key={h} className="px-2.5 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider text-ink-2 whitespace-nowrap">{h}</th>
-                                        ))}
-                                      </tr>
-                                    </thead>
-                                    <tbody>
-                                      {o.lines.map((l, li) => {
-                                        const lineDone = (l as any).qtyDone ?? 0
-                                        const lineSent = wydane(l as any)
-                                        const wyslana       = wydaneWCalosci(l as any)
-                                        const isLineDone    = !wyslana && lineDone >= l.qty
-                                        const isLinePartial = !wyslana && lineDone > 0 && !isLineDone
-                                        return (
-                                          <tr key={l.id} className={cn(
-                                            li % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
-                                            /* Wysłane u klienta — nie ma czego kompletować. */
-                                            wyslana && 'text-ink-4',
-                                          )}>
-                                            <td className="px-2.5 py-2 whitespace-nowrap">
-                                              {wyslana ? (
-                                                <Badge variant="outline" className="text-[10px] gap-1 bg-surface-2 text-ink-3 border-surface-4">
-                                                  <Truck size={10}/> WYDANE
-                                                </Badge>
-                                              ) : isLineDone ? (
-                                                <Badge variant="outline" className="text-[10px] gap-1 bg-emerald-50 text-emerald-700 border-emerald-200">
-                                                  <CheckCircle2 size={10}/> {lineDone}/{l.qty}
-                                                  {lineSent > 0 && <span className="text-ink-4">· {lineSent} wyd.</span>}
-                                                </Badge>
-                                              ) : isLinePartial ? (
-                                                <Badge variant="outline" className="text-[10px] gap-1 bg-amber-50 text-amber-700 border-amber-200">
-                                                  <Clock size={10}/> {lineDone}/{l.qty}
-                                                  {lineSent > 0 && <span className="text-ink-4">· {lineSent} wyd.</span>}
-                                                </Badge>
-                                              ) : (
-                                                <span className="text-muted-foreground text-[11px]">—</span>
-                                              )}
-                                            </td>
-                                            <td className="px-2.5 py-2 font-bold">{l.qty}<span className="text-muted-foreground font-normal text-[11px]"> szt</span></td>
-                                            <td className="px-2.5 py-2 text-ink-2">{l.kgPerUnit}<span className="text-muted-foreground text-[11px]"> kg</span></td>
-                                            <td className="px-2.5 py-2 font-bold text-emerald-700">{fmtKg(l.totalKg, 0)}<span className="font-normal text-[11px]"> kg</span></td>
-                                            <td className="px-2.5 py-2 text-ink">{l.productTypeName || <span className="text-muted-foreground">—</span>}</td>
-                                            <td className="px-2.5 py-2 text-ink-2">{l.recipeName || <span className="text-muted-foreground">—</span>}</td>
-                                            <td className="px-2.5 py-2 text-ink-2">{l.packagingName || <span className="text-muted-foreground">—</span>}</td>
-                                          </tr>
-                                        )
-                                      })}
-                                      <tr className="border-t-2 border-surface-4 bg-surface-2/60 font-bold">
-                                        <td className="px-2.5 py-2 text-[11px] uppercase tracking-wider text-ink-2">Suma</td>
-                                        <td className="px-2.5 py-2">{o.totalUnits}<span className="text-muted-foreground font-normal text-[11px]"> szt</span></td>
-                                        <td />
-                                        <td className="px-2.5 py-2 text-emerald-700">{fmtKg(o.totalKg, 0)}<span className="font-normal text-[11px]"> kg</span></td>
-                                        <td colSpan={3} />
-                                      </tr>
-                                    </tbody>
-                                  </table>
-                                </div>
+                                <OrderLinesTable order={o} />
                               </div>
 
                               {/* Brakujący surowiec na niewykonaną część zamówienia */}
-                              {o.status !== 'cancelled' && <OrderMaterialShortfall orderId={o.id} />}
-
-                              {/* Progress (jeśli jakikolwiek) */}
-                              {kgDone > 0 && (
-                                <div className="mb-3 px-3 py-2 bg-white rounded border border-surface-3">
-                                  <div className="flex items-center justify-between mb-1.5">
-                                    <span className={cn('text-xs font-semibold', pct >= 100 ? 'text-emerald-700' : 'text-amber-700')}>
-                                      Wyprodukowano {fmtKg(kgDone, 0)} kg z {fmtKg(o.totalKg, 0)} kg
-                                    </span>
-                                    <span className={cn('text-xs font-bold', pct >= 100 ? 'text-emerald-700' : 'text-amber-700')}>{pct}%</span>
-                                  </div>
-                                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                                    <div
-                                      className={cn('h-full rounded-full transition-all', pct >= 100 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-400' : 'bg-orange-400')}
-                                      style={{ width: `${pct}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              )}
+                              {o.status !== 'cancelled' && <OrderMaterialShortfall orderId={o.id} refreshKey={o} />}
 
                               {/* Pasujące kartony z magazynu (powiązanie „na magazyn" → zamówienie) */}
                               <StockCartonSuggestions key={o.id} orderId={o.id} orderStatus={o.status} onAssigned={refetch}
@@ -455,25 +340,23 @@ export function ClientOrdersPage() {
                 </tbody>
                 <tfoot className="sticky bottom-0 bg-surface-2/95 backdrop-blur-sm border-t-2 border-surface-4">
                   <tr>
-                    <td className="px-2.5 py-2 text-[11px] font-bold uppercase tracking-wider text-ink-2" colSpan={6}>
-                      Suma · {rows.length} zamówień
+                    <td className="px-3 py-3 text-xs text-ink-2" colSpan={5}>
+                      Ta strona · {rows.length} zamówień · bez anulowanych
                     </td>
-                    <td className="px-2.5 py-2 text-right font-bold tabular-nums text-ink">
-                      {sumaSzt}<span className="text-muted-foreground font-normal text-[11px]"> szt</span>
+                    <td className="px-2.5 py-3 text-right font-semibold whitespace-nowrap">
+                      {kgText(totals.orderedKg)}
                     </td>
-                    <td className="px-2.5 py-2 text-right font-bold tabular-nums text-emerald-700">
-                      {fmtKg(sumaKg, 0)} kg
+                    <td className="px-2.5 py-3 text-right font-semibold whitespace-nowrap">
+                      {kgText(totals.remainingKg)}
                     </td>
-                    <td colSpan={2} />
+                    <td className="px-2.5 py-3 text-right whitespace-nowrap">{kgText(totals.coveredKg)}</td>
+                    <td />
                   </tr>
                 </tfoot>
               </table>
             </div>
     )
   }
-
-  const totalKg    = filtered.reduce((s, o) => s + o.totalKg, 0)
-  const totalUnits = filtered.reduce((s, o) => s + o.totalUnits, 0)
 
   const toggleSort = (col: SortCol) => {
     if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -485,7 +368,10 @@ export function ClientOrdersPage() {
       ? (sortDir === 'asc' ? <ChevronUp size={11}/> : <ChevronDown size={11}/>)
       : <ChevronsUpDown size={11} className="opacity-30 group-hover:opacity-60"/>
 
-  async function handleStatus(id: string, status: ClientOrder['status']) { await clientOrdersApi.updateStatus(id, status); refetch() }
+  async function handleStatus(id: string, status: ClientOrder['status']) {
+    try { await clientOrdersApi.updateStatus(id, status); await refetch() }
+    catch (e) { alert(e instanceof Error ? e.message : 'Nie udało się zmienić statusu') }
+  }
   // 25.09.2026, SAS ISSA: po anulowanym WZ zamówienie zostało zrealizowane,
   // a HDI zamkniętego zamówienia wychodzi zamrożone. Odmowę serwera (aktywny
   // WZ/WM) pokazujemy w całości — są w niej numery dokumentów do anulowania.
@@ -499,59 +385,42 @@ export function ClientOrdersPage() {
     }
   }
 
-  // Licznik + akcje w nagłówku strony (wspólny PageHeader).
+  // Główna akcja w nagłówku strony (wspólny PageHeader).
   usePageHeaderActions(
-    <div className="flex items-center gap-3.5 text-xs tabular-nums">
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Zamówień:</span>
-        <span className="font-bold">{filtered.length}{filtered.length !== rawList.length && <span className="text-muted-foreground">/{rawList.length}</span>}</span>
-      </div>
-      <div className="w-px h-4 bg-surface-4" />
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Szt:</span>
-        <span className="font-bold">{totalUnits}</span>
-      </div>
-      <div className="w-px h-4 bg-surface-4" />
-      <div className="flex items-center gap-1.5">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-ink-3">Kg:</span>
-        <span className="font-bold text-emerald-700">{fmtKg(totalKg, 0)}</span>
-      </div>
+    <div className="flex items-center gap-2 text-xs">
       <Button size="sm" className="gap-1.5" onClick={() => navigate('/office/zamowienia/nowe')}>
         <Plus size={14}/> Nowe zamówienie
       </Button>
     </div>,
-    [filtered.length, rawList.length, totalUnits, totalKg]
+    [navigate]
   )
 
   return (
-    <div className="space-y-3 animate-fade-in">
+    <div className="orders-workspace min-w-0 space-y-4">
 
       {/* Palety z usuniętych/zmienionych zamówień czekające na zgodne zamówienie */}
       <OrphanPalletsPanel refreshKey={orders} />
 
-      {/* Zapotrzebowanie na surowiec dla wszystkich otwartych zamówień */}
-      <MaterialSummaryCard />
-
-      {/* Toolbar — tylko filtr/wyszukiwanie; licznik i akcje w nagłówku strony. */}
+      {/* Filtry i operacje na widocznej liście; zaznaczenia są od nich niezależne. */}
       <Card>
         <div className="px-4 py-2.5 flex items-center gap-3 flex-wrap">
-          <div className="relative flex-1 max-w-md min-w-[240px]">
+          <div className="relative min-w-0 basis-full flex-1 md:basis-64">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
               className="h-9 pl-9 pr-8 text-sm"
               placeholder="Filtruj: nr zam., klient, receptura, tuleja, uwagi…"
+              aria-label="Szukaj zamówień"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              autoFocus
             />
             {search && (
-              <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-ink">
+              <button aria-label="Wyczyść wyszukiwanie" onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-ink">
                 <X size={14}/>
               </button>
             )}
           </div>
           <Select value={filterStatus || '__all'} onValueChange={v => setFilterStatus(v === '__all' ? '' : v)}>
-            <SelectTrigger className="h-9 w-48 text-sm">
+            <SelectTrigger aria-label="Status zamówienia" className="h-9 w-48 text-sm">
               <SelectValue placeholder="Wszystkie statusy" />
             </SelectTrigger>
             <SelectContent>
@@ -561,8 +430,54 @@ export function ClientOrdersPage() {
               ))}
             </SelectContent>
           </Select>
+          <Select value={filterProgress} onValueChange={setFilterProgress}>
+            <SelectTrigger aria-label="Pokrycie zamówienia" className="h-9 w-48 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Każde pokrycie</SelectItem>
+              <SelectItem value="none">Bez pokrycia</SelectItem>
+              <SelectItem value="partial">Częściowo pokryte</SelectItem>
+              <SelectItem value="complete">Pełne pokrycie</SelectItem>
+              <SelectItem value="unknown">Brak danych MES</SelectItem>
+            </SelectContent>
+          </Select>
+          <label className="flex items-center gap-2 text-xs text-ink-3">Sortuj
+            <select aria-label="Sortowanie zamówień" className="h-9 rounded border border-input bg-white px-2 text-sm text-ink" value={sortCol} onChange={e => setSortCol(e.target.value as SortCol)}>
+              <option value="orderDate">Data zamówienia</option><option value="deliveryDate">Termin dostawy</option>
+              <option value="clientName">Klient</option><option value="orderNo">Numer zamówienia</option>
+              <option value="status">Status zamówienia</option><option value="totalUnits">Liczba sztuk</option>
+              <option value="remaining">Pozostałe kg</option><option value="totalKg">Zamówione kg</option><option value="progress">Pokrycie %</option>
+            </select>
+          </label>
+          <Button variant="ghost" size="sm" onClick={() => setSortDir(v => v === 'asc' ? 'desc' : 'asc')} aria-label={sortDir === 'asc' ? 'Sortowanie rosnące — zmień' : 'Sortowanie malejące — zmień'}>
+            {sortDir === 'asc' ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading || refreshing}>
+            <RotateCcw size={14} aria-hidden="true" className="mr-1.5" />{refreshing ? 'Odświeżanie…' : 'Odśwież'}
+          </Button>
+          <Button variant="ghost" size="sm" disabled={!filtered.length && !selectedOrders.length} onClick={() => exportCsv(selectedOrders.length ? selectedOrders : filtered)}>
+            <Download size={14} aria-hidden="true" className="mr-1.5" />{selectedOrders.length ? 'CSV zaznaczonych' : 'CSV listy'}
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-4 border-t border-surface-3 px-4 py-3 text-xs">
+          <label className="flex items-center gap-2 font-medium">
+            <SelectVisibleCheckbox checked={visibleRows.length > 0 && selectedVisible === visibleRows.length} mixed={selectedVisible > 0 && selectedVisible < visibleRows.length}
+              disabled={!visibleRows.length} onChange={toggleVisible} />Zaznacz wszystkie widoczne
+          </label>
+          <span className="text-ink-3">Wyniki: {filtered.length} · widoczne: {visibleRows.length} · zaznaczone: {selectedOrders.length}</span>
+          <span className="text-ink-3">Dane odświeżane co 30 s</span>
+          {(search || filterStatus || filterProgress !== 'all') && <button type="button" className="ml-auto font-medium underline underline-offset-4"
+            onClick={() => { setSearch(''); setFilterStatus(''); setFilterProgress('all') }}>Wyczyść filtry</button>}
         </div>
       </Card>
+
+      {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+        Nie udało się pobrać zamówień: {error}. {orders ? 'Widoczne dane mogą być nieaktualne.' : 'Spróbuj ponownie.'}
+        <Button variant="outline" size="sm" className="ml-3" onClick={() => void refresh()}>Ponów pobieranie</Button>
+      </div>}
+
+      {selectedOrders.length > 0 ? <OrderPlanningSummary summary={summary} count={selectedOrders.length}
+        hiddenCount={selectedOrders.length - selectedVisible} onClear={() => setSelected(new Set())} /> :
+        <p className="px-1 text-sm text-ink-3">Zaznacz zamówienia, aby zobaczyć pozostałe kilogramy i wspólne zapotrzebowanie według receptur.</p>}
 
       {/* Tabela */}
       <Card className="overflow-hidden">
@@ -570,7 +485,7 @@ export function ClientOrdersPage() {
           <div className="p-4 space-y-2">
             {[0,1,2,3,4].map(i => <Skeleton key={i} className="h-8 w-full" />)}
           </div>
-        ) : rawList.length === 0 ? (
+        ) : !orders && error ? null : rawList.length === 0 ? (
           <CardContent className="flex flex-col items-center justify-center py-16 gap-2">
             <ShoppingCart size={36} className="text-muted-foreground opacity-20" />
             <CardTitle className="text-sm font-medium text-muted-foreground">Brak zamówień</CardTitle>
@@ -583,7 +498,8 @@ export function ClientOrdersPage() {
           </CardContent>
         ) : (
           <>
-            {tabela(biezace)}
+            {tabela(currentRows)}
+            <OrderPagination count={biezace.length} page={currentPage} onChange={setPage} label="Bieżące zamówienia" />
             {biezace.length === 0 && (
               <CardContent className="flex flex-col items-center justify-center py-8 gap-1">
                 <CardDescription>Brak bieżących zamówień</CardDescription>
@@ -596,19 +512,25 @@ export function ClientOrdersPage() {
                     tylko wtedy, gdy ktoś czegoś szuka. */}
                 <button
                   type="button"
-                  onClick={() => setArchiwum(v => !v)}
+                  onClick={() => { if (filterStatus === 'done' || filterStatus === 'cancelled') setFilterStatus(''); setArchiwum(!archiveVisible) }}
+                  aria-expanded={archiveVisible}
                   className="flex w-full items-center gap-2 bg-surface-2/60 px-3 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-ink-2 hover:bg-surface-3/60"
                 >
-                  {archiwum ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  {archiveVisible ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                   Zrealizowane i anulowane
                   <span className="font-normal text-muted-foreground">· {zamkniete.length}</span>
                 </button>
-                {archiwum && tabela(zamkniete)}
+                {archiveVisible && <>{tabela(closedRows)}<OrderPagination count={zamkniete.length} page={closedPage} onChange={setArchivePage} label="Zamknięte zamówienia" /></>}
               </div>
             )}
           </>
         )}
       </Card>
+
+      <details className="rounded-lg border border-surface-4 bg-white p-4" onToggle={e => setShowMaterials(e.currentTarget.open)}>
+        <summary className="cursor-pointer text-sm font-medium">Surowiec dla wszystkich otwartych zamówień <span className="font-normal text-ink-3">· niezależnie od zaznaczenia</span></summary>
+        {showMaterials && <div className="mt-4"><MaterialSummaryCard refreshKey={orders} /></div>}
+      </details>
 
       {cmrOrderId && <CmrFormModal orderId={cmrOrderId} onClose={() => setCmrOrderId(null)} />}
       {doUsuniecia && (
@@ -630,6 +552,22 @@ export function ClientOrdersPage() {
 
     </div>
   )
+}
+
+function SelectVisibleCheckbox({ checked, mixed, disabled, onChange }: { checked: boolean; mixed: boolean; disabled: boolean; onChange: () => void }) {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => { if (ref.current) ref.current.indeterminate = mixed }, [mixed])
+  return <input ref={ref} type="checkbox" checked={checked} disabled={disabled} onChange={onChange} />
+}
+
+function OrderPagination({ count, page, onChange, label }: { count: number; page: number; onChange: (page: number) => void; label: string }) {
+  if (count <= PAGE_SIZE) return null
+  const pages = Math.ceil(count / PAGE_SIZE)
+  return <nav aria-label={label} className="flex items-center justify-between gap-3 border-t border-surface-4 px-4 py-3 text-xs">
+    <span>{page * PAGE_SIZE + 1}–{Math.min(count, (page + 1) * PAGE_SIZE)} z {count} · strona {page + 1}/{pages}</span>
+    <div className="flex gap-2"><Button size="sm" variant="outline" disabled={page === 0} onClick={() => onChange(page - 1)}>Poprzednia</Button>
+      <Button size="sm" variant="outline" disabled={page + 1 >= pages} onClick={() => onChange(page + 1)}>Następna</Button></div>
+  </nav>
 }
 
 // Usunięcie zamówienia jest NIEODWRACALNE (DELETE z kaskadą pozycji). Rozpisane

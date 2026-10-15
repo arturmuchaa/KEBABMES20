@@ -2260,6 +2260,15 @@ export const packagingApi = {
 // ZAMÓWIENIA OD KONTRAHENTÓW
 // ═══════════════════════════════════════════════════════════════════════════════
 
+/** Kilogramy pokrycia przydzielone przez backend, nie produkcja brutto. */
+export interface OrderFulfillment {
+  orderedKg: number
+  stockKg: number
+  deliveredKg: number
+  coveredKg: number
+  remainingKg: number
+}
+
 export interface OrderLine {
   id:            string
   qty:           number       // szt
@@ -2272,6 +2281,10 @@ export interface OrderLine {
   packagingId?:  string
   packagingName?: string
   notes?:        string
+  qtyDone?: number
+  qtyStock?: number
+  qtyDelivered?: number
+  fulfillment?: OrderFulfillment | null
 }
 
 export interface ClientOrder {
@@ -2287,6 +2300,8 @@ export interface ClientOrder {
   status:      'draft' | 'confirmed' | 'in_production' | 'done' | 'cancelled'
   notes?:      string
   createdAt:   string
+  fulfillment?: OrderFulfillment | null
+  coverageBasis?: 'closed_order' | 'stock_and_documents'
 }
 
 export interface CreateOrderLineDto {

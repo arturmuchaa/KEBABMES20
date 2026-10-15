@@ -15,6 +15,7 @@ from app.db import (
 from app.logging_config import get_logger
 from app.models.orders import ClientOrderCreate, OrderLineCreate
 from app.services.finished_goods_service import przepnij_do_pilniejszego_cx
+from app.services.order_fulfillment import attach_fulfillment
 from app.utils.ids import cuid, now_iso, slugify_for_number
 from app.utils.product_key import Klucz, kandydaci, klucz_wyrobu
 from datetime import datetime
@@ -500,12 +501,13 @@ def zamknij_wyslane_zamowienia(numery: List[str]) -> List[str]:
 def _hydrate_order(
     order: Dict[str, Any],
     pokrycie: Dict[str, Dict[str, Dict[str, int]]] | None = None,
+    loaded_lines: List[Dict[str, Any]] | None = None,
 ) -> Dict[str, Any]:
-    lines = query_all(
+    lines = loaded_lines if loaded_lines is not None else query_all(
         "SELECT * FROM client_order_lines WHERE order_id = %s ORDER BY position",
         (order["id"],)
     )
-    for line in lines:
+    for line in ([] if loaded_lines is not None else lines):
         if not line.get("recipe_name") and line.get("recipe_id"):
             r = query_one(
                 "SELECT name, product_type_name FROM recipes WHERE id=%s",
@@ -542,7 +544,7 @@ def _hydrate_order(
         line["qty_done"] = line["qty_stock"] + line["qty_delivered"]
 
     order["lines"] = lines
-    return order
+    return attach_fulfillment(order)
 
 
 def list_orders(status: str | None) -> List[Dict]:
@@ -553,8 +555,31 @@ def list_orders(status: str | None) -> List[Dict]:
         params.append(status)
     sql += " ORDER BY created_at DESC"
     orders = query_all(sql, params or None)
+    if not orders:
+        return []
     pokrycie = _pokrycie_zamowien()
-    return [_hydrate_order(order, pokrycie) for order in orders]
+    # One batch instead of a query per order (and per missing catalog name).
+    # Keep historical names, exactly as in the single-order hydration path.
+    lines = query_all(
+        """SELECT l.*,
+                  COALESCE(NULLIF(l.recipe_name, ''), r.name, '') AS recipe_name,
+                  COALESCE(NULLIF(l.product_type_name, ''),
+                           CASE WHEN COALESCE(l.recipe_name, '') = ''
+                                THEN NULLIF(r.product_type_name, '') END,
+                           pt.name, '') AS product_type_name,
+                  COALESCE(NULLIF(l.packaging_name, ''), p.name, '') AS packaging_name
+           FROM client_order_lines l
+           LEFT JOIN recipes r ON r.id = l.recipe_id
+           LEFT JOIN product_types pt ON pt.id = l.product_type_id
+           LEFT JOIN packaging p ON p.id = l.packaging_id
+           WHERE l.order_id = ANY(%s)
+           ORDER BY l.order_id, l.position""",
+        ([order["id"] for order in orders],),
+    )
+    by_order: Dict[str, List[Dict[str, Any]]] = {}
+    for line in lines:
+        by_order.setdefault(line["order_id"], []).append(line)
+    return [_hydrate_order(order, pokrycie, by_order.get(order["id"], [])) for order in orders]
 
 
 def get_order(order_id: str) -> Dict[str, Any]:

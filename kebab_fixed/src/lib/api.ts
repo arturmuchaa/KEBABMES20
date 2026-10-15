@@ -1748,6 +1748,19 @@ export const packagingApi = {
 }
 
 // ─── Zamówienia klientów ──────────────────────────────────────
+export function mapOrderFulfillment(raw: any) {
+  if (!raw) return null
+  const keys = ['orderedKg', 'stockKg', 'deliveredKg', 'coveredKg', 'remainingKg'] as const
+  const out = {} as Record<typeof keys[number], number>
+  for (const key of keys) {
+    const snake = key.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`)
+    const value = raw[snake] ?? raw[key]
+    if ((typeof value !== 'number' && typeof value !== 'string') || String(value).trim() === '' || !Number.isFinite(Number(value)) || Number(value) < 0) return null
+    out[key] = Number(value)
+  }
+  return out
+}
+
 function mapOrderLine(raw: any) {
   return {
     id:              raw.id              ?? '',
@@ -1765,11 +1778,12 @@ function mapOrderLine(raw: any) {
     // = ile pojechało do tego klienta. qtyDone to ich suma.
     qtyStock:        Number(raw.qty_stock     ?? raw.qtyStock     ?? 0),
     qtyDelivered:    Number(raw.qty_delivered ?? raw.qtyDelivered ?? 0),
+    fulfillment:     mapOrderFulfillment(raw.fulfillment),
     notes:           raw.notes,
   }
 }
 
-function mapClientOrder(raw: any): ClientOrder {
+export function mapClientOrder(raw: any): ClientOrder {
   return {
     id:           raw.id           ?? '',
     orderNo:      raw.order_no     ?? raw.orderNo     ?? '',
@@ -1783,6 +1797,8 @@ function mapClientOrder(raw: any): ClientOrder {
     status:       raw.status       ?? 'draft',
     notes:        raw.notes,
     createdAt:    raw.created_at   ?? raw.createdAt   ?? '',
+    fulfillment:  mapOrderFulfillment(raw.fulfillment),
+    coverageBasis: raw.coverage_basis ?? raw.coverageBasis,
   } as ClientOrder
 }
 

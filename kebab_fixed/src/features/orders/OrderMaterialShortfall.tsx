@@ -6,7 +6,7 @@ import { CWIARTKA, accentOf, Dot } from './material-ui'
 
 /** Surowiec potrzebny na NIEWYKONANĄ część zamówienia (qty - qty_done).
  *  Renderowany w rozwinięciu wiersza zamówienia; pobiera dane przy montażu. */
-export function OrderMaterialShortfall({ orderId }: { orderId: string }) {
+export function OrderMaterialShortfall({ orderId, refreshKey }: { orderId: string; refreshKey?: unknown }) {
   const [data, setData] = useState<MaterialRequirements | null>(null)
   useEffect(() => {
     let alive = true
@@ -14,7 +14,7 @@ export function OrderMaterialShortfall({ orderId }: { orderId: string }) {
       .then(d => { if (alive) setData(d) })
       .catch(err => { console.error('zapotrzebowanie zamówienia:', err); if (alive) setData(null) })
     return () => { alive = false }
-  }, [orderId])
+  }, [orderId, refreshKey])
 
   if (!data) return null
   const rows = data.totalsByRaw.filter(t => t.kgRaw > 0)

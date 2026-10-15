@@ -4,7 +4,7 @@ import { fmtKg, fmtPct } from '@/lib/utils'
 import { materialRequirementsApi, type RequirementsSummary, type RawRequirementTotal, type NetShortageRow } from '@/lib/api'
 import { CWIARTKA, accentOf, Dot, Kg } from './material-ui'
 
-export function MaterialSummaryCard() {
+export function MaterialSummaryCard({ refreshKey }: { refreshKey?: unknown } = {}) {
   const [data, setData] = useState<RequirementsSummary | null>(null)
   const [loading, setLoading] = useState(true)
   useEffect(() => {
@@ -14,7 +14,7 @@ export function MaterialSummaryCard() {
       .catch(err => { console.error('podsumowanie zapotrzebowania:', err); if (alive) setData(null) })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [])
+  }, [refreshKey])
 
   if (loading) return <SummarySkeleton />
   if (!data) return null
