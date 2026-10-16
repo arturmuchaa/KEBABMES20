@@ -2269,7 +2269,30 @@ export interface OrderFulfillment {
   remainingKg: number
 }
 
+export interface OrderProduction {
+  reportedQty: number
+  reportedKg: number
+  remainingQty: number
+  remainingKg: number
+  unpostedQty: number
+  source: string
+}
+
+export interface OrderMixing {
+  remainingQty: number | null
+  remainingKg: number | null
+  meatKg: number | null
+  additivesKg: number | null
+  outputPer100kg: number | null
+  growthPct: number | null
+  reason: string | null
+  basis: string
+  source: string
+}
+
 export interface OrderLine {
+  production?: OrderProduction | null
+  mixing?: OrderMixing | null
   id:            string
   qty:           number       // szt
   kgPerUnit:     number       // kg/szt

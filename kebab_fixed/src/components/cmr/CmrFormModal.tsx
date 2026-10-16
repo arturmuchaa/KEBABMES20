@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
 import { carriersApi, cmrApi, type Carrier, type CmrGoodsLine } from '@/lib/api'
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Plus, Trash2 } from 'lucide-react'
+import '@/features/orders/order-planning.css'
 
 export function CmrFormModal({ orderId, dispatchId, onClose }: {
   orderId?: string
@@ -14,8 +19,14 @@ export function CmrFormModal({ orderId, dispatchId, onClose }: {
   const [instructions, setInstructions] = useState('TRANSPORT MROŻNICZY -22')
   const [goods, setGoods] = useState<CmrGoodsLine[]>([])
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [carrierError, setCarrierError] = useState(false)
 
-  useEffect(() => { carriersApi.list().then(setCarriers).catch(() => {}) }, [])
+  const loadCarriers = () => {
+    setCarrierError(false)
+    void carriersApi.list().then(setCarriers).catch(() => setCarrierError(true))
+  }
+  useEffect(loadCarriers, [])
   // Po wyborze przewoźnika podpowiedz domyślny nr rej.
   useEffect(() => {
     const c = carriers.find(c => c.id === carrierId)
@@ -28,7 +39,9 @@ export function CmrFormModal({ orderId, dispatchId, onClose }: {
   const removeGoods = (i: number) => setGoods(g => g.filter((_, j) => j !== i))
 
   async function generate() {
+    if (busy) return
     setBusy(true)
+    setError('')
     try {
       const form = {
         carrier_id: carrierId, plate, invoice_no: invoiceNo, instructions,
@@ -40,42 +53,51 @@ export function CmrFormModal({ orderId, dispatchId, onClose }: {
       if (!win) window.location.href = url
       onClose()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Błąd generowania CMR')
+      setError(e instanceof Error ? e.message : 'Błąd generowania CMR')
     } finally { setBusy(false) }
   }
 
   return (
-    <div role="dialog" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 8, padding: 18, width: 560, maxHeight: '90vh', overflow: 'auto' }}>
-        <h2 style={{ fontWeight: 700, marginBottom: 10 }}>Wystaw CMR</h2>
-        <label>Przewoźnik
-          <select value={carrierId} onChange={e => setCarrierId(e.target.value)} style={{ width: '100%' }}>
+    <Dialog open onOpenChange={open => { if (!open && !busy) onClose() }}>
+      <DialogContent className="orders-dialog w-[calc(100%-2rem)] max-w-2xl max-h-[90vh] overflow-y-auto p-0 gap-0" onInteractOutside={e => { if (busy) e.preventDefault() }}>
+        <header className="order-section-head bg-slate-50 pr-12"><div>
+          <DialogTitle>Wystaw CMR</DialogTitle>
+          <DialogDescription className="mt-1">Dane przewoźnika i transportu do listu przewozowego.</DialogDescription>
+        </div></header>
+        <fieldset disabled={busy} className="grid min-w-0 gap-4 p-5 text-sm">
+        {carrierError && <p role="alert" className="text-amber-800">Nie udało się pobrać przewoźników. <button className="underline" onClick={loadCarriers}>Ponów pobieranie</button></p>}
+        <label className="grid gap-1.5 font-medium">Przewoźnik
+          <select value={carrierId} onChange={e => setCarrierId(e.target.value)} className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-normal">
             <option value="">— wybierz —</option>
             {carriers.map(c => <option key={c.id} value={c.id}>{c.name}{c.city ? `, ${c.city}` : ''}</option>)}
           </select>
         </label>
-        <label>Nr rejestracyjny <input value={plate} onChange={e => setPlate(e.target.value)} style={{ width: '100%' }} /></label>
-        <label>Nr faktury (pole 5) <input value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} placeholder="FV 11/06/2026" style={{ width: '100%' }} /></label>
-        <label>Instrukcje (pole 13) <input value={instructions} onChange={e => setInstructions(e.target.value)} style={{ width: '100%' }} /></label>
-        <div style={{ marginTop: 8 }}>
-          <b>Dodatkowy towar (poza kebabem)</b>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="grid gap-1.5 font-medium">Nr rejestracyjny <Input value={plate} onChange={e => setPlate(e.target.value)} /></label>
+          <label className="grid gap-1.5 font-medium">Nr faktury (pole 5) <Input value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} placeholder="FV 11/06/2026" /></label>
+        </div>
+        <label className="grid gap-1.5 font-medium">Instrukcje (pole 13) <Input value={instructions} onChange={e => setInstructions(e.target.value)} /></label>
+        <div className="space-y-3 border-t border-slate-200 pt-4">
+          <h3 className="font-semibold">Dodatkowy towar (poza kebabem)</h3>
           {goods.map((g, i) => (
-            <div key={i} style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-              <input placeholder="nazwa" value={g.name} onChange={e => setGoodsAt(i, { name: e.target.value })} style={{ flex: 2 }} />
-              <input placeholder="szt" type="number" value={g.qty || ''} onChange={e => setGoodsAt(i, { qty: parseInt(e.target.value) || 0 })} style={{ width: 70 }} />
-              <input placeholder="kg" type="number" value={g.kg || ''} onChange={e => setGoodsAt(i, { kg: parseFloat(e.target.value) || 0 })} style={{ width: 80 }} />
-              <button onClick={() => removeGoods(i)}>✕</button>
+            <div key={i} className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[2fr_1fr_1fr_auto]">
+              <label className="col-span-3 grid gap-1 text-xs sm:col-span-1">Nazwa towaru {i + 1}<Input value={g.name} onChange={e => setGoodsAt(i, { name: e.target.value })} /></label>
+              <label className="grid gap-1 text-xs">Sztuki {i + 1}<Input type="number" min={0} value={g.qty || ''} onChange={e => setGoodsAt(i, { qty: parseInt(e.target.value) || 0 })} /></label>
+              <label className="grid gap-1 text-xs">Masa kg {i + 1}<Input type="number" min={0} step="0.001" value={g.kg || ''} onChange={e => setGoodsAt(i, { kg: parseFloat(e.target.value) || 0 })} /></label>
+              <Button variant="ghost" size="icon" aria-label={`Usuń dodatkowy towar ${i + 1}`} onClick={() => removeGoods(i)}><Trash2 size={16} aria-hidden="true" /></Button>
             </div>
           ))}
-          <button onClick={addGoods} style={{ marginTop: 4 }}>+ dodaj pozycję</button>
+          <Button variant="outline" size="sm" onClick={addGoods}><Plus size={14} aria-hidden="true" className="mr-1" />Dodaj pozycję</Button>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
-          <button onClick={onClose}>Anuluj</button>
-          <button onClick={generate} disabled={busy} style={{ background: '#2563eb', color: '#fff', padding: '6px 14px', borderRadius: 4 }}>
+        </fieldset>
+        {error && <p role="alert" className="mx-5 mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+        <footer className="flex flex-wrap justify-end gap-3 border-t border-slate-200 px-5 py-4">
+          <Button variant="outline" disabled={busy} onClick={onClose}>Anuluj</Button>
+          <Button onClick={generate} disabled={busy} className="bg-blue-700 hover:bg-blue-800">
             {busy ? 'Generuję…' : 'Generuj CMR'}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </footer>
+      </DialogContent>
+    </Dialog>
   )
 }

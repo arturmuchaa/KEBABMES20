@@ -25,6 +25,7 @@ import {
 } from '@/features/labels/CartonLabel'
 import { buildCartonLabelContent, cartonLabelTotalKg } from '@/features/labels/cartonLabelLines'
 import { CARTON_QR_OPTIONS, palletQrPayload } from '@/features/labels/cartonQr'
+import '@/features/orders/order-planning.css'
 
 /** Numery palet z `?palety=1,3,4`. Brak parametru = wszystkie (null).
  *  Śmieci w parametrze pomijamy zamiast wywracać wydruk — adres bywa
@@ -158,14 +159,14 @@ export function PalletLabelsBatchPrintPage() {
     <div className="min-h-screen bg-white text-black">
       <style>{CARTON_LABEL_STYLES}</style>
 
-      <div className="no-print sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-slate-100 px-4 py-2">
+      <div className="orders-workspace no-print sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-6 py-4 shadow-sm">
         <Link to="/office/zamowienia" className="flex items-center gap-1.5 text-sm text-slate-700 hover:text-slate-900">
           <ArrowLeft size={14} /> Wróć do zamówień
         </Link>
         <div className="text-sm text-slate-700">
           {order.orderNo} · palety {opisPalet} · {kartki.length * KOPII_NA_PALETE} kartek
         </div>
-        <button disabled={!qrKomplet} onClick={() => void drukuj()} className="flex items-center gap-1.5 rounded bg-brand px-4 py-1.5 text-sm font-semibold text-white hover:bg-brand-dark disabled:opacity-50">
+        <button disabled={!qrKomplet} onClick={() => void drukuj()} className="flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50">
           <Printer size={14} /> Drukuj wszystkie
         </button>
       </div>

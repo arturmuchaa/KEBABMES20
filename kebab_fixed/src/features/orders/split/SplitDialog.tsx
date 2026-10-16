@@ -51,6 +51,8 @@
  * ekran jest tym, co się zapisuje, tak samo jak jest tym, co się wystawia.
  */
 import { useEffect, useRef, useState } from 'react'
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import '../order-planning.css'
 import { X } from 'lucide-react'
 import { cn, fmtKgTrim } from '@/lib/utils'
 import { CmrDaneTransportu, DOMYSLNE_DANE_TRANSPORTU, brakujeDanychPrzewoznika,
@@ -467,21 +469,17 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" onClick={onClose}>
-      <div onClick={e => e.stopPropagation()}
-        className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-surface-4 bg-surface shadow-xl">
-        <header className="flex items-start justify-between gap-3 border-b border-surface-3 px-5 py-3">
+    <Dialog open onOpenChange={open => { if (!open && !saving && !issuing && !cancelling) onClose() }}>
+      <DialogContent className="orders-dialog flex max-h-[90vh] w-[calc(100%-2rem)] max-w-4xl flex-col overflow-hidden rounded-xl border-slate-200 bg-white p-0 gap-0" onInteractOutside={e => { if (saving || issuing || cancelling) e.preventDefault() }}>
+        <header className="order-section-head bg-slate-50 pr-12">
           <div>
-            <h2 className="text-[15px] font-bold text-ink">Podział wysyłki — faktura i WZ</h2>
-            <p className="text-[11.5px] text-ink-4">
+            <DialogTitle className="text-base font-semibold">Podział wysyłki — faktura i WZ</DialogTitle>
+            <DialogDescription className="mt-1 text-xs text-slate-600">
               {orderNo ? `Zamówienie ${orderNo}` : `Zamówienie ${orderId}`}
               {clientName ? ` · ${clientName}` : ''}
               {kgCalosc != null ? ` · razem ${fmtKgTrim(kgCalosc)} kg` : ''}
-            </p>
+            </DialogDescription>
           </div>
-          <button onClick={onClose} className="p-1 text-ink-4 hover:text-ink" aria-label="Zamknij">
-            <X size={16} />
-          </button>
         </header>
 
         <div className="space-y-4 overflow-y-auto p-5">
@@ -549,7 +547,7 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
               ))}
 
               <div className="overflow-x-auto rounded border border-surface-4">
-                <table className="w-full text-[12.5px]">
+                <table className="order-table min-w-[600px]">
                   <thead className="bg-surface-2 text-[10.5px] uppercase tracking-wider text-ink-4">
                     <tr>
                       <th className="px-3 py-2 text-left">Receptura</th>
@@ -709,8 +707,8 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
             <input type="checkbox" checked={hdiFv} onChange={e => setHdiFv(e.target.checked)} />
             także HDI do faktury
           </label>
-          <div className="flex gap-2">
-            <button type="button" onClick={onClose}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={onClose} disabled={saving || issuing || cancelling}
               className="rounded border border-surface-4 px-3 py-2 text-[12.5px] font-medium text-ink hover:bg-surface-2">
               Zamknij
             </button>
@@ -731,7 +729,7 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
             {/* ZDEJMUJE STAN: aktywny tylko, gdy ekran = baza (`matchesSaved`). */}
             <button type="button" onClick={handleIssue}
               disabled={issuing || !matchesSaved}
-              className="rounded bg-ink px-4 py-2 text-[12.5px] font-medium text-surface hover:bg-ink-2 disabled:opacity-50">
+              className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50">
               {issuing ? 'Wystawiam…' : 'Wystaw komplet dokumentów'}
             </button>
           </div>
@@ -749,8 +747,8 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
             </div>
           )}
         </footer>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

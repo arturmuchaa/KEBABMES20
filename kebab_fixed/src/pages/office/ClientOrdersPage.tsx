@@ -17,12 +17,13 @@ import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { OrderPlanningSummary, CoverageBar } from '@/features/orders/OrderPlanningSummary'
 import { OrderLinesTable } from '@/features/orders/OrderLinesTable'
 import { OrderDocumentsMenu } from '@/features/orders/OrderDocumentsMenu'
-import { totalLines, summarizeOrders, kgText, coveragePercent, productionState } from '@/features/orders/orderPlanning'
+import { totalLines, summarizeOrders, kgText, coveragePercent, productionState, productionTotals, mixingTotals } from '@/features/orders/orderPlanning'
+import { OrderMetric } from '@/features/orders/OrderUI'
 import '@/features/orders/order-planning.css'
 import { podzielZamowienia } from '@/features/orders/orderBuckets'
 import {
   Check, ChevronDown, ChevronUp, ChevronsUpDown,
-  Pencil, Plus, RotateCcw, ShoppingCart, Trash2, X, Search, Download,
+  Pencil, Plus, RotateCcw, ShoppingCart, Trash2, X, Search,
 } from 'lucide-react'
 import { PalletsEditor } from '@/components/orders/PalletsEditor'
 import { StockCartonSuggestions } from '@/features/finished-goods/components/StockCartonSuggestions'
@@ -55,29 +56,10 @@ type SortCol = 'orderNo' | 'clientName' | 'orderDate' | 'deliveryDate' | 'status
 const EMPTY_ORDERS: ClientOrder[] = []
 const PAGE_SIZE = 50
 
-function exportCsv(rows: ClientOrder[]) {
-  const headers = ['Nr zam.','Klient','Data zam.','Dostawa','Status','Szt','Zamówiono kg','Pokryte wyrobem kg','Pozostało kg','Uwagi']
-  const csv = [headers.join(';')].concat(rows.map(o => [
-    o.orderNo, o.clientName,
-    o.orderDate, o.deliveryDate || '',
-    STATUS_LABELS[o.status],
-    String(o.totalUnits),
-    String(totalLines(o.lines).orderedKg).replace('.', ','),
-    String(totalLines(o.lines).coveredKg ?? '').replace('.', ','),
-    o.status === 'cancelled' ? '' : String(totalLines(o.lines).remainingKg ?? '').replace('.', ','),
-    o.notes || '',
-  ].map(v => `"${String(v).replace(/^[=+@-]/, "'$&").replace(/"/g,'""')}"`).join(';'))).join('\n')
-  const blob = new Blob([new TextEncoder().encode('﻿' + csv)], { type: 'text/csv;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url; a.download = `zamowienia-${new Date().toISOString().slice(0,10)}.csv`; a.click()
-  URL.revokeObjectURL(url)
-}
-
 export function ClientOrdersPage() {
   const navigate      = useNavigate()
   const clientDisplay = useClientNames()
-  const { data: orders, loading, error, refetch } = useApi(() => clientOrdersApi.list())
+  const { data: orders, loading, error, refetch } = useApi(() => clientOrdersApi.list(undefined, true))
   const [cmrOrderId,   setCmrOrderId]   = useState<string | null>(null)
   const [splitOrder,   setSplitOrder]   = useState<ClientOrder | null>(null)
   const [doUsuniecia,  setDoUsuniecia]  = useState<ClientOrder | null>(null)
@@ -153,6 +135,9 @@ export function ClientOrdersPage() {
   }, [rawList, filterStatus, filterProgress, metrics, search, sortCol, sortDir])
 
   const { biezace, zamkniete } = useMemo(() => podzielZamowienia(filtered), [filtered])
+  const activeLines = useMemo(() => rawList.filter(o => o.status !== 'done' && o.status !== 'cancelled').flatMap(o => o.lines), [rawList])
+  const activeProduction = useMemo(() => productionTotals(activeLines), [activeLines])
+  const activeMixing = useMemo(() => mixingTotals(activeLines), [activeLines])
   const currentPage = Math.min(page, Math.max(0, Math.ceil(biezace.length / PAGE_SIZE) - 1))
   const closedPage = Math.min(archivePage, Math.max(0, Math.ceil(zamkniete.length / PAGE_SIZE) - 1))
   const archiveVisible = archiwum || filterStatus === 'done' || filterStatus === 'cancelled'
@@ -176,8 +161,8 @@ export function ClientOrdersPage() {
     const totals = totalLines(rows.filter(o => o.status !== 'cancelled').flatMap(o => o.lines))
     if (rows.length === 0) return null
     return (
-            <div className="orders-scroll overflow-auto max-h-[min(65vh,720px)]" tabIndex={0} role="region" aria-label="Lista zamówień">
-              <table className="w-full min-w-[1100px] text-sm tabular-nums">
+            <div className="orders-scroll overflow-x-auto" tabIndex={0} role="region" aria-label="Lista zamówień">
+              <table className="order-register w-full min-w-[1050px] text-sm tabular-nums">
                 <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
                   <tr>
                     <th scope="col" className="w-10"><span className="sr-only">Zaznaczenie</span></th>
@@ -222,7 +207,7 @@ export function ClientOrdersPage() {
                         <tr
                           onClick={() => setExpanded(isExp ? null : o.id)}
                           className={cn(
-                            'cursor-pointer border-b border-surface-4 transition-colors',
+                            'order-master cursor-pointer border-b border-surface-4 transition-colors',
                             idx % 2 === 0 ? 'bg-white' : 'bg-surface-2/40',
                             isExp ? 'bg-surface-3/50' : 'hover:bg-surface-3/60',
                             selected.has(o.id) && 'order-selected',
@@ -238,8 +223,8 @@ export function ClientOrdersPage() {
                             </button>
                           </td>
                           <td className="max-w-[280px] px-2.5 py-3" title={o.clientName}>
-                            <span className="block break-words text-[13px] font-semibold text-ink">{o.orderNo}</span>
-                            <span className="mt-1 block truncate text-xs text-ink-3">{clientDisplay(o.clientName)}</span>
+                            <span className="block break-words text-[14px] font-semibold text-slate-900">{clientDisplay(o.clientName)}</span>
+                            <span className="mt-1 block break-words text-xs text-slate-600">{o.orderNo}</span>
                           </td>
                           <td className="px-2.5 py-2 whitespace-nowrap">
                             {o.deliveryDate ? (
@@ -308,11 +293,12 @@ export function ClientOrdersPage() {
                           </td>
                         </tr>
 
-                        {/* Rozwinięcie: pozycje + palety */}
+                        <tr className="order-products"><td colSpan={9}><OrderLinesTable order={o} /></td></tr>
+                        {/* Rozwinięcie: logistyka. Produkcja widoczna bez kliknięcia. */}
                         {isExp && (
-                          <tr id={`order-${o.id}`}>
+                          <tr id={`order-${o.id}`} className="order-detail">
                             <td colSpan={9} className="bg-surface-2/60 border-b border-surface-4 px-4 py-4">
-                              <p className="mb-3 text-xs text-ink-3">Data zamówienia: {fmtDatePl(o.orderDate)} · Pokrycie MES nie jest pomiarem produkcji brutto.
+                              <p className="mb-3 text-xs text-ink-3">Data zamówienia: {fmtDatePl(o.orderDate)} · Logistyka zamówienia {o.orderNo} · {clientDisplay(o.clientName)}
                                 {o.status === 'done' && ' Zamknięte zamówienie: wydanie przyjęte jako pełne.'}</p>
                               {o.notes && (
                                 <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded text-xs">
@@ -321,16 +307,12 @@ export function ClientOrdersPage() {
                                 </div>
                               )}
 
-                              <div className="mb-3">
-                                <OrderLinesTable order={o} />
-                              </div>
-
                               {/* Brakujący surowiec na niewykonaną część zamówienia */}
-                              {o.status !== 'cancelled' && <OrderMaterialShortfall orderId={o.id} refreshKey={o} />}
+                              {o.status !== 'cancelled' && <OrderMaterialShortfall order={o} />}
 
                               {/* Pasujące kartony z magazynu (powiązanie „na magazyn" → zamówienie) */}
                               <StockCartonSuggestions key={o.id} orderId={o.id} orderStatus={o.status} onAssigned={refetch}
-                                renderPallets={assigned => <PalletsEditor orderId={o.id} lines={o.lines} assignedCartons={assigned} />} />
+                                renderPallets={assigned => <PalletsEditor orderId={o.id} lines={o.lines} assignedCartons={assigned} orderNo={o.orderNo} clientName={clientDisplay(o.clientName)} />} />
                             </td>
                           </tr>
                         )}
@@ -388,7 +370,7 @@ export function ClientOrdersPage() {
   // Główna akcja w nagłówku strony (wspólny PageHeader).
   usePageHeaderActions(
     <div className="flex items-center gap-2 text-xs">
-      <Button size="sm" className="gap-1.5" onClick={() => navigate('/office/zamowienia/nowe')}>
+      <Button size="sm" className="gap-1.5 bg-blue-700 hover:bg-blue-800" onClick={() => navigate('/office/zamowienia/nowe')}>
         <Plus size={14}/> Nowe zamówienie
       </Button>
     </div>,
@@ -397,12 +379,18 @@ export function ClientOrdersPage() {
 
   return (
     <div className="orders-workspace min-w-0 space-y-4">
-
+      <div className="order-workspace-heading"><div><div className="order-eyebrow">Biuro / planowanie produkcji</div><h2>Zamówienia i realizacja</h2><p>Co zamówiono → ile zrobiono → ile zostało → ile mięsa przygotować.</p></div></div>
+      {!loading && orders && <div className="order-metrics" aria-label="Wszystkie otwarte zamówienia">
+        <OrderMetric label="Otwarte zamówienia" value={rawList.filter(o => o.status !== 'done' && o.status !== 'cancelled').length} hint={`${activeProduction.orderedQty} szt. zamówionych · wraz ze szkicami`} />
+        <OrderMetric label="Gotowe · raporty MES" tone="green" value={activeProduction.reportedQty == null ? '—' : `${activeProduction.reportedQty} szt.`} hint={kgText(activeProduction.reportedKg)} />
+        <OrderMetric label="Pozostało wg raportów" tone="amber" value={kgText(activeProduction.remainingKg)} hint={activeProduction.remainingQty == null ? 'Brak kompletu danych MES' : `${activeProduction.remainingQty} szt. · przed pokryciem zapasem`} />
+        <OrderMetric label="Mięso bazowe · otwarte zamówienia" tone="violet" value={kgText(activeMixing.meatKg)} hint={activeMixing.meatKg == null ? 'Zaznacz zamówienia, aby zobaczyć przyczynę' : 'Potrzeba technologiczna, nie zakup'} />
+      </div>}
       {/* Palety z usuniętych/zmienionych zamówień czekające na zgodne zamówienie */}
       <OrphanPalletsPanel refreshKey={orders} />
 
       {/* Filtry i operacje na widocznej liście; zaznaczenia są od nich niezależne. */}
-      <Card>
+      <Card className="order-panel">
         <div className="px-4 py-2.5 flex items-center gap-3 flex-wrap">
           <div className="relative min-w-0 basis-full flex-1 md:basis-64">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -454,9 +442,6 @@ export function ClientOrdersPage() {
           <Button variant="outline" size="sm" onClick={() => void refresh()} disabled={loading || refreshing}>
             <RotateCcw size={14} aria-hidden="true" className="mr-1.5" />{refreshing ? 'Odświeżanie…' : 'Odśwież'}
           </Button>
-          <Button variant="ghost" size="sm" disabled={!filtered.length && !selectedOrders.length} onClick={() => exportCsv(selectedOrders.length ? selectedOrders : filtered)}>
-            <Download size={14} aria-hidden="true" className="mr-1.5" />{selectedOrders.length ? 'CSV zaznaczonych' : 'CSV listy'}
-          </Button>
         </div>
         <div className="flex flex-wrap items-center gap-4 border-t border-surface-3 px-4 py-3 text-xs">
           <label className="flex items-center gap-2 font-medium">
@@ -477,10 +462,10 @@ export function ClientOrdersPage() {
 
       {selectedOrders.length > 0 ? <OrderPlanningSummary summary={summary} count={selectedOrders.length}
         hiddenCount={selectedOrders.length - selectedVisible} onClear={() => setSelected(new Set())} /> :
-        <p className="px-1 text-sm text-ink-3">Zaznacz zamówienia, aby zobaczyć pozostałe kilogramy i wspólne zapotrzebowanie według receptur.</p>}
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">Zaznacz zamówienia, aby obliczyć wspólne zapotrzebowanie na mieszanie według receptur. Gotowe sztuki każdej pozycji są widoczne poniżej.</div>}
 
       {/* Tabela */}
-      <Card className="overflow-hidden">
+      <Card className="order-panel overflow-hidden">
         {loading ? (
           <div className="p-4 space-y-2">
             {[0,1,2,3,4].map(i => <Skeleton key={i} className="h-8 w-full" />)}
@@ -527,7 +512,7 @@ export function ClientOrdersPage() {
         )}
       </Card>
 
-      <details className="rounded-lg border border-surface-4 bg-white p-4" onToggle={e => setShowMaterials(e.currentTarget.open)}>
+      <details className="order-panel p-4" onToggle={e => setShowMaterials(e.currentTarget.open)}>
         <summary className="cursor-pointer text-sm font-medium">Surowiec dla wszystkich otwartych zamówień <span className="font-normal text-ink-3">· niezależnie od zaznaczenia</span></summary>
         {showMaterials && <div className="mt-4"><MaterialSummaryCard refreshKey={orders} /></div>}
       </details>
@@ -600,7 +585,7 @@ function UsunZamowienieDialog({ order, onClose, onDeleted }: {
 
   return (
     <Dialog open onOpenChange={(v) => { if (!v && !trwa) onClose() }}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="orders-dialog max-w-md">
         <DialogTitle>Usunąć zamówienie?</DialogTitle>
         <DialogDescription>
           Tej operacji nie da się cofnąć — zamówienie zniknie razem z pozycjami. Rozpisane palety

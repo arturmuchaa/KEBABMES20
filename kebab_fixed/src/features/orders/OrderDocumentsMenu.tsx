@@ -19,16 +19,17 @@ export function OrderDocumentsMenu({ order, onCmr, onSplit }: { order: ClientOrd
       openDocument(`/office/hdi/${r.id}/druk`)
     } catch (e) { alert(e instanceof Error ? e.message : 'Błąd generowania HDI') }
   }
-  return <DropdownMenu>
+  return <><Button variant="outline" size="sm" className="order-action mr-1 gap-1.5 bg-white" aria-label={`Drukuj ${order.orderNo}`} onClick={() => openDocument(`/office/zamowienia/${order.id}/druk`)}><Printer size={14} aria-hidden="true" />Drukuj</Button><DropdownMenu>
     <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-8 w-8" aria-label={`Dokumenty ${order.orderNo}`}><MoreHorizontal size={18} aria-hidden="true" /></Button></DropdownMenuTrigger>
     <DropdownMenuContent align="end">
       <DropdownMenuLabel>Dokumenty zamówienia</DropdownMenuLabel>
       <DropdownMenuItem onSelect={() => openDocument(`/office/zamowienia/${order.id}/druk`)}><Printer aria-hidden="true" />Drukuj zamówienie</DropdownMenuItem>
+      <DropdownMenuItem onSelect={() => openDocument(`/office/zamowienia/${order.id}/druk?internal=1`)}><Printer aria-hidden="true" />Lista kompletacji (wewnętrzna)</DropdownMenuItem>
       <DropdownMenuItem onSelect={() => void hdi()}><FileText aria-hidden="true" />{order.status === 'done' || order.status === 'cancelled' ? 'Podgląd HDI (zamrożone)' : 'Generuj HDI'}</DropdownMenuItem>
       <DropdownMenuItem onSelect={() => navigate(`/office/wz/nowy?order=${order.id}`)}><Truck aria-hidden="true" />Wystaw WZ</DropdownMenuItem>
       <DropdownMenuItem onSelect={onCmr}><FileText aria-hidden="true" />Wystaw CMR</DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem onSelect={onSplit}><Split aria-hidden="true" />Podział wysyłki na fakturę i WZ</DropdownMenuItem>
     </DropdownMenuContent>
-  </DropdownMenu>
+  </DropdownMenu></>
 }

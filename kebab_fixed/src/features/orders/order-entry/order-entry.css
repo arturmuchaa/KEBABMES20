@@ -97,3 +97,24 @@
 .oe-scroll::-webkit-scrollbar-track { background: transparent; }
 .oe-scroll::-webkit-scrollbar-thumb { background: #D4D4D4; border-radius: 999px; }
 .oe-scroll::-webkit-scrollbar-thumb:hover { background: #B8B8B8; }
+
+/* Order-entry layout uses the shared Orders tokens, not a separate terminal theme. */
+.order-entry .oe-input-grid { display: flex; flex-wrap: wrap; align-items: start; gap: 12px; }
+.order-entry .oe-input-grid > div { max-width: 100%; }
+.order-entry .oe-line [data-testid^='oe-col'] { white-space: normal; overflow-wrap: anywhere; }
+.order-entry .oe-line [data-testid='oe-col-receptura'] { font-weight: 650; }
+.order-entry input:not([type='checkbox']), .order-entry textarea { border-radius: 6px; }
+.order-entry .oe-stamped { animation: none; box-shadow: inset 3px 0 #18704e; background-color: #edf8f2; }
+.order-entry .oe-key { border-color: #bac9db; background: #f3f6fa; color: #52647a; }
+@media (max-width: 1200px) { .order-entry .oe-content-grid { flex-direction: column; }.order-entry .oe-side { width: 100%; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }.order-entry .oe-side > * { margin: 0; } }
+@media (max-width: 700px) {
+  .order-entry .oe-order-meta { flex-direction: column; }
+  .order-entry .oe-glyph { display: none; }
+  .order-entry .oe-input-grid > div { flex: 1 1 140px; min-width: 0; }
+  .order-entry .oe-line-head { display: none; }
+  .order-entry .oe-line { display: grid; grid-template-columns: 24px 1fr auto; gap: 8px; }
+  .order-entry .oe-line [data-testid^='oe-col'] { grid-column: 2 / -1; }
+  .order-entry .oe-line > span:nth-last-child(2) { grid-column: 2; text-align: left; }
+  .order-entry .oe-side { display: block; }.order-entry .oe-side > * { margin-bottom: 16px; }
+  .order-entry .oe-savebar { position: static; }.order-entry .oe-savebar > div { margin-left: 0; width: 100%; flex-wrap: wrap; }
+}

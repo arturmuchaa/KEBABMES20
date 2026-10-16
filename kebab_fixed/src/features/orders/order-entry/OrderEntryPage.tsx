@@ -40,11 +40,12 @@ import {
 import { ComboField, FieldShell, NumberField } from '@/components/terminal/fields'
 import { ClientStep } from './ClientStep'
 import './order-entry.css'
+import '../order-planning.css'
 
 /** Znak arytmetyczny między polami wsadu — czyta się „40 × 8,5 = 340 kg". */
 function Glyph({ children }: { children: React.ReactNode }) {
   return (
-    <div className="pt-[15px]">
+    <div className="oe-glyph pt-[15px]">
       <div className="flex h-10 items-center font-mono text-[15px] text-ink-5">{children}</div>
     </div>
   )
@@ -56,12 +57,14 @@ export function OrderEntryPage() {
   const editing  = !!id
 
   // ── Słowniki ───────────────────────────────────────────────────
-  const { data: clientList } = useApi(() => clientsApi.list())
-  const { data: pkgList }    = useApi(() => packagingApi.list())
+  const { data: clientList, loading: clientsLoading, error: clientsError, refetch: reloadClients } = useApi(() => clientsApi.list())
+  const { data: pkgList, loading: packagingLoading, error: packagingError, refetch: reloadPackaging } = useApi(() => packagingApi.list())
   const { data: orderList }  = useApi(() => clientOrdersApi.list())
-  const { productTypes }     = useProductTypes()
-  const { recipes }          = useRecipes()
-  const { data: existing }   = useApi(() => (id ? clientOrdersApi.byId(id) : Promise.resolve(null)), [id])
+  const { productTypes, loading: typesLoading, error: typesError, refetch: reloadTypes } = useProductTypes()
+  const { recipes, loading: recipesLoading, error: recipesError, refetch: reloadRecipes } = useRecipes()
+  const { data: existing, loading: orderLoading, error: orderError, refetch: reloadOrder } = useApi(() => (id ? clientOrdersApi.byId(id) : Promise.resolve(null)), [id])
+  const loadError = clientsError || packagingError || typesError || recipesError || orderError || (editing && !orderLoading && !existing ? 'Nie znaleziono zamówienia' : null)
+  const dataLoading = clientsLoading || packagingLoading || typesLoading || recipesLoading || (editing && orderLoading)
 
   const clients   = clientList  ?? []
   const packaging = pkgList     ?? []
@@ -83,6 +86,7 @@ export function OrderEntryPage() {
   const [hint,       setHint]       = useState('')
   const [stamp,      setStamp]      = useState(0)
   const [saving,     setSaving]     = useState(false)
+  const saveLock = useRef(false)
   const [error,      setError]      = useState('')
   // Wyjście z niezapisanym zamówieniem wymaga potwierdzenia. Świadomie BEZ
   // confirm() — w oknie Tauri natywne dialogi bywają wygłuszone i operator
@@ -146,12 +150,12 @@ export function OrderEntryPage() {
   }, [orderList])
 
   // Podgląd zapotrzebowania: pozycje zapisane + wsad, gdy już coś znaczy.
-  const previewItems: PreviewItem[] = useMemo(() => [
-    ...lines.map(l => ({ qty: num(l.qty), kgPerUnit: num(l.kgPerUnit), recipeId: l.recipeId, productTypeId: l.productTypeId })),
-    ...(draftComplete(draft)
-      ? [{ qty: num(draft.qty), kgPerUnit: num(draft.kgPerUnit), recipeId: draft.recipeId, productTypeId: draft.productTypeId }]
-      : []),
-  ], [lines, draft])
+  const previewItems: PreviewItem[] = useMemo(() => {
+    const previewLines = draftComplete(draft)
+      ? editingIdx === null ? [...lines, draft] : lines.map((line, i) => i === editingIdx ? draft : line)
+      : lines
+    return previewLines.map(l => ({ qty: num(l.qty), kgPerUnit: num(l.kgPerUnit), recipeId: l.recipeId, productTypeId: l.productTypeId }))
+  }, [lines, draft, editingIdx])
 
   // ── Ruch kursora ───────────────────────────────────────────────
   /** Kolejny slot po `from`, z pominięciem tego, czego nie ma czego wybierać. */
@@ -248,9 +252,13 @@ export function OrderEntryPage() {
 
   // ── Zapis ──────────────────────────────────────────────────────
   const save = useCallback(async () => {
+    if (saveLock.current || dataLoading || loadError || (editing && !seeded.current)) return
     if (!clientId) { setStep('client'); return }
+    if (editingIdx !== null && !draftComplete(draft)) { setError('Dokończ poprawę pozycji lub ją porzuć przed zapisem'); return }
     // Wsad wypełniony do końca, ale niezatwierdzony — nie gubimy go po cichu.
-    const all = draftComplete(draft) && editingIdx === null ? [...lines, draft] : lines
+    const all = draftComplete(draft)
+      ? editingIdx === null ? [...lines, draft] : lines.map((line, i) => i === editingIdx ? draft : line)
+      : lines
     if (all.length === 0) { setError('Dodaj przynajmniej jedną pozycję'); return }
 
     const dto: CreateClientOrderDto = {
@@ -271,9 +279,11 @@ export function OrderEntryPage() {
         recipeName: (rcList as any[]).find(r => r.id === l.recipeId)?.name || '',
         packagingId: l.packagingId || undefined,
         packagingName: l.packagingId ? ((packaging as any[]).find(p => p.id === l.packagingId)?.name || '') : undefined,
+        notes: l.notes || undefined,
       })),
     }
 
+    saveLock.current = true
     setSaving(true)
     setError('')
     try {
@@ -283,9 +293,10 @@ export function OrderEntryPage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Nie udało się zapisać zamówienia')
     } finally {
+      saveLock.current = false
       setSaving(false)
     }
-  }, [clientId, orderDate, deliveryDate, notes, lines, draft, editingIdx, editing, id, ptList, rcList, packaging, navigate])
+  }, [clientId, orderDate, deliveryDate, notes, lines, draft, editingIdx, editing, id, ptList, rcList, packaging, navigate, dataLoading, loadError])
 
   // ── Skróty globalne ────────────────────────────────────────────
   const saveRef = useRef(save); saveRef.current = save
@@ -302,10 +313,17 @@ export function OrderEntryPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  if (dataLoading && !seeded.current) return <div className="orders-workspace"><div role="status" className="order-panel p-8 text-sm text-slate-600">Ładowanie zamówienia i kartotek…</div></div>
+  if (loadError) return <div className="orders-workspace"><div role="alert" className="order-panel p-6 space-y-3">
+    <h2 className="text-lg font-semibold">Nie udało się wczytać kompletu danych</h2><p className="text-sm text-amber-800">{loadError}. Formularz nie zastępuje brakujących danych pustym zamówieniem. Niezapisane zmiany zachowano.</p>
+    <Button onClick={() => { void reloadClients(); void reloadPackaging(); void reloadTypes(); void reloadRecipes(); void reloadOrder() }}>Ponów pobieranie</Button>
+  </div></div>
+
   // ── Krok 1: klient ─────────────────────────────────────────────
   if (step === 'client') {
     return (
-      <div className="animate-fade-in py-6">
+      <div className="orders-workspace order-entry py-6">
+        <div className="order-workspace-heading mb-5 mx-auto max-w-[720px]"><div><div className="order-eyebrow">Nowe zamówienie · krok 1 z 2</div><h2>Wybierz klienta</h2><p>Wyszukaj odbiorcę, a następnie dodaj pozycje zamówienia.</p></div></div>
         <ClientStep
           clients={clients}
           recentIds={recentIds}
@@ -322,12 +340,13 @@ export function OrderEntryPage() {
 
   // ── Krok 2: pozycje ────────────────────────────────────────────
   return (
-    <div className="animate-fade-in flex min-h-[calc(100vh-7.5rem)] flex-col gap-3">
+    <div className="orders-workspace order-entry flex min-h-[calc(100vh-7.5rem)] flex-col gap-4">
+      <div className="order-workspace-heading"><div><div className="order-eyebrow">Zamówienia · krok 2 z 2</div><h2>{editing ? 'Edycja zamówienia' : 'Nowe zamówienie'}</h2><p>Dodawaj warianty z klawiatury. Enter przechodzi dalej, Ctrl+Enter zapisuje całość.</p></div></div>
 
       {/* ── Listwa zamówienia ── */}
-      <section className="border border-surface-4 bg-white shadow-card">
-        <div className="flex items-stretch">
-          <div className="flex min-w-0 flex-1 items-center gap-4 bg-ink px-5 py-3 text-white">
+      <section className="order-panel">
+        <div className="oe-order-meta flex flex-wrap items-stretch">
+          <div className="flex min-w-0 flex-1 items-center gap-4 bg-[#172b43] px-5 py-4 text-white">
             <button
               onClick={leave}
               title="Wróć do listy zamówień (Esc)"
@@ -351,7 +370,7 @@ export function OrderEntryPage() {
             </button>
           </div>
 
-          <div className="flex shrink-0 items-center gap-4 px-5">
+          <div className="flex flex-wrap items-center gap-4 px-5 py-3">
             <label className="flex flex-col gap-0.5">
               <span className="font-display text-[9.5px] font-bold uppercase tracking-[0.13em] text-ink-4">Data zamówienia</span>
               <input type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)}
@@ -367,8 +386,8 @@ export function OrderEntryPage() {
       </section>
 
       {/* ── Wsad: nowa / poprawiana pozycja ── */}
-      <section className={cn('border bg-white shadow-card', editingIdx === null ? 'border-surface-4' : 'border-ink')}>
-        <header className="flex items-center gap-2 border-b border-surface-3 bg-surface-2 px-4 py-1.5">
+      <section className={cn('order-panel !overflow-visible', editingIdx === null ? '' : '!border-blue-500')}>
+        <header className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-blue-50/60 rounded-t-xl px-4 py-3">
           <span className="font-display text-[10px] font-bold uppercase tracking-[0.14em] text-ink">
             {editingIdx === null ? `Pozycja ${lines.length + 1}` : `Poprawa pozycji ${editingIdx + 1}`}
           </span>
@@ -388,7 +407,7 @@ export function OrderEntryPage() {
           </span>
         </header>
 
-        <div className="flex items-start gap-2.5 px-4 pb-3 pt-2.5">
+        <div className="oe-input-grid px-4 pb-4 pt-3">
           <ComboField
             label="Rodzaj" width="w-[210px]" placeholder="Rodzaj produktu…"
             items={ptItems} value={draft.productTypeId}
@@ -450,7 +469,7 @@ export function OrderEntryPage() {
             <Button
               onClick={commit}
               disabled={!draftComplete(draft)}
-              className="h-10 gap-1.5 rounded-none px-4 font-display text-[12px] font-bold uppercase tracking-wide"
+              className="h-10 gap-1.5 rounded-lg px-4 text-sm font-semibold bg-blue-700 hover:bg-blue-800"
             >
               {editingIdx === null ? <CornerDownLeft size={14} /> : <Check size={14} />}
               {editingIdx === null ? 'Dodaj' : 'Zapisz poz.'}
@@ -466,11 +485,11 @@ export function OrderEntryPage() {
       </section>
 
       {/* ── Paragon + zapotrzebowanie ── */}
-      <div className="flex min-h-0 flex-1 items-stretch gap-3">
+      <div className="oe-content-grid flex min-h-0 flex-1 items-stretch gap-4">
 
         <div className="flex min-h-[220px] min-w-0 flex-1 flex-col">
-        <section className="oe-tear flex min-h-0 flex-1 flex-col border border-surface-4 bg-white shadow-card">
-          <header className="flex items-baseline gap-2 border-b border-surface-4 bg-surface-2 px-4 py-1.5">
+        <section className="order-panel flex min-h-0 flex-1 flex-col">
+          <header className="order-section-head">
             <span className="font-display text-[10px] font-bold uppercase tracking-[0.14em] text-ink">Pozycje zamówienia</span>
             <span className="font-mono text-[10.5px] tabular-nums text-ink-4">{sum.count} poz.</span>
           </header>
@@ -482,7 +501,7 @@ export function OrderEntryPage() {
           {lines.length > 0 && (
             <div
               data-testid="oe-line-head"
-              className="flex items-center gap-2.5 border-b border-surface-3 bg-surface-2/60 px-4 py-1
+              className="oe-line-head flex items-center gap-2.5 border-b border-surface-3 bg-surface-2/60 px-4 py-3
                          font-display text-[9.5px] font-bold uppercase tracking-[0.13em] text-ink-4"
             >
               <span className="w-5 shrink-0" />
@@ -504,7 +523,7 @@ export function OrderEntryPage() {
             </div>
           ) : (
             <>
-              <div className="oe-receipt oe-scroll min-h-0 flex-1 overflow-y-auto">
+              <div className="oe-scroll min-h-0 flex-1 overflow-y-auto">
                 {lines.map((l, i) => {
                   const pt = (ptList as any[]).find(p => p.id === l.productTypeId)?.name || '—'
                   const rc = (rcList as any[]).find(r => r.id === l.recipeId)?.name || '—'
@@ -516,8 +535,8 @@ export function OrderEntryPage() {
                       data-testid="oe-line"
                       onDoubleClick={() => editLine(i)}
                       className={cn(
-                        'oe-noselect group flex h-8 items-center gap-2.5 px-4 text-[12.5px]',
-                        editingIdx === i && 'bg-ink text-white',
+                        'oe-line oe-noselect group flex min-h-14 items-center gap-2.5 border-b border-slate-100 px-4 py-3 text-[12.5px]',
+                        editingIdx === i && 'bg-blue-800 text-white',
                         editingIdx !== i && 'hover:bg-surface-2',
                         isLast && editingIdx === null && stamp > 0 && 'oe-stamped',
                       )}
@@ -540,13 +559,13 @@ export function OrderEntryPage() {
                       <span className="w-[92px] shrink-0 text-right font-mono text-[13px] font-bold tabular-nums">
                         {fmtKgTrim(lineKg(l))}<span className={cn('ml-1 font-sans text-[10px] font-normal', editingIdx === i ? 'text-white/50' : 'text-ink-4')}>kg</span>
                       </span>
-                      <span className="flex w-[52px] shrink-0 justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                      <span className="flex w-[64px] shrink-0 justify-end gap-1">
                         <button onClick={() => editLine(i)} title="Popraw pozycję (dwuklik)"
-                          className={cn('grid h-6 w-6 place-items-center', editingIdx === i ? 'text-white/70 hover:text-white' : 'text-ink-4 hover:bg-surface-3 hover:text-ink')}>
+                           className={cn('grid h-8 w-8 place-items-center rounded', editingIdx === i ? 'text-white/70 hover:text-white' : 'text-ink-4 hover:bg-surface-3 hover:text-ink')}>
                           <Pencil size={12} />
                         </button>
                         <button onClick={() => removeLine(i)} title="Usuń pozycję"
-                          className={cn('grid h-6 w-6 place-items-center', editingIdx === i ? 'text-white/70 hover:text-white' : 'text-ink-4 hover:bg-danger-light hover:text-danger')}>
+                           className={cn('grid h-8 w-8 place-items-center rounded', editingIdx === i ? 'text-white/70 hover:text-white' : 'text-ink-4 hover:bg-danger-light hover:text-danger')}>
                           <Trash2 size={12} />
                         </button>
                       </span>
@@ -559,13 +578,14 @@ export function OrderEntryPage() {
         </section>
         </div>
 
-        <aside className="w-[292px] shrink-0 space-y-3">
+        <aside className="oe-side w-[292px] shrink-0 space-y-4">
           <MaterialRequirementsPanel items={previewItems} />
-          <div className="border border-surface-4 bg-white shadow-card">
-            <div className="border-b border-surface-3 bg-surface-2 px-3 py-1.5 font-display text-[9.5px] font-bold uppercase tracking-[0.14em] text-ink-3">
+          <div className="order-panel">
+            <label htmlFor="order-notes" className="block border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-700">
               Uwagi do zamówienia
-            </div>
+            </label>
             <textarea
+              id="order-notes"
               rows={3}
               value={notes}
               onChange={e => setNotes(e.target.value)}
@@ -577,7 +597,7 @@ export function OrderEntryPage() {
       </div>
 
       {/* ── Stopka: suma i zapis ── */}
-      <section className="sticky bottom-0 z-10 flex items-center gap-4 border border-surface-4 bg-white px-4 py-2.5 shadow-[0_-2px_10px_rgba(0,0,0,.05)]">
+      <section className="oe-savebar order-panel sticky bottom-0 z-10 flex flex-wrap items-center gap-4 px-4 py-4 shadow-[0_-2px_10px_rgba(0,0,0,.05)]">
         <span className="font-display text-[10px] font-bold uppercase tracking-[0.14em] text-ink-4">Suma zamówienia</span>
         <span className="font-mono text-[12.5px] tabular-nums text-ink-3">
           {sum.count} poz. · {sum.units} szt
@@ -587,15 +607,15 @@ export function OrderEntryPage() {
           {fmtKgTrim(sum.kg)}<span className="ml-1 font-display text-[12px] font-bold uppercase text-ink-4">kg</span>
         </span>
 
-        {error && <span className="max-w-[280px] text-[12px] font-semibold text-danger">{error}</span>}
+        {error && <span role="alert" className="max-w-[280px] text-[12px] font-semibold text-danger">{error}</span>}
 
         <div className="ml-4 flex items-center gap-2">
           <Button variant="outline" onClick={leave} disabled={saving}
-                  className={cn('h-10 rounded-none px-4', armedExit && 'border-danger text-danger')}>
+                  className={cn('h-10 rounded-lg px-4', armedExit && 'border-danger text-danger')}>
             {armedExit ? 'Porzucić? Kliknij raz jeszcze' : 'Anuluj'}
           </Button>
           <Button onClick={() => void save()} disabled={saving || (lines.length === 0 && !draftComplete(draft))}
-                  className="h-10 gap-2 rounded-none px-6 font-display text-[13px] font-bold uppercase tracking-wide">
+                  className="h-10 gap-2 rounded-lg px-6 text-sm font-semibold bg-blue-700 hover:bg-blue-800">
             {saving
               ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
               : <Check size={16} />}

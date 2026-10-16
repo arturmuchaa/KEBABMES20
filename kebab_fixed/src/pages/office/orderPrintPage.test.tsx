@@ -45,7 +45,7 @@ afterEach(cleanup)
 
 const pokaz = async () => {
   render(
-    <MemoryRouter initialEntries={['/office/zamowienia/o1/druk']}>
+    <MemoryRouter initialEntries={['/office/zamowienia/o1/druk?internal=1']}>
       <Routes><Route path="/office/zamowienia/:id/druk" element={<OrderPrintPage />} /></Routes>
     </MemoryRouter>,
   )

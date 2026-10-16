@@ -23,14 +23,15 @@ export function MaterialRequirementsPanel({ items }: { items: PreviewItem[] }) {
   if (!data || data.totalsByRaw.length === 0) return null
 
   return (
-    <div className="overflow-hidden rounded-xl border border-amber-300/70 bg-white shadow-sm">
-      <header className="flex items-center gap-1.5 border-b border-amber-100 bg-amber-50/60 px-3 py-1.5">
+    <div className="order-panel">
+      <header className="order-section-head !gap-2 !p-4 bg-violet-50/50">
         <span className="flex h-5 w-5 items-center justify-center rounded-md bg-amber-500/15 text-amber-700">
           <Boxes size={12} />
         </span>
-        <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-amber-800">Potrzebny surowiec</span>
-        <span className="ml-auto text-[10px] tabular-nums text-amber-700/70">wydajność {fmtPct(data.yieldPct, 0)}</span>
+        <span className="text-xs font-semibold text-slate-800">Szacunek surowca</span>
+        <span className="text-xs text-slate-600">wydajność rozbioru {fmtPct(data.yieldPct, 0)}</span>
       </header>
+      <p className="px-4 py-3 text-xs text-slate-600">Całość zamówienia, bez magazynu. Istniejące domyślne składy zakupowe MES; dokładne mięso do mieszania sprawdzisz po zapisaniu w planowaniu zamówień.</p>
       <ul className="divide-y divide-surface-2">
         {data.totalsByRaw.map(t => {
           const a = accentOf(t.rawTypeId)

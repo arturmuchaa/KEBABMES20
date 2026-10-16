@@ -61,7 +61,7 @@ export function ClientStep({
 
   return (
     <div className="mx-auto w-full max-w-[720px]">
-      <div className="border border-surface-4 bg-white shadow-card">
+      <div className="order-panel">
 
         {/* Nagłówek kartoteki */}
         <div className="flex items-baseline gap-3 border-b border-surface-4 bg-surface-2 px-5 py-3">
@@ -76,6 +76,7 @@ export function ClientStep({
         <div className="relative border-b border-surface-4">
           <Search size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-ink-4" />
           <input
+            aria-label="Wyszukaj klienta"
             ref={inputRef}
             value={query}
             onChange={e => setQuery(e.target.value)}
@@ -119,7 +120,7 @@ export function ClientStep({
               onClick={() => onPick(c.id)}
               className={cn(
                 'oe-noselect flex w-full items-center gap-3 border-b border-surface-3 px-5 py-2.5 text-left last:border-b-0',
-                n === hi ? 'bg-ink text-white' : 'text-ink hover:bg-surface-2',
+                n === hi ? 'bg-blue-800 text-white' : 'text-ink hover:bg-surface-2',
               )}
             >
               <span className="min-w-0 flex-1">

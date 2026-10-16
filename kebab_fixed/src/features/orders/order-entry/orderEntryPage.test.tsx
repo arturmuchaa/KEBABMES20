@@ -13,9 +13,10 @@ import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-li
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
 // vi.mock jest podnoszone na górę pliku — atrapy muszą powstać wcześniej.
-const { create, update } = vi.hoisted(() => ({
+const { create, update, byId } = vi.hoisted(() => ({
   create: vi.fn(async (_dto: any) => ({ id: 'zam1' })),
   update: vi.fn(async (_id: string, _dto: any) => ({ id: 'zam1' })),
+  byId: vi.fn<() => Promise<any>>(async () => null),
 }))
 
 vi.mock('@/lib/apiClient', () => ({
@@ -30,7 +31,7 @@ vi.mock('@/lib/apiClient', () => ({
 }))
 
 vi.mock('@/lib/api', () => ({
-  clientOrdersApi: { list: async () => [], byId: async () => null, create, update },
+  clientOrdersApi: { list: async () => [], byId, create, update },
 }))
 
 // Panel zapotrzebowania strzela do backendu — tu nas nie interesuje.
@@ -55,11 +56,12 @@ vi.mock('@/features/ingredients/hooks', () => ({
 
 import { OrderEntryPage } from './OrderEntryPage'
 
-function pokazTerminal() {
+function pokazTerminal(path = '/office/zamowienia/nowe') {
   render(
-    <MemoryRouter initialEntries={['/office/zamowienia/nowe']}>
+    <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/office/zamowienia/nowe" element={<OrderEntryPage />} />
+        <Route path="/office/zamowienia/:id/edycja" element={<OrderEntryPage />} />
         <Route path="/office/zamowienia" element={<div>lista zamówień</div>} />
       </Routes>
     </MemoryRouter>,
@@ -100,7 +102,7 @@ async function wbijPierwszaPozycje() {
 
 // jsdom nie zna scrollIntoView, a listy wyboru trzymają nim kursor w widoku.
 beforeAll(() => { Element.prototype.scrollIntoView = vi.fn() })
-beforeEach(() => { create.mockClear(); update.mockClear() })
+beforeEach(() => { create.mockClear(); update.mockClear(); byId.mockReset(); byId.mockResolvedValue(null) })
 afterEach(cleanup)
 
 describe('krok 1 — klient', () => {
@@ -233,6 +235,39 @@ describe('wyjście bez zapisu', () => {
 })
 
 describe('zapis', () => {
+  it('Ctrl+Enter zachowuje właśnie poprawianą pozycję zamiast starej ilości', async () => {
+    byId.mockResolvedValue({ id: 'zam1', clientId: 'c1', orderDate: '2026-10-15', lines: [
+      { id: 'line1', qty: 40, kgPerUnit: 20, productTypeId: 'pt1', recipeId: 'r1', packagingId: 'tul65', notes: 'Zapisana uwaga' },
+    ] })
+    pokazTerminal('/office/zamowienia/zam1/edycja')
+    fireEvent.doubleClick(await screen.findByTestId('oe-line'))
+    fireEvent.change(pole('Sztuk'), { target: { value: '35' } })
+    fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1))
+    expect(update.mock.calls[0][1].lines).toEqual([expect.objectContaining({ id: 'line1', qty: 35, notes: 'Zapisana uwaga' })])
+  })
+
+  it('błąd pobierania edycji nie otwiera pustego zamówienia ani nie pozwala go zapisać', async () => {
+    byId.mockRejectedValue(new Error('Brak połączenia'))
+    pokazTerminal('/office/zamowienia/zam1/edycja')
+    expect((await screen.findByRole('alert')).textContent).toContain('Brak połączenia')
+    expect(screen.queryByLabelText('Rodzaj')).toBeNull()
+    fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true })
+    expect(update).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('nie zapisuje niekompletnej poprawki jako poprzedniej pozycji', async () => {
+    pokazTerminal()
+    await wybierzKlienta()
+    await wbijPierwszaPozycje()
+    fireEvent.doubleClick(await screen.findByTestId('oe-line'))
+    fireEvent.change(pole('Sztuk'), { target: { value: '' } })
+    fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true })
+    expect((await screen.findByRole('alert')).textContent).toContain('Dokończ poprawę')
+    expect(create).not.toHaveBeenCalled()
+  })
+
   it('wysyła jedno zamówienie z klientem i wszystkimi pozycjami', async () => {
     pokazTerminal()
     await wybierzKlienta()

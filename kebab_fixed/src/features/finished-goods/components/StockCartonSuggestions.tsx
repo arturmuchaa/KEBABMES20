@@ -18,6 +18,7 @@ import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, type StockCartonOption, type StockCartonOptions } from '@/lib/api'
 import { formatCartonNo } from '@/lib/unitLocation'
 import { PackageCheck, Loader2, RefreshCw, Unlink, Ban } from 'lucide-react'
+import { kgText } from '@/features/orders/orderPlanning'
 
 interface Props {
   orderId: string
@@ -258,9 +259,9 @@ export function StockCartonSuggestions({ orderId, orderStatus, onAssigned, rende
 
   return (
     <>
-    <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
-      <div className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-emerald-700">
-        <PackageCheck size={14} /> Kartony z magazynu
+    <div className="order-panel mb-4 p-5">
+      <div className="mb-4 flex items-center gap-2 text-base font-semibold text-slate-800">
+        <PackageCheck size={18} className="text-emerald-700" /> Kartony z magazynu
         {!loading && !error && (
           <button
             type="button"
@@ -272,6 +273,7 @@ export function StockCartonSuggestions({ orderId, orderStatus, onAssigned, rende
           </button>
         )}
       </div>
+      <p className="mb-4 text-xs text-slate-600">Fizyczne przypisanie towaru do zamówienia. Ilości na kartonach nie zwiększają ponownie liczby wyprodukowanych sztuk.</p>
       {success && (
         <div role="status" className="mb-2 rounded-md border border-emerald-300 bg-white px-3 py-2 text-sm font-semibold text-emerald-800">
           {success}
@@ -309,8 +311,9 @@ function CartonInfo({ c }: { c: StockCartonOption }) {
   return (
     <div className="min-w-0 flex-1 text-xs text-slate-600">
       <div className="flex flex-wrap items-baseline gap-x-2">
-        <span className="font-mono text-sm font-black text-emerald-900">Karton {label(c)}</span>
+        <span className="text-sm font-semibold text-slate-900">Karton {label(c)}</span>
         <span className="font-semibold text-slate-800">{c.units} szt.</span>
+        <span className="font-semibold text-emerald-800">{kgText(c.lines.reduce((s, l) => s + l.packedQty * l.kgPerUnit, 0))}</span>
         <span className={c.generic ? 'font-semibold text-amber-700' : 'text-slate-500'}>
           {c.generic ? 'Na magazyn — bez klienta' : c.clientName || '—'}
         </span>
@@ -320,7 +323,7 @@ function CartonInfo({ c }: { c: StockCartonOption }) {
           {c.lines.map((l, i) => (
             <li key={i} className="tabular-nums">
               <span className="font-semibold text-slate-700">{l.packedQty}× {l.kgPerUnit} kg</span>
-              {' · '}{l.productTypeName || l.recipeName}{l.packagingName ? ` · ${l.packagingName}` : ''}
+              {' · '}{l.recipeName}{l.productTypeName ? ` · ${l.productTypeName}` : ''}{l.packagingName ? ` · ${l.packagingName}` : ''}
             </li>
           ))}
         </ul>

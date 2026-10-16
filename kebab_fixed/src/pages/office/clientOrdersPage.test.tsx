@@ -53,6 +53,10 @@ describe('ClientOrdersPage — zaznaczanie i planowanie', () => {
       o.clientName = i === 2 ? 'TRUVA' : 'YALCIN'
       o.lines[0].recipeId = 'r1'
       o.lines[0].fulfillment = { orderedKg: 100, stockKg: i === 0 ? 40 : 0, deliveredKg: i === 0 ? 10 : 0, coveredKg: i === 0 ? 50 : 0, remainingKg: i === 0 ? 50 : 100 }
+      o.lines[0].production = { reportedQty: i === 0 ? 5 : 0, reportedKg: i === 0 ? 50 : 0, remainingQty: i === 0 ? 5 : 10, remainingKg: i === 0 ? 50 : 100, unpostedQty: 0, source: 'linked_plan_reports' }
+      o.lines[0].mixing = { remainingQty: i === 0 ? 5 : 10, remainingKg: i === 0 ? 50 : 100, meatKg: i === 0 ? 40 : 80, additivesKg: i === 0 ? 10 : 20, growthPct: 25, outputPer100kg: 125, reason: null }
+      o.lines[0].qtyStock = i === 0 ? 4 : 0
+      o.lines[0].qtyDelivered = i === 0 ? 1 : 0
       o.lines[0].packagingName = i === 1 ? 'METAL 80 cm' : 'METAL 65 cm'
     }
   })
@@ -68,20 +72,20 @@ describe('ClientOrdersPage — zaznaczanie i planowanie', () => {
     expect(summary().textContent).toContain('50 kg')
     fireEvent.click(screen.getByRole('button', { name: 'Szczegóły YALCIN/1' }))
     expect((screen.getByRole('checkbox', { name: 'Zaznacz YALCIN/1' }) as HTMLInputElement).checked).toBe(true)
-    expect(screen.getByText('Pozycje zamówienia (1)')).toBeTruthy()
+    expect(screen.getAllByText('Pozycje zamówienia (1)')).toHaveLength(3)
   })
 
   it('sumuje klientów i zachowuje gramatury i długości po rozwinięciu receptury', () => {
     pokaz()
     fireEvent.click(screen.getByRole('checkbox', { name: 'Zaznacz wszystkie widoczne' }))
     const panel = within(summary())
-    expect(panel.getAllByText('300 kg')).toHaveLength(3)
+    expect(panel.getAllByText('300 kg')).toHaveLength(2)
     expect(panel.getAllByText('250 kg')).toHaveLength(3)
     fireEvent.click(panel.getByRole('button', { name: /KIRMIZI/ }))
     expect(panel.getByText('METAL 80 cm')).toBeTruthy()
     expect(panel.getAllByText('METAL 65 cm')).toHaveLength(2)
     expect(panel.getByText('TRUVA/1')).toBeTruthy()
-    expect(panel.getAllByText('10 kg × 10 szt.')).toHaveLength(3)
+    expect(panel.getAllByText('10 × 10 kg')).toHaveLength(3)
   })
 
   it('filtr i sortowanie nie gubią zaznaczeń; wszystkie widoczne nie usuwa ukrytych', () => {
@@ -119,7 +123,7 @@ describe('ClientOrdersPage — zaznaczanie i planowanie', () => {
     select('TRUVA/1')
     expect(summary().textContent).toContain('(3)')
     expect(summary().textContent).toContain('Pominięto anulowane zamówienia: 1')
-    expect(within(summary()).getAllByText('200 kg')).toHaveLength(3)
+    expect(within(summary()).getAllByText('200 kg')).toHaveLength(2)
   })
 
   it('błąd odświeżenia nie usuwa listy ani zaznaczenia', () => {
@@ -131,6 +135,17 @@ describe('ClientOrdersPage — zaznaczanie i planowanie', () => {
     expect(summary().textContent).toContain('(1)')
     fireEvent.click(screen.getByRole('button', { name: 'Ponów pobieranie' }))
     expect(stan.refetch).toHaveBeenCalledOnce()
+  })
+
+  it('sztuki gotowe i pozostałe są widoczne od razu; CSV usunięto, druk jest bezpośredni', () => {
+    pokaz()
+    const region = screen.getByRole('region', { name: 'Pozycje YALCIN/1' })
+    const line = within(region)
+    expect(line.getByRole('progressbar', { name: 'Produkcja KIRMIZI' }).getAttribute('aria-valuenow')).toBe('50')
+    expect(region.querySelector('.order-production')?.textContent).toContain('5 / 10 szt.')
+    expect(line.getAllByText('50 kg').length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: 'Drukuj YALCIN/1' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /CSV/ })).toBeNull()
   })
 
   it('odświeża dane w tle bez utraty zaznaczeń i nie ponawia równoległego żądania', async () => {

@@ -64,7 +64,7 @@ test('planista: klawiatura, filtry, receptury i dokumenty bez gubienia zaznacze�
   await page.keyboard.press('Escape')
   await expect(first).toBeChecked()
   await page.getByRole('button', { name: 'Szczegóły YALCIN/Z/1/10/26', exact: true }).click()
-  await expect(page.getByText('Pozycje zamówienia (1)')).toBeVisible()
+   await expect(page.getByRole('region', { name: 'Pozycje YALCIN/Z/1/10/26', exact: true })).toBeVisible()
   await expect(first).toBeChecked()
   await page.screenshot({ path: info.outputPath('order-details.png'), fullPage: true })
   expect(errors).toEqual([])

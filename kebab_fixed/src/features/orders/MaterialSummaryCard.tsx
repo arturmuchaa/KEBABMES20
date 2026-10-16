@@ -7,6 +7,7 @@ import { CWIARTKA, accentOf, Dot, Kg } from './material-ui'
 export function MaterialSummaryCard({ refreshKey }: { refreshKey?: unknown } = {}) {
   const [data, setData] = useState<RequirementsSummary | null>(null)
   const [loading, setLoading] = useState(true)
+  const [retry, setRetry] = useState(0)
   useEffect(() => {
     let alive = true
     materialRequirementsApi.summary()
@@ -14,25 +15,26 @@ export function MaterialSummaryCard({ refreshKey }: { refreshKey?: unknown } = {
       .catch(err => { console.error('podsumowanie zapotrzebowania:', err); if (alive) setData(null) })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [refreshKey])
+  }, [refreshKey, retry])
 
   if (loading) return <SummarySkeleton />
-  if (!data) return null
+  if (!data) return <p role="alert" className="order-info order-warning">Nie udało się obliczyć zapotrzebowania na surowiec. <button className="underline" onClick={() => { setLoading(true); setRetry(v => v + 1) }}>Ponów</button></p>
   const shortages = data.netShortage.filter(s => s.kgNetShortage > 0)
   const covered = shortages.length === 0
 
   return (
-    <section className="overflow-hidden rounded-xl border border-surface-3 bg-white shadow-sm">
+    <section className="order-panel">
       {/* Nagłówek */}
-      <header className="flex items-center gap-2.5 border-b border-surface-2 px-4 py-2.5">
+      <header className="order-section-head">
         <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-ink/5 text-ink-2">
           <Boxes size={15} />
         </span>
-        <h2 className="text-[13px] font-bold tracking-tight text-ink">Surowiec do realizacji zamówień</h2>
+        <h2>Surowiec do realizacji zamówień</h2>
         <span className="ml-auto rounded-full bg-surface-2 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-ink-2">
           wydajność rozbioru {fmtPct(data.yieldPct, 0)}
         </span>
       </header>
+      <p className="order-info">Widok zakupowy wszystkich otwartych zamówień. Odejmowane są zapas, mięso przyprawione i aktywne plany. Wydajność rozbioru ćwiartki nie jest przyrostem masy receptury w mieszalniku. Kalkulacja zakupowa stosuje istniejące domyślne składy MES — nie zastępuje zweryfikowanego uzysku w sekcji mieszania.</p>
 
       {/* HERO: do dokupienia / rozbioru (akcja) */}
       <div className={`px-4 py-3 ${covered ? 'bg-emerald-50/50' : 'bg-rose-50/50'}`}>

@@ -122,7 +122,7 @@ describe('StockCartonSuggestions', () => {
     expect(tekst).toMatch(/Na magazyn — bez klienta/)
     expect(tekst).toMatch(/DÖNER GMBH/)
     expect(tekst).toMatch(/7 szt\./)
-    expect(tekst).toMatch(/4× 20 kg · KEBAB UDO 100% · TULEJA 30/)
+    expect(tekst).toMatch(/4× 20 kg · KIRMIZI · KEBAB UDO 100% · TULEJA 30/)
     expect(tekst).toMatch(/Partia: P-77/)
     expect(tekst).toMatch(/zachowuje etykietę i partie/)
     expect(tekst).toMatch(/nie twórz dodatkowych palet ani nowych kartonów/)

@@ -1779,7 +1779,31 @@ function mapOrderLine(raw: any) {
     qtyStock:        Number(raw.qty_stock     ?? raw.qtyStock     ?? 0),
     qtyDelivered:    Number(raw.qty_delivered ?? raw.qtyDelivered ?? 0),
     fulfillment:     mapOrderFulfillment(raw.fulfillment),
+    production:      mapOrderProduction(raw.production),
+    mixing:          mapOrderMixing(raw.mixing),
     notes:           raw.notes,
+  }
+}
+
+const planningNumber = (raw: any, key: string): number | null => {
+  const value = raw?.[key.replace(/[A-Z]/g, c => `_${c.toLowerCase()}`)] ?? raw?.[key]
+  return (typeof value === 'number' || typeof value === 'string') && String(value).trim() !== '' && Number.isFinite(Number(value)) && Number(value) >= 0 ? Number(value) : null
+}
+
+export function mapOrderProduction(raw: any) {
+  if (!raw) return null
+  const values = Object.fromEntries(['reportedQty', 'reportedKg', 'remainingQty', 'remainingKg', 'unpostedQty'].map(k => [k, planningNumber(raw, k)]))
+  if (Object.values(values).some(v => v === null)) return null
+  return { ...values, source: raw.source ?? '' } as import('./mockApi').OrderProduction
+}
+
+export function mapOrderMixing(raw: any): import('./mockApi').OrderMixing | null {
+  if (!raw) return null
+  return {
+    remainingQty: planningNumber(raw, 'remainingQty'), remainingKg: planningNumber(raw, 'remainingKg'),
+    meatKg: planningNumber(raw, 'meatKg'), additivesKg: planningNumber(raw, 'additivesKg'),
+    outputPer100kg: planningNumber(raw, 'outputPer100kg'), growthPct: planningNumber(raw, 'growthPct'),
+    reason: raw.reason ?? null, basis: raw.basis ?? '', source: raw.source ?? '',
   }
 }
 
@@ -1803,13 +1827,14 @@ export function mapClientOrder(raw: any): ClientOrder {
 }
 
 // camelCase → snake_case dla backendu Python
-function toSnakeOrderDto(dto: CreateClientOrderDto) {
+export function toSnakeOrderDto(dto: CreateClientOrderDto) {
   return {
     client_id:     dto.clientId,
     order_date:    dto.orderDate,
     delivery_date: dto.deliveryDate,
     notes:         dto.notes,
     lines: dto.lines.map(l => ({
+      id:                l.id || undefined,
       qty:               l.qty,
       kg_per_unit:       l.kgPerUnit,
       product_type_id:   l.productTypeId,
@@ -1838,7 +1863,10 @@ export interface OrderProductionProgress {
 }
 
 export const clientOrdersApi = {
-  list:         (status?: string) => get<any[]>(`/client-orders${status ? `?status=${status}` : ''}`).then(r => r.map(mapClientOrder)),
+  list:         (status?: string, planning = false) => {
+    const query = [status ? `status=${encodeURIComponent(status)}` : '', planning ? 'planning=true' : ''].filter(Boolean).join('&')
+    return get<any[]>(`/client-orders${query ? `?${query}` : ''}`).then(r => r.map(mapClientOrder))
+  },
   byId:         (id: string) => get<any>(`/client-orders/${id}`).then(mapClientOrder),
   create:       (dto: CreateClientOrderDto) => post<any>('/client-orders', toSnakeOrderDto(dto)).then(mapClientOrder),
   productionProgress: (orderId: string) => get<any>(`/client-orders/${orderId}/production-progress`).then((raw: any): OrderProductionProgress => ({

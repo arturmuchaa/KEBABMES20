@@ -3,6 +3,24 @@ import type { ClientOrder, OrderFulfillment, OrderLine } from '@/lib/mockApi'
 export const kgNumber = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 3, useGrouping: true })
 export const percentNumber = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 1 })
 export const kgText = (value: number | null) => value === null ? '—' : `${kgNumber.format(value)} kg`
+export function productionTotals(lines: OrderLine[]) {
+  const known = lines.every(l => !!l.production)
+  const orderedQty = lines.reduce((s, l) => s + l.qty, 0)
+  return {
+    orderedQty,
+    reportedQty: known ? lines.reduce((s, l) => s + l.production!.reportedQty, 0) : null,
+    reportedKg: known ? lines.reduce((s, l) => s + milli(l.production!.reportedKg), 0) / 1000 : null,
+    remainingQty: known ? lines.reduce((s, l) => s + l.production!.remainingQty, 0) : null,
+    remainingKg: known ? lines.reduce((s, l) => s + milli(l.production!.remainingKg), 0) / 1000 : null,
+    // A surplus of one variant never completes a different variant.
+    percent: known ? coveragePercent({ ...totalLines(lines), coveredKg: lines.reduce((s, l) => s + milli(Math.min(l.qty, l.production!.reportedQty) * l.kgPerUnit), 0) / 1000 }) : null,
+  }
+}
+
+export function mixingTotals(lines: OrderLine[]) {
+  const sum = (key: 'remainingKg' | 'meatKg' | 'additivesKg') => lines.some(l => l.mixing?.[key] == null) ? null : lines.reduce((s, l) => s + milli(l.mixing![key]!), 0) / 1000
+  return { remainingKg: sum('remainingKg'), meatKg: sum('meatKg'), additivesKg: sum('additivesKg') }
+}
 // The API has NUMERIC(...,3) kilograms. Add integers, not floating point tails.
 const milli = (value: number) => Math.round(value * 1000)
 export type PlanningTotals = { [K in keyof OrderFulfillment]: number | null } & { orderedKg: number }

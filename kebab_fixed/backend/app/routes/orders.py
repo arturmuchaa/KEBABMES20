@@ -18,8 +18,12 @@ router = APIRouter(prefix="/api/client-orders", tags=["client-orders"])
 
 
 @router.get("")
-def list_orders(status: str = Query("")):
-    return svc.list_orders(status or None)
+def list_orders(status: str = Query(""), planning: bool = False):
+    orders = svc.list_orders(status or None)
+    if planning:
+        from app.services.order_planning_service import enrich_orders
+        return enrich_orders(orders)
+    return orders
 
 
 # ── Zapotrzebowanie na surowiec ───────────────────────────────────

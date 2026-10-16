@@ -16,6 +16,10 @@ import { Plus, Trash2, Pencil, Package, Printer } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { StatusBadge } from '@/components/ui/badge'
+import { OrderSection } from '@/features/orders/OrderUI'
+import { kgText } from '@/features/orders/orderPlanning'
+import '@/features/orders/order-planning.css'
 import {
   Card, CardContent, CardDescription, CardTitle,
 } from '@/components/ui/card'
@@ -24,16 +28,19 @@ interface Props {
   orderId: string
   lines:   OrderLine[]
   assignedCartons?: StockCartonOption[] | null
+  orderNo?: string
+  clientName?: string
 }
 
 function lineLabel(l: OrderLine): string {
-  const parts = [`${l.qty} × ${l.kgPerUnit} kg`]
+  const parts = [`${l.kgPerUnit} kg`]
   if (l.recipeName)      parts.push(l.recipeName)
   if (l.productTypeName) parts.push(l.productTypeName)
+  if (l.packagingName) parts.push(l.packagingName)
   return parts.join(' · ')
 }
 
-export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
+export function PalletsEditor({ orderId, lines, assignedCartons = [], orderNo, clientName }: Props) {
   const { data: pallets, refetch, loading: palletsLoading, error: palletsError } = useApi(() => orderPalletsApi.list(orderId), [orderId])
   const list = pallets ?? []
 
@@ -126,23 +133,13 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
   const stockKg = stock.reduce((s, c) => s + c.lines.reduce((kg, l) => kg + l.targetQty * l.kgPerUnit, 0), 0)
 
   return (
-    <div className="mt-4 space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Package size={14} className="text-amber-600" />
-          <CardTitle className="text-xs font-semibold uppercase tracking-wide">
-            Palety wydania
-          </CardTitle>
-          <span className="text-[11px] text-muted-foreground tabular-nums">
-            {list.length} {list.length === 1 ? 'paleta' : 'palet'}
-            {totalKg > 0 && <> · {fmtKg(totalKg, 0)} kg · {totalUnits} szt</>}
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5">
+    <div className="orders-workspace mt-4">
+      <OrderSection title="Palety wydania" description={[clientName, orderNo, `${list.length} palet · ${totalUnits} szt. · ${kgText(totalKg)}`].filter(Boolean).join(' · ')} action={
+        <div className="flex flex-wrap items-center gap-2">
           {list.length > 0 && (
             <>
               <Button
-                variant="outline" size="sm" className="h-7 text-[11px] gap-1"
+                variant="outline" size="sm" className="gap-1"
                 disabled={saving || zaznaczone.length === 0}
                 onClick={() => otworzWydruk(zaznaczone)}
                 title="Drukuj kartki zaznaczonych palet (po 2 na paletę)"
@@ -150,7 +147,7 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
                 <Printer size={12} /> Drukuj zaznaczone{zaznaczone.length ? ` (${zaznaczone.length})` : ''}
               </Button>
               <Button
-                variant="outline" size="sm" className="h-7 text-[11px] gap-1"
+                variant="outline" size="sm" className="gap-1"
                 disabled={saving}
                 onClick={() => otworzWydruk()}
                 title="Drukuj kartki wszystkich palet (po 2 na paletę)"
@@ -162,17 +159,18 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
           <Button
             variant="outline"
             size="sm"
-            className="h-7 text-[11px] gap-1"
+            className="gap-1 border-blue-300 text-blue-800"
             disabled={saving || (showAdd && editingIdx === null)}
             onClick={() => { setEditingIdx(null); setShowAdd(true); setError(null) }}
           >
             <Plus size={12} /> Dodaj paletę
           </Button>
-        </div>
-      </div>
+        </div>}
+      >
+      <p className="order-info">Rozpis palet to przydział do wysyłki, nie dowód wykonania. Status pakowania i mroźni pokazujemy osobno. Numery palet i etykiety QR pozostają bez zmian.</p>
 
       {assignedCartons === null || palletsLoading || palletsError ? (
-        <p className="text-xs text-amber-700">Brak kompletu aktualnych danych palet i kartonów — suma palet powyżej jest częściowa.</p>
+        <p role="status" className="order-info order-warning">Brak kompletu aktualnych danych palet i kartonów — suma palet powyżej jest częściowa.{palletsError && <button className="ml-2 underline" onClick={() => void refetch()}>Ponów pobieranie palet</button>}</p>
       ) : stock.length > 0 ? (
         <div className="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs" data-testid="combined-pallet-totals">
           <b>Łączny rozpis: {list.length + stock.length} palet/kartonów · {fmtKg(totalKg + stockKg, 0)} kg · {totalUnits + stockQty} szt</b>
@@ -182,19 +180,19 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
       ) : null}
 
       {error && (
-        <CardDescription className="text-destructive text-xs">{error}</CardDescription>
+        <p role="alert" className="m-4 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>
       )}
 
       {list.length === 0 && stock.length === 0 && !showAdd && (
-        <CardDescription className="text-[11px] italic">
-          Brak palet. Dodaj palety aby wygenerować wydruk zamówienia z numerami palet.
+        <CardDescription className="p-6 text-sm text-center">
+          Brak rozpisanych palet. Dodaj pierwszą paletę, aby przygotować rozpis i etykiety.
         </CardDescription>
       )}
 
       {/* Lista palet */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+      <div className="order-pallet-grid">
         {stock.map(c => (
-          <Card key={`stock-${c.cartonId}`} className="border-emerald-400 bg-emerald-50" data-testid="assigned-stock-pallet">
+          <Card key={`stock-${c.cartonId}`} className="order-pallet-card border-l-4 border-l-emerald-600" data-testid="assigned-stock-pallet">
             <CardContent className="p-3 space-y-2">
               <CardTitle className="text-xs font-bold text-emerald-900">Karton {formatCartonNo(c.cartonNo)} · Dołączona paleta z magazynu</CardTitle>
               <div className="text-[11px] font-semibold text-emerald-800">
@@ -232,28 +230,27 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
             )
           }
           return (
-            <Card key={p.id ?? idx} className="bg-amber-50/50 border-amber-200">
-              <CardContent className="p-3">
-                <div className="flex items-start justify-between gap-2">
+            <article key={p.id ?? idx} className="order-pallet-card">
+                <header>
                   <div className="flex items-center gap-1.5">
                     <input
                       type="checkbox"
-                      className="h-3.5 w-3.5 accent-amber-600"
+                      className="accent-blue-600"
                       checked={zaznaczone.includes(p.palletNo)}
                       onChange={() => przelacz(p.palletNo)}
                       aria-label={`Zaznacz paletę nr ${p.palletNo} do druku`}
                       disabled={saving}
                     />
-                    <div className="w-7 h-7 rounded-full bg-amber-100 flex items-center justify-center">
-                      <span className="text-amber-900 font-bold text-xs">{p.palletNo}</span>
+                    <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                      <Package size={16} className="text-blue-800" aria-hidden="true" />
                     </div>
-                    <CardTitle className="text-xs font-bold">{p.cartonNo ? `Karton ${p.cartonNo} · P${p.palletNo}` : `Paleta nr ${p.palletNo}`}</CardTitle>
+                    <h3>{p.cartonNo ? `Karton ${p.cartonNo} · P${p.palletNo}` : `Paleta nr ${p.palletNo}`}</h3>
                   </div>
                   <div className="flex gap-0.5">
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-6 w-6 text-muted-foreground hover:text-ink"
+                      className="order-action text-muted-foreground hover:text-ink"
                       onClick={() => otworzWydruk([p.palletNo])}
                       title="Drukuj kartki tej palety (2 kopie)"
                       disabled={saving}
@@ -261,7 +258,7 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
                       <Printer size={11} />
                     </Button>
                     <Button
-                      variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-primary"
+                      variant="ghost" size="icon" className="order-action text-muted-foreground hover:text-primary"
                       onClick={() => { setShowAdd(false); setEditingIdx(idx); setError(null) }}
                       aria-label={`Edytuj paletę nr ${p.palletNo}`}
                       disabled={saving}
@@ -269,7 +266,7 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
                       <Pencil size={11} />
                     </Button>
                     <Button
-                      variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                      variant="ghost" size="icon" className="order-action text-muted-foreground hover:text-destructive"
                       onClick={() => handleRemove(idx)}
                       aria-label={`Usuń paletę nr ${p.palletNo}`}
                       disabled={saving}
@@ -277,14 +274,14 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
                       <Trash2 size={11} />
                     </Button>
                   </div>
-                </div>
-
-                <div className="mt-2 space-y-0.5">
+                </header>
+                <div className="px-4 pt-3 flex flex-wrap gap-2 text-xs text-slate-600"><span>Przypisana do {orderNo || 'tego zamówienia'}</span><StatusBadge tone={p.status === 'cold_storage' ? 'blue' : p.status === 'packed' || p.status === 'loaded' ? 'green' : 'gray'} label={PACK_STATUS_LABEL[p.status || 'created'] ?? p.status ?? 'Rozpisana'} /></div>
+                <div className="p-4 space-y-3">
                   {p.items.map(it => {
                     const ln = lines.find(l => l.id === it.orderLineId)
                     return (
-                      <div key={it.id ?? it.orderLineId} className="flex justify-between text-[11px]">
-                        <span className="truncate">
+                      <div key={it.id ?? it.orderLineId} className="flex justify-between gap-3 text-xs">
+                        <span className="break-words min-w-0">
                           <span className="font-bold tabular-nums">{it.qty}× </span>
                           {ln ? lineLabel(ln) : '—'}
                         </span>
@@ -296,20 +293,16 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
                   })}
                 </div>
 
-                <div className="mt-2 pt-1.5 border-t border-amber-200 flex justify-between text-[11px]">
-                  <span className="text-muted-foreground">Razem</span>
-                  <span className="font-bold tabular-nums">{fmtKg(palletKg, 1)} kg</span>
-                </div>
+                <footer><span>{p.items.reduce((s, i) => s + i.qty, 0)} szt.</span><strong>{kgText(palletKg)}</strong></footer>
 
                 {p.status && p.status !== 'created' && (
                   <PalletPackInfo palletId={p.id} status={p.status} />
                 )}
 
                 {p.notes && (
-                  <div className="mt-1 text-[10px] italic text-muted-foreground">{p.notes}</div>
+                  <div className="px-4 pb-3 text-xs text-slate-600">{p.notes}</div>
                 )}
-              </CardContent>
-            </Card>
+            </article>
           )
         })}
 
@@ -325,6 +318,7 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
           />
         )}
       </div>
+      </OrderSection>
     </div>
   )
 }
@@ -333,29 +327,34 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [] }: Props) {
 // PalletPackInfo — status pakowania + skład partii (read-only, HDI)
 // ──────────────────────────────────────────────────────────────────
 const PACK_STATUS_LABEL: Record<string, string> = {
+  created:      'Rozpisana',
   packing:      'Pakowanie w toku',
   packed:       'Zapakowana',
   cold_storage: 'Mroźnia składowa',
   loaded:       'Załadowana',
+  shipped:      'Wydana',
 }
 
 function PalletPackInfo({ palletId, status }: { palletId?: string; status: string }) {
   const [batch, setBatch] = useState<PalletBatchRow[]>([])
+  const [error, setError] = useState(false)
 
   useEffect(() => {
     if (!palletId) return
     let cancelled = false
+    setError(false)
     palletsApi.batchBreakdown(palletId)
       .then(rows => { if (!cancelled) setBatch(rows ?? []) })
-      .catch(() => { if (!cancelled) setBatch([]) })
+      .catch(() => { if (!cancelled) { setBatch([]); setError(true) } })
     return () => { cancelled = true }
   }, [palletId])
 
   return (
-    <div className="mt-2 pt-1.5 border-t border-amber-200">
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-700">
+    <div className="px-4 py-3 border-t border-slate-200 bg-slate-50">
+      <div className="text-xs font-semibold text-slate-700">
         {PACK_STATUS_LABEL[status] ?? status}
       </div>
+      {error && <p role="status" className="text-xs text-amber-800">Nie udało się odczytać składu partii. Status palety pozostaje bez zmian.</p>}
       {batch.length > 0 && (
         <div className="mt-1 space-y-0.5">
           {batch.map(b => (
@@ -407,10 +406,10 @@ function PalletForm({
   }
 
   return (
-    <Card className="bg-white border-2 border-amber-300 md:col-span-2">
-      <CardContent className="p-3 space-y-2">
+    <Card className="bg-white border-2 border-blue-300 col-span-full rounded-xl">
+      <CardContent className="p-4 space-y-4">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-xs font-bold">{title}</CardTitle>
+          <CardTitle className="text-base font-semibold">{title}</CardTitle>
           <span className="text-[11px] text-muted-foreground tabular-nums">
             {totalQty} szt · {fmtKg(totalKg, 1)} kg
           </span>
@@ -425,12 +424,13 @@ function PalletForm({
             return (
               <div key={l.id} className="flex items-center gap-2 text-xs">
                 <div className="flex-1 min-w-0">
-                  <div className="truncate">{lineLabel(l)}</div>
+                  <label htmlFor={`pallet-qty-${l.id}`} className="block break-words">{lineLabel(l)}</label>
                   <CardDescription className="text-[10px]">
                     Pozostało: <span className="font-bold tabular-nums">{remaining}</span> szt z {l.qty}
                   </CardDescription>
                 </div>
                 <Input
+                  id={`pallet-qty-${l.id}`}
                   type="number"
                   min={0}
                   max={maxQty}
@@ -449,8 +449,9 @@ function PalletForm({
         </div>
 
         <div className="space-y-1">
-          <Label className="text-[11px]">Uwagi do palety</Label>
+          <Label htmlFor="pallet-notes" className="text-xs">Uwagi do palety</Label>
           <Input
+            id="pallet-notes"
             value={notes}
             onChange={e => setNotes(e.target.value)}
             placeholder="np. Z górnej półki, numer chłodni..."
