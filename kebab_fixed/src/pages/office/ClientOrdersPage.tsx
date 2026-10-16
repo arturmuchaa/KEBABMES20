@@ -162,7 +162,7 @@ export function ClientOrdersPage() {
     if (rows.length === 0) return null
     return (
             <div className="orders-scroll overflow-x-auto" tabIndex={0} role="region" aria-label="Lista zamówień">
-              <table className="order-register w-full min-w-[1050px] text-sm tabular-nums">
+              <table className="order-register w-full min-w-[960px] text-sm tabular-nums">
                 <thead className="sticky top-0 z-10 bg-surface-2/95 backdrop-blur-sm border-b-2 border-surface-4">
                   <tr>
                     <th scope="col" className="w-10"><span className="sr-only">Zaznaczenie</span></th>
@@ -223,8 +223,8 @@ export function ClientOrdersPage() {
                             </button>
                           </td>
                           <td className="max-w-[280px] px-2.5 py-3" title={o.clientName}>
-                            <span className="block break-words text-[14px] font-semibold text-slate-900">{clientDisplay(o.clientName)}</span>
-                            <span className="mt-1 block break-words text-xs text-slate-600">{o.orderNo}</span>
+                            <span className="order-client-name block break-words font-semibold text-slate-900">{clientDisplay(o.clientName)}</span>
+                            <span className="order-master-subline block break-words text-slate-600">{o.orderNo}</span>
                           </td>
                           <td className="px-2.5 py-2 whitespace-nowrap">
                             {o.deliveryDate ? (
@@ -237,17 +237,20 @@ export function ClientOrdersPage() {
                             <StatusBadge tone={ORDER_TONE[o.status]} label={STATUS_LABELS[o.status]} />
                           </td>
                           <td className="px-2.5 py-3 whitespace-nowrap text-right">
+                            <span className="order-mobile-label">Zamówiono</span>
                             {kgText(metric.orderedKg)}
-                            <span className="mt-1 block text-xs text-ink-3">{o.totalUnits} szt.</span>
+                            <span className="order-master-subline block text-ink-3">{o.totalUnits} szt.</span>
                           </td>
                           <td className="px-2.5 py-3 whitespace-nowrap text-right font-semibold">
+                            <span className="order-mobile-label">Pozostało</span>
                             {o.status === 'cancelled' ? <span className="text-xs font-normal text-ink-3">Nie planuj</span> : kgText(metric.remainingKg)}
-                            {o.status !== 'cancelled' && <span className={cn('mt-1 block text-xs font-normal', state === 'complete' ? 'text-emerald-700' : 'text-ink-3')}>
+                            {o.status !== 'cancelled' && <span className={cn('order-master-subline block font-normal', state === 'complete' ? 'text-emerald-700' : 'text-ink-3')}>
                               {{ partial: 'Częściowo pokryte', complete: 'Pełne pokrycie', none: 'Bez pokrycia', unknown: 'Brak danych MES' }[state]}
                             </span>}
                           </td>
-                          <td className="min-w-[160px] px-2.5 py-3">
-                            <span className="mb-2 block text-right text-xs">{kgText(metric.coveredKg)}</span>
+                          <td className="min-w-[130px] px-2.5 py-3">
+                            <span className="order-mobile-label">Pokryte wyrobem</span>
+                            <span className="order-master-subline mb-1 block text-right">{kgText(metric.coveredKg)}</span>
                             <CoverageBar totals={metric} />
                           </td>
                           <td className="px-2 py-2 whitespace-nowrap text-right" onClick={e => e.stopPropagation()}>
@@ -293,11 +296,12 @@ export function ClientOrdersPage() {
                           </td>
                         </tr>
 
-                        <tr className="order-products"><td colSpan={9}><OrderLinesTable order={o} /></td></tr>
-                        {/* Rozwinięcie: logistyka. Produkcja widoczna bez kliknięcia. */}
+                        {/* Domyślnie tylko pasek zamówienia; pozycje i logistyka na żądanie. */}
                         {isExp && (
                           <tr id={`order-${o.id}`} className="order-detail">
-                            <td colSpan={9} className="bg-surface-2/60 border-b border-surface-4 px-4 py-4">
+                            <td colSpan={9} className="border-b border-surface-4">
+                              <OrderLinesTable order={o} />
+                              <div className="order-logistics">
                               <p className="mb-3 text-xs text-ink-3">Data zamówienia: {fmtDatePl(o.orderDate)} · Logistyka zamówienia {o.orderNo} · {clientDisplay(o.clientName)}
                                 {o.status === 'done' && ' Zamknięte zamówienie: wydanie przyjęte jako pełne.'}</p>
                               {o.notes && (
@@ -313,6 +317,7 @@ export function ClientOrdersPage() {
                               {/* Pasujące kartony z magazynu (powiązanie „na magazyn" → zamówienie) */}
                               <StockCartonSuggestions key={o.id} orderId={o.id} orderStatus={o.status} onAssigned={refetch}
                                 renderPallets={assigned => <PalletsEditor orderId={o.id} lines={o.lines} assignedCartons={assigned} orderNo={o.orderNo} clientName={clientDisplay(o.clientName)} />} />
+                              </div>
                             </td>
                           </tr>
                         )}
@@ -462,7 +467,7 @@ export function ClientOrdersPage() {
 
       {selectedOrders.length > 0 ? <OrderPlanningSummary summary={summary} count={selectedOrders.length}
         hiddenCount={selectedOrders.length - selectedVisible} onClear={() => setSelected(new Set())} /> :
-        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">Zaznacz zamówienia, aby obliczyć wspólne zapotrzebowanie na mieszanie według receptur. Gotowe sztuki każdej pozycji są widoczne poniżej.</div>}
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-900">Kliknij pasek zamówienia, aby rozwinąć lub zwinąć pozycje i logistykę. Zaznaczenie służy do wspólnego obliczania mieszania.</div>}
 
       {/* Tabela */}
       <Card className="order-panel overflow-hidden">

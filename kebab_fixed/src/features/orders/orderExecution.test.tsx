@@ -31,6 +31,21 @@ describe('Realizacja sztuk i mieszanie', () => {
     expect(productionTotals(lines).remainingKg).toBe(400)
     expect(productionTotals(lines).percent).toBeCloseTo(100 / 3)
   })
+  it('zwarty widok zachowuje pełny magazyn i brak raportów jako osobne informacje', () => {
+    const position = {
+      ...line(45, 50, 0), recipeName: 'KIRMIZI', packagingName: 'METAL 65CM', qtyStock: 45, qtyDelivered: 0,
+      fulfillment: { orderedKg: 2250, stockKg: 2250, deliveredKg: 0, coveredKg: 2250, remainingKg: 0 },
+      mixing: { ...line(45, 50, 0).mixing!, remainingQty: 0, remainingKg: 0, meatKg: 0, additivesKg: 0 },
+      notes: 'Zachowana uwaga pozycji',
+    }
+    const view = render(<OrderLinesTable order={{ id: 'o', orderNo: 'ZAGROS/Z/4/10/26', status: 'confirmed', lines: [position] } as ClientOrder} />)
+    expect(view.container.querySelector('.order-production')?.textContent).toContain('0 / 45 szt.')
+    expect(view.container.querySelector('.order-line-remaining')?.textContent?.replace(/\s/g, ' ')).toContain('2 250 kg45 szt.')
+    expect(view.container.querySelector('.order-line-remaining')?.textContent).toContain('Brak do pokrycia zamówienia: 0 kg')
+    expect(view.container.querySelector('.order-line-stock')?.textContent).toContain('W magazynie45 szt.')
+    expect(screen.getByText('Zachowana uwaga pozycji')).toBeTruthy()
+    expect(screen.getByText(/METAL 65CM/)).toBeTruthy()
+  })
   it('brak danych jednego wariantu nie zamienia sumy mięsa na częściową', () => {
     const lines = [line(10, 20, 5), { ...line(10, 40, 0), production: null, mixing: null }]
     expect(productionTotals(lines).reportedKg).toBeNull()

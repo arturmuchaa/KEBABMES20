@@ -66,13 +66,17 @@ describe('ClientOrdersPage — zaznaczanie i planowanie', () => {
 
   it('zaznacza jedno, nie rozwija, a rozwijanie nie zmienia zaznaczenia', () => {
     pokaz()
+    expect(screen.queryByRole('region', { name: 'Pozycje YALCIN/1' })).toBeNull()
     select('YALCIN/1')
     expect(screen.getByRole('button', { name: 'Szczegóły YALCIN/1' }).getAttribute('aria-expanded')).toBe('false')
     expect(within(summary()).getByText(/Podsumowanie zaznaczonych zamówień/).textContent).toContain('(1)')
     expect(summary().textContent).toContain('50 kg')
     fireEvent.click(screen.getByRole('button', { name: 'Szczegóły YALCIN/1' }))
     expect((screen.getByRole('checkbox', { name: 'Zaznacz YALCIN/1' }) as HTMLInputElement).checked).toBe(true)
-    expect(screen.getAllByText('Pozycje zamówienia (1)')).toHaveLength(3)
+    expect(screen.getAllByText('Pozycje zamówienia (1)')).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Szczegóły YALCIN/1' }))
+    expect(screen.queryByRole('region', { name: 'Pozycje YALCIN/1' })).toBeNull()
+    expect((screen.getByRole('checkbox', { name: 'Zaznacz YALCIN/1' }) as HTMLInputElement).checked).toBe(true)
   })
 
   it('sumuje klientów i zachowuje gramatury i długości po rozwinięciu receptury', () => {
@@ -137,15 +141,53 @@ describe('ClientOrdersPage — zaznaczanie i planowanie', () => {
     expect(stan.refetch).toHaveBeenCalledOnce()
   })
 
-  it('sztuki gotowe i pozostałe są widoczne od razu; CSV usunięto, druk jest bezpośredni', () => {
+  it('domyślnie pokazuje tylko pasek, po rozwinięciu wszystkie dane pozycji; druk pozostaje na pasku', () => {
     pokaz()
+    expect(screen.queryByRole('region', { name: 'Pozycje YALCIN/1' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Drukuj YALCIN/1' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Szczegóły YALCIN/1' }))
     const region = screen.getByRole('region', { name: 'Pozycje YALCIN/1' })
     const line = within(region)
     expect(line.getByRole('progressbar', { name: 'Produkcja KIRMIZI' }).getAttribute('aria-valuenow')).toBe('50')
     expect(region.querySelector('.order-production')?.textContent).toContain('5 / 10 szt.')
     expect(line.getAllByText('50 kg').length).toBeGreaterThan(0)
+    expect(region.textContent).toContain('METAL 65 cm')
+    expect(region.textContent).toContain('W magazynie4 szt.')
+    expect(region.textContent).toContain('Wydane wg MES1 szt.')
+    expect(region.textContent).toContain('Palet i kartonów nie dodajemy do produkcji.')
     expect(screen.getByRole('button', { name: 'Drukuj YALCIN/1' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /CSV/ })).toBeNull()
+  })
+
+  it('kliknięcie paska przełącza szczegóły bez otwierania pozostałych zamówień', () => {
+    pokaz()
+    fireEvent.click(screen.getByText('YALCIN/1'))
+    expect(screen.getByRole('region', { name: 'Pozycje YALCIN/1' })).toBeTruthy()
+    fireEvent.click(screen.getByText('YALCIN/2'))
+    expect(screen.queryByRole('region', { name: 'Pozycje YALCIN/1' })).toBeNull()
+    expect(screen.getByRole('region', { name: 'Pozycje YALCIN/2' })).toBeTruthy()
+    fireEvent.click(screen.getByText('YALCIN/2'))
+    expect(screen.queryByRole('region', { name: 'Pozycje YALCIN/2' })).toBeNull()
+  })
+
+  it('odświeżenie i sortowanie zachowują otwarte zamówienie, nie rozwijają zwiniętych', () => {
+    const view = pokaz()
+    fireEvent.click(screen.getByRole('button', { name: 'Szczegóły YALCIN/1' }))
+    stan.zamowienia = stan.zamowienia.map(o => ({ ...o, notes: 'Aktualizacja z serwera' }))
+    view.rerender(<MemoryRouter><ClientOrdersPage /></MemoryRouter>)
+    fireEvent.change(screen.getByRole('combobox', { name: 'Sortowanie zamówień' }), { target: { value: 'clientName' } })
+    expect(screen.getByRole('button', { name: 'Szczegóły YALCIN/1' }).getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getAllByText('Pozycje zamówienia (1)')).toHaveLength(1)
+    expect(screen.getByText('Aktualizacja z serwera')).toBeTruthy()
+  })
+
+  it('drukowanie nie rozwija zamówienia', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue({ closed: false } as Window)
+    pokaz()
+    fireEvent.click(screen.getByRole('button', { name: 'Drukuj YALCIN/1' }))
+    expect(open).toHaveBeenCalledWith('/office/zamowienia/a/druk', '_blank')
+    expect(screen.queryByRole('region', { name: 'Pozycje YALCIN/1' })).toBeNull()
+    open.mockRestore()
   })
 
   it('odświeża dane w tle bez utraty zaznaczeń i nie ponawia równoległego żądania', async () => {
