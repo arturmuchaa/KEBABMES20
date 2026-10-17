@@ -1,8 +1,11 @@
 """Read-only planning projection. Never writes stock, plans or order quantities.
 
-Production reports and stock coverage are different measures. Only unposted
-reports can reduce the stock-based gap; when their overlap with existing
-coverage cannot be proven we return unknown, rather than add the same piece.
+Current business policy (2026-10-16): order progress and mixing demand use
+allocated finished-goods stock plus deliveries ONLY. Plan reports remain a
+diagnostic projection, never an extra source of coverage. After full per-piece
+scanning is commissioned, verified production scans will become authoritative;
+do not enable that mode merely because some scans/reports already exist.
+See docs/ORDER_PROGRESS_POLICY.md.
 """
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -83,15 +86,13 @@ def project_line(line, reports, recipe, ingredients, status):
     covered = min(qty, max(0, int(line.get('qty_done') or 0)))
     remaining = max(0, qty - covered)
     basis = 'stock_and_documents'
+    # Report mismatches/overlap do not invalidate trusted stock coverage.
+    # qty_done here is hydrated by orders_service from stock + deliveries,
+    # NOT production_plan_lines.qty_done. Never add unposted HMI reports.
+    issue = weight_issue
     if status in ('done', 'cancelled'):
         remaining, issue = 0, None
         basis = 'closed_order'
-    elif unposted and covered and remaining:
-        remaining = None
-        issue = 'Raport HMI i pokrycie magazynowe mogą obejmować te same sztuki. Uzgodnij przyjęcie produkcji przed mieszaniem.'
-    elif unposted and not covered:
-        remaining = max(0, qty - unposted)
-        basis = 'unposted_plan_reports'
     if issue:
         remaining = None
     output, tech_issue = technology(recipe, ingredients)

@@ -19,7 +19,7 @@ def test_route_projects_hmi_and_recipe_without_mutations(db):
     before = query_all('SELECT * FROM production_plan_lines')
     order = route_list(status='', planning=True)[0]
     assert order['lines'][0]['production']['reported_qty'] == 5
-    assert order['lines'][0]['mixing']['meat_kg'] == 560
+    assert order['lines'][0]['mixing']['meat_kg'] == 640
     assert before == query_all('SELECT * FROM production_plan_lines')
     assert query_all('SELECT * FROM stock_movements') == []
     assert 'production' not in route_list(status='', planning=False)[0]['lines'][0]
@@ -44,4 +44,37 @@ def test_cancelled_and_variant_changes_fail_safely(db):
     execute("UPDATE production_plan_lines SET packaging_id='80'")
     line = enrich_orders(list_orders(None))[0]['lines'][0]
     assert line['production'] is None
-    assert line['mixing']['meat_kg'] is None
+    assert line['mixing']['meat_kg'] == 640
+
+
+def test_manual_finished_goods_increase_progress_without_plan_reports(db):
+    seed()
+    execute("DELETE FROM production_plan_lines")
+    execute("UPDATE client_order_lines SET qty=120, kg_per_unit=15")
+    before = route_list(status='', planning=True)[0]['lines'][0]
+    assert before['qty_done'] == 0
+    assert before['mixing']['remaining_kg'] == 1800
+    execute("INSERT INTO finished_goods(id,batch_no,recipe_id,qty,qty_available,kg_per_unit,product_type_id,packaging_id) VALUES ('manual','B/MANUAL','r',30,30,15,'udo','65')")
+    line = route_list(status='', planning=True)[0]['lines'][0]
+    assert line['qty_stock'] == line['qty_done'] == 30
+    assert line['production']['reported_qty'] == 0
+    assert line['fulfillment']['covered_kg'] == 450
+    assert line['mixing']['remaining_kg'] == 1350
+    assert line['mixing']['meat_kg'] == 1080
+
+
+def test_stock_pool_is_not_counted_twice_for_two_orders_or_another_variant(db):
+    seed()
+    execute("UPDATE client_orders SET order_date='2026-10-14'")
+    execute("INSERT INTO client_orders(id,order_no,status,order_date) VALUES ('o2','Z/2','confirmed','2026-10-15')")
+    execute("INSERT INTO client_order_lines(id,order_id,recipe_id,qty,kg_per_unit,product_type_id,packaging_id) VALUES ('l2','o2','r',40,20,'udo','65'), ('l3','o2','r',40,20,'udo','80')")
+    execute("INSERT INTO finished_goods(id,batch_no,recipe_id,qty,qty_available,kg_per_unit,product_type_id,packaging_id) VALUES ('manual','B/MANUAL','r',45,45,20,'udo','65')")
+    orders = route_list(status='', planning=True)
+    lines = {line['id']: line for order in orders for line in order['lines']}
+    assert lines['l']['qty_done'] == 40
+    assert lines['l2']['qty_done'] == 5
+    assert lines['l3']['qty_done'] == 0
+    assert sum(l['qty_done'] for l in lines.values()) == 45
+    assert lines['l']['mixing']['remaining_kg'] == 0
+    assert lines['l2']['mixing']['remaining_kg'] == 700
+    assert lines['l3']['mixing']['remaining_kg'] == 800

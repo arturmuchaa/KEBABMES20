@@ -3,17 +3,36 @@ import type { ClientOrder, OrderFulfillment, OrderLine } from '@/lib/mockApi'
 export const kgNumber = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 3, useGrouping: true })
 export const percentNumber = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 1 })
 export const kgText = (value: number | null) => value === null ? '—' : `${kgNumber.format(value)} kg`
-export function productionTotals(lines: OrderLine[]) {
-  const known = lines.every(l => !!l.production)
+/** Current policy: allocated stock + deliveries, never plan reports.
+ * Future per-piece scan authority requires an explicit business cutover;
+ * see docs/ORDER_PROGRESS_POLICY.md. No auto-switch on the first scan.
+ */
+export function lineProgress(line: OrderLine) {
+  const { qty, qtyStock, qtyDelivered, kgPerUnit, fulfillment } = line
+  const validQty = (n: number | undefined): n is number => n !== undefined && Number.isSafeInteger(n) && n >= 0
+  if (!fulfillment || !validQty(qty) || !validQty(qtyStock) || !validQty(qtyDelivered) || !Number.isFinite(kgPerUnit) || kgPerUnit <= 0) return null
+  const deliveredQty = Math.min(qty, qtyDelivered)
+  const stockQty = Math.min(qty - deliveredQty, qtyStock)
+  const readyQty = stockQty + deliveredQty
+  const readyKg = milli(readyQty * kgPerUnit) / 1000
+  const remainingKg = milli((qty - readyQty) * kgPerUnit) / 1000
+  if (!Number.isFinite(fulfillment.coveredKg) || !Number.isFinite(fulfillment.remainingKg)
+    || Math.abs(fulfillment.coveredKg - readyKg) > .001 || Math.abs(fulfillment.remainingKg - remainingKg) > .001) return null
+  return { readyQty, readyKg, remainingQty: qty - readyQty, remainingKg, stockQty, deliveredQty, percent: qty > 0 ? readyQty / qty * 100 : 0 }
+}
+
+export function progressTotals(lines: OrderLine[]) {
+  const progress = lines.map(lineProgress)
+  const known = progress.every(p => p !== null)
   const orderedQty = lines.reduce((s, l) => s + l.qty, 0)
   return {
     orderedQty,
-    reportedQty: known ? lines.reduce((s, l) => s + l.production!.reportedQty, 0) : null,
-    reportedKg: known ? lines.reduce((s, l) => s + milli(l.production!.reportedKg), 0) / 1000 : null,
-    remainingQty: known ? lines.reduce((s, l) => s + l.production!.remainingQty, 0) : null,
-    remainingKg: known ? lines.reduce((s, l) => s + milli(l.production!.remainingKg), 0) / 1000 : null,
+    readyQty: known ? progress.reduce((s, p) => s + p!.readyQty, 0) : null,
+    readyKg: known ? progress.reduce((s, p) => s + milli(p!.readyKg), 0) / 1000 : null,
+    remainingQty: known ? progress.reduce((s, p) => s + p!.remainingQty, 0) : null,
+    remainingKg: known ? progress.reduce((s, p) => s + milli(p!.remainingKg), 0) / 1000 : null,
     // A surplus of one variant never completes a different variant.
-    percent: known ? coveragePercent({ ...totalLines(lines), coveredKg: lines.reduce((s, l) => s + milli(Math.min(l.qty, l.production!.reportedQty) * l.kgPerUnit), 0) / 1000 }) : null,
+    percent: known ? coveragePercent(totalLines(lines)) : null,
   }
 }
 

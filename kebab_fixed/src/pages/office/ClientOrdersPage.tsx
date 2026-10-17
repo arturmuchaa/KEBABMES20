@@ -17,7 +17,7 @@ import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { OrderPlanningSummary, CoverageBar } from '@/features/orders/OrderPlanningSummary'
 import { OrderLinesTable } from '@/features/orders/OrderLinesTable'
 import { OrderDocumentsMenu } from '@/features/orders/OrderDocumentsMenu'
-import { totalLines, summarizeOrders, kgText, coveragePercent, productionState, productionTotals, mixingTotals } from '@/features/orders/orderPlanning'
+import { totalLines, summarizeOrders, kgText, coveragePercent, productionState, progressTotals, mixingTotals } from '@/features/orders/orderPlanning'
 import { OrderMetric } from '@/features/orders/OrderUI'
 import '@/features/orders/order-planning.css'
 import { podzielZamowienia } from '@/features/orders/orderBuckets'
@@ -136,7 +136,7 @@ export function ClientOrdersPage() {
 
   const { biezace, zamkniete } = useMemo(() => podzielZamowienia(filtered), [filtered])
   const activeLines = useMemo(() => rawList.filter(o => o.status !== 'done' && o.status !== 'cancelled').flatMap(o => o.lines), [rawList])
-  const activeProduction = useMemo(() => productionTotals(activeLines), [activeLines])
+  const activeProgress = useMemo(() => progressTotals(activeLines), [activeLines])
   const activeMixing = useMemo(() => mixingTotals(activeLines), [activeLines])
   const currentPage = Math.min(page, Math.max(0, Math.ceil(biezace.length / PAGE_SIZE) - 1))
   const closedPage = Math.min(archivePage, Math.max(0, Math.ceil(zamkniete.length / PAGE_SIZE) - 1))
@@ -245,7 +245,7 @@ export function ClientOrdersPage() {
                             <span className="order-mobile-label">Pozostało</span>
                             {o.status === 'cancelled' ? <span className="text-xs font-normal text-ink-3">Nie planuj</span> : kgText(metric.remainingKg)}
                             {o.status !== 'cancelled' && <span className={cn('order-master-subline block font-normal', state === 'complete' ? 'text-emerald-700' : 'text-ink-3')}>
-                              {{ partial: 'Częściowo pokryte', complete: 'Pełne pokrycie', none: 'Bez pokrycia', unknown: 'Brak danych MES' }[state]}
+                              {{ partial: 'Częściowo pokryte', complete: 'Pełne pokrycie', none: 'Bez pokrycia', unknown: 'Brak danych magazynowych' }[state]}
                             </span>}
                           </td>
                           <td className="min-w-[130px] px-2.5 py-3">
@@ -384,11 +384,11 @@ export function ClientOrdersPage() {
 
   return (
     <div className="orders-workspace min-w-0 space-y-4">
-      <div className="order-workspace-heading"><div><div className="order-eyebrow">Biuro / planowanie produkcji</div><h2>Zamówienia i realizacja</h2><p>Co zamówiono → ile zrobiono → ile zostało → ile mięsa przygotować.</p></div></div>
+      <div className="order-workspace-heading"><div><div className="order-eyebrow">Biuro / planowanie produkcji</div><h2>Zamówienia i realizacja</h2><p>Postęp według magazynu wyrobu i wydań → ile zostało → ile mięsa przygotować.</p></div></div>
       {!loading && orders && <div className="order-metrics" aria-label="Wszystkie otwarte zamówienia">
-        <OrderMetric label="Otwarte zamówienia" value={rawList.filter(o => o.status !== 'done' && o.status !== 'cancelled').length} hint={`${activeProduction.orderedQty} szt. zamówionych · wraz ze szkicami`} />
-        <OrderMetric label="Gotowe · raporty MES" tone="green" value={activeProduction.reportedQty == null ? '—' : `${activeProduction.reportedQty} szt.`} hint={kgText(activeProduction.reportedKg)} />
-        <OrderMetric label="Pozostało wg raportów" tone="amber" value={kgText(activeProduction.remainingKg)} hint={activeProduction.remainingQty == null ? 'Brak kompletu danych MES' : `${activeProduction.remainingQty} szt. · przed pokryciem zapasem`} />
+        <OrderMetric label="Otwarte zamówienia" value={rawList.filter(o => o.status !== 'done' && o.status !== 'cancelled').length} hint={`${activeProgress.orderedQty} szt. zamówionych · wraz ze szkicami`} />
+        <OrderMetric label="Gotowe · magazyn i wydania" tone="green" value={activeProgress.readyQty == null ? '—' : `${activeProgress.readyQty} szt.`} hint={kgText(activeProgress.readyKg)} />
+        <OrderMetric label="Pozostało do przygotowania" tone="amber" value={kgText(activeProgress.remainingKg)} hint={activeProgress.remainingQty == null ? 'Brak danych magazynowych' : `${activeProgress.remainingQty} szt. · po uwzględnieniu magazynu`} />
         <OrderMetric label="Mięso bazowe · otwarte zamówienia" tone="violet" value={kgText(activeMixing.meatKg)} hint={activeMixing.meatKg == null ? 'Zaznacz zamówienia, aby zobaczyć przyczynę' : 'Potrzeba technologiczna, nie zakup'} />
       </div>}
       {/* Palety z usuniętych/zmienionych zamówień czekające na zgodne zamówienie */}

@@ -1,5 +1,10 @@
 # Skanowanie seryjne w HMI produkcji i magazynu — notatka dla serwisu (03.10.2026)
 
+> Decyzja 16.10.2026: do pełnego uruchomienia skanowania każdej sztuki postęp
+> zamówień opiera się na magazynie wyrobu. Potem skany produkcji mają być
+> nadrzędne; nie przełączamy trybu automatycznie. Szczegóły:
+> [ORDER_PROGRESS_POLICY.md](ORDER_PROGRESS_POLICY.md).
+
 ## Co się zmieniło
 
 Pola skanu HMI (pasek skanera produkcji, pas skanowania magazynu) i nasłuch

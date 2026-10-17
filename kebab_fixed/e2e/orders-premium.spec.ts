@@ -6,7 +6,8 @@ const item = (id: string, name: string, qty: number, weight: number, done: numbe
   packaging_id: packaging.includes('80') ? 'pkg80' : 'pkg', packaging_name: packaging, qty, kg_per_unit: weight, total_kg: qty * weight,
   qty_done: done, qty_stock: done, qty_delivered: 0,
   fulfillment: { ordered_kg: qty * weight, stock_kg: done * weight, delivered_kg: 0, covered_kg: done * weight, remaining_kg: (qty - done) * weight },
-  production: { reported_qty: done, reported_kg: done * weight, remaining_qty: qty - done, remaining_kg: (qty - done) * weight, unposted_qty: 0, source: 'linked_plan_reports' },
+  // Manual warehouse receipts count even without any linked production report.
+  production: { reported_qty: 0, reported_kg: 0, remaining_qty: qty, remaining_kg: qty * weight, unposted_qty: 0, source: 'linked_plan_reports' },
   mixing: { remaining_qty: qty - done, remaining_kg: (qty - done) * weight, meat_kg: (qty - done) * weight / 1.25, additives_kg: (qty - done) * weight / 5, output_per_100kg: 125, growth_pct: 25, reason: null, source: 'recipe_ingredients_per_100kg' },
 })
 const order = { id: 'o1', order_no: 'YALCIN/Z/17/10/26', client_id: 'c', client_name: 'YALCIN', status: 'confirmed', order_date: '2026-10-15', delivery_date: '2026-10-20', total_kg: 1600, total_units: 60,
@@ -62,7 +63,9 @@ test('pełny dział: realizacja, mieszanie, palety i dialog', async ({ page }, i
   await page.screenshot({ path: info.outputPath('orders-desktop.png'), fullPage: true })
   await rows.screenshot({ path: info.outputPath('order-positions-compact.png') })
   const heights = await rows.locator('.order-product-row').evaluateAll(elements => elements.map(el => el.getBoundingClientRect().height))
-  expect(Math.max(...heights)).toBeLessThanOrEqual(90)
+  expect(Math.max(...heights)).toBeLessThanOrEqual(56)
+  await expect(rows).not.toContainText('Brak raportów')
+  await expect(rows).not.toContainText('Pozostało wg raportów')
   await toggle.click()
   await expect(rows).toHaveCount(0)
   await page.getByRole('checkbox', { name: 'Zaznacz YALCIN/Z/17/10/26', exact: true }).check()
@@ -92,6 +95,46 @@ test('pełny dział: realizacja, mieszanie, palety i dialog', async ({ page }, i
   await page.screenshot({ path: info.outputPath('split-dialog.png') })
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('120 × 15 kg: ręczny magazyn i wydanie sterują postępem, nie raport planu', async ({ page }, info) => {
+  const errors = await setup(page)
+  await page.setViewportSize({ width: 1280, height: 900 })
+  let stock = 0, delivered = 0
+  await page.route('**/api/client-orders*', async route => {
+    if (new URL(route.request().url()).pathname !== '/api/client-orders') return route.fallback()
+    const line = item('a', 'BEYAZ AFIYET', 120, 15, stock + delivered, 'METAL 55CM')
+    await route.fulfill({ json: [{ ...order, order_no: 'BEYAZ/Z/1', total_kg: 1800, total_units: 120, lines: [{ ...line,
+      qty_stock: stock, qty_delivered: delivered,
+      fulfillment: { ...line.fulfillment, stock_kg: stock * 15, delivered_kg: delivered * 15 },
+      production: { ...line.production, reported_qty: 120, reported_kg: 1800, remaining_qty: 0, remaining_kg: 0, unposted_qty: 120 },
+    }] }] })
+  })
+  await page.goto('/office/zamowienia')
+  const selection = page.getByRole('checkbox', { name: 'Zaznacz BEYAZ/Z/1', exact: true })
+  await selection.check()
+  await page.getByRole('button', { name: 'Szczegóły BEYAZ/Z/1', exact: true }).click()
+  const rows = page.getByRole('region', { name: 'Pozycje BEYAZ/Z/1', exact: true })
+  const progress = rows.getByRole('progressbar', { name: 'Postęp magazynowy BEYAZ AFIYET' })
+  // The first refresh is the orders toolbar; logistics has its own refresh.
+  const refresh = page.getByRole('button', { name: 'Odśwież', exact: true }).first()
+  await expect(rows).toContainText('0 / 120 szt.')
+  await expect(progress).toHaveAttribute('aria-valuenow', '0')
+  stock = 30
+  await refresh.click()
+  await expect(rows).toContainText('30 / 120 szt.')
+  await expect(rows).toContainText('90 szt.')
+  await expect(rows.getByText(/1\s350 kg/)).toBeVisible()
+  await expect(progress).toHaveAttribute('aria-valuenow', '25')
+  await expect(selection).toBeChecked()
+  await expect(page.getByRole('region', { name: 'Podsumowanie zaznaczonych zamówień' })).toContainText('25% realizacji wagowo · 30 szt.')
+  await rows.screenshot({ path: info.outputPath('beyaz-120-warehouse.png') })
+  stock = 20; delivered = 10
+  await refresh.click()
+  await expect(rows).toContainText('Magazyn: 20 · Wydano: 10 szt.')
+  await expect(progress).toHaveAttribute('aria-valuenow', '25')
+  await expect(rows).toContainText('30 / 120 szt.')
   expect(errors).toEqual([])
 })
 

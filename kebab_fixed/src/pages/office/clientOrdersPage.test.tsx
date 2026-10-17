@@ -148,15 +148,33 @@ describe('ClientOrdersPage — zaznaczanie i planowanie', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Szczegóły YALCIN/1' }))
     const region = screen.getByRole('region', { name: 'Pozycje YALCIN/1' })
     const line = within(region)
-    expect(line.getByRole('progressbar', { name: 'Produkcja KIRMIZI' }).getAttribute('aria-valuenow')).toBe('50')
+    expect(line.getByRole('progressbar', { name: 'Postęp magazynowy KIRMIZI' }).getAttribute('aria-valuenow')).toBe('50')
     expect(region.querySelector('.order-production')?.textContent).toContain('5 / 10 szt.')
     expect(line.getAllByText('50 kg').length).toBeGreaterThan(0)
     expect(region.textContent).toContain('METAL 65 cm')
-    expect(region.textContent).toContain('W magazynie4 szt.')
-    expect(region.textContent).toContain('Wydane wg MES1 szt.')
-    expect(region.textContent).toContain('Palet i kartonów nie dodajemy do produkcji.')
+    expect(region.textContent).toContain('Magazyn: 4 · Wydano: 1 szt.')
+    expect(region.textContent).toContain('Bez doliczania raportów planów, palet i kartonów.')
     expect(screen.getByRole('button', { name: 'Drukuj YALCIN/1' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /CSV/ })).toBeNull()
+  })
+
+  it('postęp po przyjęciu magazynowym odświeża pozycję i podsumowania bez raportów', () => {
+    stan.zamowienia[0].lines[0].production = null
+    const view = pokaz()
+    select('YALCIN/1')
+    fireEvent.click(screen.getByRole('button', { name: 'Szczegóły YALCIN/1' }))
+    const region = () => screen.getByRole('region', { name: 'Pozycje YALCIN/1' })
+    expect(region().querySelector('.order-production')?.textContent).toContain('5 / 10 szt.')
+    const l = stan.zamowienia[0].lines[0]
+    stan.zamowienia = [{ ...stan.zamowienia[0], lines: [{ ...l, qtyStock: 9, qtyDone: 10,
+      fulfillment: { ...l.fulfillment, stockKg: 90, coveredKg: 100, remainingKg: 0 },
+      mixing: { ...l.mixing, remainingQty: 0, remainingKg: 0, meatKg: 0, additivesKg: 0 } }] }, ...stan.zamowienia.slice(1)]
+    view.rerender(<MemoryRouter><ClientOrdersPage /></MemoryRouter>)
+    expect(region().querySelector('.order-production')?.textContent).toContain('10 / 10 szt.')
+    expect(within(region()).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('100')
+    expect(summary().textContent).toContain('100% realizacji wagowo · 10 szt.')
+    expect(screen.getByLabelText('Wszystkie otwarte zamówienia').textContent).toContain('10 szt.')
+    expect(screen.queryByText(/raporty MES/)).toBeNull()
   })
 
   it('kliknięcie paska przełącza szczegóły bez otwierania pozostałych zamówień', () => {

@@ -21,18 +21,19 @@ def project(line=None, reports=None, recipe=RECIPE, ingredients=INGREDIENTS, sta
     return project_line({**LINE, **(line or {})}, reports or [], recipe, ingredients, status)
 
 
-def test_5_of_40_before_acceptance_uses_actual_report_not_plan_or_pallet_count():
+def test_unaccepted_plan_report_remains_diagnostic_and_does_not_reduce_mixing():
     production, mixing = project(reports=[report(qty=100, packed_qty=5)])
     assert production == {'reported_qty': 5, 'reported_kg': 100, 'remaining_qty': 35, 'remaining_kg': 700, 'unposted_qty': 5, 'source': 'linked_plan_reports'}
-    assert mixing['remaining_kg'] == 700
-    assert mixing['meat_kg'] == 560
-    assert mixing['additives_kg'] == 140
+    assert mixing['remaining_kg'] == 800
+    assert mixing['meat_kg'] == 640
+    assert mixing['additives_kg'] == 160
     assert mixing['growth_pct'] == 25
+    assert mixing['basis'] == 'stock_and_documents'
 
 
-@pytest.mark.parametrize('reported,remaining,meat', [(0, 2450, 1960), (20, 1950, 1560), (98, 0, 0)])
-def test_user_examples_with_real_recipe(reported, remaining, meat):
-    _, mixing = project({'qty': 98, 'kg_per_unit': 25}, [report(kg_per_unit=25, qty_done=reported)])
+@pytest.mark.parametrize('stock,remaining,meat', [(0, 2450, 1960), (20, 1950, 1560), (98, 0, 0)])
+def test_manual_stock_with_real_recipe_and_no_plan_reports(stock, remaining, meat):
+    _, mixing = project({'qty': 98, 'kg_per_unit': 25, 'qty_done': stock, 'qty_stock': stock})
     assert mixing['remaining_kg'] == remaining
     assert mixing['meat_kg'] == meat
 
@@ -43,12 +44,12 @@ def test_posted_production_never_added_to_stock_and_deliveries_again():
     assert mixing['remaining_qty'] == 35
 
 
-def test_unposted_and_stock_overlap_is_unknown_not_sum_or_max():
+def test_only_stock_counts_even_if_unposted_report_overlaps():
     production, mixing = project({'qty_done': 3}, [report()])
     assert production['reported_qty'] == 5
-    assert mixing['remaining_qty'] is None
-    assert mixing['meat_kg'] is None
-    assert 'te same sztuki' in mixing['reason']
+    assert mixing['remaining_qty'] == 37
+    assert mixing['meat_kg'] == 592
+    assert mixing['reason'] is None
 
 
 def test_product_reallocated_away_does_not_reduce_new_demand():
@@ -69,6 +70,8 @@ def test_overproduction_retained_but_remainder_never_negative():
     p, m = project(reports=[report(qty_done=48)])
     assert p['reported_qty'] == 48
     assert p['remaining_qty'] == 0
+    assert m['remaining_qty'] == 40  # reports are not stock
+    _, m = project({'qty_done': 48})
     assert m['remaining_qty'] == 0
 
 
@@ -78,11 +81,11 @@ def test_duplicate_report_ids_and_cancelled_plans_never_added():
 
 
 @pytest.mark.parametrize('field,value', [('recipe_id', 'other'), ('product_type_id', 'mix'), ('kg_per_unit', 40), ('packaging_id', '80')])
-def test_linked_but_mismatched_variant_is_unknown(field, value):
+def test_mismatched_report_is_unknown_but_does_not_block_stock_based_mixing(field, value):
     p, m = project(reports=[report(**{field: value})])
     assert p is None
-    assert m['meat_kg'] is None
-    assert 'inny wariant' in m['reason']
+    assert m['meat_kg'] == 640
+    assert m['reason'] is None
 
 
 @pytest.mark.parametrize('recipe,ingredients', [
@@ -127,7 +130,15 @@ def test_invalid_weight_never_means_zero_demand(weight):
 def test_invalid_report_weight_fails_closed():
     production, mixing = project(reports=[report(kg_per_unit='invalid')])
     assert production is None
-    assert mixing['meat_kg'] is None
+    assert mixing['meat_kg'] == 640  # bad diagnostic report does not invalidate stock
+
+
+@pytest.mark.parametrize('stock,delivered,remaining', [(0, 0, 120), (30, 0, 90), (20, 10, 90), (0, 120, 0)])
+def test_beyaz_120_times_15_tracks_stock_and_delivery_without_report_dependency(stock, delivered, remaining):
+    _, mixing = project({'qty': 120, 'kg_per_unit': 15, 'qty_stock': stock, 'qty_delivered': delivered, 'qty_done': stock + delivered})
+    assert mixing['remaining_qty'] == remaining
+    assert mixing['remaining_kg'] == remaining * 15
+    assert mixing['meat_kg'] == remaining * 12
 
 
 def test_batch_queries_are_bounded_and_lines_not_reallocated_on_filter(monkeypatch):

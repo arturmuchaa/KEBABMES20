@@ -11,6 +11,7 @@ const orders = Array.from({ length: 12 }, (_, i) => ({
   status: 'confirmed', order_date: '2026-10-14', delivery_date: '2026-10-20', total_kg: 1000, total_units: 40,
   coverage_basis: 'stock_and_documents', fulfillment: kg(1000, i % 3 === 0 ? 400 : 0, i % 3 === 0 ? 100 : 0),
   lines: [{ id: `l${i}`, qty: 40, kg_per_unit: 25, total_kg: 1000,
+    qty_stock: i % 3 === 0 ? 16 : 0, qty_delivered: i % 3 === 0 ? 4 : 0,
     recipe_id: i % 2 ? 'r1' : 'r2', recipe_name: i % 2 ? 'AFIYET BEYAZ' : 'GUSTO KIRMIZI — receptura specjalna',
     product_type_id: 'udo', product_type_name: 'KEBAB UDO 100%',
     packaging_id: i % 2 ? 'p65' : 'p80', packaging_name: i % 2 ? 'METAL 65 cm' : 'METAL 80 cm',

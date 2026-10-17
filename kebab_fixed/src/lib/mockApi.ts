@@ -2269,6 +2269,9 @@ export interface OrderFulfillment {
   remainingKg: number
 }
 
+/** Diagnostyka raportów planów, nie źródło postępu zamówień.
+ * Obecna zasada magazynu / docelowych skanów: docs/ORDER_PROGRESS_POLICY.md.
+ */
 export interface OrderProduction {
   reportedQty: number
   reportedKg: number
