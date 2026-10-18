@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import { OrderLinesTable } from './OrderLinesTable'
 import { progressTotals, lineProgress, mixingTotals, summarizeOrders } from './orderPlanning'
 import type { ClientOrder, OrderLine } from '@/lib/mockApi'
@@ -22,8 +22,8 @@ describe('Realizacja sztuk i mieszanie', () => {
     const a = line(40, 20, 5), b = line(20, 40, 18)
     a.packagingName = 'Tuleja 65 cm'; b.packagingName = 'Tuleja 80 cm'
     const view = render(<OrderLinesTable order={{ id: 'o', orderNo: 'Z/1', status: 'confirmed', lines: [a, b] } as ClientOrder} />)
-    const values = [...view.container.querySelectorAll('.order-progress-heading > strong')].map(n => n.textContent)
-    expect(values).toEqual(['5 / 40 szt.', '18 / 20 szt.'])
+    const values = [...view.container.querySelectorAll('.order-stock-value')].map(n => n.textContent)
+    expect(values).toEqual(['Magazyn 5 szt.', 'Magazyn 18 szt.'])
     expect(screen.getAllByText('700 kg').length).toBeGreaterThan(0)
     expect(screen.getAllByText('80 kg').length).toBeGreaterThan(0)
     expect(view.container.textContent).toContain('Tuleja 80 cm')
@@ -32,9 +32,9 @@ describe('Realizacja sztuk i mieszanie', () => {
     const lines = [line(10, 20, 15), line(10, 40, 0)]
     expect(progressTotals(lines).remainingKg).toBe(400)
     expect(progressTotals(lines).percent).toBeCloseTo(100 / 3)
-    expect(progressTotals(lines).readyQty).toBe(10)
+    expect(progressTotals(lines).coveredQty).toBe(10)
   })
-  it('pełny magazyn bez raportów oznacza GOTOWE 45/45, a nie fałszywe zero', () => {
+  it('pełny magazyn bez raportów oznacza 45 szt. na stanie, a nie fałszywe zero', () => {
     const position = {
       ...line(45, 50, 0), recipeName: 'KIRMIZI', packagingName: 'METAL 65CM', qtyStock: 45, qtyDelivered: 0,
       fulfillment: { orderedKg: 2250, stockKg: 2250, deliveredKg: 0, coveredKg: 2250, remainingKg: 0 },
@@ -45,29 +45,42 @@ describe('Realizacja sztuk i mieszanie', () => {
     expect(view.container.querySelector('.order-production')?.textContent).toContain('45 / 45 szt.')
     expect(view.container.querySelector('.order-line-remaining')?.textContent).toContain('0 kg0 szt.')
     expect(view.container.textContent).not.toContain('Brak raportów')
-    expect(view.container.textContent).toContain('Magazyn: 45 · Wydano: 0 szt.')
+    expect(view.container.textContent).toContain('Magazyn 45 szt.Wydano 0 szt.')
     expect(screen.getByText('Zachowana uwaga pozycji')).toBeTruthy()
     expect(screen.getByText(/METAL 65CM/)).toBeTruthy()
   })
   it('brak danych jednego wariantu nie zamienia sumy mięsa na częściową', () => {
     const lines = [line(10, 20, 5), { ...line(10, 40, 0), fulfillment: null, mixing: null }]
-    expect(progressTotals(lines).readyKg).toBeNull()
+    expect(progressTotals(lines).coveredKg).toBeNull()
     expect(mixingTotals(lines).meatKg).toBeNull()
   })
   it('raporty planów nie zwiększają GOTOWE bez magazynu', () => {
     const p = { ...line(120, 15, 0), production: line(120, 15, 120).production }
-    expect(lineProgress(p)).toMatchObject({ readyQty: 0, remainingQty: 120, remainingKg: 1800, percent: 0 })
-    expect(progressTotals([p]).readyQty).toBe(0)
+    expect(lineProgress(p)).toMatchObject({ coveredQty: 0, remainingQty: 120, remainingKg: 1800, percent: 0 })
+    expect(progressTotals([p]).coveredQty).toBe(0)
   })
   it('wydanie z magazynu nie cofa postępu i nie dolicza raportu drugi raz', () => {
     const before = line(120, 15, 30)
     const after = { ...before, qtyStock: 20, qtyDelivered: 10,
       fulfillment: { ...before.fulfillment!, stockKg: 300, deliveredKg: 150 } }
-    expect(lineProgress(after)).toMatchObject({ readyQty: 30, remainingQty: 90, remainingKg: 1350, percent: 25 })
-    expect(progressTotals([after])).toEqual(progressTotals([before]))
+    expect(lineProgress(after)).toMatchObject({ coveredQty: 30, stockQty: 20, deliveredQty: 10, remainingQty: 90, remainingKg: 1350, toShipQty: 110, toShipKg: 1650, percent: 25 })
+    expect(progressTotals([after]).coveredKg).toEqual(progressTotals([before]).coveredKg)
+    expect(progressTotals([after]).stockKg).toBe(300)
+    expect(progressTotals([after]).deliveredKg).toBe(150)
   })
   it('brak raportów nie blokuje postępu przy wiarygodnym magazynie', () => {
-    expect(lineProgress({ ...line(120, 15, 30), production: null })).toMatchObject({ readyQty: 30, readyKg: 450 })
+    expect(lineProgress({ ...line(120, 15, 30), production: null })).toMatchObject({ coveredQty: 30, coveredKg: 450 })
+  })
+  it.each([[20, 10, 20], [0, 30, 0]])('EMIN 30×40: magazyn %s, wydano %s, do wysłania %s — wydania nie są gotowym zapasem', (stock, delivered, toShip) => {
+    const p = { ...line(30, 40, 30), qtyStock: stock, qtyDelivered: delivered,
+      fulfillment: { ...line(30, 40, 30).fulfillment!, stockKg: stock * 40, deliveredKg: delivered * 40 } }
+    const view = render(<OrderLinesTable order={{ id: 'o', orderNo: 'Z/1', status: 'confirmed', lines: [p] } as ClientOrder} />)
+    expect(view.container.querySelector('.order-stock-value')?.textContent).toBe(`Magazyn ${stock} szt.`)
+    expect(view.container.querySelector('.order-delivered-value')?.textContent).toBe(`Wydano ${delivered} szt.`)
+    expect(view.container.querySelector('.order-line-remaining')?.textContent).toContain(`Do wysłania${toShip} szt.`)
+    expect(within(view.container).getByRole('progressbar').getAttribute('aria-valuenow')).toBe('100')
+    expect(view.container.textContent).not.toContain('GOTOWE')
+    expect(lineProgress(p)?.remainingKg).toBe(0)
   })
   it.each([undefined, -1, NaN, Infinity, 2.5])('nieprawidłowa ilość magazynowa %s nie oznacza zera', qtyStock => {
     expect(lineProgress({ ...line(120, 15, 0), qtyStock })).toBeNull()

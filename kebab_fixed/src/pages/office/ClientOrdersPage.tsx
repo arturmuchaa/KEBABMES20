@@ -17,8 +17,8 @@ import { fmtKg, fmtDatePl, cn } from '@/lib/utils'
 import { OrderPlanningSummary, CoverageBar } from '@/features/orders/OrderPlanningSummary'
 import { OrderLinesTable } from '@/features/orders/OrderLinesTable'
 import { OrderDocumentsMenu } from '@/features/orders/OrderDocumentsMenu'
-import { totalLines, summarizeOrders, kgText, coveragePercent, productionState, progressTotals, mixingTotals } from '@/features/orders/orderPlanning'
-import { OrderMetric } from '@/features/orders/OrderUI'
+import { totalLines, summarizeOrders, kgText, coveragePercent, productionState, progressTotals } from '@/features/orders/orderPlanning'
+import { OrderKpis } from '@/features/orders/OrderUI'
 import '@/features/orders/order-planning.css'
 import { podzielZamowienia } from '@/features/orders/orderBuckets'
 import {
@@ -137,7 +137,7 @@ export function ClientOrdersPage() {
   const { biezace, zamkniete } = useMemo(() => podzielZamowienia(filtered), [filtered])
   const activeLines = useMemo(() => rawList.filter(o => o.status !== 'done' && o.status !== 'cancelled').flatMap(o => o.lines), [rawList])
   const activeProgress = useMemo(() => progressTotals(activeLines), [activeLines])
-  const activeMixing = useMemo(() => mixingTotals(activeLines), [activeLines])
+  const activeOrderedKg = useMemo(() => totalLines(activeLines).orderedKg, [activeLines])
   const currentPage = Math.min(page, Math.max(0, Math.ceil(biezace.length / PAGE_SIZE) - 1))
   const closedPage = Math.min(archivePage, Math.max(0, Math.ceil(zamkniete.length / PAGE_SIZE) - 1))
   const archiveVisible = archiwum || filterStatus === 'done' || filterStatus === 'cancelled'
@@ -172,8 +172,8 @@ export function ClientOrdersPage() {
                       { col: 'deliveryDate' as SortCol, label: 'Dostawa',   align: 'left'  },
                       { col: 'status'       as SortCol, label: 'Status',    align: 'left'  },
                       { col: 'totalKg'      as SortCol, label: 'Zamówiono', align: 'right' },
-                      { col: 'remaining'    as SortCol, label: 'Pozostało', align: 'right' },
-                      { col: 'progress'     as SortCol, label: 'Pokryte wyrobem', align: 'right' },
+                      { col: 'remaining'    as SortCol, label: 'Brak wyrobu', align: 'right' },
+                      { col: 'progress'     as SortCol, label: 'Magazyn / wydano', align: 'right' },
                     ].map(h => (
                       <th
                         key={h.col}
@@ -242,15 +242,14 @@ export function ClientOrdersPage() {
                             <span className="order-master-subline block text-ink-3">{o.totalUnits} szt.</span>
                           </td>
                           <td className="px-2.5 py-3 whitespace-nowrap text-right font-semibold">
-                            <span className="order-mobile-label">Pozostało</span>
+                            <span className="order-mobile-label">Brak wyrobu</span>
                             {o.status === 'cancelled' ? <span className="text-xs font-normal text-ink-3">Nie planuj</span> : kgText(metric.remainingKg)}
                             {o.status !== 'cancelled' && <span className={cn('order-master-subline block font-normal', state === 'complete' ? 'text-emerald-700' : 'text-ink-3')}>
                               {{ partial: 'Częściowo pokryte', complete: 'Pełne pokrycie', none: 'Bez pokrycia', unknown: 'Brak danych magazynowych' }[state]}
                             </span>}
                           </td>
                           <td className="min-w-[130px] px-2.5 py-3">
-                            <span className="order-mobile-label">Pokryte wyrobem</span>
-                            <span className="order-master-subline mb-1 block text-right">{kgText(metric.coveredKg)}</span>
+                            <div className="order-master-coverage"><span>Magazyn <b>{kgText(metric.stockKg)}</b></span><span>Wydano <b>{kgText(metric.deliveredKg)}</b></span></div>
                             <CoverageBar totals={metric} />
                           </td>
                           <td className="px-2 py-2 whitespace-nowrap text-right" onClick={e => e.stopPropagation()}>
@@ -336,7 +335,7 @@ export function ClientOrdersPage() {
                     <td className="px-2.5 py-3 text-right font-semibold whitespace-nowrap">
                       {kgText(totals.remainingKg)}
                     </td>
-                    <td className="px-2.5 py-3 text-right whitespace-nowrap">{kgText(totals.coveredKg)}</td>
+                    <td className="px-2.5 py-3 text-right whitespace-nowrap"><span className="block">Magazyn {kgText(totals.stockKg)}</span><span className="order-master-subline block">Wydano {kgText(totals.deliveredKg)}</span></td>
                     <td />
                   </tr>
                 </tfoot>
@@ -385,12 +384,8 @@ export function ClientOrdersPage() {
   return (
     <div className="orders-workspace min-w-0 space-y-4">
       <div className="order-workspace-heading"><div><div className="order-eyebrow">Biuro / planowanie produkcji</div><h2>Zamówienia i realizacja</h2><p>Postęp według magazynu wyrobu i wydań → ile zostało → ile mięsa przygotować.</p></div></div>
-      {!loading && orders && <div className="order-metrics" aria-label="Wszystkie otwarte zamówienia">
-        <OrderMetric label="Otwarte zamówienia" value={rawList.filter(o => o.status !== 'done' && o.status !== 'cancelled').length} hint={`${activeProgress.orderedQty} szt. zamówionych · wraz ze szkicami`} />
-        <OrderMetric label="Gotowe · magazyn i wydania" tone="green" value={activeProgress.readyQty == null ? '—' : `${activeProgress.readyQty} szt.`} hint={kgText(activeProgress.readyKg)} />
-        <OrderMetric label="Pozostało do przygotowania" tone="amber" value={kgText(activeProgress.remainingKg)} hint={activeProgress.remainingQty == null ? 'Brak danych magazynowych' : `${activeProgress.remainingQty} szt. · po uwzględnieniu magazynu`} />
-        <OrderMetric label="Mięso bazowe · otwarte zamówienia" tone="violet" value={kgText(activeMixing.meatKg)} hint={activeMixing.meatKg == null ? 'Zaznacz zamówienia, aby zobaczyć przyczynę' : 'Potrzeba technologiczna, nie zakup'} />
-      </div>}
+      {!loading && orders && <OrderKpis progress={activeProgress} orderedKg={activeOrderedKg} label="Wszystkie otwarte zamówienia"
+        hint={`${rawList.filter(o => o.status !== 'done' && o.status !== 'cancelled').length} zamówień, wraz ze szkicami`} />}
       {/* Palety z usuniętych/zmienionych zamówień czekające na zgodne zamówienie */}
       <OrphanPalletsPanel refreshKey={orders} />
 

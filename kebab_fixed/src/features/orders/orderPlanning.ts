@@ -3,6 +3,8 @@ import type { ClientOrder, OrderFulfillment, OrderLine } from '@/lib/mockApi'
 export const kgNumber = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 3, useGrouping: true })
 export const percentNumber = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 1 })
 export const kgText = (value: number | null) => value === null ? '—' : `${kgNumber.format(value)} kg`
+/** Display-only ceiling. Keep precise kilograms for technology calculations. */
+export const meatKgText = (value: number | null) => kgText(value === null ? null : Math.ceil(value))
 /** Current policy: allocated stock + deliveries, never plan reports.
  * Future per-piece scan authority requires an explicit business cutover;
  * see docs/ORDER_PROGRESS_POLICY.md. No auto-switch on the first scan.
@@ -13,12 +15,15 @@ export function lineProgress(line: OrderLine) {
   if (!fulfillment || !validQty(qty) || !validQty(qtyStock) || !validQty(qtyDelivered) || !Number.isFinite(kgPerUnit) || kgPerUnit <= 0) return null
   const deliveredQty = Math.min(qty, qtyDelivered)
   const stockQty = Math.min(qty - deliveredQty, qtyStock)
-  const readyQty = stockQty + deliveredQty
-  const readyKg = milli(readyQty * kgPerUnit) / 1000
-  const remainingKg = milli((qty - readyQty) * kgPerUnit) / 1000
+  const coveredQty = stockQty + deliveredQty
+  const coveredKg = milli(coveredQty * kgPerUnit) / 1000
+  const remainingKg = milli((qty - coveredQty) * kgPerUnit) / 1000
+  const stockKg = milli(stockQty * kgPerUnit) / 1000
+  const deliveredKg = milli(deliveredQty * kgPerUnit) / 1000
   if (!Number.isFinite(fulfillment.coveredKg) || !Number.isFinite(fulfillment.remainingKg)
-    || Math.abs(fulfillment.coveredKg - readyKg) > .001 || Math.abs(fulfillment.remainingKg - remainingKg) > .001) return null
-  return { readyQty, readyKg, remainingQty: qty - readyQty, remainingKg, stockQty, deliveredQty, percent: qty > 0 ? readyQty / qty * 100 : 0 }
+    || Math.abs(fulfillment.coveredKg - coveredKg) > .001 || Math.abs(fulfillment.remainingKg - remainingKg) > .001) return null
+  return { coveredQty, coveredKg, remainingQty: qty - coveredQty, remainingKg, stockQty, stockKg, deliveredQty, deliveredKg,
+    toShipQty: qty - deliveredQty, toShipKg: milli((qty - deliveredQty) * kgPerUnit) / 1000, percent: qty > 0 ? coveredQty / qty * 100 : 0 }
 }
 
 export function progressTotals(lines: OrderLine[]) {
@@ -27,8 +32,14 @@ export function progressTotals(lines: OrderLine[]) {
   const orderedQty = lines.reduce((s, l) => s + l.qty, 0)
   return {
     orderedQty,
-    readyQty: known ? progress.reduce((s, p) => s + p!.readyQty, 0) : null,
-    readyKg: known ? progress.reduce((s, p) => s + milli(p!.readyKg), 0) / 1000 : null,
+    coveredQty: known ? progress.reduce((s, p) => s + p!.coveredQty, 0) : null,
+    coveredKg: known ? progress.reduce((s, p) => s + milli(p!.coveredKg), 0) / 1000 : null,
+    stockQty: known ? progress.reduce((s, p) => s + p!.stockQty, 0) : null,
+    stockKg: known ? progress.reduce((s, p) => s + milli(p!.stockKg), 0) / 1000 : null,
+    deliveredQty: known ? progress.reduce((s, p) => s + p!.deliveredQty, 0) : null,
+    deliveredKg: known ? progress.reduce((s, p) => s + milli(p!.deliveredKg), 0) / 1000 : null,
+    toShipQty: known ? progress.reduce((s, p) => s + p!.toShipQty, 0) : null,
+    toShipKg: known ? progress.reduce((s, p) => s + milli(p!.toShipKg), 0) / 1000 : null,
     remainingQty: known ? progress.reduce((s, p) => s + p!.remainingQty, 0) : null,
     remainingKg: known ? progress.reduce((s, p) => s + milli(p!.remainingKg), 0) / 1000 : null,
     // A surplus of one variant never completes a different variant.
@@ -39,6 +50,12 @@ export function progressTotals(lines: OrderLine[]) {
 export function mixingTotals(lines: OrderLine[]) {
   const sum = (key: 'remainingKg' | 'meatKg' | 'additivesKg') => lines.some(l => l.mixing?.[key] == null) ? null : lines.reduce((s, l) => s + milli(l.mixing![key]!), 0) / 1000
   return { remainingKg: sum('remainingKg'), meatKg: sum('meatKg'), additivesKg: sum('additivesKg') }
+}
+
+/** Recipe-level rounding: total equals the sum of displayed recipe demands. */
+export function roundedMeatTotal(recipes: RecipeDemand[]) {
+  const meat = recipes.map(recipe => mixingTotals(recipe.details.map(d => d.line)).meatKg)
+  return meat.some(kg => kg === null) ? null : meat.reduce<number>((sum, kg) => sum + Math.ceil(kg!), 0)
 }
 // The API has NUMERIC(...,3) kilograms. Add integers, not floating point tails.
 const milli = (value: number) => Math.round(value * 1000)

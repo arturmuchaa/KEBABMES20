@@ -17,12 +17,13 @@ export function OrderLinesTable({ order }: { order: ClientOrder }) {
         </div>
         <OrderProgress line={line} compact />
         <div className="order-line-remaining">
-          <span>Pozostało</span>
-          <div className="order-line-balance"><strong>{order.status === 'cancelled' ? 'Nie planuj' : kgText(progress?.remainingKg ?? null)}</strong>
-            {order.status !== 'cancelled' && <small>{progress ? `${kgNumber.format(progress.remainingQty)} szt.` : 'Brak danych magazynowych'}</small>}</div>
+          {order.status === 'cancelled' ? <strong>Nie planuj</strong> : <>
+            <div className="order-line-balance"><span>Do wysłania</span><b>{progress ? `${kgNumber.format(progress.toShipQty)} szt.` : '—'}</b><small>{kgText(progress?.toShipKg ?? null)}</small></div>
+            <div className="order-line-balance"><span>Brak wyrobu</span><strong>{kgText(progress?.remainingKg ?? null)}</strong><small>{progress ? `${kgNumber.format(progress.remainingQty)} szt.` : 'Brak danych magazynowych'}</small></div>
+          </>}
         </div>
       </div>
     })}
-    <p className="order-lines-note">Postęp: przydzielony magazyn wyrobu + wydania. Bez doliczania raportów planów, palet i kartonów.</p>
+    <p className="order-lines-note">Magazyn = towar na stanie. Wydano = towar, który pojechał do tego klienta. Pokrycie łączy obie wartości; nie oznacza dostępnego zapasu.</p>
   </section>
 }

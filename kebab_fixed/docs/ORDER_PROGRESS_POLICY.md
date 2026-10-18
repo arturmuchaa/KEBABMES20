@@ -2,11 +2,26 @@
 
 ## Obecny tryb: magazyn wyrobu
 
-Na prośbę właściciela GOTOWE, pozostała ilość i zapotrzebowanie na mieszanie
+Na prośbę właściciela pokrycie, pozostała ilość i zapotrzebowanie na mieszanie
 wynikają z wyrobu dodanego do magazynu, przydzielonego globalnie do zamówień.
 Obowiązuje istniejące `qty_stock + qty_delivered` z `orders_service`.
 Wydania pozostają w postępie, żeby wysyłka nie cofała realizacji.
 To pokrycie zamówienia, nie pomiar produkcji brutto.
+
+### Doprecyzowanie 17.10.2026: wydane nie oznacza dostępne
+
+Nie podpisujemy sumy magazynu i wydań jako „GOTOWE”. Osobno pokazujemy
+**W magazynie** (tylko aktualny przydzielony stan) oraz **Wydano** (do tego
+klienta). Pokrycie procentowe obejmuje oba, ale jest jednoznacznie opisane.
+Do wysłania = zamówiono − wydano; brak wyrobu = zamówiono − wydano − magazyn.
+Sprzedaż innemu klientowi nie realizuje zamówienia pierwotnego właściciela.
+
+Po zaznaczeniu zamówień widoczne są tylko dyskretne KPI. Zapotrzebowanie na
+mięso jest domyślnie zwinięte. Mięso prezentujemy w pełnych kilogramach,
+zaokrąglając w górę **po zsumowaniu pozycji każdej receptury**. Suma główna
+to suma zaokrąglonych receptur, niezależna od filtra receptur. Szczegóły pozycji
+również zaokrąglamy do wyświetlenia; nie sumujemy ich zaokrągleń do receptury.
+Obliczenia technologiczne oraz zapisane dane zachowują dokładną masę.
 
 Raporty planów/HMI (`production_plan_lines.qty_done`) nie zwiększają postępu,
 nie pomniejszają mieszania i nie blokują obliczenia przy różnicy/niepewnym
