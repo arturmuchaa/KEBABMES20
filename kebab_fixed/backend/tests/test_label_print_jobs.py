@@ -1,7 +1,8 @@
+import asyncio
 import zlib
+import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
 
 from app.services import label_print_jobs as jobs
 from app.routes.labels_zebra import router
@@ -57,20 +58,24 @@ def test_history_routes_require_session_and_ignore_browser_actor(monkeypatch, te
     calls = []
     monkeypatch.setattr(jobs, 'prepare', lambda dto, actor: calls.append(actor) or {'ok': True})
     dto = {'idempotency_key': 'operation-1', 'printer_name': 'Zebra', 'printer_uid': 'usb-1'}
-    client = TestClient(app)
-    assert client.post(base, json=dto).status_code == 401
-    assert client.get(base + '/a').status_code == 401
-    assert client.get(history + '/u1').status_code == 401
-    assert client.get(lookup + '?key=operation-1').status_code == 401
-    assert client.post(base + '/a/actions', json={'action': 'begin'}).status_code == 401
+    async def unauthenticated():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            assert (await client.post(base, json=dto)).status_code == 401
+            assert (await client.get(base + '/a')).status_code == 401
+            assert (await client.get(history + '/u1')).status_code == 401
+            assert (await client.get(lookup + '?key=operation-1')).status_code == 401
+            assert (await client.post(base + '/a/actions', json={'action': 'begin'})).status_code == 401
+    asyncio.run(unauthenticated())
     app = FastAPI()
     app.include_router(test_router)
     @app.middleware('http')
     async def subject(request, call_next):
         request.state.subject = {'id': 'trusted-id', 'kind': 'office', 'name': 'Display name'}
         return await call_next(request)
-    client = TestClient(app)
-    assert client.post(base, json={**dto, 'actor': 'spoofed'}).status_code == 422
-    assert client.post(base, json={**dto, 'source_job_id': ''}).status_code == 422
-    assert client.post(base, json=dto).status_code == 200
+    async def authenticated():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test') as client:
+            assert (await client.post(base, json={**dto, 'actor': 'spoofed'})).status_code == 422
+            assert (await client.post(base, json={**dto, 'source_job_id': ''})).status_code == 422
+            assert (await client.post(base, json=dto)).status_code == 200
+    asyncio.run(authenticated())
     assert calls == ['office:trusted-id']
