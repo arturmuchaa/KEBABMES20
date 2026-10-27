@@ -193,11 +193,11 @@ def resolve_label_kind(client_id: str, recipe_id: str) -> Dict[str, Any]:
     if zebra is not None:
         return {"kind": "zebra"}
     pdf = query_one(
-        "SELECT 1 FROM label_templates WHERE client_id = ANY(%s) AND recipe_id=%s",
+        "SELECT kind FROM label_templates WHERE client_id = ANY(%s) AND recipe_id=%s",
         (cands, recipe_id),
     )
     if pdf is not None:
-        return {"kind": "pdf"}
+        return {"kind": "zebra" if pdf.get("kind") == "zpl" else "pdf"}
     return {"kind": "none"}
 
 

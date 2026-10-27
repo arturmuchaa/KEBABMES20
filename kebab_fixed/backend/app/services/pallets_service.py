@@ -118,6 +118,7 @@ def save_pallets(order_id: str, pallets: List[PalletDto]) -> List[Dict]:
     wyłącznie nową paletę — nie zgadujemy, którą kartkę miał na myśli.
     Cała walidacja pod blokadą: skan równoległy nie może zostać skasowany.
     """
+    corrections = []
     with transaction() as conn:
         from app.services.stock_carton_link_service import check_order_reservations_cx
         if not cx_query_one(conn, "SELECT id FROM client_orders WHERE id=%s FOR UPDATE", (order_id,)):
@@ -148,19 +149,34 @@ def save_pallets(order_id: str, pallets: List[PalletDto]) -> List[Dict]:
             else:
                 new.append(p)
 
-        # Nawet po cofnięciu skanu zachowujemy historię i powiązania sztuk.
-        protected = {r["pallet_id"] for r in cx_query_all(conn,
-            "SELECT pallet_id FROM pallet_scans WHERE pallet_id=ANY(%s) "
-            "UNION SELECT pallet_id FROM finished_units WHERE pallet_id=ANY(%s)",
-            (list(by_id), list(by_id)))}
+        # History forbids deleting the identity, not correcting its contents
+        # after undo back to the hall. Never detach tracked QR units implicitly.
+        scanned = {r["pallet_id"] for r in cx_query_all(conn,
+            "SELECT DISTINCT pallet_id FROM pallet_scans WHERE pallet_id=ANY(%s)", (list(by_id),))}
+        with_units = {r["pallet_id"] for r in cx_query_all(conn,
+            "SELECT DISTINCT pallet_id FROM finished_units WHERE pallet_id=ANY(%s)", (list(by_id),))}
         for r in existing:
             p = incoming.get(r["id"])
             before = sorted(old_items.get(r["id"], []))
             after = sorted((it.order_line_id, int(it.qty)) for it in p.items) if p else None
-            if ((r.get("status") or "created") != "created" or r["id"] in protected) and before != after:
+            if before == after:
+                continue
+            if ((r.get("status") or "created") != "created" or r.get("loaded_vehicle_id")
+                    or r.get("loaded_at") or r.get("cold_storage_at")):
                 raise HTTPException(409,
-                    f"Paleta P{r['pallet_no']} jest w obiegu skanowania lub ma historię skanów — "
-                    "nie można jej usunąć ani zmienić zawartości.")
+                    f"Paleta P{r['pallet_no']} jest w obiegu — przed korektą cofnij ją z auta i mroźni na halę. "
+                    "Palety już wydanej nie można zmienić.")
+            if p is None and r["id"] in scanned:
+                raise HTTPException(409,
+                    f"Paleta P{r['pallet_no']} ma historię skanów — nie można jej usunąć. "
+                    "Po cofnięciu na halę można poprawić zawartość, zachowując numer kartki.")
+            if r["id"] in with_units:
+                raise HTTPException(409,
+                    f"Paleta P{r['pallet_no']} ma przypisane sztuki QR — najpierw skoryguj ich pakowanie. "
+                    "Zmiana rozpisu nie może usuwać powiązań ani historii sztuk.")
+            if p is not None and r["id"] in scanned:
+                corrections.append({"pallet_id": r["id"], "pallet_no": r["pallet_no"],
+                                    "before": before, "after": after})
 
         line_ids = {it.order_line_id for p in pallets for it in p.items}
         if line_ids:
@@ -217,7 +233,8 @@ def save_pallets(order_id: str, pallets: List[PalletDto]) -> List[Dict]:
 
     logger.info(
         "pallets.saved",
-        extra={"order_id": order_id, "kept": len(incoming), "inserted": len(new), "removed_ids": removed},
+        extra={"order_id": order_id, "kept": len(incoming), "inserted": len(new),
+               "removed_ids": removed, "content_corrections": corrections},
     )
     return list_pallets(order_id)
 

@@ -11,7 +11,7 @@ from app.services.split_documents_service import (anuluj_dokumenty_podzialu,
                                                    wystaw_wz_wewnetrzny)
 from app.services.wz_service import create_wz_from_order
 from tests.conftest_split import (_przygotuj_bez_podzialu, _przygotuj_z_podzialem,
-                                  _stary_wz)
+                                  _stary_wz, _zdejmij_z_auta)
 
 
 def test_wz_wewnetrzny_jest_na_calosc(db):
@@ -414,6 +414,7 @@ def test_usuniecie_zamowienia_BEZ_dokumentow_podzialu_dziala_dalej(db):
 
     _przygotuj_z_podzialem(cel_kg=300.0)
 
+    _zdejmij_z_auta()
     delete_order("o1")
 
     assert not query_all("SELECT id FROM client_orders WHERE id='o1'")
@@ -427,7 +428,7 @@ def test_ANULOWANY_komplet_odblokowuje_usuniecie_zamowienia(db):
     wystaw_wz_klienta("o1")
     anuluj_dokumenty_podzialu("o1")
 
+    _zdejmij_z_auta()
     delete_order("o1")
 
     assert not query_all("SELECT id FROM client_orders WHERE id='o1'")
-

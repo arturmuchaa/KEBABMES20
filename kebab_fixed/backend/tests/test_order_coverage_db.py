@@ -447,7 +447,7 @@ def test_stempel_zywego_zamowienia_nie_wycieka_do_innego(db):
 
 # ── Zamknięcie zamówienia po wysyłce ──────────────────────────────────────
 
-def test_zamowienie_w_calosci_wyslane_zamyka_sie(db):
+def test_pelny_reczny_wz_bez_potwierdzonego_zaladunku_nie_zamyka(db):
     from app.services.orders_service import zamknij_wyslane_zamowienia
     _klient("c1", "Bulli sp. z o.o.", "BULLI")
     _zamowienie("o1", "BULLI/Z/1/08/26", "c1", "Bulli sp. z o.o.", qty=30)
@@ -455,8 +455,10 @@ def test_zamowienie_w_calosci_wyslane_zamyka_sie(db):
            cid="c1", nazwa="Bulli sp. z o.o.")
     _wz("w1", "BULLI", [_linia_wz("f1", 30)])
 
-    assert zamknij_wyslane_zamowienia(["BULLI/Z/1/08/26"]) == ["BULLI/Z/1/08/26"]
-    assert get_order("o1")["status"] == "done"
+    # A manual stock issue is not evidence of dispatch of this order.
+    # Positive closing with actual departure is covered by shipment DB tests.
+    assert zamknij_wyslane_zamowienia(["BULLI/Z/1/08/26"]) == []
+    assert get_order("o1")["status"] == "confirmed"
 
 
 def test_zamowienie_z_towarem_na_polce_zostaje_otwarte(db):
@@ -671,8 +673,8 @@ def test_piec_oddzialow_dzieli_jedna_pule(db):
 # późniejsza zmiana zamówienia zmienia ten warunek, ale nikt go nie oceniał
 # ponownie, więc pokryte zamówienie zostawało otwarte na zawsze.
 
-def test_edycja_po_wz_domyka_zamowienie(db):
-    """Zamówienie zmniejszone do tego, co już wyjechało, ma się zamknąć."""
+def test_edycja_po_wz_bez_dowodu_wysylki_nie_udaje_realizacji(db):
+    """Zmniejszenie zamówienia pod papier nie jest potwierdzeniem wyjazdu."""
     from app.models.orders import ClientOrderCreate
     from app.services.orders_service import update_order
     _klient("c1", "Zagros sp. z o.o.", "ZAGROS")
@@ -692,7 +694,7 @@ def test_edycja_po_wz_domyka_zamowienie(db):
                    "qty": 30, "kg_per_unit": 50}],
     }))
 
-    assert get_order("o1")["status"] == "done"
+    assert get_order("o1")["status"] == "confirmed"
 
 
 def test_edycja_nie_zamyka_zamowienia_z_brakiem(db):
@@ -753,9 +755,8 @@ def test_towar_na_polce_po_edycji_nie_zamyka_zamowienia(db):
     assert get_order("o1")["status"] == "confirmed"
 
 
-def test_migracja_domyka_zalegle_zamowienia(db):
-    """ZAGROS/Z/1/09/26 utknął, zanim edycja zaczęła sprawdzać warunek —
-    jednorazowa migracja domyka takie dokumenty."""
+def test_migracja_nie_udaje_wysylki_na_podstawie_samego_papieru(db):
+    """Historyczny ręczny WZ nie zastępuje potwierdzonego załadunku."""
     from app.migrations import _domknij_zalegle_zamowienia_raz
     _klient("c1", "Zagros sp. z o.o.", "ZAGROS")
     _zamowienie("o1", "ZAGROS/Z/1/09/26", "c1", "Zagros sp. z o.o.", qty=30, kg=50)
@@ -766,7 +767,7 @@ def test_migracja_domyka_zalegle_zamowienia(db):
 
     _domknij_zalegle_zamowienia_raz()
 
-    assert get_order("o1")["status"] == "done"
+    assert get_order("o1")["status"] == "confirmed"
 
 
 def test_migracja_nie_rusza_zamowien_z_brakiem(db):

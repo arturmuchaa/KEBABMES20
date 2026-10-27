@@ -18,11 +18,12 @@
  * uprawnień do WZ.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { ShipmentWarning } from '@/components/ShipmentWarning'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { StanPolaczenia } from './components/StanPolaczenia'
 import { HMI_VARS } from '@/features/hmi-theme/vars'
 import {
-  errCode, isOfflineError, palletScanApi, vehicleLoadingApi, type ScanResultCode,
+  errCode, isOfflineError, palletScanApi, vehicleLoadingApi, type ScanResultCode, type PartialLoadingConfirmation,
 } from '@/lib/api'
 import { useApi } from '@/hooks/useApi'
 import { useVehicleLoading } from '@/features/loading/useVehicleLoading'
@@ -62,7 +63,8 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   const [otwarteZamowienie, setOtwarteZamowienie] = useState<string | null>(null)
   const [potwierdzane, setPotwierdzane] = useState(zamowienia)
   const [wynik, setWynik] = useState<Awaited<ReturnType<typeof palletScanApi.finalizeLoading>> | null>(null)
-  const proba = useRef<{ id: string; ids: string[]; orders: string[]; plate: string } | null>(null)
+  const proba = useRef<{ id: string; ids: string[]; orders: string[]; plate: string; partialConfirmation?: string } | null>(null)
+  const [partial, setPartial] = useState<PartialLoadingConfirmation | null>(null)
   const [niepewny, setNiepewny] = useState(false)
   const zapisuje = useRef(false)
   const retryKey = `magazyn.finalize.${vehicleId}`
@@ -85,6 +87,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
 
   function wyczyscProbe() {
     proba.current = null
+    setPartial(null)
     try { sessionStorage.removeItem(retryKey) } catch { /* jw. */ }
   }
 
@@ -147,7 +150,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
     finally { setCofana(null); await odswiez() }
   }
 
-  async function zakoncz() {
+  async function zakoncz(confirmation?: string) {
     if (zapisuje.current || skanuje || czekaNaStan) return
     const plate = rejestracja.trim().toUpperCase()
     if (/[|:/\\]/.test(plate) || /^(SCARTON|PAL|UNIT)[^A-Z]/.test(plate)) {
@@ -158,22 +161,26 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
       blad('BRAK NUMERU REJESTRACYJNEGO', 'Auto spedycji musi mieć wpisany numer — trafia na dokument.')
       return
     }
-    if (!proba.current) proba.current = {
+    if (!proba.current || (!niepewny && proba.current.plate !== plate)) proba.current = {
       id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       ids: potwierdzane.flatMap(o => o.pallets.filter(p => p.onThisVehicle).map(p => p.id)),
       orders: potwierdzane.map(o => o.id), plate,
     }
+    if (confirmation) proba.current.partialConfirmation = confirmation
     try { sessionStorage.setItem(retryKey, JSON.stringify({ attempt: proba.current, snapshot: potwierdzane })) } catch { /* Ponowienie w bieżącym oknie nadal jest bezpieczne. */ }
     zapisuje.current = true
     setZamyka(true)
     try {
       const p = proba.current
-      const res = await palletScanApi.finalizeLoading(vehicleId, p.orders, p.plate, p.id, p.ids)
+      const res = await palletScanApi.finalizeLoading(vehicleId, p.orders, p.plate, p.id, p.ids, p.partialConfirmation)
       const palet = (res.orders || []).reduce((s, o) => s + (o.pallets || 0), 0)
-      const problemy = (res.orders || []).filter(o => o.skipped || o.wz_status === 'rozjazd')
+      const problemy = (res.orders || []).filter(o => o.skipped || o.wz_status === 'rozjazd' || o.coverage?.complete === false)
       if (!res.ok || !res.loading_id) {
         blad('KURS NIE ZOSTAŁ ZAPISANY', 'Brak towaru do wydania. Sprawdź aktualny stan auta.')
       } else if (problemy.length) {
+        grajInny('L')
+        onAlarm({ skaner: 'L', ton: 'uwaga', naglowek: 'KURS ZAPISANY — SPRAWDŹ BRAKI',
+          szczegol: 'Sprawdź ostrzeżenia. Dokumenty będą obejmować tylko potwierdzony załadunek.' })
         setWynik(res)
       } else {
       grajInny('L')
@@ -187,6 +194,21 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
       dostepneRes.refetch()
       if (res.ok && res.loading_id && !problemy.length) onKoniec()
     } catch (e) {
+      if (errCode(e) === 'PARTIAL_LOADING_CONFIRMATION_REQUIRED') {
+        const detail = (e as { detail?: PartialLoadingConfirmation }).detail
+        if (detail?.confirmation_token && Array.isArray(detail.orders)) {
+          if (proba.current) delete proba.current.partialConfirmation
+          // A validation refusal is known NOT to have saved the course. Never
+          // restore a rejected acknowledgement as an uncertain offline retry.
+          try { sessionStorage.removeItem(retryKey) } catch { /* In-memory token is cleared too. */ }
+          setPartial(detail)
+          setNiepewny(false)
+          grajInny('L')
+          onAlarm({ skaner: 'L', ton: 'uwaga', naglowek: 'WYDANIE CZĘŚCIOWE — POTWIERDŹ',
+            szczegol: 'Kurs nie został jeszcze zapisany. Sprawdź brakujące sztuki i kilogramy.' })
+          return
+        }
+      }
       const k = komunikatOdmowy(e, isOfflineError(e))
       blad(k.naglowek, k.szczegol)
       if (isOfflineError(e)) setNiepewny(true)
@@ -211,16 +233,22 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
         dostepne={dostepne} bladDostepnych={!!dostepneRes.error} ladujeDostepne={dostepneRes.loading}
         onOtworz={setOtwarteZamowienie} onDodaj={dodaj} onZdejmij={zdejmij}
         onCofnij={(orderId, p) => cofnij(orderId, p.palletNo, p.id, p.scanCode)}
-        onZakoncz={() => { setPotwierdzane(zamowienia); proba.current = null; setRejestracja(pojazd?.plate ?? ''); setPytanie(true) }} />
+        onZakoncz={() => { setPotwierdzane(zamowienia); wyczyscProbe(); setRejestracja(pojazd?.plate ?? ''); setPytanie(true) }} />
 
       <PasSkanowania placeholder="Skanuj karton lub paletę…" onSkan={skanuj}
         disabled={pytanie || zamyka || !!wynik || !!cofana} onPendingChange={setSkanuje}
         podpis="Skanuj kolejne kartony. Zielony wiersz oznacza zapis na aucie." />
 
-      <Dialog open={pytanie} onOpenChange={open => { if (!zamyka && !niepewny) setPytanie(open) }}>
+      <Dialog open={pytanie} onOpenChange={open => {
+        if (!zamyka && !niepewny) { if (!open) wyczyscProbe(); setPytanie(open) }
+      }}>
           <DialogContent style={HMI_VARS} className="max-h-[90vh] overflow-y-auto" onInteractOutside={e => e.preventDefault()}>
             <DialogTitle>Zakończyć załadunek?</DialogTitle>
             <DialogDescription>Auto {pojazd?.name}. Sprawdź, co wyjeżdża i co zostaje.</DialogDescription>
+            {partial?.orders.map(o => <section key={o.order_id}>
+              <b>{o.client_name} · {o.order_no}</b>
+              <ShipmentWarning coverage={o.coverage} />
+            </section>)}
             {potwierdzane.map(z => <div key={z.id} className="rounded-xl border p-3">
               <b>{z.clientName} · {z.orderNo}</b>
               <div>Wyjeżdża: {z.pallets.filter(p => p.onThisVehicle).length} kartonów/palet · {Math.round(z.totals.loadedKg)} kg</div>
@@ -238,12 +266,12 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
               </label>
             ) : null}
             <div className="mt-6 flex gap-3">
-              <button type="button" disabled={zamyka || niepewny} onClick={() => setPytanie(false)}
+              <button type="button" disabled={zamyka || niepewny} onClick={() => { wyczyscProbe(); setPytanie(false) }}
                 className="flex-1 rounded-xl py-4 text-[16px] font-extrabold"
                 style={{ border: '1px solid var(--line)', background: 'var(--panel)' }}>Wróć</button>
-              <button type="button" onClick={zakoncz} disabled={zamyka}
+              <button type="button" onClick={() => zakoncz(partial?.confirmation_token)} disabled={zamyka}
                 className="flex-1 rounded-xl py-4 text-[16px] font-extrabold text-white"
-                style={{ background: ZALADUNEK_OK }}>{zamyka ? 'Zapisuję…' : 'Zakończ'}</button>
+                style={{ background: ZALADUNEK_OK }}>{zamyka ? 'Zapisuję…' : partial ? 'Potwierdzam wydanie częściowe' : 'Zakończ'}</button>
             </div>
           </DialogContent>
       </Dialog>
@@ -251,9 +279,10 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
         <DialogContent style={HMI_VARS}>
           <DialogTitle>Kurs zapisany — wymaga wyjaśnienia</DialogTitle>
           <DialogDescription>Przekaż biuru poniższe informacje przed wyjazdem.</DialogDescription>
-          {wynik?.orders.filter(o => o.skipped || o.wz_status === 'rozjazd').map(o => <div key={o.order_id}>
+          {wynik?.orders.filter(o => o.skipped || o.wz_status === 'rozjazd' || o.coverage?.complete === false).map(o => <div key={o.order_id}>
             <b>{o.client_name} · {o.order_no}</b>
-            <p>{o.skipped ? `Nie wydano: ${o.skipped}` : 'Zawartość auta różni się od dokumentu.'}</p>
+            {o.skipped ? <p>Nie wydano: {o.skipped}</p> : o.wz_status === 'rozjazd' ? <p>Zawartość auta różni się od dokumentu. Dokument wymaga korekty.</p> : null}
+            <ShipmentWarning coverage={o.coverage} />
           </div>)}
           <button className="min-h-12 rounded-xl border p-3 font-bold" onClick={() => { setWynik(null); onKoniec() }}>Rozumiem — wróć do menu</button>
         </DialogContent>

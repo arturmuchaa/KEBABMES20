@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-from app.db import cx_execute, cx_query_one, query_all, query_one, transaction
+from app.db import atomic_operation, cx_execute, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.utils.ids import cuid, now_iso
 from app.services.order_stock_service import (
@@ -146,6 +146,7 @@ def _pozycje_fakturowane(order_id: str) -> List[Dict[str, Any]]:
     linie = query_all(
         "SELECT qty, qty_invoice, kg_per_unit FROM client_order_lines "
         "WHERE order_id=%s ORDER BY position", (order_id,))
+    linie = shipment.lines_for(order_id, linie)
     if not linie:
         raise HTTPException(404, "Zamówienie nie ma pozycji")
     if any(l.get("qty_invoice") is None for l in linie):
@@ -182,6 +183,11 @@ def build_cmr(order_id: str, form: Dict[str, Any],
         plan_lines = plan_lines + [
             {"qty_done": p["take"], "kg_per_unit": (p.get("fg") or {}).get("kg_per_unit")}
             for p in portions]
+    actual = shipment.current(order_id)
+    if actual and scope == ZAKRES_CALOSC:
+        plan_lines = [{"qty_done": p["take"], "kg_per_unit": p["fg"]["kg_per_unit"]} for p in actual["portions"]]
+    if actual and form.get("goods_manual"):
+        raise HTTPException(409, "Dokument z załadunku nie może zawierać dopisanego, niezeskanowanego towaru.")
     goods = build_goods(plan_lines, form.get("goods_manual") or [])
     if not goods:
         raise HTTPException(400, "Brak towaru do umieszczenia na CMR")
@@ -209,13 +215,13 @@ def build_cmr(order_id: str, form: Dict[str, Any],
     # nie wydaje, więc zamówienie znów jest na całość.
     dzielone = query_one(
         "SELECT 1 FROM wz_documents WHERE source_type='order' AND source_id=%s "
-        "AND split_scope='wz_klienta' AND COALESCE(status,'')<>'anulowany' LIMIT 1",
-        (order_id,))
+        "AND split_scope='wz_klienta' AND COALESCE(status,'')<>'anulowany' AND loading_id IS NOT DISTINCT FROM %s LIMIT 1",
+        (order_id, shipment.scope_id()))
     hdi = None if dzielone else query_one(
         "SELECT number FROM hdi_documents WHERE order_id=%s "
         "AND COALESCE(scope,%s)=%s AND COALESCE(status,'')<>'anulowany' "
-        "ORDER BY created_at DESC LIMIT 1",
-        (order_id, ZAKRES_CALOSC, scope))
+        "AND loading_id IS NOT DISTINCT FROM %s ORDER BY created_at DESC LIMIT 1",
+        (order_id, ZAKRES_CALOSC, scope, shipment.scope_id()))
     payload = _zloz_payload(consignee_part, goods, totals, (hdi or {}).get("number", ""), form)
     return {"order_id": order_id, "client_name": order.get("client_name", ""),
             "carrier_id": form.get("carrier_id") or None, "payload": payload,
@@ -281,6 +287,8 @@ def generate_cmr_for_dispatch(dispatch_id: str, form: Dict[str, Any]) -> Dict[st
     carrier_id = form.get("carrier_id") or None
     today = datetime.now()
     with transaction() as conn:
+        ym = today.strftime("%y%m")
+        seq = _next_cmr_seq_cx(conn, ym)
         existing = cx_query_one(conn, "SELECT id, number FROM cmr_documents WHERE order_id=%s "
                                       "ORDER BY created_at LIMIT 1 FOR UPDATE", (dispatch_id,))
         if existing:
@@ -288,9 +296,6 @@ def generate_cmr_for_dispatch(dispatch_id: str, form: Dict[str, Any]) -> Dict[st
                        (client_name, carrier_id, json.dumps(payload), existing["id"]))
             return {"id": existing["id"], "number": existing["number"], "status": "wystawiony",
                     "scope": ZAKRES_CALOSC, "payload": payload}
-        ym = today.strftime("%y%m")
-        seq = int(cx_query_one(conn, "SELECT COALESCE(MAX(seq),0)+1 AS n FROM cmr_documents "
-                                     "WHERE year_month=%s", (ym,))["n"])
         number = format_cmr_number(seq, ym)
         cid = cuid()
         cx_execute(conn,
@@ -310,6 +315,18 @@ def format_cmr_number(seq: int, year_month: str) -> str:
     return f"{seq}/{mm}/{yy}"
 
 
+def _next_cmr_seq_cx(conn, year_month: str) -> int:
+    # Order locks only serialize one customer's requests. The monthly series
+    # is shared by ALL orders and kiosk dispatches, so MAX+1 needs its own lock.
+    cx_execute(conn, "SELECT pg_advisory_xact_lock(hashtext(%s))", (f"cmr-number:{year_month}",))
+    return int(cx_query_one(conn, "SELECT COALESCE(MAX(seq),0)+1 AS n FROM cmr_documents "
+                                 "WHERE year_month=%s", (year_month,))["n"])
+
+
+from app.services import shipment_documents as shipment
+
+
+@shipment.shipment_operation
 def generate_cmr(order_id: str, form: Dict[str, Any],
                  scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
     """CMR dla zamówienia w podanym wariancie. Idempotentny per
@@ -321,14 +338,22 @@ def generate_cmr(order_id: str, form: Dict[str, Any],
     na złą ilość (ta klasa błędu kosztowała już trzy rundy poprawek przy WZ).
     """
     scope = _sprawdz_zakres(scope)
-    data = build_cmr(order_id, form, scope)
     # COALESCE, nie gołe porównanie: dokument sprzed migracji mógłby mieć
     # `scope IS NULL`, a `scope = NULL` nigdy nie pasuje — stary CMR na całość
     # byłby niewidzialny i powstałby jego duplikat.
     existing = query_one(
-        "SELECT id, number FROM cmr_documents WHERE order_id=%s "
-        "AND COALESCE(scope, %s)=%s ORDER BY created_at LIMIT 1",
-        (order_id, ZAKRES_CALOSC, scope))
+        "SELECT id, number, payload FROM cmr_documents WHERE order_id=%s "
+        "AND COALESCE(scope, %s)=%s AND loading_id IS NOT DISTINCT FROM %s ORDER BY created_at LIMIT 1",
+        (order_id, ZAKRES_CALOSC, scope, shipment.scope_id()))
+    actual = shipment.current(order_id)
+    if actual and form.get("goods_manual"):
+        raise HTTPException(409, "Dokument z załadunku nie może zawierać dopisanego, niezeskanowanego towaru.")
+    if existing and (not actual or actual.get("loading_id")):
+        # Reprinting/retrying a departed course must not refresh addresses,
+        # dates, attachments or the truck from today's form/master data.
+        return {**existing, "status": "wystawiony", "scope": scope, "frozen": True}
+    shipment.require_current(order_id)
+    data = build_cmr(order_id, form, scope)
     today = datetime.now()
     if existing:
         with transaction() as conn:
@@ -346,9 +371,7 @@ def generate_cmr(order_id: str, form: Dict[str, Any],
     cid = cuid()
     ym = today.strftime("%y%m")  # RRMM
     with transaction() as conn:
-        row = cx_query_one(conn,
-            "SELECT COALESCE(MAX(seq),0)+1 AS n FROM cmr_documents WHERE year_month=%s", (ym,))
-        seq = int(row["n"])
+        seq = _next_cmr_seq_cx(conn, ym)
         number = format_cmr_number(seq, ym)
         # Powtórny odczyt TUŻ PRZED INSERT-em. Odczyt `existing` wyżej poszedł
         # POZA transakcją, a między nim a tym miejscem `build_cmr` robi
@@ -358,8 +381,8 @@ def generate_cmr(order_id: str, form: Dict[str, Any],
         # z `split_documents_service`.
         raced = cx_query_one(conn,
             "SELECT id, number FROM cmr_documents WHERE order_id=%s "
-            "AND COALESCE(scope, %s)=%s ORDER BY created_at LIMIT 1",
-            (order_id, ZAKRES_CALOSC, scope))
+            "AND COALESCE(scope, %s)=%s AND loading_id IS NOT DISTINCT FROM %s ORDER BY created_at LIMIT 1",
+            (order_id, ZAKRES_CALOSC, scope, shipment.scope_id()))
         if raced:
             logger.info("cmr.raced", extra={"cmr_id": raced["id"], "number": raced["number"],
                                             "scope": scope})
@@ -371,14 +394,16 @@ def generate_cmr(order_id: str, form: Dict[str, Any],
                 issue_date, created_at, scope)
                VALUES (%s,%s,%s,%s,%s,%s,%s,'wystawiony',%s::jsonb,%s,%s,%s)""",
             (cid, number, seq, ym, order_id, data["client_name"], data["carrier_id"],
-             json.dumps(data["payload"]), today.strftime("%d.%m.%Y"), now_iso(), scope))
+              json.dumps(data["payload"]), today.strftime("%d.%m.%Y"), now_iso(), scope))
+        cx_execute(conn, "UPDATE cmr_documents SET loading_id=%s WHERE id=%s", (shipment.scope_id(), cid))
     logger.info("cmr.generated", extra={"cmr_id": cid, "number": number, "scope": scope})
     return {"id": cid, "number": number, "status": "wystawiony", "scope": scope,
             "payload": data["payload"]}
 
 
+@atomic_operation
 def update_cmr(cmr_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
-    row = query_one("SELECT * FROM cmr_documents WHERE id=%s", (cmr_id,))
+    row = query_one("SELECT * FROM cmr_documents WHERE id=%s FOR UPDATE", (cmr_id,))
     if not row:
         raise HTTPException(404, "CMR nie znaleziony")
     payload = row.get("payload") or {}
@@ -407,8 +432,17 @@ def update_cmr(cmr_id: str, form: Dict[str, Any]) -> Dict[str, Any]:
         manual = [{"name": g.get("name", ""), "qty": int(g.get("qty") or 0),
                    "kg": round(float(g.get("kg") or 0), 3)}
                   for g in form["goods_manual"] if (g.get("name") or "").strip()]
-        payload["goods"] = plan_goods + manual
-        payload["gross_kg"] = round(sum(float(g.get("kg") or 0) for g in payload["goods"]), 3)
+        if row.get("order_id"):
+            previous = [{"name": g.get("name", ""), "qty": int(g.get("qty") or 0),
+                         "kg": round(float(g.get("kg") or 0), 3)}
+                        for g in payload.get("goods") or [] if not g.get("auto")]
+            if manual != previous:
+                raise HTTPException(409, "CMR wydania ma zapisane ilości — nie można dopisywać ani usuwać towaru w edycji dokumentu.")
+            # Preserve even legacy totals exactly; a transport-field correction
+            # is not authorization to silently repair an old inconsistent CMR.
+        else:
+            payload["goods"] = plan_goods + manual
+            payload["gross_kg"] = round(sum(float(g.get("kg") or 0) for g in payload["goods"]), 3)
     with transaction() as conn:
         cx_execute(conn,
             "UPDATE cmr_documents SET carrier_id=%s, payload=%s::jsonb WHERE id=%s",

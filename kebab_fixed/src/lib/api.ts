@@ -120,6 +120,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
       : (detail || err.message || `HTTP ${res.status}`)
     const e = new Error(Array.isArray(msg) ? msg.map((x: any) => x.msg || x).join(', ') : String(msg))
     if (strukturalny?.code) (e as Error & { code?: string }).code = strukturalny.code
+    if (strukturalny) (e as Error & { detail?: unknown }).detail = strukturalny
     // Kod HTTP na błędzie — wołający musi umieć odróżnić konflikt wymagający
     // potwierdzenia (409) od zwykłego błędu walidacji. Message bez zmian.
     ;(e as Error & { status?: number }).status = res.status
@@ -1941,19 +1942,14 @@ export interface SplitSaved extends SplitPreview {
 
 export interface SplitDocRef { id: string; number: string }
 
-/** Czy papier opisuje dokładnie tyle, ile wyjechało z zakładu.
- *
- *  WM powstaje z FAKTYCZNEGO pokrycia w magazynie, a WZ dla klienta i CMR do
- *  faktury liczą się z ZAMÓWIENIA. Na krótkiej dostawie suma papieru
- *  przekracza to, co wyjechało — i nic tego dotąd nie pokazywało. Backend
- *  OSTRZEGA, nie odmawia: zakład wysyła to, co wyprodukował.
- *  Pole opcjonalne, bo starszy backend go nie odsyła. */
+/** Różnica między zamówieniem a potwierdzonym wydaniem.
+ * Dokumenty są na wydaną ilość; brak nie jest doliczany do faktury/WZ. */
 export interface SplitCoverage {
   pelne: boolean
   /** kg objęte WZ wewnętrznym (WM) — tyle faktycznie zeszło ze stanu. */
   kg_wydane: number
   kg_zamowienia: number
-  /** kg, o które papier przekracza wysyłkę (0, gdy pokrycie pełne). */
+  /** Niewysłane kilogramy zamówienia. */
   kg_braku: number
 }
 
@@ -1965,6 +1961,15 @@ export interface SplitDocuments {
   hdi_calosc?: SplitDocRef
   hdi_fv?: SplitDocRef | null
   pokrycie?: SplitCoverage
+  invoice_data?: ShipmentInvoiceData | null
+}
+
+export interface ShipmentInvoiceData {
+  source: 'confirmed_loading'
+  loading_id: string | null
+  invoice_kg: number
+  wz_kg: number
+  lines: Array<{ order_line_id: string; name: string; kg_per_unit: number; shipped_qty: number; invoice_qty: number; invoice_kg: number; wz_qty: number; wz_kg: number }>
 }
 
 export interface SplitCancelResult {
@@ -2419,6 +2424,18 @@ function mapLoadingStatus(raw: any): LoadingStatus {
   }
 }
 
+export interface ShipmentCoverage {
+  complete: boolean
+  extra_qty: number
+  missing: Array<{ order_line_id: string; name: string; kg_per_unit: number; ordered_qty: number; missing_qty: number; missing_kg: number }>
+}
+
+export interface PartialLoadingConfirmation {
+  code: 'PARTIAL_LOADING_CONFIRMATION_REQUIRED'
+  confirmation_token: string
+  orders: Array<{ order_id: string; order_no: string; client_name: string; coverage: ShipmentCoverage }>
+}
+
 export interface ActiveLoadingOrder {
   id: string
   orderNo: string
@@ -2700,7 +2717,7 @@ export const palletScanApi = {
         createdPallets: Number(r.created_pallets ?? 0),
       })),
     ),
-  finalizeLoading: (vehicleId: string, orderIds: string[], plate?: string, requestId?: string, expectedIds?: string[]) =>
+  finalizeLoading: (vehicleId: string, orderIds: string[], plate?: string, requestId?: string, expectedIds?: string[], partialConfirmation?: string) =>
     post<{
       ok: boolean; vehicle_id: string; plate?: string
       loading_id?: string | null
@@ -2710,11 +2727,12 @@ export const palletScanApi = {
         wz_id?: string; wz_number?: string
         wz_status?: 'potwierdzony' | 'rozjazd' | 'do_wystawienia'
         diff?: WzLoadingDiff[]
+        coverage?: ShipmentCoverage
         hdi_number?: string | null; hdi_error?: string | null
       }>
     }>(
       '/pallets/finalize-loading',
-      { vehicle_id: vehicleId, order_ids: orderIds, plate: plate || '', request_id: requestId, expected_ids: expectedIds },
+      { vehicle_id: vehicleId, order_ids: orderIds, plate: plate || '', request_id: requestId, expected_ids: expectedIds, partial_confirmation: partialConfirmation },
     ),
   loadingDocument: (vehicleId: string, orderIds: string[]) =>
     post<any>('/pallets/loading-document', { vehicle_id: vehicleId, order_ids: orderIds }),
@@ -2738,6 +2756,7 @@ export interface FinishedUnitCard {
   /** Globalny numer kartonu (= paleta), np. "000042"; pusty gdy niespakowana. */
   cartonNo: string
   producedAt: string
+  producedDate?: string
 }
 
 export interface LocationSummary {
@@ -2815,7 +2834,32 @@ export interface LabelTemplate {
    *  Pole z nadpisaniem ignoruje globalny slotOffset — pozycja jest bezwzględna na arkuszu. */
   slotFieldPositions?: Record<string, Record<string, LabelFieldPos>>
 }
+export interface LabelRasterImport {
+  schemaVersion: 1
+  language: 'epl' | 'zpl'
+  dpi: number
+  widthMm: number; heightMm: number
+  widthDots: number; heightDots: number; gapDots: number
+  sourceSha256: string
+  backgroundData: string; backgroundZpl: string
+  warnings: string[]
+}
+
 export const labelTemplatesApi = {
+  importRaster: async (file: File, dpi: number): Promise<LabelRasterImport> => {
+    if (!file.size || file.size > 4 * 1024 * 1024) throw new Error('Plik jest pusty lub przekracza 4 MiB')
+    const body = new FormData()
+    body.append('file', file)
+    const token = tokenStore.get()
+    const res = await fetch(`${BASE}/label-templates/import-raster?dpi=${dpi}`, {
+      method: 'POST', body, headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(typeof error.detail === 'string' ? error.detail : `Błąd importu (HTTP ${res.status})`)
+    }
+    return res.json()
+  },
   get: (clientId: string, recipeId: string) =>
     get<{ exists: boolean; template: LabelTemplate | null }>(
       `/label-templates?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
@@ -2846,11 +2890,77 @@ export interface ZebraRenderResult {
   count?: number
 }
 
+export type LabelJobState = 'prepared' | 'submitting' | 'submitted' | 'exported' | 'dialog_opened' | 'uncertain' | 'cancelled'
+export interface LabelJobHistory {
+  id: string; state: LabelJobState; printerName: string; transport: 'browserprint' | 'file' | 'browser'
+  language: 'zpl' | 'a4'
+  createdAt: string; createdBy: string; revisionId: number; sourceJobId: string | null
+}
+export interface LabelPrintJob extends LabelJobHistory {
+  ok: true; language: 'zpl'; printerUid: string; unitIds: string[]; count: number; zpl: string
+  events: Array<{ state: LabelJobState; actor: string; createdAt: string }>
+}
+export interface A4Placement { sheet: number; slot: number }
+export type LabelRenderUnit = Pick<FinishedUnitCard, 'id' | 'qrCode' | 'batchNo' | 'weightKg'> &
+  Partial<Pick<FinishedUnitCard, 'producedAt' | 'producedDate'>>
+export interface A4PrintJob extends LabelJobHistory {
+  ok: true; language: 'a4'; printerUid: string; unitIds: string[]; count: number
+  events: LabelPrintJob['events']
+  a4: {
+    rendererVersion: 'legacy-a4-v1'; template: LabelTemplate; units: Array<LabelRenderUnit & { producedDate: string }>
+    placements: A4Placement[]; shelfLifeDays: number; orgCode: string; halal: boolean; labelsPerSheet: number
+  }
+}
+export interface PrepareLabelJob {
+  idempotency_key: string; printer_name: string; printer_uid: string; transport: 'browserprint' | 'file' | 'browser'
+  language?: 'zpl' | 'a4'; org_code?: string
+  plan_line_id?: string; client_id?: string; recipe_id?: string; unit_ids?: string[]
+  source_job_id?: string; acknowledge_uncertain?: boolean
+}
+export interface LabelJobActionResult { id: string; state: LabelJobState; attemptToken?: string }
+
+export const labelPrintJobsApi = {
+  prepare: (dto: PrepareLabelJob) => post<LabelPrintJob>('/labels/zebra/jobs', dto),
+  get: async (id: string, unitIds?: string[]) => {
+    const job = await get<LabelPrintJob>(`/labels/zebra/jobs/${encodeURIComponent(id)}` +
+      (unitIds !== undefined ? `?unit_ids=${encodeURIComponent(unitIds.join(','))}` : ''))
+    if (job.language !== 'zpl') throw new Error('To zadanie A4 — otwórz je z historii na ekranie druku A4.')
+    return job
+  },
+  findByKey: async (key: string) => {
+    const job = await get<LabelPrintJob | null>(`/labels/zebra/job-by-key?key=${encodeURIComponent(key)}`)
+    if (job && job.language !== 'zpl') throw new Error('Nieprawidłowy rodzaj zadania — wymagany ZPL.')
+    return job
+  },
+  history: (unitId: string) => get<LabelJobHistory[]>(`/labels/zebra/unit-history/${encodeURIComponent(unitId)}`),
+  action: (id: string, dto: {
+    action: 'begin' | 'cancel' | 'submitted' | 'exported' | 'dialog_opened' | 'uncertain' | 'recover'
+    attempt_token?: string; printer_uid?: string; acknowledge_uncertain?: boolean
+  }) => post<LabelJobActionResult>(`/labels/zebra/jobs/${encodeURIComponent(id)}/actions`, dto),
+}
+
+function requireA4(job: A4PrintJob): A4PrintJob {
+  if (job.language !== 'a4' || job.a4?.rendererVersion !== 'legacy-a4-v1') throw new Error('Nieobsługiwany rodzaj lub wersja zadania A4')
+  return job
+}
+export const labelA4JobsApi = {
+  prepare: async (dto: PrepareLabelJob) => requireA4(await post<A4PrintJob>('/label-print-jobs', { ...dto, language: 'a4' })),
+  get: async (id: string, ids?: string[]) => requireA4(await get<A4PrintJob>(`/label-print-jobs/${encodeURIComponent(id)}` +
+    (ids !== undefined ? `?unit_ids=${encodeURIComponent(ids.join(','))}` : ''))),
+  findByKey: async (key: string) => {
+    const job = await get<A4PrintJob | null>(`/label-print-jobs/by-key?key=${encodeURIComponent(key)}`)
+    return job ? requireA4(job) : null
+  },
+  action: (id: string, dto: Parameters<typeof labelPrintJobsApi.action>[1]) =>
+    post<LabelJobActionResult>(`/label-print-jobs/${encodeURIComponent(id)}/actions`, dto),
+}
+
 export const labelsZebraApi = {
-  render: (planLineId: string, clientId: string, recipeId: string) =>
+  render: (planLineId: string, clientId: string, recipeId: string, unitIds?: string) =>
     get<ZebraRenderResult>(
       `/labels/zebra/render?plan_line_id=${encodeURIComponent(planLineId)}` +
-      `&client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}`),
+      `&client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}` +
+      (unitIds !== undefined ? `&unit_ids=${encodeURIComponent(unitIds)}` : '')),
 }
 
 // ─── Wizualny projektant etykiet Zebra (Z-Design-1) ──────────────
@@ -2888,9 +2998,10 @@ export const zebraDesignsApi = {
       width_mm: d.widthMm, height_mm: d.heightMm, dpi: d.dpi,
       background_zpl: d.backgroundZpl ?? '', elements: d.elements,
     }),
-  render: (clientId: string, recipeId: string, planLineId: string) =>
+  render: (clientId: string, recipeId: string, planLineId: string, unitIds?: string) =>
     get<{ ok: boolean; reason?: string; zpl?: string; count?: number }>(
-      `/zebra-designs/render?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}&plan_line_id=${encodeURIComponent(planLineId)}`),
+      `/zebra-designs/render?client_id=${encodeURIComponent(clientId)}&recipe_id=${encodeURIComponent(recipeId)}&plan_line_id=${encodeURIComponent(planLineId)}` +
+      (unitIds !== undefined ? `&unit_ids=${encodeURIComponent(unitIds)}` : '')),
   renderSample: (d: ZebraDesign) =>
     post<{ ok: boolean; zpl?: string; count?: number }>('/zebra-designs/render-sample', {
       width_mm: d.widthMm, height_mm: d.heightMm, dpi: d.dpi,
@@ -3079,8 +3190,8 @@ export const rozrachunkiApi = {
     get<any>(`/rozrachunki/na-dokumencie/${wzId}`),
   /** Rozliczenie CAŁEJ dostawy — kartka dla klienta. Ceny za kilogram
    *  przychodzą per GRUPA, bo tak wypisuje je biuro. */
-  dostawa: (orderId: string, ceny: Record<string, number>) =>
-    post<any>(`/rozrachunki/dostawa/${orderId}`, { ceny }),
+  dostawa: (orderId: string, ceny: Record<string, number>, loadingId?: string) =>
+    post<any>(`/rozrachunki/dostawa/${orderId}`, { ceny, ...(loadingId ? { loading_id: loadingId } : {}) }),
 }
 
 export const wzApi = {

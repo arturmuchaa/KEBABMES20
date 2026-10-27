@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
 
-from app.db import cx_execute, cx_query_one, query_all, query_one, transaction
+from app.db import atomic_operation, cx_execute, cx_query_all, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
 from app.services import cmr_service, hdi_service
 from app.services.document_naming import tuleja_suffix
@@ -32,6 +32,7 @@ from app.services.loading_service import _order_buyer
 from app.services.order_stock_service import picks_for_order
 from app.services.orders_service import zamknij_wyslane_zamowienia
 from app.services.settings_service import get_company
+from app.services import shipment_documents as shipment
 from app.services.wz_service import (_fmt_kg, _insert_wz, _rebook_wz_containers,
                                      _seller_block, build_goods_wz_lines,
                                      build_wz_lines, naming_context,
@@ -84,7 +85,7 @@ def _dokument_koliduje(order_id: str) -> Optional[Dict[str, Any]]:
     return query_one(
         "SELECT id, number FROM wz_documents WHERE source_type='order' AND source_id=%s "
         "AND split_scope IS NULL AND COALESCE(status,'')<>'anulowany' "
-        "ORDER BY created_at LIMIT 1", (order_id,))
+        "AND loading_id IS NOT DISTINCT FROM %s ORDER BY created_at LIMIT 1", (order_id, shipment.scope_id()))
 
 
 def _odmow_jesli_koliduje(order_id: str) -> None:
@@ -115,8 +116,9 @@ def _istniejacy(series: str, order_id: str, split_scope: str) -> Any:
     już nie wydaje."""
     return query_one(
         "SELECT id, number, lines FROM wz_documents WHERE doc_series=%s AND source_id=%s "
-        "AND split_scope=%s AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1",
-        (series, order_id, split_scope))
+        "AND split_scope=%s AND COALESCE(status,'')<>'anulowany' "
+        "AND loading_id IS NOT DISTINCT FROM %s ORDER BY created_at LIMIT 1",
+        (series, order_id, split_scope, shipment.scope_id()))
 
 
 def _linie_z_dokumentu(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -139,6 +141,7 @@ def _kg_z_linii(lines: List[Dict[str, Any]]) -> float:
     return round(total, 3)
 
 
+@shipment.shipment_operation
 def wystaw_wz_wewnetrzny(order_id: str) -> Dict[str, Any]:
     """WZ wewnętrzny (seria WM) na CAŁOŚĆ zamówienia — jedyny dokument tej
     wysyłki, który rusza magazyn. Idempotentny: powtórne wywołanie zwraca
@@ -150,9 +153,14 @@ def wystaw_wz_wewnetrzny(order_id: str) -> Dict[str, Any]:
 
     order = _zamowienie(order_id)
     _odmow_jesli_koliduje(order_id)
-    picks = picks_for_order(order_id)
-    groups = {p["fg"]["id"]: int(p.get("take") or 0)
-             for p in picks if p.get("fg") and int(p.get("take") or 0) > 0}
+    picks = shipment.require_current(order_id)["portions"]
+    groups = {}
+    sources = {}
+    for p in picks:
+        if p.get("fg") and int(p.get("take") or 0) > 0:
+            gid = p["fg"]["id"]
+            groups[gid] = groups.get(gid, 0) + int(p["take"])
+            sources[gid] = p["fg"]
     if not groups:
         raise HTTPException(400, "Zamówienie nie ma pokrycia w magazynie wyrobów gotowych")
 
@@ -163,7 +171,7 @@ def wystaw_wz_wewnetrzny(order_id: str) -> Dict[str, Any]:
         raced = cx_query_one(
             conn, "SELECT id, number, lines FROM wz_documents WHERE doc_series='WM' "
                   "AND source_id=%s AND split_scope=%s AND COALESCE(status,'')<>'anulowany' "
-                  "ORDER BY created_at LIMIT 1", (order_id, _SCOPE_CALOSC))
+                  "AND loading_id IS NOT DISTINCT FROM %s ORDER BY created_at LIMIT 1", (order_id, _SCOPE_CALOSC, shipment.scope_id()))
         if raced:
             return {"id": raced["id"], "number": raced["number"],
                     "kg": _kg_z_linii(_linie_z_dokumentu(raced))}
@@ -180,7 +188,7 @@ def wystaw_wz_wewnetrzny(order_id: str) -> Dict[str, Any]:
                 # pola) — jedna wysyłka, dwa papiery, dwie nazwy, a biuro je
                 # zestawia (review końcowy, minor 1, 2026-09-11).
                 """SELECT id, batch_no, recipe_id, recipe_name, product_type_id,
-                          product_type_name, packaging_name, qty_available, kg_per_unit
+                          product_type_name, packaging_id, packaging_name, qty_available, kg_per_unit
                    FROM finished_goods WHERE id=%s FOR UPDATE""",
                 (gid,))
             if not fg:
@@ -191,7 +199,10 @@ def wystaw_wz_wewnetrzny(order_id: str) -> Dict[str, Any]:
                 raise HTTPException(
                     400, f"Za mało na stanie wyrobów (partia {fg.get('batch_no')}): "
                          f"jest {avail} szt, potrzeba {need}")
-            goods_with_counts.append({"goods": fg, "count": need})
+            source = sources[gid]
+            if str(fg.get("recipe_id") or "") != str(source.get("recipe_id") or "") or float(fg.get("kg_per_unit") or 0) != float(source.get("kg_per_unit") or 0):
+                raise HTTPException(409, "Tożsamość partii zmieniła się od załadunku — wyjaśnij przed wystawieniem dokumentów.")
+            goods_with_counts.append({"goods": source, "count": need})
 
         lines = build_goods_wz_lines(
             goods_with_counts,
@@ -201,6 +212,7 @@ def wystaw_wz_wewnetrzny(order_id: str) -> Dict[str, Any]:
             buyer=_order_buyer(conn, order), valued=False, lines=lines, total=0.0,
             place=get_company().get("city") or "", issued=issued, released=issued,
             notes=_NOTATKA_WM, series="WM", split_scope=_SCOPE_CALOSC)
+        shipment.bind_wm(conn, wid)
 
         for g in goods_with_counts:
             fg, take = g["goods"], g["count"]
@@ -228,6 +240,7 @@ def _ma_czesc_niefakturowana(order_id: str) -> bool:
     klienta ma co opisać). Brak podziału = nie ma o czym mówić."""
     linie = query_all(
         "SELECT qty, qty_invoice FROM client_order_lines WHERE order_id=%s", (order_id,))
+    linie = shipment.lines_for(order_id, linie)
     if not linie or any(l.get("qty_invoice") is None for l in linie):
         return False
     return any(int(l.get("qty") or 0) - int(l.get("qty_invoice") or 0) > 0 for l in linie)
@@ -311,6 +324,7 @@ def _scal_pozycje_cennikowe(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return list(scalone.values())
 
 
+@shipment.shipment_operation
 def wystaw_wz_klienta(order_id: str) -> Dict[str, Any]:
     """WZ dla klienta (seria WZ) na część NIEFAKTUROWANĄ dostawy. Wymaga
     zapisanego podziału (`order_split_service.zapisz_podzial`) — bez niego
@@ -327,6 +341,7 @@ def wystaw_wz_klienta(order_id: str) -> Dict[str, Any]:
         "SELECT qty, qty_invoice, kg_per_unit, product_type_id, product_type_name, "
         "recipe_id, recipe_name, packaging_name, position "
         "FROM client_order_lines WHERE order_id=%s ORDER BY position", (order_id,))
+    linie = shipment.require_current(order_id)["lines"]
     if not linie:
         raise HTTPException(404, "Zamówienie nie ma pozycji")
     if any(l.get("qty_invoice") is None for l in linie):
@@ -356,7 +371,7 @@ def wystaw_wz_klienta(order_id: str) -> Dict[str, Any]:
         raced = cx_query_one(
             conn, "SELECT id, number, lines FROM wz_documents WHERE doc_series='WZ' "
                   "AND source_id=%s AND split_scope=%s AND COALESCE(status,'')<>'anulowany' "
-                  "ORDER BY created_at LIMIT 1", (order_id, _SCOPE_WZ_KLIENTA))
+                  "AND loading_id IS NOT DISTINCT FROM %s ORDER BY created_at LIMIT 1", (order_id, _SCOPE_WZ_KLIENTA, shipment.scope_id()))
         if raced:
             return {"id": raced["id"], "number": raced["number"],
                     "kg": _kg_z_linii(_linie_z_dokumentu(raced))}
@@ -367,6 +382,7 @@ def wystaw_wz_klienta(order_id: str) -> Dict[str, Any]:
             place=get_company().get("city") or "", issued=issued, released=issued,
             notes="Część niefakturowana — dokument dla odbiorcy.", series="WZ",
             split_scope=_SCOPE_WZ_KLIENTA)
+        cx_execute(conn, "UPDATE wz_documents SET loading_id=%s WHERE id=%s", (shipment.scope_id(), wid))
         number = cx_query_one(
             conn, "SELECT number FROM wz_documents WHERE id=%s", (wid,))["number"]
 
@@ -376,6 +392,8 @@ def wystaw_wz_klienta(order_id: str) -> Dict[str, Any]:
     return {"id": wid, "number": number, "kg": kg}
 
 
+@atomic_operation
+@atomic_operation
 def anuluj_dokumenty_podzialu(order_id: str) -> Dict[str, Any]:
     """Wycofaj komplet dokumentów podziału z jednego zamówienia.
 
@@ -413,6 +431,7 @@ def anuluj_dokumenty_podzialu(order_id: str) -> Dict[str, Any]:
     transakcji, na zablokowanym wierszu WM: załadunek zamykany równolegle
     zdąży inaczej wejść między odczyt a zwroty.
     """
+    query_one("SELECT id FROM client_orders WHERE id=%s FOR UPDATE", (order_id,))
     dokumenty = query_all(
         "SELECT id, number, doc_series, split_scope FROM wz_documents "
         "WHERE source_type='order' AND source_id=%s AND split_scope IS NOT NULL "
@@ -426,14 +445,15 @@ def anuluj_dokumenty_podzialu(order_id: str) -> Dict[str, Any]:
     with transaction() as conn:
         # `loaded_at`/`loading_status` stawia `finalize_loading` na dokumencie
         # `calosc` — oba osobno, bo starszy dokument mógł dostać sam status.
-        wm = cx_query_one(
+        wms = cx_query_all(
             conn,
-            "SELECT number, loaded_at, loading_status FROM wz_documents "
+            "SELECT number, loaded_at, loading_status, loading_id FROM wz_documents "
             "WHERE source_type='order' AND source_id=%s AND split_scope=%s "
-            "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1 FOR UPDATE",
+            "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at FOR UPDATE",
             (order_id, _SCOPE_CALOSC))
-        if wm and (wm.get("loaded_at") or wm.get("loading_status")):
-            raise HTTPException(400, _KOMUNIKAT_PO_ZALADUNKU.format(numer=wm["number"]))
+        for wm in wms:
+            if wm.get("loaded_at") or wm.get("loading_status") or wm.get("loading_id"):
+                raise HTTPException(400, _KOMUNIKAT_PO_ZALADUNKU.format(numer=wm["number"]))
 
         for d in dokumenty:
             row = cx_query_one(
@@ -515,6 +535,7 @@ def _sprawdz_gotowosc_do_kompletu(order_id: str) -> None:
     """
     linie = query_all(
         "SELECT qty, qty_invoice FROM client_order_lines WHERE order_id=%s", (order_id,))
+    linie = shipment.require_current(order_id)["lines"]
     if not linie:
         raise HTTPException(404, "Zamówienie nie ma pozycji")
     if any(l.get("qty_invoice") is None for l in linie):
@@ -550,34 +571,22 @@ def _kg_zamowienia(order_id: str) -> float:
 
 
 def _pokrycie_wysylki(order_id: str, kg_wm: float) -> Dict[str, Any]:
-    """Czy papier opisuje dokładnie tyle, ile wyjechało z zakładu.
+    """Kilogramy tego WM i pozostałość zamówienia w chwili wyjazdu kursu.
 
-    WM powstaje z FAKTYCZNEGO pokrycia w magazynie (`picks_for_order` →
-    `portion_stock_rows`, gdzie `take = min(need, pool)` przy niedoborze po
-    cichu oddaje mniej), a WZ dla klienta i CMR do faktury liczą się
-    z ZAMÓWIENIA (`qty - qty_invoice`, `qty_invoice`). Na krótkiej dostawie
-    daje to kg(WZ) + kg(CMR fv) > kg(WM) — papieru na więcej, niż wyjechało,
-    i dotąd nic tego nie pokazywało (review końcowy, I3).
-
-    OSTRZEŻENIE, NIE ODMOWA (decyzja właściciela procesu): zakład wysyła to,
-    co wyprodukował, a zablokowanie krótkiej dostawy byłoby gorsze niż
-    poinformowanie o niej. To ostatni moment, w którym ktokolwiek może to
-    powiedzieć, zanim auto odjedzie — dalej zostaje już tylko korekta
-    faktury.
-
-    Tolerancja 0,001 kg: kilogramy chodzą w gramach (round(..., 3)), więc
-    równość bez tolerancji potrafiłaby zapalić alarm na zaokrągleniu
-    ostatniej cyfry — a alarm odzywający się przy poprawnej wysyłce to
-    alarm, którego biuro przestaje czytać.
+    Kolejna dostawa nie może ponownie zgłaszać towaru wysłanego poprzednio.
+    Stare dokumenty bez zapisu pokrycia zachowują dotychczasowy fallback.
     """
     kg_zam = _kg_zamowienia(order_id)
-    brak = round(kg_zam - float(kg_wm or 0), 3)
+    coverage = (shipment.current(order_id) or {}).get("coverage")
+    brak = (round(sum(float(r["missing_kg"]) for r in coverage["missing"]), 3) if coverage is not None
+            else round(kg_zam - float(kg_wm or 0), 3))
     return {"pelne": brak <= 0.001,
             "kg_wydane": round(float(kg_wm or 0), 3),
             "kg_zamowienia": kg_zam,
             "kg_braku": brak if brak > 0.001 else 0.0}
 
 
+@shipment.shipment_operation
 def wystaw_komplet(order_id: str, forma_cmr: Dict[str, Any],
                    hdi_fv: bool = False) -> Dict[str, Any]:
     """Komplet papierów przed odjazdem auta: WM, WZ dla klienta, HDI (na
@@ -658,5 +667,5 @@ def wystaw_komplet(order_id: str, forma_cmr: Dict[str, Any],
                 extra={"order_id": order_id, "z_hdi_fv": bool(hdi_fv),
                        "zamkniete": bool(zamkniete)})
     return {"order_id": order_id, "wm": wm, "wz": wz, "cmr": cmr,
-            "hdi_calosc": hdi_calosc, "hdi_fv": hdi_do_faktury,
-            "pokrycie": pokrycie}
+             "hdi_calosc": hdi_calosc, "hdi_fv": hdi_do_faktury,
+            "pokrycie": pokrycie, "invoice_data": shipment.invoice_data(shipment.current(order_id))}

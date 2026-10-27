@@ -19,7 +19,7 @@ import pytest
 
 from app.db import execute, query_all, query_one
 from app.services import loading_service
-from app.services.loading_service import finalize_loading
+from tests.partial_loading_helpers import finalize_loading
 from app.services.order_split_service import zapisz_podzial
 from app.services.split_documents_service import (anuluj_dokumenty_podzialu,
                                                   wystaw_wz_klienta,
@@ -743,11 +743,12 @@ def test_rozpis_ponad_dokument_WM_wychodzi_jako_rozjazd(db):
     _firma(); _pojazd(); _klient(); _receptura()
     _zamowienie(qty=10, kg=30)
     _wyrob(qty=8, kg=30)                   # wyprodukowano 8 z 10
-    _paleta(); _pozycja_palety(qty=10)     # rozpisano całe zamówienie
+    _paleta(); _pozycja_palety(qty=8)      # historyczny papier powstał przy 8 szt.
     zapisz_podzial("o1", 180.0)
     wystaw_wz_wewnetrzny("o1")
     wystaw_wz_klienta("o1")
 
+    execute("UPDATE order_pallet_items SET qty=10 WHERE pallet_id='p1'")
     zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
 
     assert zam.get("skipped") is None, zam
@@ -768,10 +769,11 @@ def test_mniej_na_paletach_niz_na_WM_dalej_jest_rozjazdem(db):
     _zamowienie(qty=10, kg=30)
     _wyrob(qty=10, kg=30)
     _paleta()
-    _pozycja_palety(qty=6)                 # na auto weszło 6 z 10
+    _pozycja_palety(qty=10)                # historyczny WM wystawiony przed zmianą auta
     zapisz_podzial("o1", 180.0)
     wystaw_wz_wewnetrzny("o1")             # WM na całe 10 szt.
     wystaw_wz_klienta("o1")
+    execute("UPDATE order_pallet_items SET qty=6 WHERE pallet_id='p1'")
 
     zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
 
@@ -792,11 +794,12 @@ def test_niedowoz_liczy_sie_w_SUMIE_takze_przy_kilku_partiach(db):
     _wyrob_z_data("f-stara", qty=6, produced="2026-09-01")
     _wyrob_z_data("f-nowa", qty=4, produced="2026-09-08")
     _paleta()
-    _pozycja_palety(qty=7)                 # na auto weszło 7 z 10
+    _pozycja_palety(qty=10)                # dokument obu partii sprzed zmiany załadunku
     zapisz_podzial("o1", 180.0)
     wystaw_wz_wewnetrzny("o1")
     wystaw_wz_klienta("o1")
 
+    execute("UPDATE order_pallet_items SET qty=7 WHERE pallet_id='p1'")
     zam = finalize_loading("v1", ["o1"], plate="KR 99999")["orders"][0]
 
     assert zam["wz_status"] == "rozjazd", zam
@@ -1011,10 +1014,11 @@ def test_kurs_z_rozjazdem_jest_OZNACZONY(db):
     _firma(); _pojazd(); _klient(); _receptura()
     _zamowienie(qty=10, kg=30)
     _wyrob(qty=10, kg=30)
-    _paleta(); _pozycja_palety(qty=6)       # na auto weszło 6 z 10
+    _paleta(); _pozycja_palety(qty=10)      # historyczny dokument sprzed zmiany auta
     zapisz_podzial("o1", 180.0)
     wystaw_wz_wewnetrzny("o1")
     wystaw_wz_klienta("o1")
+    execute("UPDATE order_pallet_items SET qty=6 WHERE pallet_id='p1'")
     finalize_loading("v1", ["o1"], plate="KR 99999")
 
     assert zaladunki_do_wydruku()[0]["rozjazd"] is True

@@ -13,17 +13,19 @@ HDI: istniejący dostaje nr rejestracyjny pojazdu; brakujący jest
 dogenerowany (best-effort — błąd HDI nie blokuje rozchodu).
 """
 import json
+import hashlib
 from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException
 
-from app.db import (cx_execute, cx_query_all, cx_query_one, execute, query_all,
+from app.db import (atomic_operation, cx_execute, cx_query_all, cx_query_one, execute, query_all,
                     query_one, transaction)
 from app.utils.ids import cuid
 from app.utils.product_key import klucz_wyrobu
 from app.logging_config import get_logger
 from app.services import vehicle_loading_service
+from app.services.dispatch_completeness import dispatch_contents_cx
 from app.services.order_stock_service import picks_for_pallets, picks_z_dokumentu
 from app.services.settings_service import get_company
 from app.services.wz_service import (_insert_wz, _seller_block, build_goods_wz_lines,
@@ -151,12 +153,12 @@ def _order_buyer(conn, order: Dict[str, Any]) -> Dict[str, Any]:
             "nip": client.get("nip") or ""}
 
 
-def _ensure_hdi(order_id: str, plate: str) -> Dict[str, Any]:
+def _ensure_hdi(order_id: str, plate: str, loading_id: Optional[str] = None) -> Dict[str, Any]:
     """HDI dla zamówienia: dogeneruj gdy brak, wpisz nr rejestracyjny.
     Best-effort — błąd nie blokuje zamknięcia załadunku."""
     from app.services.hdi_service import generate_hdi
     try:
-        doc = generate_hdi(order_id)
+        doc = generate_hdi(order_id, loading_id=loading_id)
         if plate:
             with transaction() as conn:
                 # Stempel na WSZYSTKICH dokumentach tego zamówienia, nie tylko
@@ -169,8 +171,9 @@ def _ensure_hdi(order_id: str, plate: str) -> Dict[str, Any]:
                     """UPDATE hdi_documents
                        SET header = jsonb_set(COALESCE(header,'{}'::jsonb),
                                               '{reg_number}', to_jsonb(%s::text))
-                       WHERE order_id=%s""",
-                    (plate, order_id))
+                        WHERE order_id=%s AND loading_id IS NOT DISTINCT FROM
+                            (SELECT loading_id FROM hdi_documents WHERE id=%s)""",
+                    (plate, order_id, doc.get("id")))
         return {"hdi_number": doc.get("number"), "hdi_id": doc.get("id"), "hdi_error": None}
     except Exception as exc:  # noqa: BLE001 — dokument pomocniczy, raportujemy zamiast blokować
         logger.warning("loading.hdi_failed", extra={"order_id": order_id, "error": str(exc)})
@@ -292,6 +295,7 @@ def finalize_loading(
     plate: str = "",
     request_id: Optional[str] = None,
     expected_ids: Optional[List[str]] = None,
+    partial_confirmation: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Zamknij załadunek pojazdu dla wskazanych zamówień (atomowo per całość):
     sztuki z załadowanych palet → shipped; WZ: weryfikacja istniejącego
@@ -311,6 +315,9 @@ def finalize_loading(
             if previous:
                 if previous["vehicle_id"] != vehicle_id:
                     raise HTTPException(409, "Identyfikator zapisu należy do innego auta")
+                recorded = {r["order_id"] for r in (previous.get("response") or {}).get("orders", [])}
+                if recorded != set(order_ids):
+                    raise HTTPException(409, "Identyfikator zapisu należy do innego zestawu zamówień")
                 return previous["response"]
         if expected_ids is not None:
             actual = cx_query_all(conn,
@@ -319,6 +326,24 @@ def finalize_loading(
                 (vehicle_id, vehicle_id))
             if set(expected_ids) != {p["id"] for p in actual}:
                 raise HTTPException(409, "Zawartość auta zmieniła się. Sprawdź odświeżoną listę i potwierdź ponownie")
+        # Check all orders BEFORE writing any shipment. A confirmation is bound
+        # to these exact contents/shortages, not a reusable 'yes' boolean.
+        checks = []
+        for oid in sorted(set(order_ids)):
+            contents, coverage = dispatch_contents_cx(conn, oid, vehicle_id=vehicle_id, include_shipped=True)
+            if coverage["extra_qty"]:
+                raise HTTPException(409, "Na aucie jest nadmiar lub produkt niezgodny z zamówieniem. Wyjaśnij zawartość przed wyjazdem.")
+            order_no = cx_query_one(conn, "SELECT order_no,client_name FROM client_orders WHERE id=%s", (oid,))
+            checks.append({"order_id": oid, **order_no, "coverage": coverage,
+                           "container_ids": sorted(p["id"] for p in _loaded_pallets(conn, vehicle_id, oid)),
+                           "contents": sorted(contents, key=lambda x: json.dumps(x, sort_keys=True, default=str))})
+        digest = hashlib.sha256(json.dumps({"vehicle_id": vehicle_id, "orders": checks}, sort_keys=True, default=str).encode()).hexdigest()
+        partial = any(not x["coverage"]["complete"] for x in checks)
+        if partial and partial_confirmation != digest:
+            raise HTTPException(409, {"code": "PARTIAL_LOADING_CONFIRMATION_REQUIRED",
+                "message": "Wydanie częściowe — sprawdź braki i potwierdź wyjazd tylko zeskanowanego towaru.",
+                "confirmation_token": digest,
+                "orders": [{k: v for k, v in x.items() if k != "contents"} for x in checks]})
         for order_id in sorted(set(order_ids)):
             order = cx_query_one(
                 conn, "SELECT id, order_no, client_name, client_id FROM client_orders WHERE id=%s",
@@ -326,6 +351,7 @@ def finalize_loading(
             if not order:
                 raise HTTPException(404, f"Zamówienie {order_id} nie znalezione")
 
+            _, coverage = dispatch_contents_cx(conn, order_id, vehicle_id=vehicle_id, include_shipped=True)
             pallets = _loaded_pallets(conn, vehicle_id, order_id)
             pallet_ids = [p["id"] for p in pallets]
             units_all = _units_on_pallets(conn, pallet_ids)
@@ -362,6 +388,8 @@ def finalize_loading(
                 conn,
                 "SELECT id, number, lines FROM wz_documents "
                 "WHERE source_type='order' AND source_id=%s AND split_scope='calosc' "
+                "AND loading_id IS NULL "
+                "AND NOT EXISTS (SELECT 1 FROM loading_orders lo WHERE lo.wz_id=wz_documents.id) "
                 "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1 "
                 "FOR UPDATE",
                 (order_id,))
@@ -369,6 +397,7 @@ def finalize_loading(
                 conn,
                 "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s "
                 "AND split_scope='wz_klienta' AND COALESCE(status,'')<>'anulowany' "
+                "AND loading_id IS NULL "
                 "ORDER BY created_at LIMIT 1 FOR UPDATE",
                 (order_id,)) if wm else None
             # Zamówienie bez podziału — zwykły WZ, jak dotąd. ANULOWANY nie
@@ -380,6 +409,8 @@ def finalize_loading(
                 "SELECT id, number, lines FROM wz_documents "
                 "WHERE source_type='order' AND source_id=%s "
                 "AND COALESCE(doc_series,'WZ')='WZ' AND split_scope IS NULL "
+                "AND loading_id IS NULL "
+                "AND NOT EXISTS (SELECT 1 FROM loading_orders lo WHERE lo.wz_id=wz_documents.id) "
                 "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1 "
                 "FOR UPDATE",
                 (order_id,))
@@ -476,6 +507,13 @@ def finalize_loading(
                         "WHERE id=%s",
                         (effective_plate, wz_klienta["id"]))
                 wz_number, wz_id = existing["number"], existing["id"]
+                if status == "potwierdzony":
+                    for line in _linie_dokumentu(existing):
+                        fg = cx_query_one(conn, "SELECT * FROM finished_goods WHERE id=%s", (line.get("stock_id"),))
+                        if fg:
+                            pozycje_kursu.append({"stock_id": fg["id"], "szt": int(line.get("qty") or 0),
+                                                 "batch_no": line.get("batch_no"), "kg_per_unit": line.get("kg_per_unit"),
+                                                 "goods": fg})
             else:
                 # Dokumenty przy załadunku: WZ z faktycznej zawartości + rozchód.
                 if units_all:
@@ -502,7 +540,7 @@ def finalize_loading(
                         # tulei) w `build_goods_wz_lines`.
                         """SELECT id, batch_no, recipe_id, recipe_name, product_type_id,
                                   product_type_name, packaging_name, qty_available,
-                                  kg_per_unit
+                                  kg_per_unit, packaging_id, produced_date, seasoned_batch_nos
                            FROM finished_goods WHERE id=%s FOR UPDATE""",
                         (gid,))
                     if not fg:
@@ -538,9 +576,10 @@ def finalize_loading(
                 status, diff = "do_wystawienia", []
                 pozycje_kursu = [
                     {"stock_id": g["goods"]["id"],
-                     "batch_no": g["goods"].get("batch_no"),
-                     "szt": int(g["count"]),
-                     "kg_per_unit": float(g["goods"].get("kg_per_unit") or 0)}
+                      "batch_no": g["goods"].get("batch_no"),
+                      "szt": int(g["count"]),
+                      "kg_per_unit": float(g["goods"].get("kg_per_unit") or 0),
+                      "goods": g["goods"]}
                     for g in goods_with_counts
                 ]
 
@@ -578,20 +617,30 @@ def finalize_loading(
                 "wz_status": status,
                 "diff": [d for d in diff if d.get("diff")],
                 "pozycje": pozycje_kursu,
+                "coverage": coverage,
             })
 
         # Towar, zwolnienie auta i kurs commitują razem.
         kurs = _zapisz_kurs(conn, vehicle_id, effective_plate, operator, results, request_id)
+        # Rich stock identity belongs to the persisted course snapshot, not the
+        # public response. Preserve the original JSON-only API contract.
+        for r in results:
+            for position in r.get("pozycje", []):
+                position.pop("goods", None)
         response = {"ok": bool(kurs), "vehicle_id": vehicle_id, "plate": effective_plate,
-                    "loading_id": kurs, "orders": results}
+                    "loading_id": kurs, "orders": results,
+                    "partial_confirmation": digest if partial else None}
         if kurs:
-            cx_execute(conn, "UPDATE loadings SET response=%s::jsonb WHERE id=%s", (json.dumps(response), kurs))
+            cx_execute(conn, "UPDATE loadings SET response=%s::jsonb WHERE id=%s", (json.dumps(response, default=str), kurs))
 
     # HDI poza transakcją rozchodu (best-effort, własne transakcje).
     for r in results:
         if r.get("skipped"):
             continue
-        r.update(_ensure_hdi(r["order_id"], effective_plate))
+        if r.get("wz_status") == "rozjazd":
+            r["hdi_error"] = "Istniejący dokument nie zgadza się z załadunkiem — wymaga korekty."
+            continue
+        r.update(_ensure_hdi(r["order_id"], effective_plate, kurs))
 
     logger.info("loading.finalized", extra={
         "vehicle_id": vehicle_id, "orders": len(results),
@@ -626,7 +675,7 @@ def _zapisz_kurs(conn, vehicle_id: str, plate: str, operator: str,
             "INSERT INTO loading_orders (loading_id, order_id, wz_id, wz_status, "
             " pozycje) VALUES (%s,%s,%s,%s,%s::jsonb)",
             (kurs_id, r.get("order_id"), r.get("wz_id"), r.get("wz_status"),
-             json.dumps(r.get("pozycje") or [])))
+              json.dumps(r.get("pozycje") or [], default=str)))
     return kurs_id
 
 
@@ -655,13 +704,13 @@ def zaladunek(loading_id: str) -> Dict[str, Any]:
     kierowca bez CMR nie ruszy, a odbiorca bez HDI nie przyjmie towaru.
     """
     kurs = query_one(
-        "SELECT id, plate, finished_at, printed_at FROM loadings WHERE id=%s",
+        "SELECT id, plate, finished_at, printed_at, response FROM loadings WHERE id=%s",
         (loading_id,))
     if not kurs:
         raise HTTPException(404, "Kurs nie znaleziony")
     pozycje = []
     for r in query_all(
-            "SELECT lo.order_id, lo.wz_status, lo.pozycje, o.order_no, o.client_name "
+            "SELECT lo.order_id, lo.wz_id, lo.wz_status, lo.pozycje, lo.document_snapshot, o.order_no, o.client_name "
             "FROM loading_orders lo LEFT JOIN client_orders o ON o.id = lo.order_id "
             "WHERE lo.loading_id=%s ORDER BY o.client_name", (loading_id,)):
         oid = r["order_id"]
@@ -672,6 +721,15 @@ def zaladunek(loading_id: str) -> Dict[str, Any]:
             zapisane = json.loads(zapisane)
         kg_kursu = round(sum(
             int(x.get("szt") or 0) * float(x.get("kg_per_unit") or 0) for x in zapisane), 3)
+        legacy_scope = bool(r.get("wz_id") and query_one(
+            "SELECT id FROM wz_documents WHERE id=%s AND loading_id IS NULL", (r["wz_id"],)))
+        if legacy_scope:
+            # NULL does not mean 'every course'. With multiple unscoped legacy
+            # courses only their explicitly linked WM can be identified safely.
+            legacy_scope = not bool(query_one("""SELECT lo.loading_id FROM loading_orders lo
+                LEFT JOIN wz_documents w ON w.id=lo.wz_id
+                WHERE lo.order_id=%s AND lo.loading_id<>%s
+                  AND lo.wz_id IS NOT NULL AND w.loading_id IS NULL LIMIT 1""", (oid, loading_id)))
         pozycje.append({
             "order_id": oid,
             "order_no": r.get("order_no"),
@@ -679,28 +737,29 @@ def zaladunek(loading_id: str) -> Dict[str, Any]:
             "wz_status": r.get("wz_status"),
             "zaladowano": zapisane,
             "kg_zaladowane": kg_kursu,
+            "coverage": next((x.get("coverage") for x in (kurs.get("response") or {}).get("orders", []) if x.get("order_id") == oid), None),
+            "invoice_data": _invoice_data(r.get("document_snapshot")),
             "wz": query_all(
                 "SELECT id, number, doc_series, split_scope FROM wz_documents "
                 "WHERE source_type='order' AND source_id=%s "
-                "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at", (oid,)),
+                "AND COALESCE(status,'')<>'anulowany' AND (loading_id=%s OR id=%s OR (loading_id IS NULL AND %s)) ORDER BY created_at", (oid, loading_id, r.get("wz_id"), legacy_scope)),
             "hdi": query_all(
                 "SELECT id, number, scope FROM hdi_documents WHERE order_id=%s "
-                "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at", (oid,)),
+                "AND COALESCE(status,'')<>'anulowany' AND (loading_id=%s OR (loading_id IS NULL AND %s)) ORDER BY created_at", (oid, loading_id, legacy_scope)),
             "cmr": query_all(
                 "SELECT id, number, scope FROM cmr_documents WHERE order_id=%s "
-                "ORDER BY created_at", (oid,)),
+                "AND (loading_id=%s OR (loading_id IS NULL AND %s)) ORDER BY created_at", (oid, loading_id, legacy_scope)),
         })
     return {**kurs, "pozycje": pozycje}
 
 
-def _agregat_z_zapisu_kursu(loading_id: str, order_id: str) -> Dict[Tuple, Dict[str, Any]]:
-    """Co FAKTYCZNIE wyjechało tym kursem — z zapisu skanu, nie z dokumentu.
+def _invoice_data(snapshot):
+    from app.services.shipment_documents import invoice_data
+    return invoice_data(json.loads(snapshot) if isinstance(snapshot, str) else snapshot)
 
-    `loading_orders.pozycje` trzyma stock_id, partię, sztuki i kg/szt, ale NIE
-    trzyma receptury — a klucz porównania (`_line_key`) jej wymaga. Dociągamy
-    ją z `finished_goods` po stock_id: to ten sam wiersz magazynu, z którego
-    pozycja kursu powstała, więc receptura jest z definicji ta sama.
-    """
+
+def _agregat_z_zapisu_kursu(loading_id: str, order_id: str) -> Dict[Tuple, Dict[str, Any]]:
+    """Recorded contents; current stock identity is a legacy-only fallback."""
     row = query_one(
         "SELECT pozycje FROM loading_orders WHERE loading_id=%s AND order_id=%s",
         (loading_id, order_id))
@@ -723,7 +782,8 @@ def _agregat_z_zapisu_kursu(loading_id: str, order_id: str) -> Dict[Tuple, Dict[
         if szt <= 0:
             continue
         kg = float(poz.get("kg_per_unit") or 0)
-        k = _line_key(receptury.get(poz.get("stock_id")), kg, poz.get("batch_no"))
+        recipe = (poz.get("goods") or {}).get("recipe_id") or receptury.get(poz.get("stock_id"))
+        k = _line_key(recipe, kg, poz.get("batch_no"))
         g = agg.setdefault(k, {"qty": 0, "kg": 0.0})
         g["qty"] += szt
         g["kg"] += szt * kg
@@ -764,15 +824,17 @@ def _potwierdz_zaladunek_na_dokumencie(loading_id: str, order_id: str,
                        (loading_id,)) or {}).get("plate") or ""
     execute(
         """UPDATE wz_documents
-           SET loading_status=%s, loading_diff=%s::jsonb, loaded_at=now(),
-               vehicle_plate=%s
-           WHERE id=%s""",
-        (status, json.dumps(diff), plate, wm_id))
+           SET loading_status=%s, loading_diff=%s::jsonb,
+               loaded_at=COALESCE(loaded_at,(SELECT finished_at FROM loadings WHERE id=%s)),
+                vehicle_plate=%s
+            WHERE id=%s""",
+        (status, json.dumps(diff), loading_id, plate, wm_id))
     if status != "potwierdzony":
         logger.warning("loading.documents.rozjazd", extra={
             "loading_id": loading_id, "order_id": order_id, "wm_id": wm_id})
 
 
+@atomic_operation
 def wystaw_z_kursu(loading_id: str, decyzje: List[Dict[str, Any]],
                    forma_cmr: Dict[str, Any],
                    hdi_fv: bool = False) -> Dict[str, Any]:
@@ -805,8 +867,7 @@ def wystaw_z_kursu(loading_id: str, decyzje: List[Dict[str, Any]],
     Idempotentne: każdy krok składowy jest idempotentny per zamówienie, więc
     powtórne kliknięcie oddaje TE SAME dokumenty i nie zdejmuje stanu drugi raz.
     """
-    from app.services.order_split_service import zapisz_podzial
-    from app.services.split_documents_service import wystaw_komplet
+    from app.services.shipment_documents import shipment_context
 
     kurs = query_one("SELECT id FROM loadings WHERE id=%s", (loading_id,))
     if not kurs:
@@ -816,7 +877,7 @@ def wystaw_z_kursu(loading_id: str, decyzje: List[Dict[str, Any]],
         "SELECT order_id FROM loading_orders WHERE loading_id=%s", (loading_id,))}
 
     wyniki: List[Dict[str, Any]] = []
-    for d in decyzje or []:
+    for d in sorted(decyzje or [], key=lambda d: str(d.get("order_id") or "")):
         oid = str(d.get("order_id") or "")
         # Zamówienie spoza kursu odrzucamy — inaczej zapis kursu nie znaczyłby
         # nic, a biuro mogłoby wystawić papier na towar, który nie wyjechał.
@@ -824,43 +885,39 @@ def wystaw_z_kursu(loading_id: str, decyzje: List[Dict[str, Any]],
             raise HTTPException(
                 400, f"Zamówienie {oid} nie jechało tym kursem — nie ma z czego wystawić")
 
-        # Podział zapisujemy TYLKO, gdy papierów jeszcze nie ma. Po wystawieniu
-        # `zapisz_podzial` słusznie odmawia (zmiana podziału rozjechałaby
-        # wystawiony WZ klienta z przeliczonymi na nowo papierami pod fakturę),
-        # a powtórne kliknięcie ma po prostu oddać TE SAME dokumenty.
-        juz_wystawiony = query_one(
-            "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s "
-            "AND doc_series='WM' AND COALESCE(status,'')<>'anulowany'", (oid,))
-        if not juz_wystawiony:
-            zapisz_podzial(oid, float(d.get("cel_kg") or 0))
-        # Kopia na odbiorcę, nie mutacja wspólnego dictu: `forma_cmr` obsługuje
-        # cały kurs, a wpisanie do niego numeru pierwszego odbiorcy przeciekłoby
-        # na każdego następnego, który swojego numeru nie podał.
-        forma = dict(forma_cmr)
-        faktura = str(d.get("invoice_no") or "").strip()
-        if faktura:
-            forma["invoice_no"] = faktura
-        # HDI do faktury — decyzja PER ODBIORCA (`hdi_fv` przy zamówieniu),
-        # a flaga kursu zostaje tylko jako wartość domyślna dla starszych
-        # klientów API. Ekran papierów kursu flagi nie wysyłał w ogóle, więc
-        # z kursu powstawało wyłącznie HDI na całość (biuro, 29.09.2026:
-        # „potrzebuję zawsze dwa — na całość i do faktury").
-        komplet = wystaw_komplet(oid, forma, bool(d.get("hdi_fv", hdi_fv)))
-
-        wm = komplet.get("wm") or {}
-        # Znacznik zgodności papieru z tym, co wyjechało — TUTAJ jest jedyne
-        # miejsce, w którym istnieją obie liczby naraz: dokument już powstał,
-        # a zapis kursu mówi, co naprawdę zeskanowano.
-        _potwierdz_zaladunek_na_dokumencie(loading_id, oid, wm.get("id"))
-        execute(
-            "UPDATE loading_orders SET wz_id=%s, wz_status='wystawiony' "
-            "WHERE loading_id=%s AND order_id=%s",
-            (wm.get("id"), loading_id, oid))
-        wyniki.append({"order_id": oid, **komplet})
+        with shipment_context(oid, loading_id):
+            wyniki.append(_wystaw_odbiorce_z_kursu(loading_id, oid, d, forma_cmr, hdi_fv))
 
     logger.info("loading.documents.issued", extra={
         "loading_id": loading_id, "orders": len(wyniki)})
     return {"ok": True, "loading_id": loading_id, "orders": wyniki}
+
+
+def _wystaw_odbiorce_z_kursu(loading_id, oid, d, forma_cmr, hdi_fv):
+    from app.services.order_split_service import zapisz_podzial
+    from app.services.split_documents_service import wystaw_komplet
+    from app.services.shipment_documents import scope_id
+
+    # Retries reuse the frozen split of THIS shipment.
+    juz_wystawiony = query_one(
+        "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s "
+        "AND doc_series='WM' AND COALESCE(status,'')<>'anulowany' "
+        "AND loading_id IS NOT DISTINCT FROM %s", (oid, scope_id()))
+    if not juz_wystawiony:
+        zapisz_podzial(oid, float(d.get("cel_kg") or 0))
+    # Never mutate the shared form: each customer has a separate invoice.
+    forma = dict(forma_cmr)
+    faktura = str(d.get("invoice_no") or "").strip()
+    if faktura:
+        forma["invoice_no"] = faktura
+    komplet = wystaw_komplet(oid, forma, bool(d.get("hdi_fv", hdi_fv)))
+    wm = komplet.get("wm") or {}
+    _potwierdz_zaladunek_na_dokumencie(loading_id, oid, wm.get("id"))
+    execute(
+        "UPDATE loading_orders SET wz_id=%s, wz_status='wystawiony' "
+        "WHERE loading_id=%s AND order_id=%s",
+        (wm.get("id"), loading_id, oid))
+    return {"order_id": oid, **komplet}
 
 
 def oznacz_wydrukowany(loading_id: str, operator: str = "") -> Dict[str, Any]:

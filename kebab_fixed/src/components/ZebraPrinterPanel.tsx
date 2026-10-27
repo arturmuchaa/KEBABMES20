@@ -7,12 +7,14 @@ import {
 } from '@/lib/zebraProfiles'
 import { tearOffMaxMm, tearOffZpl } from '@/features/deboning/labelPrinterSetup'
 
-export function ZebraPrinterPanel({ defaultProfile = '50x80', disabled = false, onBusyChange, onCalibrated, children }: {
+export function ZebraPrinterPanel({ defaultProfile = '50x80', disabled = false, onBusyChange, onCalibrated, children, manualCalibrationOnly = false }: {
   defaultProfile?: ZebraProfileId
   disabled?: boolean
   onBusyChange?: (busy: boolean) => void
   onCalibrated?: (profile: ZebraProfileId, lengthMm: number) => void
   children?: ReactNode
+  /** Frozen label jobs do not allow automatic rewriting of their payload. */
+  manualCalibrationOnly?: boolean
 }) {
   const [devices, setDevices] = useState<ZebraDevice[]>([])
   const [uid, setUid] = useState(selectedZebraUid)
@@ -104,7 +106,9 @@ export function ZebraPrinterPanel({ defaultProfile = '50x80', disabled = false, 
             })}>Ustaw punkt odrywania</button>
         </div>
       </details>
-      <p className="text-xs text-slate-600">Przy zwykłym wydruku MES dobiera format z etykiety i w razie zmiany kalibruje drukarkę automatycznie. Włącza też kalibrację po zamknięciu pokrywy. Założona rolka musi pasować do projektu; ręczna konfiguracja służy do diagnostyki.</p>
+      <p className="text-xs text-slate-600">{manualCalibrationOnly
+        ? 'Zapisane zadania zachowują oryginalne dane ZPL. Zmianę rolki i kalibrację wykonaj jawnie przed wysłaniem. Założona rolka musi pasować do projektu.'
+        : 'Przy zwykłym wydruku MES dobiera format z etykiety i w razie zmiany kalibruje drukarkę automatycznie. Włącza też kalibrację po zamknięciu pokrywy. Założona rolka musi pasować do projektu; ręczna konfiguracja służy do diagnostyki.'}</p>
       {message && <pre role={error ? 'alert' : 'status'} className={`whitespace-pre-wrap break-words rounded p-2 text-xs ${error ? 'bg-red-50 text-red-800' : 'bg-slate-100'}`}>{message}</pre>}
       {children}
       </section>

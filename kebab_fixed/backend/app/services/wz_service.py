@@ -760,6 +760,10 @@ def generate_wz(
                 (source_type, source_id),
             )
         if should_reuse(existing, source_id):
+            if source_type == "order":
+                # Historical paper is immutable; arbitrary form rows must not
+                # replace the quantities of an order shipment.
+                return get_wz(existing["id"])
             if existing["status"] == "wstepny":
                 cx_execute_returning(
                     conn,
@@ -773,6 +777,8 @@ def generate_wz(
             logger.info("wz.reused", extra={"wz_id": existing["id"], "number": existing["number"]})
             return get_wz(existing["id"])
 
+        if source_type == "order":
+            raise HTTPException(409, "Dokumenty zamówienia wystaw z potwierdzonego kursu — ręczne pozycje nie potwierdzają załadunku.")
         wid = _insert_wz(
             conn, source_type=source_type, source_id=source_id, seller=seller,
             buyer=buyer, valued=valued, lines=lines, total=total, place=place_val,
@@ -892,6 +898,8 @@ def create_manual_wz(
         # wypadają z zapytania (`qty_available > 0`), a rozchód niżej zdejmuje
         # ją z INNYCH, wolnych partii (re-review Task 4, fix round 4).
         _odmow_gdy_zamowienie_ma_podzial(conn, order_id)
+        if order_id:
+            raise HTTPException(409, "WZ zamówienia wystaw z podziału potwierdzonego kursu — ręczny formularz nie może doliczać niezaładowanego towaru.")
         # Dokument wystawiony z zamówienia ZOSTAJE z nim związany, choć idzie
         # ręczną ścieżką: bez tego stempla zamówienie pokazywałoby „brak WZ",
         # a przy ponownym wejściu nikt by nie ostrzegł, że dokument już jest.
@@ -1771,6 +1779,10 @@ def picks_from_order(order_id: str) -> Dict[str, Any]:
     }
 
 
+from app.services import shipment_documents as shipment
+
+
+@shipment.shipment_operation
 def create_wz_from_order(
     order_id: str,
     valued: bool = False,
@@ -1786,6 +1798,12 @@ def create_wz_from_order(
     p = _order_wz_payload(order_id)
     order, buyer, incomplete = p["order"], p["buyer"], p["incomplete"]
     lines = p["lines"]
+    actual = shipment.current(order_id)
+    if actual:
+        lines = build_goods_wz_lines(
+            [{"goods": p["fg"], "count": p["take"]} for p in actual["portions"]],
+            *naming_context(str(order.get("client_id") or ""), order.get("client_name") or ""))
+        incomplete = not actual["coverage"]["complete"]
     if not lines:
         raise HTTPException(400, "Brak wyprodukowanych pozycji do WZ")
 
@@ -1805,7 +1823,7 @@ def create_wz_from_order(
         klienta = cx_query_one(
             conn, "SELECT number FROM wz_documents WHERE source_type='order' "
                   "AND source_id=%s AND split_scope='wz_klienta' "
-                  "AND COALESCE(status,'')<>'anulowany' LIMIT 1", (order_id,))
+                  "AND COALESCE(status,'')<>'anulowany' AND loading_id IS NOT DISTINCT FROM %s LIMIT 1", (order_id, shipment.scope_id()))
         if klienta:
             raise HTTPException(400, _KOMUNIKAT_PODZIAL.format(numer=klienta["number"]))
         # TYLKO WZ klienta blokuje. Od 24.09.2026 ta ścieżka i komplet tworzą
@@ -1823,7 +1841,7 @@ def create_wz_from_order(
                   "AND COALESCE(status,'') <> 'anulowany' "
                   "AND ((doc_series='WM' AND split_scope='calosc') "
                   "     OR (COALESCE(doc_series,'WZ')='WZ' AND split_scope IS NULL)) "
-                  "ORDER BY created_at LIMIT 1", (order_id,))
+                  "AND loading_id IS NOT DISTINCT FROM %s ORDER BY created_at LIMIT 1", (order_id, shipment.scope_id()))
         if existing:
             doc = get_wz(existing["id"])
             doc["incomplete"] = incomplete
@@ -1832,7 +1850,7 @@ def create_wz_from_order(
 
         # Strażnik zostaje jako obrona w głąb: docieramy tu tylko wtedy, gdy
         # żadnego dokumentu tej wysyłki jeszcze nie ma.
-        _odmow_gdy_zamowienie_ma_podzial(conn, order_id)
+        shipment.require_current(order_id)
 
         # SERIA WM, nie WZ. Decyzja właściciela 24.09.2026: „powinni dostać
         # sam WM, nie WZ — WM po to, aby ściągnąć ze stanu, a WZ wtedy, jak
@@ -1848,6 +1866,7 @@ def create_wz_from_order(
             place=get_company().get("city") or "", issued=issued, released=issued,
             notes=notes, currency=currency, eur_rate=eur_rate,
             series="WM", split_scope="calosc")
+        shipment.bind_wm(conn, wid)
 
         fg_cols = ("id, qty, qty_available, qty_shipped, kg_per_unit, "
                    "client_order_no, client_name")

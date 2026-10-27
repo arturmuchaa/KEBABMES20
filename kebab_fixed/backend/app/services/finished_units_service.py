@@ -139,9 +139,12 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
     Idempotentne per linia: jeśli sztuki już istnieją, zwraca istniejące.
     """
     with transaction() as conn:
+        # Serialize concurrent generate requests for this line BEFORE checking
+        # existing units. UNIQUE(qr_code) alone cannot prevent two distinct
+        # sets of valid QR tokens being created for the same planned quantity.
         line = cx_query_one(
             conn,
-            "SELECT * FROM production_plan_lines WHERE id=%s",
+            "SELECT * FROM production_plan_lines WHERE id=%s FOR UPDATE",
             (plan_line_id,),
         )
         if not line:

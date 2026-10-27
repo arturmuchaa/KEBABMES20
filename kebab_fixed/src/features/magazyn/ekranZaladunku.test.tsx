@@ -70,6 +70,95 @@ function loaded() {
 }
 
 describe('potwierdzanie kursu', () => {
+  it('wymaga świadomego potwierdzenia braków przed zapisem wydania częściowego', async () => {
+    loaded()
+    const coverage = { complete: false, extra_qty: 0, missing: [
+      { order_line_id: 'l1', name: 'KIRMIZI', kg_per_unit: 20, ordered_qty: 160, missing_qty: 40, missing_kg: 800 },
+    ] }
+    s.finalize.mockRejectedValueOnce({ code: 'PARTIAL_LOADING_CONFIRMATION_REQUIRED', detail: {
+      confirmation_token: 'checked-contents', orders: [{ order_id: 'polat', client_name: 'POLAT', order_no: 'Z/2', coverage }],
+    } }).mockResolvedValueOnce({ ok: true, loading_id: 'partial', orders: [
+      { order_id: 'polat', client_name: 'POLAT', order_no: 'Z/2', coverage, pallets: 1, wz_status: 'do_wystawienia' },
+    ] })
+    const koniec = vi.fn()
+    render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={koniec} />)
+    fireEvent.click(await screen.findByText('Zakończ załadunek'))
+    fireEvent.click(screen.getByText('Zakończ', { exact: true }))
+    await screen.findByText('40 szt. / 800 kg')
+    expect(s.finalize).toHaveBeenCalledTimes(1)
+    expect(koniec).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByText('Potwierdzam wydanie częściowe'))
+    await screen.findByText('Kurs zapisany — wymaga wyjaśnienia')
+    expect(s.finalize.mock.calls[1][5]).toBe('checked-contents')
+    expect(s.finalize.mock.calls[1][3]).toBe(s.finalize.mock.calls[0][3])
+    expect(screen.getByText(/Dokumenty obejmują tylko potwierdzony załadunek/)).toBeTruthy()
+  })
+
+  it('po cofnięciu potwierdzenia częściowego nie wysyła drugiego żądania', async () => {
+    loaded()
+    s.finalize.mockRejectedValueOnce({ code: 'PARTIAL_LOADING_CONFIRMATION_REQUIRED', detail: {
+      confirmation_token: 'token', orders: [],
+    } })
+    render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
+    fireEvent.click(await screen.findByText('Zakończ załadunek'))
+    fireEvent.click(screen.getByText('Zakończ', { exact: true }))
+    await screen.findByText('Potwierdzam wydanie częściowe')
+    fireEvent.click(screen.getByText('Wróć', { exact: true }))
+    expect(s.finalize).toHaveBeenCalledTimes(1)
+    expect(sessionStorage.getItem('magazyn.finalize.v1')).toBeNull()
+  })
+
+  it('Escape odrzuca ostrzeżenie częściowe także przed kolejnym otwarciem', async () => {
+    loaded()
+    s.finalize.mockRejectedValueOnce({ code: 'PARTIAL_LOADING_CONFIRMATION_REQUIRED', detail: {
+      confirmation_token: 'old-token', orders: [],
+    } })
+    render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
+    fireEvent.click(await screen.findByText('Zakończ załadunek'))
+    fireEvent.click(screen.getByText('Zakończ', { exact: true }))
+    await screen.findByText('Potwierdzam wydanie częściowe')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(sessionStorage.getItem('magazyn.finalize.v1')).toBeNull()
+    fireEvent.click(screen.getByText('Zakończ załadunek'))
+    expect(screen.queryByText('Potwierdzam wydanie częściowe')).toBeNull()
+    expect(screen.getByText('Zakończ', { exact: true })).toBeTruthy()
+  })
+
+  it('zmiana składu unieważnia zapisany token i wymaga nowego potwierdzenia', async () => {
+    loaded()
+    for (const token of ['first', 'changed']) s.finalize.mockRejectedValueOnce({
+      code: 'PARTIAL_LOADING_CONFIRMATION_REQUIRED', detail: { confirmation_token: token, orders: [] },
+    })
+    s.finalize.mockResolvedValueOnce({ ok: true, loading_id: 'course', orders: [] })
+    render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
+    fireEvent.click(await screen.findByText('Zakończ załadunek'))
+    fireEvent.click(screen.getByText('Zakończ', { exact: true }))
+    fireEvent.click(await screen.findByText('Potwierdzam wydanie częściowe'))
+    await waitFor(() => expect(s.finalize).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(sessionStorage.getItem('magazyn.finalize.v1')).toBeNull())
+    expect(s.finalize.mock.calls[1][5]).toBe('first')
+    fireEvent.click(screen.getByText('Potwierdzam wydanie częściowe'))
+    await waitFor(() => expect(s.finalize).toHaveBeenCalledTimes(3))
+    expect(s.finalize.mock.calls[2][5]).toBe('changed')
+  })
+
+  it('po ostrzeżeniu wysyła poprawioną rejestrację zamiast starej wartości', async () => {
+    loaded()
+    s.migawka.vehicle = { ...MIGAWKA.vehicle, kind: 'external' }
+    s.finalize.mockRejectedValueOnce({ code: 'PARTIAL_LOADING_CONFIRMATION_REQUIRED', detail: {
+      confirmation_token: 'token', orders: [],
+    } }).mockResolvedValueOnce({ ok: true, loading_id: 'course', orders: [] })
+    render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
+    fireEvent.click(await screen.findByText('Zakończ załadunek'))
+    fireEvent.click(screen.getByText('Zakończ', { exact: true }))
+    await screen.findByText('Potwierdzam wydanie częściowe')
+    fireEvent.change(screen.getByLabelText('Numer rejestracyjny (spedycja)'), { target: { value: 'NEW 123' } })
+    fireEvent.click(screen.getByText('Potwierdzam wydanie częściowe'))
+    await waitFor(() => expect(s.finalize).toHaveBeenCalledTimes(2))
+    expect(s.finalize.mock.calls[1][2]).toBe('NEW 123')
+    expect(s.finalize.mock.calls[1][3]).not.toBe(s.finalize.mock.calls[0][3])
+  })
   it('wyjaśnia brak przypisania kartonu do zamówienia', async () => {
     const alarm = vi.fn()
     s.odmowa = new Error('Biuro musi najpierw przypisać karton do zamówienia')

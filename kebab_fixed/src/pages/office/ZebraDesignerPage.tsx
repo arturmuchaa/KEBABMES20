@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { ArrowLeft, Type, QrCode, Square, Save, Printer, Trash2, LayoutTemplate, ClipboardPaste, FileDown, Image as ImageIcon } from 'lucide-react'
-import { zebraDesignsApi, clientsApi, recipesApi, type ZebraDesign, type ZebraElement } from '@/lib/api'
+import { zebraDesignsApi, labelTemplatesApi, clientsApi, recipesApi, type ZebraDesign, type ZebraElement } from '@/lib/api'
 import { useApi } from '@/hooks/useApi'
 import { getDevices, sendZpl, probeBrowserPrint, browserPrintBaseUrl, type ZebraDevice } from '@/lib/zebra'
 import { LABEL_PRESETS } from '@/features/zebra/labelPresets'
@@ -25,6 +25,10 @@ export function ZebraDesignerPage() {
   const { data: clients } = useApi(() => clientsApi.list(), [])
   const { data: recipes } = useApi(() => recipesApi.list(), [])
   const [sizeKey, setSizeKey] = useState('100x150')
+  const [importSize, setImportSize] = useState({ w: 100, h: 150 })
+  const [importBusy, setImportBusy] = useState(false)
+  const [designReady, setDesignReady] = useState(false)
+  const contextSequence = useRef(0)
   const [dpi, setDpi] = useState(203)
   const [elements, setElements] = useState<ZebraElement[]>([])
   const [backgroundZpl, setBackgroundZpl] = useState('')
@@ -41,7 +45,28 @@ export function ZebraDesignerPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const drag = useRef<{ id: string; dx: number; dy: number } | null>(null)
 
-  const size = SIZES[sizeKey] || SIZES['100x150']
+  const rasterImport = sizeKey.startsWith('raster-v1:')
+  const size = rasterImport ? importSize : (SIZES[sizeKey] || SIZES['100x150'])
+
+  async function importFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !designReady || importBusy) return
+    if ((backgroundZpl || elements.length) && !confirm('Import zastąpi tło i usunie bieżące pola. Kontynuować?')) return
+    setImportBusy(true)
+    try {
+      const result = await labelTemplatesApi.importRaster(file, dpi)
+      if (!confirm(`${result.language.toUpperCase()}: ${result.widthMm.toFixed(2)} × ${result.heightMm.toFixed(2)} mm, ${dpi} DPI.\nCzy to właściwy rozmiar materiału? Stare daty i QR pozostaną w grafice.`)) return
+      setImportSize({ w: result.widthMm, h: result.heightMm })
+      setSizeKey(`raster-v1:${result.language}:${result.sourceSha256}`)
+      setBackgroundZpl(result.backgroundZpl)
+      setBgImg(result.backgroundData)
+      setElements([]); setSel(null)
+      setMsg('Zaimportowano grafikę lokalnie. Dodaj dynamiczny QR. Ten projektant nadal drukuje ZPL, nie EPL — nie wysyłaj go do GC420t w trybie EPL.')
+    } catch (error) {
+      setMsg(error instanceof Error ? error.message : 'Błąd importu')
+    } finally { setImportBusy(false) }
+  }
 
   function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -57,18 +82,33 @@ export function ZebraDesignerPage() {
   }
 
   useEffect(() => {
-    if (!clientId || !recipeId) { setElements([]); setBackgroundZpl(''); setBgImg(''); setSel(null); return }
+    const sequence = ++contextSequence.current
+    setDesignReady(false); setBgBusy(false)
+    if (!clientId || !recipeId) {
+      setElements([]); setBackgroundZpl(''); setBgImg(''); setSel(null); setSizeKey('100x150'); setDesignReady(true)
+      return
+    }
     zebraDesignsApi.get(clientId, recipeId).then(r => {
+      if (sequence !== contextSequence.current) return
       if (r.exists && r.design) {
         setElements(r.design.elements || []); setDpi(r.design.dpi || 203)
-        if (r.design.sizeKey && SIZES[r.design.sizeKey]) setSizeKey(r.design.sizeKey)
+        setSizeKey('100x150')
+        if (r.design.sizeKey && (SIZES[r.design.sizeKey] || r.design.sizeKey.startsWith('raster-v1:'))) {
+          setSizeKey(r.design.sizeKey)
+          setImportSize({ w: r.design.widthMm, h: r.design.heightMm })
+        }
         const bg = r.design.backgroundZpl || ''
         setBackgroundZpl(bg)
-        if (bg) renderBg(bg, r.design.dpi || 203)
+        if (bg) renderBg(bg, r.design.dpi || 203, !!r.design.sizeKey?.startsWith('raster-v1:'))
         else setBgImg('')
-      } else { setElements([]); setBackgroundZpl(''); setBgImg('') }
+      } else { setElements([]); setBackgroundZpl(''); setBgImg(''); setSizeKey('100x150') }
       setSel(null)
-    }).catch(() => setElements([]))
+      setDesignReady(true)
+    }).catch(() => {
+      if (sequence !== contextSequence.current) return
+      setMsg('Nie udało się wczytać projektu. Zapis jest zablokowany — wybierz ponownie klienta i recepturę.')
+    })
+    return () => { contextSequence.current++ }
   }, [clientId, recipeId])
 
   useEffect(() => {
@@ -91,10 +131,18 @@ export function ZebraDesignerPage() {
   }
 
   // Podgląd tła 1:1 — renderuje wklejony ZPL do obrazka przez serwis Labelary.
-  async function renderBg(zpl: string, useDpi = dpi) {
+  async function renderBg(zpl: string, useDpi = dpi, localOnly = false) {
+    const sequence = contextSequence.current
     if (!zpl.trim()) { setBgImg(''); return }
     setBgBusy(true)
     try {
+      // The strict raster importer never discloses label data to an external service.
+      if (localOnly) {
+        const result = await labelTemplatesApi.importRaster(new File([zpl], 'background.zpl'), useDpi)
+        if (sequence !== contextSequence.current) return
+        setBgImg(result.backgroundData)
+        return
+      }
       const dpmm = useDpi >= 300 ? 12 : 8
       const wIn = (size.w / 25.4).toFixed(2)
       const hIn = (size.h / 25.4).toFixed(2)
@@ -103,12 +151,14 @@ export function ZebraDesignerPage() {
       })
       if (!res.ok) throw new Error(`Labelary ${res.status}`)
       const blob = await res.blob()
+      if (sequence !== contextSequence.current) return
       setBgImg(URL.createObjectURL(blob))
       setMsg('Podgląd tła zaktualizowany')
     } catch (e) {
+      if (sequence !== contextSequence.current) return
       setBgImg('')
       setMsg(e instanceof Error ? `Podgląd tła: ${e.message}` : 'Błąd podglądu tła (Labelary)')
-    } finally { setBgBusy(false) }
+    } finally { if (sequence === contextSequence.current) setBgBusy(false) }
   }
 
   function applyBackground() {
@@ -118,6 +168,7 @@ export function ZebraDesignerPage() {
   }
 
   async function downloadZpl() {
+    if (!designReady || importBusy) return
     const d: ZebraDesign = { clientId, recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements: await withGraphics(elements) }
     try {
       const r = await zebraDesignsApi.renderSample(d)
@@ -182,12 +233,14 @@ export function ZebraDesignerPage() {
   function onPointerUp() { drag.current = null }
 
   async function save() {
+    if (!designReady || importBusy) return
     if (!clientId || !recipeId) { setMsg('Najpierw wybierz klienta i recepturę') ; return }
     const d: ZebraDesign = { clientId, recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements: await withGraphics(elements) }
     try { await zebraDesignsApi.save(d); setMsg('Zapisano') } catch (e) { setMsg(e instanceof Error ? e.message : 'Błąd zapisu') }
   }
 
   async function testPrint() {
+    if (!designReady || importBusy) return
     const d: ZebraDesign = { clientId, recipeId, sizeKey, widthMm: size.w, heightMm: size.h, dpi, backgroundZpl, elements: await withGraphics(elements) }
     const dev = devices.find(x => x.uid === deviceUid)
     if (!dev) { setMsg('Brak drukarki Zebra (BrowserPrint)'); return }
@@ -203,21 +256,22 @@ export function ZebraDesignerPage() {
         <Link to="/office/szablony-etykiet" className="flex items-center gap-1 text-sm font-semibold text-slate-600"><ArrowLeft size={16} /> Wstecz</Link>
         <span className="mx-2 text-sm font-bold">Projektant Zebra</span>
         {/* Najpierw wybierz klienta i recepturę (jak w PDF) — projekt zapisuje się dla tej pary */}
-        <select value={clientId} onChange={e => setClientId(e.target.value)}
+        <select disabled={importBusy} value={clientId} onChange={e => setClientId(e.target.value)}
           className="rounded border border-slate-300 px-2 py-1 text-sm" title="Klient">
           <option value="">— klient —</option>
           {(clients ?? []).map((c: any) => <option key={c.id} value={c.name}>{c.displayName || c.name}</option>)}
         </select>
-        <select value={recipeId} onChange={e => setRecipeId(e.target.value)}
+        <select disabled={importBusy} value={recipeId} onChange={e => setRecipeId(e.target.value)}
           className="rounded border border-slate-300 px-2 py-1 text-sm" title="Receptura (przyprawa)">
           <option value="">— receptura —</option>
           {(recipes ?? []).map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
-        <select value={sizeKey} onChange={e => setSizeKey(e.target.value)} className="rounded border px-2 py-1 text-sm">
+        <select aria-label="Rozmiar etykiety" disabled={rasterImport || importBusy} value={sizeKey} onChange={e => setSizeKey(e.target.value)} className="rounded border px-2 py-1 text-sm">
+          {rasterImport && <option value={sizeKey}>{size.w.toFixed(2)}×{size.h.toFixed(2)} mm (import 1:1)</option>}
           <option value="100x150">100×150 mm</option>
           <option value="100x300">100×300 mm</option>
         </select>
-        <select value={dpi} onChange={e => setDpi(Number(e.target.value))} className="rounded border px-2 py-1 text-sm">
+        <select aria-label="DPI eksportu" disabled={rasterImport || importBusy} value={dpi} onChange={e => setDpi(Number(e.target.value))} className="rounded border px-2 py-1 text-sm">
           <option value={203}>203 dpi</option>
           <option value={300}>300 dpi</option>
         </select>
@@ -232,8 +286,12 @@ export function ZebraDesignerPage() {
         <button onClick={() => addEl('box')} className="flex items-center gap-1 rounded bg-slate-200 px-2 py-1 text-sm"><Square size={14} /> Ramka</button>
         <button onClick={() => fileRef.current?.click()} className="flex items-center gap-1 rounded bg-slate-200 px-2 py-1 text-sm" title="Wgraj obraz (HALAL, znak WE, logo)"><ImageIcon size={14} /> Obraz</button>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickImage} />
-        <button onClick={() => { setPasteText(backgroundZpl); setPasteOpen(o => !o) }} className="flex items-center gap-1 rounded bg-amber-200 px-2 py-1 text-sm font-semibold text-amber-900" title="Wklej ZPL z Zebra Designer — podgląd 1:1"><ClipboardPaste size={14} /> Wklej ZPL (tło)</button>
-        <button onClick={save} className="flex items-center gap-1 rounded bg-brand px-3 py-1 text-sm font-semibold text-white"><Save size={14} /> Zapisz</button>
+        <label className="rounded border bg-white px-2 py-1 text-xs">
+          Import grafiki PRN/EPL/ZPL (GW / GFA)
+          <input aria-label="Import grafiki PRN EPL ZPL" type="file" accept=".prn,.epl,.zpl" disabled={importBusy || !designReady} onChange={importFile} className="block max-w-56" />
+        </label>
+        <button disabled={rasterImport || importBusy || !designReady} onClick={() => { setPasteText(backgroundZpl); setPasteOpen(o => !o) }} className="flex items-center gap-1 rounded bg-amber-200 px-2 py-1 text-sm font-semibold text-amber-900 disabled:opacity-50" title="Wklej ZPL z Zebra Designer — podgląd 1:1"><ClipboardPaste size={14} /> Wklej ZPL (tło)</button>
+        <button disabled={!designReady || importBusy} onClick={save} className="flex items-center gap-1 rounded bg-brand px-3 py-1 text-sm font-semibold text-white disabled:opacity-50"><Save size={14} /> Zapisz</button>
         <button onClick={downloadZpl} className="flex items-center gap-1 rounded bg-slate-200 px-2 py-1 text-sm" title="Pobierz złożony ZPL do pliku (druk USB przez Zebra Setup Utilities)"><FileDown size={14} /> Pobierz ZPL</button>
         <select value={deviceUid} onChange={e => setDeviceUid(e.target.value)} className="rounded border px-2 py-1 text-sm">
           {devices.length === 0 && <option value="">— brak drukarki —</option>}
@@ -241,6 +299,14 @@ export function ZebraDesignerPage() {
         </select>
         <button onClick={testPrint} className="flex items-center gap-1 rounded bg-emerald-600 px-3 py-1 text-sm font-semibold text-white"><Printer size={14} /> Test druku</button>
         {msg && <span className="text-sm text-slate-600">{msg}</span>}
+      </div>
+
+      <div className="border-b bg-white px-4 py-2 text-xs text-slate-700" role="status">
+        Import rozpoznaje zawartość, nie rozszerzenie. Obsługuje wyłącznie nieskompresowane rastry GW/GFA;
+        nieznane instrukcje są odrzucane. LBL/NLBL wyeksportuj do PRN lub PDF.
+        Wybierz DPI eksportu przed importem. Rozmiar importowanej grafiki jest blokowany, aby uniknąć skalowania.
+        {rasterImport && ' Wyjście tego projektanta to ZPL, nie EPL. Nie używaj tej ścieżki dla GC420t w trybie EPL.'}
+        {importBusy && ' Trwa walidacja pliku…'}
       </div>
 
       {/* Diagnostyka: MES nie widzi drukarki mimo BrowserPrint */}

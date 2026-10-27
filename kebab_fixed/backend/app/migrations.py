@@ -560,6 +560,9 @@ _DDL: list[str] = [
     )
     """,
     "ALTER TABLE loading_orders ADD COLUMN IF NOT EXISTS pozycje JSONB NOT NULL DEFAULT '[]'::jsonb",
+    # Partial dispatch documents are scoped to the recorded shipment, not the
+    # full order. Existing documents remain NULL-scoped and are never rewritten.
+    "ALTER TABLE loading_orders ADD COLUMN IF NOT EXISTS document_snapshot JSONB",
     "ALTER TABLE loadings ADD COLUMN IF NOT EXISTS request_id TEXT",
     "ALTER TABLE loadings ADD COLUMN IF NOT EXISTS response JSONB",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_loadings_request ON loadings(request_id) WHERE request_id IS NOT NULL",
@@ -644,6 +647,9 @@ _DDL: list[str] = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_cmr_order ON cmr_documents(order_id)",
     "CREATE INDEX IF NOT EXISTS idx_cmr_created ON cmr_documents(created_at)",
+    "ALTER TABLE wz_documents ADD COLUMN IF NOT EXISTS loading_id TEXT",
+    "ALTER TABLE hdi_documents ADD COLUMN IF NOT EXISTS loading_id TEXT",
+    "ALTER TABLE cmr_documents ADD COLUMN IF NOT EXISTS loading_id TEXT",
 
     # ── Numeracja CMR jak HDI: NN/MM/RR, od 1 w każdym miesiącu ──
     "ALTER TABLE cmr_documents ADD COLUMN IF NOT EXISTS year_month TEXT",
@@ -696,9 +702,6 @@ _DDL: list[str] = [
     # masuje się pół godziny. NULL = standard, żeby stare receptury nie
     # udawały, że ktoś świadomie ustawił im czas.
     "ALTER TABLE recipes ADD COLUMN IF NOT EXISTS mixing_minutes INTEGER",
-    # Wsad niesie WŁASNĄ kopię czasu — receptura poprawiona w biurze nie może
-    # przesunąć maszyny, która już chodzi.
-    "ALTER TABLE mixing_charges ADD COLUMN IF NOT EXISTS mix_minutes INTEGER",
 
     # ── QR per sztuka — Faza 3: szablony etykiet (per klient+receptura) ──
     """CREATE TABLE IF NOT EXISTS label_templates (
@@ -1704,6 +1707,8 @@ _DDL: list[str] = [
     # `hdi_service._sprawdz_zakres`. Wszystkie dotychczasowe dokumenty
     # powstały przed podziałem wysyłki, czyli na całość.
     "ALTER TABLE hdi_documents ADD COLUMN IF NOT EXISTS scope TEXT DEFAULT 'calosc'",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_wz_shipment_scope ON wz_documents(source_id,loading_id,split_scope) WHERE loading_id IS NOT NULL AND COALESCE(status,'')<>'anulowany'",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_hdi_shipment_scope ON hdi_documents(order_id,loading_id,scope) WHERE loading_id IS NOT NULL AND COALESCE(status,'')<>'anulowany'",
     "UPDATE hdi_documents SET scope='calosc' WHERE scope IS NULL",
     # ── Panel masowania: pojemniki z przyprawami i wsady w masownicach ──
     #
@@ -1769,6 +1774,9 @@ _DDL: list[str] = [
     )""",
     "CREATE INDEX IF NOT EXISTS idx_mixing_charges_status ON mixing_charges(status)",
     "CREATE INDEX IF NOT EXISTS idx_mixing_charges_order ON mixing_charges(order_id)",
+    # After CREATE TABLE: fresh installations must not lose this column.
+    # Wsad niesie własną kopię czasu, niezależną od późniejszych zmian receptury.
+    "ALTER TABLE mixing_charges ADD COLUMN IF NOT EXISTS mix_minutes INTEGER",
     # Wsad ZAŁADOWANY, ale jeszcze nie puszczony: maszyna stoi pełna i czeka,
     # aż operator ją świadomie uruchomi — sam albo razem z pozostałymi
     # (właściciel 18.09.2026: „żeby się nie puszczały automatycznie").
@@ -1963,6 +1971,13 @@ def _run_migrations_locked() -> None:
                 "migrations.statement_failed",
                 extra={"sql": sql[:120], "error": str(exc)},
             )
+
+    # Label history is installed as a single transaction: never leave only half
+    # of the capture/snapshot infrastructure active after a DDL failure.
+    from app.label_history_schema import DDL as label_history_ddl
+    with transaction() as conn:
+        for statement in label_history_ddl:
+            cx_execute(conn, statement)
 
     _seed_water()
     _seed_raw_material_types()

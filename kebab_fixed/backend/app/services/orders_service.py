@@ -492,7 +492,12 @@ def zamknij_wyslane_zamowienia(numery: List[str]) -> List[str]:
             continue
         if all(int((moje.get(l["id"]) or {}).get("wydane") or 0) >= int(l["qty"] or 0)
                for l in lines):
-            execute("UPDATE client_orders SET status='done' WHERE id=%s", (o["id"],))
+            from app.services.dispatch_completeness import dispatch_contents_cx
+            with transaction() as conn:
+                _, checked = dispatch_contents_cx(conn, o["id"], shipped_only=True)
+                if not checked["complete"]:
+                    continue
+                cx_execute(conn, "UPDATE client_orders SET status='done' WHERE id=%s", (o["id"],))
             zamkniete.append(o["order_no"])
             logger.info("order.shipped.closed", extra={"order_id": o["id"]})
     return zamkniete
@@ -692,6 +697,11 @@ def przepnij_sztuki(order_id: str) -> Dict[str, Any]:
 
 def update_order_status(order_id: str, status: str) -> Dict:
     with transaction() as conn:
+        if status == "done":
+            from app.services.dispatch_completeness import dispatch_contents_cx
+            _, checked = dispatch_contents_cx(conn, order_id, shipped_only=True)
+            if not checked["complete"]:
+                raise HTTPException(409, "Wydanie częściowe — zamówienie pozostaje niezrealizowane w całości. Brakujące sztuki nie zostały wysłane.")
         if status == "cancelled":
             # Anulowanie z przypisanymi kartonami magazynowymi zostawiłoby towar
             # „zaklepany" na martwym zamówieniu — najpierw odłączenie.

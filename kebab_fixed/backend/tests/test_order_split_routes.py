@@ -142,10 +142,11 @@ def test_komplet_dzieli_kilogramy_miedzy_dokumenty(db):
 # a zablokowanie krótkiej dostawy byłoby gorsze niż poinformowanie o niej.
 # `wystaw_komplet` zna `wm["kg"]` i kilogramy zamówienia, i jest ostatnim
 # miejscem, w którym ktokolwiek może to powiedzieć przed odjazdem auta.
-def test_komplet_melduje_ze_papier_opisuje_wiecej_niz_wyjechalo(db):
+def test_komplet_melduje_brak_ale_papier_opisuje_tylko_zaladunek(db):
     _przygotuj_z_podzialem(cel_kg=300.0)          # zamówienie: 800 kg
     # Krótka dostawa: drugiej receptury zrobiono 1 szt. zamiast 2 (25 kg mniej).
     execute("UPDATE finished_goods SET qty=1, qty_available=1, total_kg=25 WHERE id='f2'")
+    execute("UPDATE order_pallet_items SET qty=1 WHERE order_line_id='o1-l2'")
 
     dane = route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
 
@@ -155,8 +156,9 @@ def test_komplet_melduje_ze_papier_opisuje_wiecej_niz_wyjechalo(db):
     assert pokrycie["kg_wydane"] == 775.0
     assert pokrycie["kg_zamowienia"] == 800.0
     assert pokrycie["kg_braku"] == 25.0
-    # Papier NAPRAWDĘ opisuje więcej: WZ klienta (500) + CMR do faktury (300).
-    assert dane["wz"]["kg"] + dane["cmr"][1]["payload"]["gross_kg"] > dane["wm"]["kg"]
+    # Supersedes the old inflated-paper rule: FV + WZ partition the shipment.
+    assert dane["wz"]["kg"] + dane["cmr"][1]["payload"]["gross_kg"] == dane["wm"]["kg"]
+    assert dane["hdi_calosc"]["totals"]["kg"] == 775
 
 
 def test_komplet_na_pelnym_pokryciu_nie_straszy(db):
@@ -563,6 +565,11 @@ def test_komplet_zamyka_zamowienie(db):
 
     route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
 
+    # Paper alone is not departure. Closing requires the actual completed load.
+    assert query_one("SELECT status FROM client_orders WHERE id='o1'")["status"] == "confirmed"
+    loading_service.finalize_loading("split-car", ["o1"])
+    route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
+
     assert query_one("SELECT status FROM client_orders WHERE id='o1'")["status"] == "done"
 
 
@@ -570,6 +577,7 @@ def test_komplet_zamyka_DOPIERO_po_papierach(db):
     """Gdyby zamknięcie poszło przed HDI, komplet zostałby bez HDI i bez CMR —
     zamówienie `done` nie dostaje nowych dokumentów."""
     _przygotuj_z_podzialem(cel_kg=300.0)
+    loading_service.finalize_loading("split-car", ["o1"])
 
     dane = route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
 
@@ -585,6 +593,7 @@ def test_komplet_NIE_zamyka_krotkiej_dostawy(db):
     zostaje otwarta — magazynier ma ją nadal na liście do skompletowania."""
     _przygotuj_z_podzialem(cel_kg=300.0)
     execute("UPDATE finished_goods SET qty=1, qty_available=1, total_kg=25 WHERE id='f2'")
+    execute("UPDATE order_pallet_items SET qty=1 WHERE order_line_id='o1-l2'")
 
     route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
 
