@@ -95,6 +95,11 @@ export function CmrDaneTransportu({
           disabled={disabled}
           onChange={e => onChange({ ...wartosc, plate: e.target.value })}
         />
+        {!wartosc.carrier_id && wartosc.plate.trim() && (
+          <span className="block text-[11px] text-ink-3 mt-0.5">
+            Bez przewoźnika numer nie drukuje się na CMR
+          </span>
+        )}
       </label>
       {!bezFaktury && (
         <label>

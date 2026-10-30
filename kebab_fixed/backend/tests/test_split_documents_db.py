@@ -300,6 +300,9 @@ def test_edycja_zamowienia_BEZ_dokumentow_podzialu_dziala_dalej(db):
     po to jest okno podziału."""
     _przygotuj_z_podzialem(cel_kg=300.0)
 
+    # Zejście z 30 do 3 szt. wymaga najpierw zdjęcia palety z rozpisu —
+    # inaczej skaner załadowałby nadmiar (incydent ISSA 30.10.2026).
+    execute("DELETE FROM order_pallet_items WHERE order_line_id IN ('o1-l1','o1-l2')")
     update_order("o1", ClientOrderCreate.model_validate({
         "client_id": "c1", "order_date": "2026-09-08",
         "lines": [
@@ -321,6 +324,9 @@ def test_ANULOWANY_komplet_odblokowuje_edycje_zamowienia(db):
     wystaw_wz_klienta("o1")
     anuluj_dokumenty_podzialu("o1")
 
+    # Zejście z 30 do 3 szt. wymaga najpierw zdjęcia palety z rozpisu —
+    # inaczej skaner załadowałby nadmiar (incydent ISSA 30.10.2026).
+    execute("DELETE FROM order_pallet_items WHERE order_line_id IN ('o1-l1','o1-l2')")
     update_order("o1", ClientOrderCreate.model_validate({
         "client_id": "c1", "order_date": "2026-09-08",
         "lines": [

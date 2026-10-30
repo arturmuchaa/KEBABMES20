@@ -171,6 +171,8 @@ def save_pallets(order_id: str, pallets: List[PalletDto]) -> List[Dict]:
                 raise HTTPException(400, f"Pozycje nie należą do zamówienia: {sorted(line_ids - valid)}")
 
         overflow_before = check_order_reservations_cx(conn, order_id)
+        from app.services import rozpis_palet_limit
+        nadmiar_palet_przed = rozpis_palet_limit.nadmiar_cx(conn, order_id)
         reserve_pallet_numbers_cx(conn, order_id)  # PRZED usunięciem, także ostatniej palety
         removed = [r["id"] for r in existing if r["id"] not in incoming]
         if removed and new:
@@ -214,6 +216,9 @@ def save_pallets(order_id: str, pallets: List[PalletDto]) -> List[Dict]:
                     (cuid(), pallet_id, it.order_line_id, it.qty),
                 )
         check_order_reservations_cx(conn, order_id, overflow_before)
+        # Limit „Pozostało" był tylko na ekranie biura — serwer pilnuje go zawsze.
+        rozpis_palet_limit.pilnuj_cx(conn, order_id, nadmiar_palet_przed,
+                                     "Nie można zapisać rozpisu palet")
 
     logger.info(
         "pallets.saved",
