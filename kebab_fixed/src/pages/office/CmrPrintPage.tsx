@@ -110,7 +110,7 @@ function CmrSheet({ doc, bg, pos, rowH }: { doc: any; bg: string; pos: CmrPositi
       <AddrBlock d={c} p={P('carrier')} gap={CMR_LINE_GAP} />
       <F l={P('carrierNip').x} t={P('carrierNip').y} w={13} s={P('carrierNip').size} {...ff('carrierNip')}>{c.nip}</F>
       <F l={P('carrierVat').x} t={P('carrierVat').y} w={13} s={P('carrierVat').size} {...ff('carrierVat')}>{c.vat_eu}</F>
-      <F l={P('carrierPlate').x} t={P('carrierPlate').y} w={22} s={P('carrierPlate').size} {...ff('carrierPlate')}>{c.plate || ''}</F>
+      <F l={P('carrierPlate').x} t={P('carrierPlate').y} w={22} s={P('carrierPlate').size} {...ff('carrierPlate')}>{c.name ? (c.plate || '') : ''}</F>
 
       <F l={P('establishedPlace').x} t={P('establishedPlace').y} w={14} s={P('establishedPlace').size} {...ff('establishedPlace')}>{p.established_place}</F>
       <F l={P('establishedDate').x} t={P('establishedDate').y} w={14} s={P('establishedDate').size} {...ff('establishedDate')}>{fmt(p.established_date)}</F>

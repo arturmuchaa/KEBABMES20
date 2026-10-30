@@ -950,6 +950,8 @@ def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
         if (dto.client_id or "") != (order.get("client_id") or ""):
             karton_link.refuse_if_linked_cartons_cx(conn, order_id, "Nie można zmienić klienta")
         overflow_before = karton_link.check_order_reservations_cx(conn, order_id)
+        from app.services import rozpis_palet_limit
+        nadmiar_palet_przed = rozpis_palet_limit.nadmiar_cx(conn, order_id)
 
         total_kg = sum(l.qty * l.kg_per_unit for l in dto.lines)
         total_units = sum(l.qty for l in dto.lines)
@@ -988,6 +990,10 @@ def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
         if (dto.client_id or "") != (order.get("client_id") or ""):
             moved += palety.attach_to_pool_cx(conn, order.get("client_id") or "", order_id)
         karton_link.check_order_reservations_cx(conn, order_id, overflow_before)
+        # Zmniejszenie pozycji poniżej rozpisu palet (incydent ISSA 30.10.2026):
+        # skaner ładuje z palet, więc nadmiar pojechałby do klienta.
+        rozpis_palet_limit.pilnuj_cx(conn, order_id, nadmiar_palet_przed,
+                                     "Nie można zmniejszyć pozycji poniżej rozpisu palet")
 
         updated = cx_query_one(
             conn, "SELECT * FROM client_orders WHERE id=%s", (order_id,)
