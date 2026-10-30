@@ -300,7 +300,7 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
                   {thSort('missing', 'Brak', 'num', 'Zamówiono − wydano − w magazynie (kg)')}
                   {thSort('pallets', 'Palety', 'r', 'Gotowe (spakowane lub dalej) / rozpisane')}
                   <th className="hide-m" data-tip={'Wystawione (pełne) i gotowe do wystawienia (obrys).\nDokumenty jeszcze niedostępne nie są pokazywane.'}>Dokumenty</th>
-                  <th style={{ width: 40 }}><span className="sr">Działania</span></th>
+                  <th className="side-hide" style={{ width: 40 }}><span className="sr">Działania</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -343,7 +343,7 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
                   <td>{view !== 'closed' && <CoverMeter ship={tot.kg ? tot.ship / tot.kg * 100 : 0} stock={tot.kg ? (tot.cov - tot.ship) / tot.kg * 100 : 0} />}</td>
                   <td className="num crit-ink">{tot.miss ? num(tot.miss) : '0'}</td>
                   <td className="num">{tot.pr}<span className="faint"> / {tot.pt}</span></td>
-                  <td className="hide-m" /><td />
+                  <td className="hide-m" /><td className="side-hide" />
                 </tr></tfoot>
               )}
             </table>
@@ -425,7 +425,7 @@ const OrderRow = React.memo(function OrderRow({ r, zebra, sel, checked, onClick,
           : <span className={m.dueDays !== null && m.dueDays <= 1 ? 'warn-ink strong' : 'faint'} data-tip="Palety nierozpisane">0</span>}
       </td>
       <td className="hide-m">{docs.length ? <span className="docs">{docs.map(d => <span key={d.kind} className={`doc ${docCls(d.state)}`} data-tip={`${DOC_NAME[d.kind]} — ${docWord(d.state)}${d.number ? `\n${d.number}` : ''}${d.note ? `\n${d.note}` : ''}`}>{d.kind}</span>)}</span> : <span className="faint">—</span>}</td>
-      <td onClick={e => e.stopPropagation()}><button className="btn ghost icon sm" style={{ width: 28, height: 26 }} aria-label={`Działania dla ${o.no}`} onClick={onMenu}><MoreHorizontal size={16} /></button></td>
+      <td className="side-hide" onClick={e => e.stopPropagation()}><button className="btn ghost icon sm" style={{ width: 28, height: 26 }} aria-label={`Działania dla ${o.no}`} onClick={onMenu}><MoreHorizontal size={16} /></button></td>
     </tr>
   )
 })
