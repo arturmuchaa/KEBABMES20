@@ -3049,8 +3049,8 @@ export const abpApi = {
 }
 
 export const hdiApi = {
-  generate: (orderId: string) =>
-    post<{ id: string; number: string; status: string; incomplete: boolean; totals: { qty: number; kg: number } }>(`/hdi/generate?order_id=${encodeURIComponent(orderId)}`, {}),
+  generate: (orderId: string, preliminary = false) =>
+    post<{ id: string; number: string; status: string; incomplete: boolean; totals: { qty: number; kg: number } }>(`/hdi/generate?order_id=${encodeURIComponent(orderId)}${preliminary ? '&preliminary=true' : ''}`, {}),
   /** HDI do RĘCZNEGO WZ — sprzedaż wyrobu z magazynu, bez zamówienia. */
   generateFromWz: (wzId: string) =>
     post<{ id: string; number: string; status: string; incomplete: boolean; totals: { qty: number; kg: number } }>(`/hdi/z-wz?wz_id=${encodeURIComponent(wzId)}`, {}),

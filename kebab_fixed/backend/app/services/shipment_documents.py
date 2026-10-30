@@ -3,6 +3,8 @@
 Explicit, request-local scope shared by the existing WM/WZ/HDI/CMR builders.
 It is never a replacement for the order: unshipped quantities stay ordered.
 The enclosing atomic operation keeps snapshot, documents and ledger together.
+Only explicitly requested preliminary HDI may use production/stock before the
+first loading. That exception lives in hdi_service, never in require_current.
 """
 import json
 from collections import defaultdict

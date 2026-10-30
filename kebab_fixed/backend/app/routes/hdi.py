@@ -13,13 +13,17 @@ router = APIRouter(prefix="/api/hdi", tags=["hdi"])
 
 
 @router.post("/generate")
-def generate(order_id: str = Query(...), scope: str = svc.ZAKRES_CALOSC):
+def generate(order_id: str = Query(...), scope: str = svc.ZAKRES_CALOSC,
+             preliminary: bool = False):
     """Wariant `calosc` (domyślny — zachowanie sprzed podziału) albo `fv`.
     Do części wydawanej na WZ HDI nie powstaje: `scope=wz` serwis odrzuca
     komunikatem tłumaczącym regułę.
 
+    `preliminary=true` — jawne HDI wstępne na całość przed skanowaniem,
+    bez wydania magazynowego. Domyślna ścieżka nadal wymaga załadunku.
+
     Gołe `"calosc"` zamiast `Query("calosc")` — patrz `routes/cmr.py`."""
-    return svc.generate_hdi(order_id, scope)
+    return svc.generate_hdi(order_id, scope, preliminary=preliminary)
 
 
 @router.post("/z-wz")

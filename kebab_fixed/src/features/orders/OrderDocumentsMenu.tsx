@@ -12,10 +12,11 @@ function openDocument(url: string) {
 
 export function OrderDocumentsMenu({ order, onCmr, onSplit }: { order: ClientOrder; onCmr: () => void; onSplit: () => void }) {
   const navigate = useNavigate()
-  async function hdi() {
+  const closed = order.status === 'done' || order.status === 'cancelled'
+  async function hdi(preliminary = false) {
     try {
-      const r = await hdiApi.generate(order.id)
-      if (r.incomplete) alert(`Uwaga: nie wszystkie sztuki z zamówienia zostały wyprodukowane.\nHDI ${r.number} wystawiono na stan faktyczny: ${r.totals?.qty ?? 0} szt. / ${(r.totals?.kg ?? 0).toFixed(0)} kg.`)
+      const r = await hdiApi.generate(order.id, preliminary)
+      if (r.incomplete) alert(`Uwaga: HDI nie obejmuje wszystkich sztuk z zamówienia.\nHDI ${r.number} wystawiono na ${preliminary ? 'zarejestrowaną produkcję i dostępny towar' : 'zeskanowany towar'}: ${r.totals?.qty ?? 0} szt. / ${(r.totals?.kg ?? 0).toFixed(0)} kg.`)
       openDocument(`/office/hdi/${r.id}/druk`)
     } catch (e) { alert(e instanceof Error ? e.message : 'Błąd generowania HDI') }
   }
@@ -25,7 +26,8 @@ export function OrderDocumentsMenu({ order, onCmr, onSplit }: { order: ClientOrd
       <DropdownMenuLabel>Dokumenty zamówienia</DropdownMenuLabel>
       <DropdownMenuItem onSelect={() => openDocument(`/office/zamowienia/${order.id}/druk`)}><Printer aria-hidden="true" />Drukuj zamówienie</DropdownMenuItem>
       <DropdownMenuItem onSelect={() => openDocument(`/office/zamowienia/${order.id}/druk?internal=1`)}><Printer aria-hidden="true" />Lista kompletacji (wewnętrzna)</DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => void hdi()}><FileText aria-hidden="true" />{order.status === 'done' || order.status === 'cancelled' ? 'Podgląd HDI (zamrożone)' : 'Generuj HDI'}</DropdownMenuItem>
+      {!closed && <DropdownMenuItem onSelect={() => void hdi(true)}><FileText aria-hidden="true" />HDI wstępne — przed załadunkiem</DropdownMenuItem>}
+      <DropdownMenuItem onSelect={() => void hdi()}><FileText aria-hidden="true" />{closed ? 'Podgląd HDI (zamrożone)' : 'HDI z załadunku'}</DropdownMenuItem>
       <DropdownMenuItem onSelect={() => navigate(`/office/wz/nowy?order=${order.id}`)}><Truck aria-hidden="true" />Wystaw WZ</DropdownMenuItem>
       <DropdownMenuItem onSelect={onCmr}><FileText aria-hidden="true" />Wystaw CMR</DropdownMenuItem>
       <DropdownMenuSeparator />
