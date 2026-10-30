@@ -27,12 +27,15 @@ const nazwy = vi.hoisted(() => ({
   receptura: (_c: unknown, rid: string | undefined, fb: string) => (rid === 'r-beyaz' ? 'BEYAZ' : fb),
 }))
 vi.mock('@/lib/clientNames', () => ({ useClientNames: () => nazwy.klient, useClientRecipeNames: () => nazwy.receptura }))
+// Rodzaje: „Nazwa na dokumentach” skraca KEBAB UDO 100% → KEBAB UDO.
+const typy = vi.hoisted(() => ({ list: vi.fn(() => Promise.resolve([{ id: 't1', name: 'KEBAB UDO 100%', documentName: 'KEBAB UDO' }])) }))
+vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), productTypesApi: typy }))
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn((s: string) => Promise.resolve(`data:image/png;base64,${btoa(s)}`)) } }))
 import { KartkiPaletDialog, zbudujKartki } from './KartkiPalet'
 
 const app = { toast: vi.fn() } as unknown as AppApi
 afterEach(cleanup)
-beforeEach(() => { window.print = vi.fn() })
+beforeEach(() => { window.print = vi.fn(); localStorage.clear() })
 
 describe('Kartki palet — treść', () => {
   it('jedna receptura → nagłówek; kilka → receptura przy pozycji; tuleja spoza 45–65 cm przy swojej pozycji; QR PAL|id|nr', () => {
@@ -45,6 +48,26 @@ describe('Kartki palet — treść', () => {
   })
 })
 
+describe('Kartki palet — nazwa i treść wybierane przy druku', () => {
+  const k = (opcje: Parameters<typeof zbudujKartki>[4]) => zbudujKartki(order, [1, 2], nazwy.klient, nazwy.receptura, { rodzajNa: n => (n === 'KEBAB UDO 100%' ? 'KEBAB UDO' : n), ...opcje })
+  it('domyślnie jak dotąd: nazwa z kartoteki i receptura', () => {
+    expect(k({})[0]).toMatchObject({ clientName: 'POLAT', recipeHeader: 'BEYAZ', mainLines: ['15 X 50KG'] })
+  })
+  it('własna nazwa klienta na kartce; pusta = z kartoteki', () => {
+    expect(k({ nazwa: '  POLAT WIEDEŃ ' })[0].clientName).toBe('POLAT WIEDEŃ')
+    expect(k({ nazwa: '   ' })[0].clientName).toBe('POLAT')
+  })
+  it('„Rodzaj” — nazwa rodzaju z dokumentów; „Rodzaj i receptura” — oba, bez powtórzeń', () => {
+    const rodzaj = k({ tryb: 'type' })
+    expect(rodzaj[0]).toMatchObject({ recipeHeader: 'KEBAB UDO', mainLines: ['15 X 50KG'] })
+    // Dwie receptury tego samego rodzaju → jeden nagłówek, pozycje same liczby.
+    expect(rodzaj[1].recipeHeader).toBe('KEBAB UDO')
+    const oba = k({ tryb: 'type_recipe' })
+    expect(oba[0].recipeHeader).toBe('KEBAB UDO BEYAZ')
+    expect(oba[1].mainLines).toEqual(expect.arrayContaining(['15 X 50KG KEBAB UDO BEYAZ', '20 X 20KG 80CM KEBAB UDO KIRMIZI']))
+  })
+})
+
 describe('Kartki palet — okno', () => {
   const mount = (p: Partial<React.ComponentProps<typeof KartkiPaletDialog>> = {}) =>
     render(<AppCtx.Provider value={app}><KartkiPaletDialog orderId="o1" onClose={vi.fn()} {...p} /></AppCtx.Provider>)
@@ -54,6 +77,22 @@ describe('Kartki palet — okno', () => {
     expect(screen.getByText(/Druk etykiet Zebra jest w próbie wyłączony/)).toBeTruthy()
     expect(screen.getAllByText('QR wyłączony w próbie')).toHaveLength(2)
     expect((screen.getByRole('button', { name: /Druk wyłączony w próbie/ }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('nazwa i „Pokaż” zmieniają podgląd od razu i zapamiętują się dla klienta', async () => {
+    const { unmount } = render(<AppCtx.Provider value={app}><KartkiPaletDialog orderId="o1" proba onClose={vi.fn()} /></AppCtx.Provider>)
+    const nazwa = screen.getByLabelText('Nazwa klienta na kartce') as HTMLInputElement
+    expect(nazwa.placeholder).toBe('POLAT')
+    fireEvent.change(nazwa, { target: { value: 'POLAT WIEN' } })
+    await waitFor(() => expect(within(screen.getByTestId('kartka-1')).getByText('POLAT WIEN')).toBeTruthy())
+    fireEvent.click(within(screen.getByRole('group', { name: 'Co pokazać na kartce' })).getByRole('button', { name: 'Rodzaj i receptura' }))
+    await waitFor(() => expect(within(screen.getByTestId('kartka-1')).getByText('KEBAB UDO BEYAZ')).toBeTruthy())
+    unmount()
+    // Ponowne otwarcie dla tego klienta — ostatni wybór zostaje.
+    render(<AppCtx.Provider value={app}><KartkiPaletDialog orderId="o1" proba onClose={vi.fn()} /></AppCtx.Provider>)
+    expect((screen.getByLabelText('Nazwa klienta na kartce') as HTMLInputElement).value).toBe('POLAT WIEN')
+    fireEvent.click(screen.getByRole('button', { name: 'Przywróć domyślne' }))
+    await waitFor(() => expect(within(screen.getByTestId('kartka-1')).getByText('BEYAZ')).toBeTruthy())
   })
 
   it('wybór palet: wskazane z zakładki Palety, przełączanie, liczba kartek = palety × 2', async () => {

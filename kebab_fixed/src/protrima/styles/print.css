@@ -103,3 +103,6 @@
   .print-sheet.kartki-print .kp-page { page: kartka; break-after: page; page-break-after: always; }
   .print-sheet.kartki-print .kp-page:last-child { break-after: auto; page-break-after: auto; }
 }
+.kp-tresc { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px 12px; margin-bottom: 8px; border-bottom: 1px solid var(--line-soft); }
+.kp-seg { flex-wrap: wrap; }
+.kp-seg button { white-space: nowrap; }
