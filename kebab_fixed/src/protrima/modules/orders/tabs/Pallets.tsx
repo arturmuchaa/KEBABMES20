@@ -269,7 +269,7 @@ export function RozpisDialog({ order, wolne, busy, blad, onClose, onSave, lineOf
             const pelna = p.items.length === 1 && p.szt === sztukNaPalete(lineOf(p.items[0].lineId)?.kgPerUnit ?? 0, nadpisz)
             return (
               <tr key={i} className="row"><td className="strong">{i + 1}.</td>
-                <td>{p.items.map(it => { const l = lineOf(it.lineId); return `${l?.recipe ?? ''} ${l?.kgPerUnit ?? ''} kg${l?.packaging ? ` (${l.packaging})` : ''} × ${it.qty}` }).join(' + ')}</td>
+                <td style={{ whiteSpace: 'normal' }}>{p.items.map(it => { const l = lineOf(it.lineId); return <div key={it.lineId}><b>{l?.recipe ?? ''} {l?.kgPerUnit ?? ''} kg</b> × {it.qty}{l?.packaging ? <span className="sub" style={{ display: 'inline', marginLeft: 6 }}>{l.packaging}</span> : null}</div> })}</td>
                 <td className="num">{p.szt}</td><td className="num">{kg(p.kg)}</td>
                 <td>{pelna ? <span className="tag ok">pełna</span> : p.mieszana ? <span className="tag warn">mieszana</span> : <span className="tag outline">z resztek</span>}</td></tr>
             )
