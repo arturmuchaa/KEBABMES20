@@ -176,8 +176,10 @@ def test_komplet_na_pelnym_pokryciu_nie_straszy(db):
 def test_komplet_buduje_oba_cmr_z_tego_samego_formularza(db):
     """Jeden kierowca, jedno auto, dwa listy — różni je WYŁĄCZNIE zakres."""
     _przygotuj_z_podzialem(cel_kg=300.0)
+    # Numer rejestracyjny idzie na CMR tylko z przewoźnikiem (biuro, 30.10.2026).
+    execute("INSERT INTO carriers (id, name) VALUES ('car-x','TRANS') ON CONFLICT (id) DO NOTHING")
     dane = route.wystaw_komplet(
-        "o1", route.KompletDokumentow(cmr=CmrForm(plate="KR 12345")))
+        "o1", route.KompletDokumentow(cmr=CmrForm(carrier_id="car-x", plate="KR 12345")))
     assert [c["scope"] for c in dane["cmr"]] == ["calosc", "fv"]
     assert all(c["payload"]["carrier"]["plate"] == "KR 12345" for c in dane["cmr"])
 
@@ -612,6 +614,9 @@ def test_anulowanie_kompletu_oddaje_zamowienie_do_edycji(db):
     route.anuluj_komplet("o1")
 
     assert query_one("SELECT status FROM client_orders WHERE id='o1'")["status"] == "confirmed"
+    # Zejście z 30 do 3 szt. wymaga najpierw zdjęcia palety z rozpisu —
+    # inaczej skaner załadowałby nadmiar (incydent ISSA 30.10.2026).
+    execute("DELETE FROM order_pallet_items WHERE order_line_id IN ('o1-l1','o1-l2')")
     update_order("o1", ClientOrderCreate.model_validate({
         "client_id": "c1", "order_date": "2026-09-08",
         "lines": [

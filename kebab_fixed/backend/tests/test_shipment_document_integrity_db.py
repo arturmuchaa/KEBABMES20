@@ -49,7 +49,10 @@ def test_explicit_cmr_transport_edit_keeps_shipment_quantities(db):
     kurs = finalize_loading("v1", ["o1"])["loading_id"]
     doc = issue(kurs, kg=1600)["cmr"][0]
     before = cmr_service.get_cmr(doc["id"])["payload"]
-    cmr_service.update_cmr(doc["id"], {"plate": "CORRECTED", "invoice_no": "FV/EXTERNAL", "goods_manual": []})
+    # Numer rejestracyjny idzie na CMR tylko z przewoźnikiem (biuro, 30.10.2026).
+    execute("INSERT INTO carriers (id, name) VALUES ('car-x','TRANS') ON CONFLICT (id) DO NOTHING")
+    cmr_service.update_cmr(doc["id"], {"carrier_id": "car-x", "plate": "CORRECTED",
+                                       "invoice_no": "FV/EXTERNAL", "goods_manual": []})
     after = cmr_service.get_cmr(doc["id"])["payload"]
     assert after["goods"] == before["goods"]
     assert after["gross_kg"] == 2400
