@@ -27,8 +27,8 @@ const jak = (cel: number, lines = ODP.lines) => ({ istnieje: true, kompletny: tr
 
 const app = { toast: vi.fn() } as unknown as AppApi
 const mount = () => render(<AppCtx.Provider value={app}><PodzialWysylki orderId="o1" orderNo="T/Z/1" clientName="T" kgCalosc={13005} active setCmds={() => {}} onDone={() => {}} /></AppCtx.Provider>)
-const wystawBtn = () => screen.getAllByRole('button', { name: /Wystaw komplet dokumentów/ }).at(-1) as HTMLButtonElement
-const zapiszBtn = () => screen.getAllByRole('button', { name: /Zapisz podział/ }).at(-1) as HTMLButtonElement
+const wystawBtn = () => screen.getAllByRole('button', { name: /Wystaw komplet dokumentów/ }).slice(-1)[0] as HTMLButtonElement
+const zapiszBtn = () => screen.getAllByRole('button', { name: /Zapisz podział/ }).slice(-1)[0] as HTMLButtonElement
 const cel = (v: string) => fireEvent.change(screen.getByLabelText('Na fakturę kg'), { target: { value: v } })
 afterEach(cleanup)
 beforeEach(() => { Object.values(api).forEach(f => f.mockReset()); api.saved.mockResolvedValue(BRAK); api.preview.mockResolvedValue(ODP); api.save.mockResolvedValue(jak(8000)); api.documents.mockResolvedValue({}); api.cancelDocuments.mockResolvedValue({ returned_qty: 12 }); zal.stan = { totals: { totalPallets: 2, loadedPallets: 0 } } })
