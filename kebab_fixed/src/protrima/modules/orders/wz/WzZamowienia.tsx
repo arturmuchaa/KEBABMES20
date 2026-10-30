@@ -13,7 +13,8 @@ import {
 } from './model'
 
 const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
-const zl = (n: number, cur: string) => `${new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)} ${cur === 'EUR' ? '€' : 'zł'}`
+// Spacja tysięcy także w liczbach 4-cyfrowych (pl-PL jej tam nie stawia) — „7 500,00” obok „15 000,00”.
+const zl = (n: number, cur: string) => `${new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n).replace(/^(-?\d)(\d{3})(?=,)/, '$1 $2')} ${cur === 'EUR' ? '€' : 'zł'}`
 
 /**
  * WZ z zamówienia — karta robocza. Pozycje: `wzApi.fromOrderPicks` (wiersze
