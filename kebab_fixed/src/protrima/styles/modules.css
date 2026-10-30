@@ -386,3 +386,25 @@ button.pstage:hover .pn { background: var(--accent-tint-2); }
 .doc-tile .dt-ico { grid-row: 1 / 3; width: 34px; height: 34px; border-radius: 6px; background: var(--accent-tint); color: var(--accent-ink); display: flex; align-items: center; justify-content: center; }
 .doc-tile .dt-t { font-weight: 600; color: var(--ink-1); }
 .doc-tile .dt-d { font-size: var(--fs-sm); color: var(--ink-3); }
+
+/* Formularz przyjęcia surowca */
+.note.ok { background: var(--ok-tint, var(--info-tint)); color: var(--ok-ink, var(--ink-2)); }
+.rec-form.drop { outline: 2px dashed var(--accent); outline-offset: -6px; }
+.rec-head { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.rec-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+.rec-fields .rec-sup, .rec-fields .rec-full { grid-column: 1 / -1; }
+.rec-no-v { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; font-size: var(--fs-lg, 16px); }
+.rec-hint { margin: 8px 0 0; font-size: var(--fs-sm); }
+.rec-service { display: flex; gap: 10px; align-items: flex-start; margin-top: 10px; padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 6px; cursor: pointer; }
+.rec-service.on { background: var(--warn-tint); border-color: var(--warn); }
+.rec-service .sub { display: block; }
+.rec-lines .field { min-width: 0; }
+.rec-lines .w-kg { width: 110px; }
+.rec-sum { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: flex-end; padding: 12px 14px; }
+.rec-sum .f { display: flex; flex-direction: column; }
+.rec-sum .k { color: var(--ink-3); font-size: var(--fs-sm); }
+.rec-sum .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.rec-sum .fld { width: 140px; }
+.rec-check { flex: 1; min-width: 240px; font-size: var(--fs-sm); }
+.workarea.side .rec-head, .rec-head { }
+@media (max-width: 1100px) { .rec-head { grid-template-columns: minmax(0, 1fr); } }
