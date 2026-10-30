@@ -153,7 +153,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const tot = visible.reduce((a, r) => ({ qty: a.qty + r.p.qty, kg: a.kg + posKg(r.p), free: a.free + (!r.p.orderNo && r.p.status !== 'blocked' ? posKg(r.p) : 0), alloc: a.alloc + (r.p.orderNo ? posKg(r.p) : 0), cart: a.cart + r.p.cartons.length }), { qty: 0, kg: 0, free: 0, alloc: 0, cart: 0 })
   useEffect(() => {
     if (!active) return
-    setCtx(<><span>Widoczne <b>{visible.length}</b> poz. · <b>{kg(tot.kg)}</b> · przydzielone <b>{kg(tot.alloc)}</b> · wolne <b>{kg(tot.free)}</b></span>
+    setCtx(<><span>Widoczne <b>{visible.length}</b> poz. · <b>{kg(tot.kg)}</b> · ze stemplem <b>{kg(tot.alloc)}</b> · bez stempla <b>{kg(tot.free)}</b></span>
       <span className="hint hide-m"><span className="kbd">↑</span><span className="kbd">↓</span> wybór <span className="kbd">Alt+1…5</span> zakładki</span></>)
   }, [active, visible.length, tot.kg, tot.alloc, tot.free, setCtx])
   useEffect(() => {
@@ -270,7 +270,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
                       {g.label && <tr className="grp"><td colSpan={COLS}><span className="gwrap">
                         <button onClick={() => setCollapsed(s => { const n = new Set(s); n.has(g.key) ? n.delete(g.key) : n.add(g.key); return n })} aria-expanded={!isCol}>{isCol ? <ChevronRight size={15} /> : <ChevronDown size={15} />}{g.label}</button>
                         <span className="gmeta">{g.rows.length} {g.rows.length === 1 ? 'partia' : 'partie'} · {num(gq.qty)} szt. · {kg(gq.kg)}</span>
-                        {gq.free > 0 ? <span className="gmeta accent-ink">wolne {gq.free} szt.</span> : gq.blk ? null : <span className="gmeta">wszystko przydzielone</span>}
+                        {gq.free > 0 ? <span className="gmeta accent-ink">wolne {gq.free} szt.</span> : gq.blk ? null : <span className="gmeta">wszystko ze stemplem</span>}
                         {gq.blk > 0 && <span className="gmeta crit-ink">zablokowane {gq.blk} szt.</span>}
                       </span></td></tr>}
                       {!isCol && g.rows.map((r, i) => <StockRow key={r.p.id} r={r} zebra={i % 2 === 1} sel={sel === r.p.id} checked={checked.has(r.p.id)}
@@ -282,7 +282,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
               {visible.length > 0 && <tfoot><tr>
                 <td className="cb" /><td className="al" /><td colSpan={2}>Razem — {visible.length} poz.</td><td className="hide-s" /><td /><td className="hide-m" />
                 <td className="num">{num(tot.qty)} <span className="sub">szt.</span></td><td className="num">{kg(tot.kg)}</td><td className="num hide-m">{tot.cart}</td>
-                <td colSpan={2}><span className="muted" style={{ fontWeight: 500 }}>przydzielone {kg(tot.alloc)} · wolne {kg(tot.free)}</span></td>
+                <td colSpan={2}><span className="muted" style={{ fontWeight: 500 }}>ze stemplem {kg(tot.alloc)} · bez stempla {kg(tot.free)}</span></td>
               </tr></tfoot>}
             </table>
           </div>
@@ -346,7 +346,7 @@ const StockRow = React.memo(function StockRow({ r, zebra, sel, checked, onClick,
       <td className="num"><b>{num(p.qty)}</b> <span className="sub">szt.</span></td>
       <td className="num">{kg(posKg(p))}</td>
       <td className="num hide-m">{p.cartons.length}</td>
-      <td>{order ? <button className="accent-ink" style={{ fontWeight: 500 }} onClick={e => { e.stopPropagation(); onOrder() }} data-tip={`${order.no} · ${order.client.name}\ntermin ${relDay(order.delivery)}`}>{order.no}<span className="sub">{order.client.name.split(' ')[0]}</span></button>
+      <td>{order ? <button className="accent-ink" style={{ fontWeight: 500 }} onClick={e => { e.stopPropagation(); onOrder() }} data-tip={`${order.no} · ${order.client.name}\nwyjazd ${relDay(order.delivery)}`}>{order.no}<span className="sub">{order.client.name.split(' ')[0]}</span></button>
         : p.orderNo ? <span data-tip="Zamówienie zamknięte albo spoza listy">{p.orderNo}<span className="sub">{p.clientName}</span></span>
         : p.status === 'blocked' ? <span className="faint">—</span> : <span className="muted">wolne</span>}</td>
       <td><span className={`pst ${p.status === 'pallet' ? 'packed' : p.status === 'blocked' ? 'created' : 'cold'}`}>{p.status === 'blocked' && <Lock size={13} />}{STOCK_STATUS[p.status]}{p.palletNo ? ` ${p.palletNo}` : ''}</span></td>
@@ -411,7 +411,7 @@ function StockDetail({ r, tab, onTab, maxed, onMax, onClose, candidates }: {
                 <dt>Numer</dt><dd className="code">{p.batch}</dd><dt>Produkcja</dt><dd className="num">{fmtDate(p.prodDate)}</dd><dt>Plan</dt><dd className="code">{p.planNo ?? '—'}</dd><dt>Partie masowania</dt><dd className="code">{p.seasonedBatches.join(', ') || '—'}</dd>
               </dl></div>
               <div className="box ov-card ov-notes"><h4>Przydział</h4>
-                {order && line ? <dl className="kv"><dt>Zamówienie</dt><dd className="strong">{order.no}</dd><dt>Klient</dt><dd>{order.client.name}</dd><dt>Pozycja</dt><dd>poz. {line.lp} · {line.qty} szt. zamówione</dd><dt>Termin</dt><dd>{relDay(order.delivery)}</dd></dl>
+                {order && line ? <dl className="kv"><dt>Zamówienie</dt><dd className="strong">{order.no}</dd><dt>Klient</dt><dd>{order.client.name}</dd><dt>Pozycja</dt><dd>poz. {line.lp} · {line.qty} szt. zamówione</dd><dt>Wyjazd</dt><dd>{relDay(order.delivery)}</dd></dl>
                   : p.orderNo ? <dl className="kv"><dt>Zamówienie</dt><dd className="strong">{p.orderNo}</dd><dt>Klient</dt><dd>{p.clientName ?? '—'}</dd></dl>
                   : <p className="muted">{p.status === 'blocked' ? 'Zablokowane — bez przydziału.' : candidates.length ? `Wolne. Pasuje do braków w ${candidates.length} ${candidates.length === 1 ? 'zamówieniu' : 'zamówieniach'} — zakładka Przydział.` : 'Wolne. Żadne otwarte zamówienie nie ma braku tego wyrobu.'}</p>}
               </div>
@@ -424,7 +424,7 @@ function StockDetail({ r, tab, onTab, maxed, onMax, onClose, candidates }: {
                 <Link2 size={22} color="var(--accent)" />
                 <div className="es-text">
                   <div className="strong">Stempel z produkcji: {order.no} · {order.client.name}</div>
-                  <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Poz. {line.lp}: {line.recipe} {line.kgPerUnit} kg · zamówiono {line.qty} szt. · w magazynie {line.stock} · brak {lineMissing(line)} · termin {relDay(order.delivery)}</div>
+                  <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Poz. {line.lp}: {line.recipe} {line.kgPerUnit} kg · zamówiono {line.qty} szt. · w magazynie {line.stock} · brak {lineMissing(line)} · wyjazd {relDay(order.delivery)}</div>
                 </div>
                 <button className="btn" onClick={() => app.gotoOrders({ select: order.id, tab: 'coverage', view: 'active' })}>Pokrycie zamówienia</button>
               </div>

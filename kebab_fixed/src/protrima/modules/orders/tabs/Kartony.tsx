@@ -52,7 +52,7 @@ export function KartonyZMagazynu({ order }: { order: Order }) {
   const wiersz = (c: StockCartonOption, akcja: React.ReactNode) => (
     <tr key={c.cartonId} className="row">
       <td className="code strong">{nr(c)}</td>
-      <td>{c.lines.map((l, i) => <div key={i}><b>{l.recipeName} {num(l.kgPerUnit)} kg</b> × {l.packedQty}<span className="sub" style={{ display: 'inline', marginLeft: 6 }}>{[l.productTypeName, l.packagingName].filter(Boolean).join(' · ')}</span></div>)}</td>
+      <td>{c.lines.map((l, i) => <div key={i}><b>{l.recipeName} {num(l.kgPerUnit)} kg</b> × {l.packedQty}{l.targetQty && l.targetQty !== l.packedQty ? <span className="muted"> (spakowano z {l.targetQty})</span> : null}<span className="sub" style={{ display: 'inline', marginLeft: 6 }}>{[l.productTypeName, l.packagingName].filter(Boolean).join(' · ')}</span></div>)}</td>
       <td className="num">{num(c.units)} szt.<span className="sub">{kg(masa(c))}</span></td>
       <td className="hide-m">{c.generic ? <span className="muted">na magazyn</span> : c.clientName}</td>
       <td>{stan(c)}</td>
