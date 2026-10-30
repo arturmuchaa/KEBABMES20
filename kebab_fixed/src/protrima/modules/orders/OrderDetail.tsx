@@ -1,8 +1,9 @@
 import React from 'react'
-import { X, ExternalLink, Maximize2, Minimize2, PanelRight, PanelBottom, FileText, Printer, Truck, Split, Copy, Ban, Boxes, CheckCheck, Pencil, List, ClipboardList, PackageCheck } from 'lucide-react'
+import { RotateCcw, Trash2, X, ExternalLink, Maximize2, Minimize2, PanelRight, PanelBottom, FileText, Printer, Truck, Split, Copy, Ban, Boxes, CheckCheck, Pencil, List, ClipboardList, PackageCheck } from 'lucide-react'
 import { useApp, type AppApi, type Cmd, type DetailTab } from '../../shell/context'
 import { computeMetrics, kg, num, pct, dueText, type Order } from '../../data/model'
 import { FAZA_ZAPISU } from '../../proba'
+import { dozwolone } from './akcje'
 import { OrderStatusLabel } from '../../ui/Glyphs'
 import { OverviewTab } from './tabs/Overview'
 import { LinesTab } from './tabs/Lines'
@@ -14,7 +15,7 @@ import { DocumentsTab } from './tabs/Documents'
 import { HistoryTab } from './tabs/History'
 
 /** Zakładki chowane w widoku prostym — dostępne po przełączeniu Widok → Widok prosty. */
-const TABS_PELNE: DetailTab[] = ['production', 'shipping', 'history']
+const TABS_PELNE: DetailTab[] = ['production', 'history']
 
 export const TAB_DEFS: Array<{ key: DetailTab; label: string }> = [
   { key: 'overview', label: 'Przegląd' },
@@ -31,14 +32,16 @@ export const TAB_DEFS: Array<{ key: DetailTab; label: string }> = [
  * Polecenia dla wybranego zamówienia — te same na pasku narzędzi listy,
  * w oknie zamówienia i w menu „Zamówienia". Bez wyboru są wyszarzone.
  */
-export function orderCommands(order: Order | null, app: AppApi, onTab: (t: DetailTab) => void, onConfirm: (o: Order) => void, onCancel?: () => void): Cmd[] {
+export type AkcjaZam = 'confirm' | 'done' | 'undo' | 'cancel' | 'delete'
+export function orderCommands(order: Order | null, app: AppApi, onTab: (t: DetailTab) => void, akcja: (r: AkcjaZam, o: Order) => void): Cmd[] {
   const none = !order
   const closed = !!order && (order.status === 'done' || order.status === 'cancelled')
+  const can = order ? dozwolone(order) : null
   const demo = (t: string, d = FAZA_ZAPISU) => app.toast({ kind: 'info', title: t, detail: d })
   return [
-    { id: 'edit', group: 2, label: 'Edytuj', icon: <Pencil size={17} />, kbd: 'F2', disabled: none || closed, tip: closed ? 'Zamówienie zamknięte' : undefined, run: () => onTab('lines') },
-    { id: 'duplicate', group: 2, label: 'Duplikuj', icon: <Copy size={17} />, kbd: 'Ctrl+D', opt: true, disabled: none, run: () => app.newOrder() },
-    { id: 'confirm', group: 2, label: 'Potwierdź', icon: <CheckCheck size={17} />, opt: true, disabled: none || order!.status !== 'draft', tip: order && order.status !== 'draft' ? 'Dotyczy tylko szkiców' : undefined, run: () => order && onConfirm(order) },
+    { id: 'edit', group: 2, label: 'Edytuj', icon: <Pencil size={17} />, kbd: 'F2', disabled: none || !can?.delete, tip: order && !can?.delete ? 'Edytować można szkic albo potwierdzone' : undefined, run: () => order && app.editOrder(order.id) },
+    { id: 'duplicate', group: 2, label: 'Duplikuj', icon: <Copy size={17} />, kbd: 'Ctrl+D', opt: true, disabled: none, run: () => order && app.copyOrder(order.id) },
+    { id: 'confirm', group: 2, label: 'Potwierdź', icon: <CheckCheck size={17} />, opt: true, disabled: !can?.confirm, tip: order && !can?.confirm ? 'Dotyczy tylko szkiców' : undefined, run: () => order && akcja('confirm', order) },
     { id: 'pallets', group: 3, label: 'Palety', icon: <Boxes size={17} />, disabled: none || order!.status === 'draft', run: () => onTab('pallets') },
     { id: 'shipping', group: 3, label: 'Wysyłka', icon: <Truck size={17} />, disabled: none || order!.status === 'draft', run: () => onTab('shipping') },
     { id: 'docs', group: 3, label: 'Dokumenty', icon: <FileText size={17} />, disabled: none, menu: [
@@ -55,7 +58,10 @@ export function orderCommands(order: Order | null, app: AppApi, onTab: (t: Detai
       { label: 'Kartki palet', icon: <Boxes size={15} />, onSelect: () => demo('Kartki palet', 'Wydruki zamówień przeniesiemy w fazie 3. Teraz: stary MES na tej samej kopii.'), disabled: !order?.pallets.length },
     ] },
     { id: 'stock', group: 4, label: 'Wyrób w magazynie', icon: <PackageCheck size={17} />, opt: true, disabled: none, tip: 'Pozycje magazynowe przydzielone do zamówienia', run: () => app.gotoStock(order?.id) },
-    { id: 'cancel', group: 9, label: 'Anuluj zamówienie…', icon: <Ban size={15} />, menuOnly: true, danger: true, disabled: none || closed || !onCancel, run: onCancel },
+    { id: 'done', group: 8, label: 'Oznacz jako zrealizowane…', icon: <PackageCheck size={15} />, menuOnly: true, disabled: !can?.done, run: () => order && akcja('done', order) },
+    { id: 'undo', group: 8, label: 'Cofnij realizację…', icon: <RotateCcw size={15} />, menuOnly: true, disabled: !can?.undo, run: () => order && akcja('undo', order) },
+    { id: 'cancel', group: 9, label: 'Anuluj zamówienie…', icon: <Ban size={15} />, menuOnly: true, danger: true, disabled: !can?.cancel, run: () => order && akcja('cancel', order) },
+    { id: 'delete', group: 9, label: 'Usuń zamówienie…', icon: <Trash2 size={15} />, menuOnly: true, danger: true, disabled: !can?.delete, run: () => order && akcja('delete', order) },
   ]
 }
 
@@ -136,10 +142,4 @@ export function OrderDetail({ order, tab, onTab, mode, maxed, onMax, onClose, on
       </div>
     </>
   )
-}
-
-/** Potwierdzenie szkicu — wspólne dla listy i okna zamówienia. */
-export function useConfirmOrder() {
-  const app = useApp()
-  return (o: Order) => app.toast({ kind: 'info', title: `Potwierdzenie ${o.no}`, detail: FAZA_ZAPISU })
 }

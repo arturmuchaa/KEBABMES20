@@ -3,7 +3,8 @@ import { Ban } from 'lucide-react'
 import { useOrders } from '../../data/store'
 import { computeMetrics, kg, type Order } from '../../data/model'
 import { useApp, CommandBar, Dialog, type Cmd, type DetailTab } from '../../shell/context'
-import { OrderDetail, TAB_DEFS, orderCommands, useConfirmOrder } from './OrderDetail'
+import { OrderDetail, TAB_DEFS, orderCommands } from './OrderDetail'
+import { useOrderActions } from './akcje'
 import { FAZA_ZAPISU } from '../../proba'
 
 /** Zamówienie otwarte w osobnym oknie — ten sam panel co pod listą, na całą wysokość, z tym samym paskiem narzędzi. */
@@ -12,10 +13,9 @@ export function OrderTab({ orderId, active, setCtx, setCmds }: { orderId: string
   const { byId } = useOrders()
   const order = byId(orderId)
   const [tab, setTab] = useState<DetailTab>('overview')
-  const [cancelOpen, setCancelOpen] = useState(false)
-  const confirmOrder = useConfirmOrder()
+  const akcje = useOrderActions()
 
-  const cmds = useMemo<Cmd[]>(() => order ? orderCommands(order, app, setTab, confirmOrder, () => setCancelOpen(true)) : [], [order, app, confirmOrder])
+  const cmds = useMemo<Cmd[]>(() => order ? orderCommands(order, app, setTab, akcje.zapytaj) : [], [order, app, akcje.zapytaj])
   useEffect(() => { setCmds(cmds) }, [cmds, setCmds])
   useEffect(() => {
     if (!active) return
@@ -35,22 +35,8 @@ export function OrderTab({ orderId, active, setCtx, setCmds }: { orderId: string
   return (
     <>
       <CommandBar title={order.no} count={order.client.name} cmds={cmds} right={<button className="btn ghost" onClick={() => app.gotoOrders({ select: order.id, tab, view: order.status === 'done' || order.status === 'cancelled' ? 'closed' : 'active' })}>Pokaż na liście</button>} />
-      <div className="dock" style={{ flex: 1 }}><OrderDetail order={order} tab={tab} onTab={setTab} mode="page" onConfirm={confirmOrder} /></div>
-      {cancelOpen && <CancelSimple order={order} onClose={() => setCancelOpen(false)} onConfirm={() => { setCancelOpen(false); app.toast({ kind: 'info', title: 'Anulowanie zamówienia', detail: FAZA_ZAPISU }) }} />}
+      <div className="dock" style={{ flex: 1 }}><OrderDetail order={order} tab={tab} onTab={setTab} mode="page" onConfirm={o => akcje.zapytaj('confirm', o)} /></div>
+      {akcje.dialog}
     </>
-  )
-}
-
-function CancelSimple({ order, onClose, onConfirm }: { order: Order; onClose: () => void; onConfirm: (r: string) => void }) {
-  const [reason, setReason] = useState('')
-  return (
-    <Dialog title={`Anulować ${order.no}?`} icon={<Ban size={20} color="var(--crit)" />} onClose={onClose}
-      footer={<><button className="btn" onClick={onClose} data-autofocus>Wróć</button><button className="btn primary" style={{ background: 'var(--crit)', borderColor: 'var(--crit)' }} disabled={!reason} onClick={() => onConfirm(reason)}>Anuluj zamówienie</button></>}>
-      <p>Przydzielony wyrób wróci do puli wolnej, numery palet zostaną zablokowane, historia zostaje.</p>
-      <label className="label" htmlFor={`cr-${order.id}`}>Powód anulowania</label>
-      <select id={`cr-${order.id}`} className="field" value={reason} onChange={e => setReason(e.target.value)}>
-        <option value="">Wybierz powód…</option><option>Rezygnacja klienta</option><option>Zamówienie zdublowane</option><option>Zmiana na inne zamówienie</option>
-      </select>
-    </Dialog>
   )
 }

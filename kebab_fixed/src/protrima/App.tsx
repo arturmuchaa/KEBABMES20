@@ -11,6 +11,7 @@ import { OrdersModule } from './modules/orders/OrdersModule'
 import { OrderTab } from './modules/orders/OrderTab'
 import { FinishedGoods } from './modules/stock/FinishedGoods'
 import { PrzyjeciaModule } from './modules/przyjecia/PrzyjeciaModule'
+import { OrderEditor } from './modules/orders/edytor/OrderEditor'
 import { Placeholder } from './modules/misc/Placeholder'
 import { DesignSystem } from './modules/misc/DesignSystem'
 import { Logo } from './brand/Logo'
@@ -143,10 +144,17 @@ function Shell() {
     if (!o) return
     openTab({ id: `order:${id}`, kind: 'order', key: id, title: o.no, icon: ShoppingCart })
   }, [orders, openTab])
-  // Nowe zamówienie zapisuje dane — w próbie od fazy 3.
-  const newOrder = useCallback(() => {
-    toastRef.current?.({ kind: 'info', title: 'Nowe zamówienie', detail: FAZA_ZAPISU })
-  }, [])
+  // Edytor zamówienia w karcie roboczej: nowe (new:N), kopia (new:N z copy), edycja (edit:<id>).
+  const newSeq = useRef(0)
+  const newOrder = useCallback((copyFrom?: string) => {
+    newSeq.current += 1
+    openTab({ id: `new:${newSeq.current}`, kind: 'new-order', key: copyFrom ?? '', title: copyFrom ? 'Kopia zamówienia' : 'Nowe zamówienie', icon: FilePlus2 })
+  }, [openTab])
+  const editOrder = useCallback((id: string) => {
+    const o = orders.find(x => x.id === id)
+    openTab({ id: `edit:${id}`, kind: 'edit-order', key: id, title: `Edycja ${o?.no ?? ''}`, icon: FilePlus2 })
+  }, [orders, openTab])
+  const copyOrder = useCallback((id: string) => newOrder(id), [newOrder])
   const gotoOrders = useCallback((cmd: Omit<OrdersCmd, 'n'> = {}) => {
     openModule('zamowienia')
     setOrdersCmd({ ...cmd, n: Date.now() })
@@ -214,10 +222,10 @@ function Shell() {
   const cmdsFor = (id: string) => (cmdSetters.current[id] ??= (c: Cmd[]) => setTabCmds(id, c))
 
   const api = useMemo<AppApi>(() => ({
-    openOrder, gotoOrders, gotoStock, openModule, newOrder, toast,
+    openOrder, gotoOrders, gotoStock, openModule, newOrder: () => newOrder(), editOrder, copyOrder, toast,
     setStatusCtx: () => undefined,
     appRef, scale: vp.scale, prosty, panel, panelWybor, setPanel,
-  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, toast, vp.scale, prosty, panel, panelWybor, setPanel])
+  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, editOrder, copyOrder, toast, vp.scale, prosty, panel, panelWybor, setPanel])
 
   const badges = useMemo(() => {
     const problem = orders.filter(o => { const m = computeMetrics(o); return m.level === 'crit' || m.level === 'warn' }).length
@@ -344,13 +352,16 @@ function Shell() {
     ] },
   ]
 
-  const currentKey = activeTab.kind === 'module' ? activeTab.key : activeTab.kind === 'order' || activeTab.kind === 'new-order' ? 'zamowienia' : ''
+  const currentKey = activeTab.kind === 'module' ? activeTab.key : activeTab.kind === 'order' || activeTab.kind === 'new-order' || activeTab.kind === 'edit-order' ? 'zamowienia' : ''
 
   const renderTab = (t: WTab) => {
     const setTabCtx = ctxFor(t.id)
     const setCmds = cmdsFor(t.id)
     const isActive = t.id === active
     if (t.kind === 'order') return <OrderTab orderId={t.key} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
+    if (t.kind === 'new-order' || t.kind === 'edit-order') return <OrderEditor tabId={t.id} active={isActive} setCmds={setCmds}
+      orderId={t.kind === 'edit-order' ? t.key : undefined} copyFromId={t.kind === 'new-order' && t.key ? t.key : undefined}
+      onDone={(id) => { closeTab(t.id); if (id) gotoOrders({ select: id, tab: 'lines', view: 'active' }) }} />
     if (t.key === 'pulpit') return <Dashboard active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'zamowienia') return <OrdersModule cmd={ordersCmd} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'magazyn-wg') return <FinishedGoods cmd={stockCmd} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />

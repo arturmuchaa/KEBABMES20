@@ -14,6 +14,10 @@ export interface AppApi {
   gotoStock(select?: string): void
   openModule(key: string): void
   newOrder(): void
+  /** Edycja zamówienia w karcie roboczej. */
+  editOrder(id: string): void
+  /** Nowe zamówienie z pozycjami skopiowanymi z istniejącego. */
+  copyOrder(id: string): void
   toast(t: Omit<Toast, 'id'>): void
   setStatusCtx(node: React.ReactNode): void
   appRef: React.RefObject<HTMLDivElement>

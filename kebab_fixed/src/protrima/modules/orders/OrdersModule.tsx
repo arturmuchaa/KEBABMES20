@@ -11,7 +11,8 @@ import {
 } from '../../data/model'
 import { FlagIcon, OrderStatusLabel } from '../../ui/Glyphs'
 import { CoverMeter, ProdMeter } from '../../ui/Meters'
-import { OrderDetail, orderCommands, useConfirmOrder } from './OrderDetail'
+import { OrderDetail, orderCommands } from './OrderDetail'
+import { useOrderActions, dozwolone } from './akcje'
 import { FAZA_ZAPISU } from '../../proba'
 import { useDock } from '../../shell/useDock'
 
@@ -34,7 +35,8 @@ const ALL_TABS: DetailTab[] = ['overview', 'lines', 'production', 'coverage', 'p
 export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd; active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void }) {
   const app = useApp()
   const { orders } = useOrders()
-  const confirmOrder = useConfirmOrder()
+  const akcje = useOrderActions()
+  const confirmOrder = useCallback((o: Order) => akcje.zapytaj('confirm', o), [akcje])
   const rows = useMemo<Row[]>(() => orders.map(o => ({ o, m: computeMetrics(o) })), [orders])
 
   const [view, setView] = useState<ViewKey>('active')
@@ -51,7 +53,6 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
   const [tab, setTab] = useState<DetailTab>('overview')
   const [maxed, setMaxed] = useState(false)
   const [reqOpen, setReqOpen] = useState(false)
-  const [cancelId, setCancelId] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const workRef = useRef<HTMLDivElement>(null)
@@ -153,7 +154,7 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
     else if (e.key === ' ' && sel) { e.preventDefault(); toggleCheck(sel) }
     else if (e.key === 'Enter' && sel) { e.preventDefault(); app.openOrder(sel) }
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'a') { e.preventDefault(); setChecked(new Set(flat.map(r => r.o.id))) }
-    else if (e.key === 'F2' && sel) { e.preventDefault(); setTab('lines') }
+    else if (e.key === 'F2' && sel) { e.preventDefault(); const o = rows.find(x => x.o.id === sel)?.o; if (o && dozwolone(o).delete) app.editOrder(sel) }
   }
 
   // Skróty modułu
@@ -190,14 +191,19 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
     return [
       { header: r.o.no },
       { label: 'Otwórz w osobnej karcie', icon: <ExternalLink size={15} />, kbd: 'Enter', onSelect: () => app.openOrder(id) },
-      { label: 'Edytuj pozycje', icon: <Pencil size={15} />, kbd: 'F2', onSelect: () => { select(id); setTab('lines') } },
+      { label: 'Edytuj zamówienie', icon: <Pencil size={15} />, kbd: 'F2', disabled: !dozwolone(r.o).delete, onSelect: () => app.editOrder(id) },
       { label: 'Palety i kartony', icon: <Boxes size={15} />, onSelect: () => { select(id); setTab('pallets') } },
       { label: 'Dokumenty', icon: <FileText size={15} />, onSelect: () => { select(id); setTab('documents') } },
       { sep: true },
       { label: 'Podziel wysyłkę na fakturę i WZ', icon: <Split size={15} />, onSelect: () => app.toast({ kind: 'info', title: 'Podział wysyłki', detail: FAZA_ZAPISU }) },
-      { label: 'Duplikuj jako nowe zamówienie', icon: <Copy size={15} />, onSelect: () => app.newOrder() },
+      { label: 'Duplikuj jako nowe zamówienie', icon: <Copy size={15} />, onSelect: () => app.copyOrder(id) },
       { sep: true },
-      { label: 'Anuluj zamówienie…', icon: <Ban size={15} />, danger: true, onSelect: () => setCancelId(id) },
+      { label: 'Potwierdź', icon: <Pencil size={15} />, disabled: !dozwolone(r.o).confirm, onSelect: () => akcje.zapytaj('confirm', r.o) },
+      { label: 'Oznacz jako zrealizowane…', disabled: !dozwolone(r.o).done, onSelect: () => akcje.zapytaj('done', r.o) },
+      { label: 'Cofnij realizację…', disabled: !dozwolone(r.o).undo, onSelect: () => akcje.zapytaj('undo', r.o) },
+      { sep: true },
+      { label: 'Anuluj zamówienie…', icon: <Ban size={15} />, danger: true, disabled: !dozwolone(r.o).cancel, onSelect: () => akcje.zapytaj('cancel', r.o) },
+      { label: 'Usuń zamówienie…', danger: true, disabled: !dozwolone(r.o).delete, onSelect: () => akcje.zapytaj('delete', r.o) },
     ]
   }
 
@@ -219,10 +225,10 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
   const cmds = useMemo<Cmd[]>(() => [
     { id: 'new', group: 1, label: 'Nowe zamówienie', icon: <Plus size={15} />, kbd: 'Ctrl+N', menuOnly: true, run: app.newOrder },
     { id: 'import', group: 1, label: 'Importuj z pliku CSV…', icon: <Upload size={15} />, menuOnly: true, run: () => app.toast({ kind: 'info', title: 'Import zamówień z pliku CSV', detail: FAZA_ZAPISU }) },
-    ...orderCommands(selOrder, app, t => setTab(t), confirmOrder, selOrder ? () => setCancelId(selOrder.id) : undefined),
+    ...orderCommands(selOrder, app, t => setTab(t), akcje.zapytaj),
     { id: 'req', group: 5, label: 'Zapotrzebowanie', icon: <Calculator size={17} />, opt: true, tip: 'Zapotrzebowanie na masowanie — dla zaznaczonych albo wybranego', disabled: !checked.size && !selOrder, run: () => setReqOpen(true) },
     { id: 'export', group: 5, label: 'Eksport do Excela', icon: <FileSpreadsheet size={15} />, menuOnly: true, tip: 'Eksport widocznych wierszy do Excela', run: () => app.toast({ kind: 'info', title: 'Eksport do Excela', detail: 'Eksport dojdzie po próbie wyglądu. Teraz: stary MES.' }) },
-  ], [app, selOrder, checked.size, confirmOrder])
+  ], [app, selOrder, checked.size, akcje.zapytaj])
   useEffect(() => { setCmds(cmds) }, [cmds, setCmds])
 
   const tot = visible.reduce((a, r) => ({ kg: a.kg + r.m.orderedKg, prod: a.prod + r.m.producedKg, cov: a.cov + r.m.coveredKg, ship: a.ship + r.m.deliveredKg, miss: a.miss + (isClosed(r.o) ? 0 : r.m.missingKg), lines: a.lines + r.o.lines.length, pr: a.pr + r.m.palletsReady, pt: a.pt + r.m.palletsTotal }), { kg: 0, prod: 0, cov: 0, ship: 0, miss: 0, lines: 0, pr: 0, pt: 0 })
@@ -370,11 +376,7 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
       {rowMenu.anchor && rowMenuId && <Menu anchor={rowMenu.anchor} align="right" onClose={rowMenu.close} items={rowActions(rowMenuId)} />}
 
       {reqOpen && <RequirementsDialog rows={checkedRows.length ? checkedRows : selRow ? [selRow] : []} onClose={() => setReqOpen(false)} />}
-      {cancelId && <CancelDialog order={rows.find(r => r.o.id === cancelId)!} onClose={() => setCancelId(null)} onConfirm={(reason) => {
-        void reason
-        app.toast({ kind: 'info', title: 'Anulowanie zamówienia', detail: FAZA_ZAPISU })
-        setCancelId(null)
-      }} />}
+      {akcje.dialog}
     </>
   )
 }
@@ -459,37 +461,6 @@ function RequirementsDialog({ rows, onClose }: { rows: Row[]; onClose: () => voi
         </table>
       </div>
       <div className="note info">Mięso zaokrąglamy w górę po zsumowaniu pozycji każdej receptury. Suma to suma zaokrąglonych receptur — jak w obecnym KEBABMES20.{skipped > 0 && ` Pominięto ${skipped} szkice lub zamknięte zamówienia.`}</div>
-    </Dialog>
-  )
-}
-
-// ─── Anulowanie: skutki widoczne przed potwierdzeniem ─────────────────────
-function CancelDialog({ order, onClose, onConfirm }: { order: Row; onClose: () => void; onConfirm: (reason: string) => void }) {
-  const [reason, setReason] = useState('')
-  const [touched, setTouched] = useState(false)
-  const { o, m } = order
-  const err = touched && !reason
-  return (
-    <Dialog title={`Anulować ${o.no}?`} icon={<Ban size={20} color="var(--crit)" />} onClose={onClose}
-      footer={<><button className="btn" onClick={onClose} data-autofocus>Wróć</button>
-        <button className="btn primary" style={{ background: 'var(--crit)', borderColor: 'var(--crit)' }} onClick={() => { setTouched(true); if (reason) onConfirm(reason) }}>Anuluj zamówienie</button></>}>
-      <p>{o.client.name} · {kg(m.orderedKg)} · {o.lines.length} poz.</p>
-      <div className="note warn"><FlagIcon level="warn" size={16} /><div>
-        <b>Co się stanie:</b> zamówienie zniknie z planowania i z listy aktywnych.
-        {m.stockKg > 0 && <> Przydzielony wyrób ({kg(m.stockKg)}) wróci do puli wolnej w magazynie.</>}
-        {m.palletsTotal > 0 && <> Palety ({m.palletsTotal}) i numery kartonów zostaną zablokowane — nie będą użyte ponownie.</>}
-        {m.deliveredKg > 0 && <> Wydane już {kg(m.deliveredKg)} zostaje na WZ.</>}
-        {' '}Historia zamówienia zostaje zachowana.
-      </div></div>
-      <label className="label" htmlFor="cancel-reason">Powód anulowania</label>
-      <select id="cancel-reason" className={`field${err ? ' invalid' : ''}`} value={reason} onChange={e => setReason(e.target.value)} aria-invalid={err} aria-describedby={err ? 'cancel-err' : undefined}>
-        <option value="">Wybierz powód…</option>
-        <option>Rezygnacja klienta</option>
-        <option>Zamówienie zdublowane</option>
-        <option>Zmiana na inne zamówienie</option>
-        <option>Brak możliwości realizacji w terminie</option>
-      </select>
-      {err && <span id="cancel-err" className="crit-ink" style={{ fontSize: 'var(--fs-sm)' }}>Wybierz powód — trafi do historii zamówienia.</span>}
     </Dialog>
   )
 }

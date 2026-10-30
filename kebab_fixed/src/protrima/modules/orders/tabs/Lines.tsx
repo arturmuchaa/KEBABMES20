@@ -18,11 +18,8 @@ export function LinesTab({ order }: { order: Order }) {
   const closed = order.status === 'done' || order.status === 'cancelled'
 
   useEffect(() => { setEdit(false); setDraft({}) }, [order.id])
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => { if (e.key === 'F2' && !closed && !document.querySelector('.dialog-wrap') && boxRef.current?.offsetParent) { e.preventDefault(); setEdit(true) } }
-    window.addEventListener('keydown', key)
-    return () => window.removeEventListener('keydown', key)
-  }, [closed])
+  // Edycja pozycji: jeden edytor zamówienia (karta robocza), nie osobna edycja w tabeli.
+  const editable = order.status === 'draft' || order.status === 'confirmed'
 
   const packedOf = (lineId: string) => order.pallets.filter(p => p.status !== 'created')
     .reduce((a, p) => a + p.items.filter(it => it.lineId === lineId).reduce((b, it) => b + it.qty, 0), 0)
@@ -63,8 +60,8 @@ export function LinesTab({ order }: { order: Order }) {
             <button className="btn" onClick={() => { setEdit(false); setDraft({}) }}><X size={15} />Anuluj<span className="kbd">Esc</span></button>
             <button className="btn primary" onClick={save} disabled={hasErr}><Save size={15} />Zapisz zmiany</button>
           </> : <>
-            <button className="btn" disabled={closed} onClick={() => app.toast({ kind: 'info', title: 'Dodawanie pozycji', detail: FAZA_ZAPISU })}><Plus size={15} />Dodaj pozycję</button>
-            <button className="btn" disabled={closed} onClick={() => setEdit(true)}><Pencil size={15} />Edytuj ilości<span className="kbd">F2</span></button>
+            <button className="btn" disabled={!editable} onClick={() => app.editOrder(order.id)} data-tip={editable ? undefined : 'Edytować można szkic albo potwierdzone'}><Plus size={15} />Dodaj pozycję</button>
+            <button className="btn primary" disabled={!editable} onClick={() => app.editOrder(order.id)}><Pencil size={15} />Edytuj zamówienie<span className="kbd">F2</span></button>
           </>}
         </div>
       </div>
