@@ -1,5 +1,5 @@
 import React from 'react'
-import { X, ExternalLink, Maximize2, Minimize2, FileText, Printer, Truck, Split, Copy, Ban, Boxes, CheckCheck, Pencil, List, ClipboardList, PackageCheck } from 'lucide-react'
+import { X, ExternalLink, Maximize2, Minimize2, PanelRight, PanelBottom, FileText, Printer, Truck, Split, Copy, Ban, Boxes, CheckCheck, Pencil, List, ClipboardList, PackageCheck } from 'lucide-react'
 import { useApp, type AppApi, type Cmd, type DetailTab } from '../../shell/context'
 import { computeMetrics, kg, num, pct, dueText, type Order } from '../../data/model'
 import { FAZA_ZAPISU } from '../../proba'
@@ -12,6 +12,9 @@ import { PalletsTab } from './tabs/Pallets'
 import { ShippingTab } from './tabs/Shipping'
 import { DocumentsTab } from './tabs/Documents'
 import { HistoryTab } from './tabs/History'
+
+/** Zakładki chowane w widoku prostym — dostępne po przełączeniu Widok → Widok prosty. */
+const TABS_PELNE: DetailTab[] = ['production', 'shipping', 'history']
 
 export const TAB_DEFS: Array<{ key: DetailTab; label: string }> = [
   { key: 'overview', label: 'Przegląd' },
@@ -107,6 +110,7 @@ export function OrderDetail({ order, tab, onTab, mode, maxed, onMax, onClose, on
           {primary}
           {mode === 'dock' && <>
             <span style={{ width: 1, height: 22, background: 'var(--line)', margin: '0 4px' }} />
+            <button className="btn ghost icon" onClick={() => app.setPanel(app.panel === 'bok' ? 'dol' : 'bok')} aria-label={app.panel === 'bok' ? 'Panel na dole' : 'Panel z boku'} data-tip={app.panel === 'bok' ? 'Przenieś panel na dół' : 'Przenieś panel na bok'}>{app.panel === 'bok' ? <PanelBottom size={16} /> : <PanelRight size={16} />}</button>
             <button className="btn ghost icon" onClick={() => app.openOrder(order.id)} aria-label="Otwórz w osobnym oknie" data-tip="Otwórz w osobnym oknie (Enter)"><ExternalLink size={16} /></button>
             <button className="btn ghost icon" onClick={onMax} aria-label={maxed ? 'Przywróć panel' : 'Powiększ panel'} data-tip={maxed ? 'Przywróć' : 'Powiększ panel'}>{maxed ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
             <button className="btn ghost icon" onClick={onClose} aria-label="Zamknij panel (Esc)" data-tip="Zamknij panel (Esc)"><X size={17} /></button>
@@ -114,7 +118,7 @@ export function OrderDetail({ order, tab, onTab, mode, maxed, onMax, onClose, on
         </div>
       </div>
       <div className="dock-tabs" role="tablist" aria-label="Zakładki zamówienia">
-        {TAB_DEFS.map((t, i) => (
+        {TAB_DEFS.filter(t => !app.prosty || !TABS_PELNE.includes(t.key) || t.key === tab).map((t, i) => (
           <button key={t.key} role="tab" aria-selected={tab === t.key} className="dock-tab" onClick={() => onTab(t.key)} data-tip={`Alt+${i + 1}`}>
             {t.label}{counts[t.key]}
           </button>

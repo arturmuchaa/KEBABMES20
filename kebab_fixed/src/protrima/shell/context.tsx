@@ -18,7 +18,14 @@ export interface AppApi {
   setStatusCtx(node: React.ReactNode): void
   appRef: React.RefObject<HTMLDivElement>
   scale: number
+  /** Widok prosty: mniej przycisków, kolumn i zakładek (domyślny). */
+  prosty: boolean
+  /** Gdzie stoi panel szczegółów pod listą: na dole albo z boku (po rozstrzygnięciu „automatycznie”). */
+  panel: 'dol' | 'bok'
+  panelWybor: PanelWybor
+  setPanel(p: PanelWybor): void
 }
+export type PanelWybor = 'auto' | 'dol' | 'bok'
 
 export const AppCtx = createContext<AppApi>(null as unknown as AppApi)
 export const useApp = () => useContext(AppCtx)
@@ -202,7 +209,9 @@ export interface Cmd {
 
 export function CommandBar({ title, count, icon, cmds, right }: { title: string; count?: React.ReactNode; icon?: React.ReactNode; cmds: Cmd[]; right?: React.ReactNode }) {
   const [open, setOpen] = useState<{ id: string; el: Element } | null>(null)
-  const visible = cmds.filter(c => !c.menuOnly)
+  const { prosty } = useApp()
+  // Widok prosty: na pasku tylko główne polecenia; reszta zostaje w menu modułu i pod skrótami.
+  const visible = cmds.filter(c => !c.menuOnly && !(prosty && c.opt))
   return (
     <div className="cmdbar" role="toolbar" aria-label={`Polecenia: ${title}`}>
       <div className="cmd-title">{icon}<h1>{title}</h1>{count !== undefined && <small>{count}</small>}</div>

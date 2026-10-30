@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { LayoutGrid, ShoppingCart, FilePlus2, Palette, Package, Printer, FileSpreadsheet, Upload, LogOut, XSquare, Search, Pencil, Copy, Keyboard, Info, RefreshCw, FileBarChart, Users, Clock, Car, UserCog, SlidersHorizontal, Wallet, BarChart3, Calculator, Thermometer, Layers, Archive, Tags, Plus, PackageOpen, ClipboardList, MoreHorizontal, FileText, type LucideIcon } from 'lucide-react'
-import { AppCtx, type AppApi, type Cmd, type MenuItem, type OrdersCmd, type Toast, Toasts, TooltipLayer, Dialog } from './shell/context'
+import { AppCtx, type AppApi, type Cmd, type MenuItem, type OrdersCmd, type PanelWybor, type Toast, Toasts, TooltipLayer, Dialog } from './shell/context'
 import { TitleBar, MenuBar, MainToolbar, TabStrip, Nav, StatusBar, type MenuDef, type ToolItem, type WTab } from './shell/Chrome'
 import { CommandPalette } from './shell/CommandPalette'
 import { moduleDef } from './shell/modules'
@@ -53,9 +53,18 @@ function Shell() {
     return () => window.removeEventListener('resize', on)
   }, [])
 
+  // ─── Układ: widok prosty i położenie panelu szczegółów (pamiętane na tym komputerze) ──
+  const [prosty, setProsty] = useState(() => store.get('protrima.uklad') !== 'pelny')
+  const toggleProsty = useCallback(() => setProsty(v => { store.set('protrima.uklad', v ? 'pelny' : 'prosty'); return !v }), [])
+  const [panelWybor, setPanelWybor] = useState<PanelWybor>(() => (store.get('protrima.panel') as PanelWybor | null) ?? 'auto')
+  const setPanel = useCallback((p: PanelWybor) => { store.set('protrima.panel', p); setPanelWybor(p) }, [])
+  // Automatycznie: niski ekran (laptop, 1366×768, 1920×1080 przy 125%) — panel z boku, duży monitor — na dole.
+  const panel: 'dol' | 'bok' = panelWybor === 'auto' ? (vp.lh < 950 ? 'bok' : 'dol') : panelWybor
+
   // ─── Gęstość, nawigacja, motyw ──────────────────────────────────────────
   const [densityOverride, setDensityOverride] = useState<null | 'comfortable' | 'compact'>(null)
-  const density = densityOverride ?? (vp.lw < 1500 || vp.lh < 900 ? 'compact' : 'comfortable')
+  // Widok prosty trzyma czytelne, większe litery także na małym ekranie.
+  const density = densityOverride ?? (prosty ? 'comfortable' : vp.lw < 1500 || vp.lh < 900 ? 'compact' : 'comfortable')
   const [navOverride, setNavOverride] = useState<null | boolean>(null)
   const navCollapsed = navOverride ?? vp.lw < 1500
   const [theme, setTheme] = useState<'light' | 'dark'>(() => (store.get('protrima.theme') as 'light' | 'dark' | null) ?? systemDark())
@@ -85,9 +94,14 @@ function Shell() {
   const [toolbarOn, setToolbarOn] = useState(() => store.get('protrima.toolbar') !== 'off')
   const [toolLabels, setToolLabels] = useState(() => store.get('protrima.tlabels') !== 'off')
   useLayoutEffect(() => {
-    document.documentElement.dataset.toolbar = toolbarOn ? 'on' : 'off'
+    document.documentElement.dataset.uklad = prosty ? 'prosty' : 'pelny'
+    document.documentElement.dataset.panel = panel
+  }, [prosty, panel])
+  useLayoutEffect(() => {
+    // Widok prosty chowa duży pasek narzędzi — te same polecenia są w menu i na pasku modułu.
+    document.documentElement.dataset.toolbar = toolbarOn && !prosty ? 'on' : 'off'
     document.documentElement.dataset.tlabels = toolLabels ? 'on' : 'off'
-  }, [toolbarOn, toolLabels])
+  }, [toolbarOn, toolLabels, prosty])
   const toggleToolbar = useCallback(() => setToolbarOn(v => { store.set('protrima.toolbar', v ? 'off' : 'on'); return !v }), [])
   const toggleLabels = useCallback(() => setToolLabels(v => { store.set('protrima.tlabels', v ? 'off' : 'on'); return !v }), [])
 
@@ -190,8 +204,8 @@ function Shell() {
   const api = useMemo<AppApi>(() => ({
     openOrder, gotoOrders, gotoStock, openModule, newOrder, toast,
     setStatusCtx: () => undefined,
-    appRef, scale: vp.scale,
-  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, toast, vp.scale])
+    appRef, scale: vp.scale, prosty, panel, panelWybor, setPanel,
+  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, toast, vp.scale, prosty, panel, panelWybor, setPanel])
 
   const badges = useMemo(() => {
     const problem = orders.filter(o => { const m = computeMetrics(o); return m.level === 'crit' || m.level === 'warn' }).length
@@ -235,7 +249,13 @@ function Shell() {
     { key: 'widok', label: 'Widok', access: 'w', items: [
       { label: 'Pulpit zakładu', icon: <LayoutGrid size={15} />, onSelect: () => openModule('pulpit') },
       { sep: true },
-      { label: 'Pasek narzędzi', checked: toolbarOn, onSelect: toggleToolbar },
+      { label: 'Widok prosty (mniej przycisków i kolumn)', checked: prosty, onSelect: toggleProsty },
+      { header: 'Panel szczegółów' },
+      { label: 'Automatycznie (wg wysokości ekranu)', checked: panelWybor === 'auto', onSelect: () => setPanel('auto') },
+      { label: 'Na dole', checked: panelWybor === 'dol', onSelect: () => setPanel('dol') },
+      { label: 'Z boku', checked: panelWybor === 'bok', onSelect: () => setPanel('bok') },
+      { sep: true },
+      { label: 'Pasek narzędzi', checked: toolbarOn && !prosty, disabled: prosty, onSelect: toggleToolbar },
       { label: 'Etykiety na pasku narzędzi', checked: toolLabels, onSelect: toggleLabels },
       { label: 'Nawigacja boczna', checked: !navCollapsed, kbd: 'Ctrl+B', onSelect: toggleNav },
       { label: 'Gęstość kompaktowa', checked: density === 'compact', onSelect: () => setDensityOverride(density === 'compact' ? 'comfortable' : 'compact') },

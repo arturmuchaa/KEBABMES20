@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   PackagePlus, Link2, Unlink, MoveRight, Truck, Tag, ClipboardCheck, FileSpreadsheet, Search, ChevronDown, ChevronRight,
-  X, Maximize2, Minimize2, ExternalLink, Rows3, Lock, Snowflake, Layers, ArrowUp, ArrowDown,
+  X, Maximize2, Minimize2, ExternalLink, PanelRight, PanelBottom, Rows3, Lock, Snowflake, Layers, ArrowUp, ArrowDown,
 } from 'lucide-react'
 import { useApp, Menu, useMenu, Dialog, CommandBar, type Cmd } from '../../shell/context'
 import { useOrders } from '../../data/store'
@@ -9,6 +9,7 @@ import { computeMetrics, fmtDate, kg, num, relDay, isClosed, lineMissing, type O
 import { posKg, daysLeft, STOCK_STATUS, type StockPos } from '../../data/stock'
 import { FlagIcon } from '../../ui/Glyphs'
 import { BEZ_DRUKU_ETYKIET, FAZA_ZAPISU } from '../../proba'
+import { useDock } from '../../shell/useDock'
 
 type View = 'all' | 'free' | 'allocated' | 'pallet' | 'blocked' | 'short'
 type Tab = 'details' | 'alloc' | 'cartons' | 'moves' | 'trace'
@@ -50,7 +51,6 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [tab, setTab] = useState<Tab>('details')
   const [maxed, setMaxed] = useState(false)
-  const [ratio, setRatio] = useState(0.46)
   const [releaseId, setReleaseId] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const workRef = useRef<HTMLDivElement>(null)
@@ -156,13 +156,8 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
     else if (e.key === 'Enter' && selRow?.order) { e.preventDefault(); app.openOrder(selRow.order.id) }
   }
 
-  const startDrag = (e: React.MouseEvent) => {
-    e.preventDefault(); setMaxed(false)
-    const box = workRef.current!.getBoundingClientRect()
-    const move = (ev: MouseEvent) => setRatio(Math.max(0.22, Math.min(0.85, 1 - (ev.clientY - box.top) / box.height)))
-    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
-    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
-  }
+  const dock = useDock(workRef, 'wyrob')
+  const startDrag = (e: React.MouseEvent) => { setMaxed(false); dock.startDrag(e) }
   const thSort = (col: SortCol, label: string, cls = '') => {
     const on = sort?.col === col
     return <th className={`sortable ${cls}`} aria-sort={on ? (sort!.dir === 1 ? 'ascending' : 'descending') : undefined}
@@ -171,7 +166,6 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   }
   const recipeOpts = [...new Set(stock.map(p => p.recipe))].sort()
   const COLS = 12
-  const effRatio = maxed ? 0.84 : ratio
 
   return (
     <>
@@ -199,8 +193,8 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
         <button className="btn sm ghost" onClick={groupMenu.open}><Rows3 size={15} />Grupuj: {groupBy === 'product' ? 'wyrób' : groupBy === 'location' ? 'zamówienie' : 'brak'}<ChevronDown size={14} /></button>
       </div>
 
-      <div className="workarea" ref={workRef}>
-        <div className="list-pane" style={selRow ? { height: `calc((100% - 7px) * ${1 - effRatio})`, flex: 'none' } : { flex: 1 }}>
+      <div className={`workarea${dock.side ? ' side' : ''}`} ref={workRef}>
+        <div className="list-pane" style={dock.listStyle(!!selRow, maxed)}>
           <div className="tbl-wrap" ref={listRef} tabIndex={0} onKeyDown={onListKey} aria-label="Lista pozycji magazynowych">
             <table className="tbl" role="grid">
               <thead><tr>
@@ -245,7 +239,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
           </div>
         </div>
         {selRow && <>
-          <div className="splitter" role="separator" aria-orientation="horizontal" onMouseDown={startDrag} onDoubleClick={() => { setRatio(0.46); setMaxed(false) }} data-tip="Przeciągnij, aby zmienić wysokość" />
+          <div className={`splitter${dock.drag ? ' drag' : ''}`} role="separator" aria-orientation={dock.side ? 'vertical' : 'horizontal'} onMouseDown={startDrag} onDoubleClick={() => { dock.reset(); setMaxed(false) }} data-tip="Przeciągnij, aby zmienić rozmiar. Dwuklik — domyślnie." />
           <div className="dock" aria-label="Szczegóły pozycji magazynowej">
             <StockDetail r={selRow} tab={tab} onTab={setTab} maxed={maxed} onMax={() => setMaxed(m => !m)} onClose={() => setSel(null)}
               candidates={candidatesFor(selRow.p)} onAllocate={(o, _lineId, qty) => {
@@ -343,6 +337,7 @@ function StockDetail({ r, tab, onTab, maxed, onMax, onClose, candidates, onAlloc
         <div className="dock-actions">
           {primary}
           <span style={{ width: 1, height: 22, background: 'var(--line)', margin: '0 4px' }} />
+          <button className="btn ghost icon" onClick={() => app.setPanel(app.panel === 'bok' ? 'dol' : 'bok')} aria-label={app.panel === 'bok' ? 'Panel na dole' : 'Panel z boku'} data-tip={app.panel === 'bok' ? 'Przenieś panel na dół' : 'Przenieś panel na bok'}>{app.panel === 'bok' ? <PanelBottom size={16} /> : <PanelRight size={16} />}</button>
           <button className="btn ghost icon" onClick={onMax} aria-label={maxed ? 'Przywróć panel' : 'Powiększ panel'} data-tip={maxed ? 'Przywróć' : 'Powiększ panel'}>{maxed ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
           <button className="btn ghost icon" onClick={onClose} aria-label="Zamknij panel (Esc)" data-tip="Zamknij panel (Esc)"><X size={17} /></button>
         </div>

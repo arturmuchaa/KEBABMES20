@@ -317,3 +317,25 @@ button.pstage:hover .pn { background: var(--accent-tint-2); }
 :root[data-density="compact"] .dash { grid-template-rows: max-content 330px 300px; }
 :root[data-density="compact"] .dock-head { min-height: 46px; padding-block: 6px 4px; }
 :root[data-density="compact"] .dock-tab { height: 32px; }
+
+/* ─── Panel szczegółów z boku (Widok → Panel szczegółów) ───────────────── */
+.workarea.side { flex-direction: row; }
+.workarea.side .list-pane { min-width: 360px; min-height: 0; }
+.workarea.side .splitter { width: 7px; height: auto; cursor: col-resize; border-top: 0; border-bottom: 0; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+.workarea.side .splitter::after { left: 2px; top: 50%; width: 2px; height: 36px; margin: -18px 0 0; border: 0; border-left: 1px solid var(--line-strong); border-right: 1px solid var(--line-strong); }
+.workarea.side .dock { min-width: 0; }
+/* Lista obok panelu jest węższa — chowamy kolumny pomocnicze. */
+.workarea.side .list-pane .hide-m, .workarea.side .list-pane .hide-s, .workarea.side .list-pane .opt-col { display: none !important; }
+/* Nagłówek panelu w kolumnie: nazwa, liczby pod spodem, akcje w prawym górnym rogu. */
+.workarea.side .dock-head { flex-wrap: wrap; align-items: flex-start; row-gap: 8px; }
+.workarea.side .dock-id { flex: 1 1 60%; }
+.workarea.side .dock-id .l2 { white-space: normal; }
+.workarea.side .dock-actions { order: 0; margin-left: auto; }
+.workarea.side .dock-figs { order: 1; flex: 1 1 100%; margin-left: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
+.workarea.side .pline.mini { grid-auto-flow: row; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.workarea.side .measures, .workarea.side .ov-grid, .workarea.side .pal-layout { grid-template-columns: minmax(0, 1fr); }
+.workarea.side .ov-grid > .ov-notes { grid-column: auto; }
+
+/* ─── Widok prosty: mniej informacji naraz ───────────────────────────────── */
+:root[data-uklad="prosty"] .opt-col { display: none !important; }
+:root[data-uklad="prosty"] .tbl .sub.hide-m { display: none; }

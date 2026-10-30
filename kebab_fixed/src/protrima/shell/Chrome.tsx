@@ -243,6 +243,6 @@ function Polaczenie() {
 }
 
 function Stamp() {
-  const { stamp } = useOrders()
-  return <span className="hide-m">{stamp ? `Stan na ${stamp.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Pobieranie…'}</span>
+  const { stamp, refresh } = useOrders()
+  return <button className="hint" onClick={() => { refresh() }} data-tip="Odśwież teraz (F5). Dane odświeżają się też same co 30 s.">{stamp ? `Stan na ${stamp.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : 'Pobieranie…'} ⟳</button>
 }

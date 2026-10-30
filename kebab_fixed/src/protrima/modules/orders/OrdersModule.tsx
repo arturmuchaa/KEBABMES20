@@ -13,6 +13,7 @@ import { FlagIcon, OrderStatusLabel } from '../../ui/Glyphs'
 import { CoverMeter, ProdMeter } from '../../ui/Meters'
 import { OrderDetail, orderCommands, useConfirmOrder } from './OrderDetail'
 import { FAZA_ZAPISU } from '../../proba'
+import { useDock } from '../../shell/useDock'
 
 type Row = { o: Order; m: Metrics }
 type SortCol = 'no' | 'client' | 'due' | 'status' | 'kg' | 'prod' | 'cover' | 'missing' | 'pallets'
@@ -29,8 +30,6 @@ const VIEWS: Array<{ key: ViewKey; label: string; tip: string; test: (r: Row) =>
 const BUCKET_ORDER: Bucket[] = ['overdue', 'today', 'tomorrow', 'week', 'later', 'nodate', 'closed']
 const ALL_TABS: DetailTab[] = ['overview', 'lines', 'production', 'coverage', 'pallets', 'shipping', 'documents', 'history']
 
-const loadRatio = () => { try { const v = Number(window.localStorage.getItem('protrima.dock')); return v > 0.2 && v < 0.9 ? v : 0.5 } catch { return 0.5 } }
-const saveRatio = (v: number) => { try { window.localStorage.setItem('protrima.dock', String(v)) } catch { /* bez pamięci */ } }
 
 export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd; active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void }) {
   const app = useApp()
@@ -49,7 +48,6 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [tab, setTab] = useState<DetailTab>('overview')
-  const [ratio, setRatio] = useState(loadRatio)
   const [maxed, setMaxed] = useState(false)
   const [reqOpen, setReqOpen] = useState(false)
   const [cancelId, setCancelId] = useState<string | null>(null)
@@ -174,19 +172,9 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
     return () => window.removeEventListener('keydown', key)
   }, [active, sel, q, checked.size])
 
-  // ─── Rozdzielacz listy i panelu ─────────────────────────────────────────
-  const [drag, setDrag] = useState(false)
-  const startDrag = (e: React.MouseEvent) => {
-    e.preventDefault(); setDrag(true); setMaxed(false)
-    const box = workRef.current!.getBoundingClientRect()
-    const move = (ev: MouseEvent) => {
-      const r = 1 - (ev.clientY - box.top) / box.height
-      setRatio(Math.max(0.22, Math.min(0.85, r)))
-    }
-    const up = () => { setDrag(false); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); setRatio(r => { saveRatio(r); return r }) }
-    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
-  }
-  const effRatio = maxed ? 0.84 : ratio
+  // ─── Rozdzielacz listy i panelu (na dole albo z boku) ───────────────────
+  const dock = useDock(workRef, 'zamowienia')
+  const startDrag = (e: React.MouseEvent) => { setMaxed(false); dock.startDrag(e) }
 
   // ─── Filtry: menu ───────────────────────────────────────────────────────
   const clientMenu = useMenu(), recipeMenu = useMenu(), groupMenu = useMenu(), rowMenu = useMenu()
@@ -283,8 +271,8 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
         </div>
       )}
 
-      <div className="workarea" ref={workRef}>
-        <div className="list-pane" style={hasDock ? { height: `calc((100% - 7px) * ${1 - effRatio})`, flex: 'none' } : { flex: 1 }}>
+      <div className={`workarea${dock.side ? ' side' : ''}`} ref={workRef}>
+        <div className="list-pane" style={dock.listStyle(hasDock, maxed)}>
           <div className="tbl-wrap" ref={listRef} tabIndex={0} onKeyDown={onListKey} aria-label="Lista zamówień">
             <table className="tbl" role="grid" aria-rowcount={flat.length}>
               <thead>
@@ -296,9 +284,9 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
                   {thSort('client', 'Klient')}
                   {thSort('due', 'Termin')}
                   {thSort('status', 'Status')}
-                  <th>Pozycje</th>
+                  <th className="hide-m">Pozycje</th>
                   {thSort('kg', 'Zamówiono', 'num')}
-                  {thSort('prod', 'Produkcja', '', 'Zgłoszono z tabletów produkcyjnych ÷ zamówiono (kg).\nŹródło diagnostyczne — nie zmienia pokrycia.')}
+                  {thSort('prod', 'Produkcja', 'opt-col', 'Zgłoszono z tabletów produkcyjnych ÷ zamówiono (kg).\nŹródło diagnostyczne — nie zmienia pokrycia.')}
                   {thSort('cover', 'Pokrycie', '', 'Wydano (ciemny) + w magazynie (jasny) ÷ zamówiono (kg).\nTylko wyrób fizycznie przydzielony temu zamówieniu.')}
                   {thSort('missing', 'Brak', 'num', 'Zamówiono − wydano − w magazynie (kg)')}
                   {thSort('pallets', 'Palety', 'r', 'Gotowe (spakowane lub dalej) / rozpisane')}
@@ -340,9 +328,9 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
                   <td className="cb" /><td className="al" />
                   <td colSpan={2}>Razem — {visible.length} {visible.length === 1 ? 'zamówienie' : visible.length < 5 ? 'zamówienia' : 'zamówień'}</td>
                   <td /><td />
-                  <td className="num" style={{ textAlign: 'left' }}>{tot.lines} poz.</td>
+                  <td className="num hide-m" style={{ textAlign: 'left' }}>{tot.lines} poz.</td>
                   <td className="num">{kg(tot.kg)}</td>
-                  <td>{view !== 'closed' && <ProdMeter value={tot.kg ? tot.prod / tot.kg * 100 : 0} />}</td>
+                  <td className="opt-col">{view !== 'closed' && <ProdMeter value={tot.kg ? tot.prod / tot.kg * 100 : 0} />}</td>
                   <td>{view !== 'closed' && <CoverMeter ship={tot.kg ? tot.ship / tot.kg * 100 : 0} stock={tot.kg ? (tot.cov - tot.ship) / tot.kg * 100 : 0} />}</td>
                   <td className="num crit-ink">{tot.miss ? num(tot.miss) : '0'}</td>
                   <td className="num">{tot.pr}<span className="faint"> / {tot.pt}</span></td>
@@ -354,8 +342,8 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
         </div>
 
         {hasDock && <>
-          <div className={`splitter${drag ? ' drag' : ''}`} role="separator" aria-orientation="horizontal" aria-label="Zmień wysokość panelu szczegółów"
-            onMouseDown={startDrag} onDoubleClick={() => { setRatio(0.5); saveRatio(0.5); setMaxed(false) }} data-tip="Przeciągnij, aby zmienić wysokość. Dwuklik — połowa okna." />
+          <div className={`splitter${dock.drag ? ' drag' : ''}`} role="separator" aria-orientation={dock.side ? 'vertical' : 'horizontal'} aria-label="Zmień rozmiar panelu szczegółów"
+            onMouseDown={startDrag} onDoubleClick={() => { dock.reset(); setMaxed(false) }} data-tip="Przeciągnij, aby zmienić rozmiar. Dwuklik — domyślnie." />
           <div className="dock" aria-label="Szczegóły zamówienia">
             <OrderDetail order={selRow!.o} tab={tab} onTab={setTab} mode="dock" maxed={maxed} onMax={() => setMaxed(m => !m)}
               onClose={() => setSel(null)} onConfirm={confirmOrder} />
@@ -419,11 +407,11 @@ const OrderRow = React.memo(function OrderRow({ r, zebra, sel, checked, onClick,
         ) : <span className="faint">bez terminu</span>}
       </td>
       <td><OrderStatusLabel status={o.status} /></td>
-      <td className="ell" style={{ maxWidth: 230 }}>
+      <td className="ell hide-m" style={{ maxWidth: 230 }}>
         <span className="num">{o.lines.length} poz.</span><span className="sub hide-m">{m.recipes.slice(0, 2).join(', ')}{m.recipes.length > 2 ? ` +${m.recipes.length - 2}` : ''}</span>
       </td>
       <td className="num">{kg(m.orderedKg)}</td>
-      <td>{o.status === 'draft' || o.status === 'cancelled' ? <span className="faint">—</span> : <ProdMeter value={m.prodPct} />}</td>
+      <td className="opt-col">{o.status === 'draft' || o.status === 'cancelled' ? <span className="faint">—</span> : <ProdMeter value={m.prodPct} />}</td>
       <td>{o.status === 'draft' || o.status === 'cancelled' ? <span className="faint">—</span> : <CoverMeter ship={m.shipPct} stock={m.stockPct} />}</td>
       <td className="num">{closed ? <span className="faint">—</span> : m.missingKg > 0 ? <span className={due !== null && due <= 1 ? 'crit-ink strong' : ''}>{num(m.missingKg)}</span> : <span className="ok-ink">0</span>}</td>
       <td className="num">
