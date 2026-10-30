@@ -4,6 +4,8 @@ import { Printer } from 'lucide-react'
 import { Dialog } from '../../shell/context'
 import { fmtDate, kg, num } from '../../data/model'
 import { posKg, type StockPos } from '../../data/stock'
+import { logoDokumentu } from '../../zaklad/zaklad'
+import { useFirma } from '../../zaklad/firma'
 
 /** Klucz klienta na wierszu magazynu; wiersz bez zamówienia = wolny wyrób. */
 export const WOLNE = '— wolny wyrób —'
@@ -95,12 +97,15 @@ function TabelaStanu({ rows, partie }: { rows: Wiersz[]; partie: boolean }) {
 /** Arkusz A4 widoczny tylko przy drukowaniu (style w print.css). */
 function ArkuszStanu({ klient, rows, partie }: { klient: string; rows: Wiersz[]; partie: boolean }) {
   const teraz = new Date()
+  const firma = useFirma()
+  const logo = logoDokumentu(firma)
   return (
     <div className="print-sheet">
       <div className="ps-head">
-        <img src="/logo-ksiezyc-print.png" alt="" />
+        {logo && <img src={logo} alt="" />}
         <div>
           <h1>Stan magazynowy wyrobu gotowego</h1>
+          {firma?.name && <div className="ps-sub">{firma.name}{firma.city ? `, ${firma.city}` : ''}</div>}
           <div className="ps-sub">Klient: <b>{klient}</b></div>
           <div className="ps-sub">Stan na {teraz.toLocaleDateString('pl-PL')} godz. {teraz.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</div>
         </div>

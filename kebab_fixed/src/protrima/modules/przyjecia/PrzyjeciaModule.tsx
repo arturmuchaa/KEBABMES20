@@ -29,8 +29,6 @@ type Termin = '' | 'soon' | 'over'
 
 /** Kontrole HACCP pobieramy za tyle dni wstecz — starsze dostawy pokazują „—”, nie „brak”. */
 const DNI_HACCP = 180
-/** Od tego dnia kontrolę przyjęcia wypełnia się w MES (wdrożenie 02.09.2026). */
-const HACCP_W_SYSTEMIE_OD = '2026-09-02'
 const TABS: Array<{ key: Tab; label: string }> = [
   { key: 'overview', label: 'Przegląd' }, { key: 'numbers', label: 'Numery porządkowe' },
   { key: 'supplier', label: 'Partie dostawcy' }, { key: 'haccp', label: 'Kontrola HACCP' },
@@ -54,19 +52,21 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
   const stockRes = useApi(() => wzApi.stockRaw())
   const supRes = useApi(() => suppliersApi.list())
   const checksRes = useApi(() => receptionChecksApi.forRange(isoDni(DNI_HACCP), isoDni(-1)) as Promise<ReceptionCheck[]>)
+  // Które dostawy MUSZĄ mieć kontrolę, wie serwer zakładu (próg ustawiany przy wdrożeniu,
+  // `haccp_checks_from`) — bez daty wpisanej w kod; starsze mają kartę papierową.
+  const pendingRes = useApi(() => receptionChecksApi.pending(DNI_HACCP) as Promise<Array<{ receptionId: string }>>)
   useLiveRefresh({ recRes, stockRes }, 30_000)
-  useLiveRefresh({ checksRes }, 120_000)
+  useLiveRefresh({ checksRes, pendingRes }, 120_000)
 
   const rodzaje = useMemo(() => mapujRodzaje(typesRes.data ?? []), [typesRes.data])
   const meat = useMemo(() => mapaMiesa(stockRes.data ?? []), [stockRes.data])
   const checks = useMemo(() => new Map((checksRes.data ?? []).map(c => [c.receptionId, c])), [checksRes.data])
-  // Kontrola HACCP przyjęcia jest w systemie od 02.09.2026 — wcześniejsze dostawy mają kartę papierową, nie „brak”.
-  const haccpOd = [isoDni(DNI_HACCP), HACCP_W_SYSTEMIE_OD].sort().reverse()[0]
+  const wymagane = useMemo(() => new Set((pendingRes.data ?? []).map(x => x.receptionId)), [pendingRes.data])
   const supName = useMemo(() => new Map((supRes.data ?? []).map(s => [s.id, s.displayName || s.name])), [supRes.data])
 
   const rows = useMemo<Row[]>(() => (recRes.data ?? []).map(r => {
     const p = mapujPrzyjecie(r, rodzaje, meat)
-    const h = p.date >= haccpOd || checks.has(p.id) ? stanHaccp(p, checks.get(p.id)) : null
+    const h = checks.has(p.id) || wymagane.has(p.id) ? stanHaccp(p, checks.get(p.id)) : null
     const flags: string[] = []
     let level: Row['level'] = null
     const dd = dniDo(p.nearestExpiry)
@@ -78,7 +78,7 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
     const rk = roznicaKg(p)
     if (rk !== null && Math.abs(rk) >= 1) { flags.push(`Różnica z HDI: ${rk > 0 ? '+' : ''}${num(rk)} kg`); level = level ?? 'info' }
     return { p, h, supplier: supName.get(p.supplierId) || p.supplierName || '—', level, flags }
-  }), [recRes.data, rodzaje, meat, checks, haccpOd, supName])
+  }), [recRes.data, rodzaje, meat, checks, wymagane, supName])
 
   // ─── Widoki i filtry ───────────────────────────────────────────────────
   const [view, setView] = useState<View>('live')
@@ -107,7 +107,7 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
     { key: 'live', label: 'W obiegu', tip: 'Dostawy, z których coś jeszcze leży', test: r => r.p.stan === 'w_obiegu' },
     { key: 'today', label: 'Dziś', tip: 'Przyjęte dzisiaj', test: r => r.p.date === dzis && !r.p.cancelled },
     { key: 'week', label: '7 dni', tip: 'Przyjęte w ostatnim tygodniu', test: r => r.p.date >= tydzien && !r.p.cancelled },
-    { key: 'nohaccp', label: 'Bez HACCP', tip: 'Kontrola HACCP brak lub niepełna (dostawy od 02.09.2026, gdy kontrola weszła do MES)', test: r => !r.p.cancelled && !!r.h && r.h.status !== 'komplet' },
+    { key: 'nohaccp', label: 'Bez HACCP', tip: 'Kontrola HACCP brak lub niepełna (dostawy od wdrożenia kontroli w systemie — wcześniejsze mają kartę papierową)', test: r => !r.p.cancelled && !!r.h && r.h.status !== 'komplet' },
     { key: 'all', label: 'Wszystkie', tip: 'Cała historia przyjęć (bez anulowanych)', test: r => !r.p.cancelled },
     { key: 'cancelled', label: 'Anulowane', tip: 'Dostawy anulowane — numery wróciły do puli', test: r => r.p.cancelled },
   ]
@@ -151,7 +151,7 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
   // Po zapisie w edytorze: odśwież listę i zaznacz zapisaną dostawę (w obiegu albo we „Wszystkich”).
   useEffect(() => {
     if (!cmd?.n) return
-    void recRes.refetch(); void stockRes.refetch(); void checksRes.refetch()
+    void recRes.refetch(); void stockRes.refetch(); void checksRes.refetch(); void pendingRes.refetch()
     if (cmd.select) { setDoZaznaczenia(cmd.select); setQ(''); setDostawca(''); setMats([]); setMiesiac(''); setTermin('') }
   }, [cmd]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -302,7 +302,7 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
             onMouseDown={e => { setMaxed(false); dock.startDrag(e) }} onDoubleClick={() => { dock.reset(); setMaxed(false) }} data-tip="Przeciągnij, aby zmienić rozmiar. Dwuklik — domyślnie." />
           <div className="dock" aria-label="Szczegóły przyjęcia">
             <PrzyjecieDetail r={selRow} tab={tab} onTab={setTab} maxed={maxed} onMax={() => setMaxed(m => !m)} onClose={() => setSel(null)}
-              onHaccpSaved={() => void checksRes.refetch()} onCancel={() => setAnuluj(selRow.p.id)} />
+              onHaccpSaved={() => { void checksRes.refetch(); void pendingRes.refetch() }} onCancel={() => setAnuluj(selRow.p.id)} />
           </div>
         </>}
       </div>

@@ -237,7 +237,7 @@ function AttentionPanel({ open, ext }: { open: Open; ext: Ext }) {
     })
   }
   if (ext.pending > 0) items.push({ key: 'sesje', level: 'warn', title: `${ext.pending} ${ext.pending === 1 ? 'sesja produkcyjna czeka' : 'sesje produkcyjne czekają'} na potwierdzenie`, detail: 'Bez potwierdzenia biura raport dzienny jest niepełny. Potwierdzenie — w starym MES (faza 5 próby).', tags: [], action: 'Realizacja', run: () => app.openModule('realizacja') })
-  if (ext.haccp > 0) items.push({ key: 'haccp', level: 'warn', title: `${ext.haccp} ${ext.haccp === 1 ? 'dostawa' : 'dostaw'} bez kompletu kontroli HACCP`, detail: 'Ostatnie 14 dni. Uzupełnienie karty przyjęcia — w starym MES.', tags: [], action: 'Przyjęcia', run: () => app.openModule('przyjecia') })
+  if (ext.haccp > 0) items.push({ key: 'haccp', level: 'warn', title: `${ext.haccp} ${ext.haccp === 1 ? 'dostawa' : 'dostaw'} bez kompletu kontroli HACCP`, detail: 'Ostatnie 14 dni. Uzupełnij w Przyjęciach surowca — widok „Bez HACCP”, zakładka Kontrola HACCP.', tags: [], action: 'Przyjęcia', run: () => app.openModule('przyjecia') })
   for (const k of ext.kursy.filter(k => k.rozjazd || k.doWystawienia)) {
     items.push({ key: `kurs-${k.id}`, level: k.rozjazd ? 'crit' : 'info', title: `Kurs ${k.plate || '—'} · ${k.klienci.join(', ')}`, detail: k.rozjazd ? 'Rozjazd między dokumentem a załadunkiem — sprawdź przed wydrukiem.' : 'Załadunek zakończony, dokumenty do wystawienia.', tags: [], action: 'Wysyłki', run: () => app.openModule('wysylki') })
   }

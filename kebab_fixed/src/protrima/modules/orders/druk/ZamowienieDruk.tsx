@@ -6,13 +6,13 @@ import { useApi } from '@/hooks/useApi'
 import { useAuth } from '@/features/auth/AuthContext'
 import { clientOrdersApi, clientsApi, settingsApi } from '@/lib/api'
 import type { ClientOrder } from '@/lib/mockApi'
+import { logoDokumentu, type Firma } from '../../../zaklad/zaklad'
 
 /** Liczba po polsku z odstępem tysięcy także dla 4 cyfr („1 600”, jak w całej aplikacji). */
 const nf = (n: number, d = 0) => new Intl.NumberFormat('pl-PL', { minimumFractionDigits: d, maximumFractionDigits: d === 0 ? 3 : d }).format(n)
   .replace(/^(-?\d)(\d{3})(?=,|$)/, '$1 $2')
 const dataPl = (iso?: string) => { if (!iso) return '—'; const [y, m, d] = iso.slice(0, 10).split('-'); return d && m && y ? `${d}.${m}.${y}` : iso }
 
-interface Firma { name?: string; address?: string; postalCode?: string; city?: string; nip?: string; phone?: string; email?: string; vetNumber?: string }
 interface Klient { id: string; name: string; displayName?: string; address?: string; postalCode?: string; city?: string; nip?: string; destName?: string; destAddress?: string; destCity?: string }
 
 /** Pozycje dokumentu — DOKŁADNIE zapisane warianty i wagi (jak stary wydruk), masa liczona w gramach bez ogonów. */
@@ -72,13 +72,13 @@ export function ZamowienieDrukDialog({ orderId, onClose }: { orderId: string; on
 
 export function DokumentZamowienia({ o, firma, klient, wystawil, uwagiPoz }: { o: ClientOrder; firma: Firma; klient?: Klient; wystawil?: string; uwagiPoz: boolean }) {
   const p = useMemo(() => pozycjeDokumentu(o), [o])
-  const logo = (firma.name ?? '').toLocaleLowerCase('pl').includes('księżyc')
+  const logo = logoDokumentu(firma)
   const dest = klient?.destName || klient?.destAddress
   return (
     <article className="doc-zam" aria-label="Zamówienie dla klienta">
       <header className="dz-head">
         <div className="dz-firm">
-          {logo && <img src="/logo-ksiezyc-print.png" alt="" />}
+          {logo && <img src={logo} alt="" />}
           <div>
             <strong>{firma.name || 'Dane firmy nie zostały skonfigurowane'}</strong>
             {firma.address && <span>{firma.address}</span>}

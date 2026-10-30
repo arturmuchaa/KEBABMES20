@@ -11,6 +11,7 @@
  *  - suma na paletach nie przekracza ilości pozycji (strażnik rozpis_palet_limit).
  */
 import type { OrderPallet } from '@/lib/api'
+import { profilZakladu } from '../../../zaklad/zaklad'
 
 export interface PozycjaLite { id: string; lp: number; recipe: string; recipeId: string; kgPerUnit: number; qty: number; product?: string; packaging?: string }
 export interface ItemLite { lineId: string; qty: number }
@@ -58,19 +59,19 @@ export function bezPalety(fresh: OrderPallet[], id: string): OrderPallet[] {
 export interface PlanPalety { items: ItemLite[]; kg: number; szt: number; mieszana: boolean }
 
 /**
- * Standard pakowania biura (właściciel, 30.10.2026): sztuk na paletę wg wagi sztuki.
- * Palety zwykle 800–950 kg; 25 kg po 35 albo 30, 35 kg po 25 albo 20 — wybór w oknie rozpisu.
+ * Standard pakowania ZAKŁADU (sztuk na paletę wg wagi sztuki, warianty, granica
+ * palety z resztek) — z profilu zakładu (`zaklad/zaklad.ts`), nie z kodu modułu:
+ * inny zakład pakuje inaczej.
  */
-export const STANDARD_SZTUK: Readonly<Record<number, number>> = { 70: 10, 60: 12, 50: 15, 40: 20, 35: 25, 30: 30, 25: 35, 20: 40, 15: 60, 10: 80 }
-/** Wagi pakowane na dwa sposoby „w zależności od zamówienia” — pierwszy wariant domyślny. */
-export const WARIANTY_SZTUK: Readonly<Record<number, readonly number[]>> = { 35: [25, 20], 25: [35, 30] }
-/** Górna granica palety z resztek (najcięższe palety biura ~950 kg; na kopii max 1000). */
-export const MAX_KG_RESZTKI = 950
+const PAK = profilZakladu().pakowanie
+export const STANDARD_SZTUK = PAK.sztukNaPalete
+export const WARIANTY_SZTUK = PAK.warianty
+export const MAX_KG_RESZTKI = PAK.maxKgResztki
 
 /** Sztuk na pełną paletę: nadpisanie z okna → standard biura → ok. 900 kg dla nietypowej wagi. */
 export function sztukNaPalete(kgPerUnit: number, nadpisz?: Record<string, number>): number {
   const n = nadpisz?.[String(kgPerUnit)] ?? STANDARD_SZTUK[kgPerUnit]
-  return n && n > 0 ? Math.floor(n) : Math.max(1, Math.floor(900 / kgPerUnit))
+  return n && n > 0 ? Math.floor(n) : Math.max(1, Math.floor(PAK.kgPaletyNietypowej / kgPerUnit))
 }
 
 type Kosz = { items: ItemLite[]; kg: number; szt: number; k1: string; k2: string; k1s: Set<string> }
