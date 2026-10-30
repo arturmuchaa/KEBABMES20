@@ -28,6 +28,8 @@ export interface AppApi {
   openCmr(orderId: string): void
   /** HDI z zamówienia → PDF. */
   genHdi(orderId: string): void
+  /** Podział wysyłki na fakturę i WZ (karta robocza). */
+  splitOrder(orderId: string): void
   toast(t: Omit<Toast, 'id'>): void
   setStatusCtx(node: React.ReactNode): void
   appRef: React.RefObject<HTMLDivElement>

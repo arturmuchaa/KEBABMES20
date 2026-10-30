@@ -49,7 +49,7 @@ export function orderCommands(order: Order | null, app: AppApi, onTab: (t: Detai
       { label: 'Wystaw CMR…', icon: <FileText size={15} />, onSelect: () => order && app.openCmr(order.id), disabled: none || order?.status === 'draft' },
       { label: closed ? 'Podgląd HDI (zamrożone)' : 'Generuj HDI', icon: <FileText size={15} />, onSelect: () => order && app.genHdi(order.id), disabled: none || order?.status === 'draft' },
       { sep: true },
-      { label: 'Podział wysyłki na fakturę i WZ', icon: <Split size={15} />, onSelect: () => demo('Podział wysyłki'), disabled: closed },
+      { label: 'Podział wysyłki na fakturę i WZ', icon: <Split size={15} />, onSelect: () => order && app.splitOrder(order.id), disabled: closed || order?.status === 'draft' },
       { label: 'Wszystkie dokumenty zamówienia', icon: <List size={15} />, onSelect: () => onTab('documents') },
     ] },
     { id: 'print', group: 4, label: 'Drukuj', icon: <Printer size={17} />, kbd: 'Ctrl+P', menuOnly: true, disabled: none, menu: [

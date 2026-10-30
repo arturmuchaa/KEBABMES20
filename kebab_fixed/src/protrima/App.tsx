@@ -16,6 +16,8 @@ import { ZamowienieDrukDialog } from './modules/orders/druk/ZamowienieDruk'
 import { WzZamowienia } from './modules/orders/wz/WzZamowienia'
 import { ListaKompletacjiDialog } from './modules/orders/druk/ListaKompletacji'
 import { CmrDialog, generujHdi } from './modules/orders/dokumenty/Cmr'
+import { PodzialWysylki } from './modules/orders/podzial/PodzialWysylki'
+import { computeMetrics as metryki } from './data/model'
 import { Placeholder } from './modules/misc/Placeholder'
 import { DesignSystem } from './modules/misc/DesignSystem'
 import { Logo } from './brand/Logo'
@@ -166,6 +168,10 @@ function Shell() {
   const [cmrId, setCmrId] = useState<string | null>(null)
   const openCmr = useCallback((id: string) => setCmrId(id), [])
   const genHdi = useCallback((id: string) => { void generujHdi(id, t => toastRef.current?.(t)) }, [])
+  const splitOrder = useCallback((id: string) => {
+    const o = orders.find(x => x.id === id)
+    openTab({ id: `split:${id}`, kind: 'split', key: id, title: `Podział ${o?.no ?? ''}`, icon: FileText })
+  }, [orders, openTab])
   const issueWz = useCallback((id: string) => {
     const o = orders.find(x => x.id === id)
     openTab({ id: `wz:${id}`, kind: 'wz', key: id, title: `WZ ${o?.no ?? ''}`, icon: FileText })
@@ -237,10 +243,10 @@ function Shell() {
   const cmdsFor = (id: string) => (cmdSetters.current[id] ??= (c: Cmd[]) => setTabCmds(id, c))
 
   const api = useMemo<AppApi>(() => ({
-    openOrder, gotoOrders, gotoStock, openModule, newOrder: () => newOrder(), editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, toast,
+    openOrder, gotoOrders, gotoStock, openModule, newOrder: () => newOrder(), editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, splitOrder, toast,
     setStatusCtx: () => undefined,
     appRef, scale: vp.scale, prosty, panel, panelWybor, setPanel,
-  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, toast, vp.scale, prosty, panel, panelWybor, setPanel])
+  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, splitOrder, toast, vp.scale, prosty, panel, panelWybor, setPanel])
 
   const badges = useMemo(() => {
     const problem = orders.filter(o => { const m = computeMetrics(o); return m.level === 'crit' || m.level === 'warn' }).length
@@ -367,13 +373,15 @@ function Shell() {
     ] },
   ]
 
-  const currentKey = activeTab.kind === 'module' ? activeTab.key : activeTab.kind === 'order' || activeTab.kind === 'new-order' || activeTab.kind === 'edit-order' || activeTab.kind === 'wz' ? 'zamowienia' : ''
+  const currentKey = activeTab.kind === 'module' ? activeTab.key : activeTab.kind === 'order' || activeTab.kind === 'new-order' || activeTab.kind === 'edit-order' || activeTab.kind === 'wz' || activeTab.kind === 'split' ? 'zamowienia' : ''
 
   const renderTab = (t: WTab) => {
     const setTabCtx = ctxFor(t.id)
     const setCmds = cmdsFor(t.id)
     const isActive = t.id === active
     if (t.kind === 'order') return <OrderTab orderId={t.key} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
+    if (t.kind === 'split') { const o = orders.find(x => x.id === t.key); return <PodzialWysylki orderId={t.key} orderNo={o?.no ?? ''} clientName={o?.client.name ?? ''} kgCalosc={o ? metryki(o).orderedKg : 0}
+      active={isActive} setCmds={setCmds} onDone={() => { closeTab(t.id); gotoOrders({ select: t.key, tab: 'documents' }) }} /> }
     if (t.kind === 'wz') return <WzZamowienia orderId={t.key} active={isActive} setCmds={setCmds} onDone={() => { closeTab(t.id); gotoOrders({ select: t.key, tab: 'documents' }) }} />
     if (t.kind === 'new-order' || t.kind === 'edit-order') return <OrderEditor tabId={t.id} active={isActive} setCmds={setCmds}
       orderId={t.kind === 'edit-order' ? t.key : undefined} copyFromId={t.kind === 'new-order' && t.key ? t.key : undefined}

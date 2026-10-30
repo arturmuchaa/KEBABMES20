@@ -32,7 +32,7 @@ export function DocumentsTab({ order }: { order: Order }) {
         {akcja('Wystaw WZ', <Truck size={18} />, () => app.issueWz(order.id), 'zdejmuje towar ze stanu', draft || closed, draft ? 'Najpierw potwierdź zamówienie' : 'Zamówienie zamknięte')}
         {akcja(closed ? 'Podgląd HDI' : 'Generuj HDI', <FileText size={18} />, () => app.genHdi(order.id), closed ? 'zamrożone po realizacji' : 'na stan faktyczny', draft, 'Najpierw potwierdź zamówienie')}
         {akcja('Wystaw CMR', <FileText size={18} />, () => app.openCmr(order.id), 'przewoźnik, faktura, instrukcje', draft, 'Najpierw potwierdź zamówienie')}
-        {akcja('Podział wysyłki', <Split size={18} />, () => app.toast({ kind: 'info', title: 'Podział wysyłki na fakturę i WZ', detail: 'Następny krok próby — teraz w starym MES na tej samej kopii.' }), 'faktura + WM — wkrótce')}
+        {akcja('Podział wysyłki', <Split size={18} />, () => app.splitOrder(order.id), 'część na fakturę, reszta na WZ — komplet dokumentów', draft || closed, draft ? 'Najpierw potwierdź zamówienie' : 'Zamówienie zamknięte')}
       </div>
 
       <div className="sect-h"><h3>Wystawione WZ / WM</h3><span className="sub">dokumenty wydania powiązane z zamówieniem</span></div>

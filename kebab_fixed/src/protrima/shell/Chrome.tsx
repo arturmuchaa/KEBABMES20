@@ -8,7 +8,7 @@ import { ProbaZnacznik } from '../kopia'
 import { jestTauri, okno } from '../okno'
 import { Logo } from '../brand/Logo'
 
-export interface WTab { id: string; kind: 'module' | 'order' | 'new-order' | 'edit-order' | 'wz'; key: string; title: string; icon?: LucideIcon }
+export interface WTab { id: string; kind: 'module' | 'order' | 'new-order' | 'edit-order' | 'wz' | 'split'; key: string; title: string; icon?: LucideIcon }
 export interface MenuDef { key: string; label: string; access: string; items: MenuItem[] }
 
 
