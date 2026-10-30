@@ -339,3 +339,5 @@ button.pstage:hover .pn { background: var(--accent-tint-2); }
 /* ─── Widok prosty: mniej informacji naraz ───────────────────────────────── */
 :root[data-uklad="prosty"] .opt-col { display: none !important; }
 :root[data-uklad="prosty"] .tbl .sub.hide-m { display: none; }
+.workarea.side .list-pane .side-hide { display: none !important; }
+.workarea.side .pline.mini .pstage .rail { display: none; }

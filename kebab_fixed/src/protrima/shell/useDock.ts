@@ -12,7 +12,7 @@ export function useDock(workRef: React.RefObject<HTMLDivElement>, key: string) {
   const { panel } = useApp()
   const side = panel === 'bok'
   const k = `protrima.dock.${key}.${panel}`
-  const def = side ? 0.44 : 0.5
+  const def = side ? 0.42 : 0.5
   const [ratios, setRatios] = useState<Record<string, number>>({})
   const ratio = ratios[k] ?? czytaj(k, def)
   const setRatio = useCallback((v: number) => setRatios(r => ({ ...r, [k]: v })), [k])

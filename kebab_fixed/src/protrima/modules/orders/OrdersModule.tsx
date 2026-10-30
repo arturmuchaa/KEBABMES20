@@ -283,7 +283,7 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
                   {thSort('no', 'Numer')}
                   {thSort('client', 'Klient')}
                   {thSort('due', 'Termin')}
-                  {thSort('status', 'Status')}
+                  {thSort('status', 'Status', 'side-hide')}
                   <th className="hide-m">Pozycje</th>
                   {thSort('kg', 'Zamówiono', 'num')}
                   {thSort('prod', 'Produkcja', 'opt-col', 'Zgłoszono z tabletów produkcyjnych ÷ zamówiono (kg).\nŹródło diagnostyczne — nie zmienia pokrycia.')}
@@ -327,7 +327,7 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
                 <tfoot><tr>
                   <td className="cb" /><td className="al" />
                   <td colSpan={2}>Razem — {visible.length} {visible.length === 1 ? 'zamówienie' : visible.length < 5 ? 'zamówienia' : 'zamówień'}</td>
-                  <td /><td />
+                  <td /><td className="side-hide" />
                   <td className="num hide-m" style={{ textAlign: 'left' }}>{tot.lines} poz.</td>
                   <td className="num">{kg(tot.kg)}</td>
                   <td className="opt-col">{view !== 'closed' && <ProdMeter value={tot.kg ? tot.prod / tot.kg * 100 : 0} />}</td>
@@ -406,7 +406,7 @@ const OrderRow = React.memo(function OrderRow({ r, zebra, sel, checked, onClick,
           </span>
         ) : <span className="faint">bez terminu</span>}
       </td>
-      <td><OrderStatusLabel status={o.status} /></td>
+      <td className="side-hide"><OrderStatusLabel status={o.status} /></td>
       <td className="ell hide-m" style={{ maxWidth: 230 }}>
         <span className="num">{o.lines.length} poz.</span><span className="sub hide-m">{m.recipes.slice(0, 2).join(', ')}{m.recipes.length > 2 ? ` +${m.recipes.length - 2}` : ''}</span>
       </td>
