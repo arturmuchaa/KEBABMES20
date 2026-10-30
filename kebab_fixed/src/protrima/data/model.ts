@@ -71,6 +71,8 @@ export type DocKind = 'ZAM' | 'KOMP' | 'PAL' | 'WZ' | 'CMR' | 'HDI'
 export type DocState = 'available' | 'issued' | 'partial' | 'todo' | 'blocked' | 'not_required' | 'frozen'
 
 export interface OrderDoc {
+  /** id dokumentu w API (WZ) — do podglądu PDF. */
+  id?: string
   kind: DocKind
   state: DocState
   number?: string

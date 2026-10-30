@@ -14,6 +14,8 @@ import { PrzyjeciaModule } from './modules/przyjecia/PrzyjeciaModule'
 import { OrderEditor } from './modules/orders/edytor/OrderEditor'
 import { ZamowienieDrukDialog } from './modules/orders/druk/ZamowienieDruk'
 import { WzZamowienia } from './modules/orders/wz/WzZamowienia'
+import { ListaKompletacjiDialog } from './modules/orders/druk/ListaKompletacji'
+import { CmrDialog, generujHdi } from './modules/orders/dokumenty/Cmr'
 import { Placeholder } from './modules/misc/Placeholder'
 import { DesignSystem } from './modules/misc/DesignSystem'
 import { Logo } from './brand/Logo'
@@ -159,6 +161,11 @@ function Shell() {
   const copyOrder = useCallback((id: string) => newOrder(id), [newOrder])
   const [drukId, setDrukId] = useState<string | null>(null)
   const printOrder = useCallback((id: string) => setDrukId(id), [])
+  const [kompIds, setKompIds] = useState<string[] | null>(null)
+  const printPicking = useCallback((ids: string[]) => setKompIds(ids.length ? ids : null), [])
+  const [cmrId, setCmrId] = useState<string | null>(null)
+  const openCmr = useCallback((id: string) => setCmrId(id), [])
+  const genHdi = useCallback((id: string) => { void generujHdi(id, t => toastRef.current?.(t)) }, [])
   const issueWz = useCallback((id: string) => {
     const o = orders.find(x => x.id === id)
     openTab({ id: `wz:${id}`, kind: 'wz', key: id, title: `WZ ${o?.no ?? ''}`, icon: FileText })
@@ -230,10 +237,10 @@ function Shell() {
   const cmdsFor = (id: string) => (cmdSetters.current[id] ??= (c: Cmd[]) => setTabCmds(id, c))
 
   const api = useMemo<AppApi>(() => ({
-    openOrder, gotoOrders, gotoStock, openModule, newOrder: () => newOrder(), editOrder, copyOrder, printOrder, issueWz, toast,
+    openOrder, gotoOrders, gotoStock, openModule, newOrder: () => newOrder(), editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, toast,
     setStatusCtx: () => undefined,
     appRef, scale: vp.scale, prosty, panel, panelWybor, setPanel,
-  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, editOrder, copyOrder, printOrder, issueWz, toast, vp.scale, prosty, panel, panelWybor, setPanel])
+  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, toast, vp.scale, prosty, panel, panelWybor, setPanel])
 
   const badges = useMemo(() => {
     const problem = orders.filter(o => { const m = computeMetrics(o); return m.level === 'crit' || m.level === 'warn' }).length
@@ -399,6 +406,8 @@ function Shell() {
       <Toasts items={toasts} dismiss={id => setToasts(ts => ts.filter(t => t.id !== id))} />
       {palette && <CommandPalette orders={orders} onClose={() => setPalette(false)} openOrder={openOrder} openModule={openModule}
         newOrder={newOrder} toggleTheme={toggleTheme} toggleNav={toggleNav} showShortcuts={() => setShortcuts(true)} />}
+      {cmrId && <CmrDialog orderId={cmrId} orderNo={orders.find(o => o.id === cmrId)?.no ?? ''} onClose={() => setCmrId(null)} />}
+      {kompIds && <ListaKompletacjiDialog orderIds={kompIds} onClose={() => setKompIds(null)} />}
       {drukId && <ZamowienieDrukDialog orderId={drukId} onClose={() => setDrukId(null)} />}
       {shortcuts && <ShortcutsDialog onClose={() => setShortcuts(false)} />}
       {about && <Dialog title="O programie" onClose={() => setAbout(false)} footer={<button className="btn primary" onClick={() => setAbout(false)}>Zamknij</button>}>

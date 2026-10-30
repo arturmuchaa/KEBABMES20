@@ -1,48 +1,58 @@
 import React from 'react'
-import { Eye, Printer, FilePlus2, Lock, CheckCircle2, CircleDashed, MinusCircle, CircleSlash } from 'lucide-react'
+import { Eye, Printer, ClipboardList, Truck, FileText, Split } from 'lucide-react'
 import { useApp } from '../../../shell/context'
-import { DOC_NAME, type DocState, type Order, type OrderDoc } from '../../../data/model'
+import { type Order } from '../../../data/model'
+import { FlagIcon } from '../../../ui/Glyphs'
+import { downloadDocPdf, wzApi } from '@/lib/api'
 
-const STATE: Record<DocState, { label: string; icon: React.ReactNode }> = {
-  available: { label: 'Gotowy do wydruku', icon: <CheckCircle2 size={16} color="var(--ink-3)" /> },
-  issued: { label: 'Wystawiony', icon: <CheckCircle2 size={16} color="var(--ok)" /> },
-  partial: { label: 'Częściowo', icon: <CheckCircle2 size={16} color="var(--accent)" /> },
-  todo: { label: 'Do wystawienia', icon: <CircleDashed size={16} color="var(--accent)" /> },
-  blocked: { label: 'Niedostępny', icon: <CircleSlash size={16} color="var(--ink-4)" /> },
-  not_required: { label: 'Niewymagany', icon: <MinusCircle size={16} color="var(--ink-4)" /> },
-  frozen: { label: 'Zamrożony', icon: <Lock size={16} color="var(--ink-3)" /> },
-}
-
+/**
+ * Dokumenty zamówienia — jedno miejsce na wszystkie wydruki i dokumenty wydania.
+ * WZ/WM: lista z API (powiązane z zamówieniem) z podglądem PDF. HDI i CMR na liście
+ * API nie mają numeru zamówienia (BRAKI_API) — generuje się je stąd, PDF otwiera się od razu.
+ */
 export function DocumentsTab({ order }: { order: Order }) {
   const app = useApp()
-  const demo = (t: string) => app.toast({ kind: 'info', title: t, detail: 'Podgląd i druk dokumentów przeniesiemy w fazie 3. Teraz: stary MES na tej samej kopii.' })
-  const actions = (d: OrderDoc) => {
-    if (d.state === 'blocked' || d.state === 'not_required') return null
-    if (d.state === 'todo' || (d.state === 'available' && d.kind === 'HDI')) return <button className="btn sm primary" onClick={() => demo(`${d.kind === 'HDI' ? 'Generowanie HDI' : `Wystawianie ${d.kind}`}`)}><FilePlus2 size={14} />{d.kind === 'HDI' ? 'Generuj' : 'Wystaw'}</button>
-    return <><button className="btn sm ghost" onClick={() => demo('Podgląd dokumentu')}><Eye size={14} />Podgląd</button><button className="btn sm" onClick={() => demo('Drukowanie')}><Printer size={14} />Drukuj</button></>
+  const draft = order.status === 'draft'
+  const closed = order.status === 'done' || order.status === 'cancelled'
+  const pdf = async (id: string, nr?: string) => {
+    try { await downloadDocPdf(wzApi.pdfUrl(id), `${(nr ?? 'WZ').replace(/\//g, '-')}.pdf`) }
+    catch (e) { app.toast({ kind: 'warn', title: 'Nie udało się pobrać PDF', detail: e instanceof Error ? e.message : '' }) }
   }
+  const akcja = (label: string, icon: React.ReactNode, run: () => void, opis: string, disabled?: boolean, tip?: string) => (
+    <button className="doc-tile" onClick={run} disabled={disabled} data-tip={disabled ? tip : undefined}>
+      <span className="dt-ico">{icon}</span><span className="dt-t">{label}</span><span className="dt-d">{opis}</span>
+    </button>
+  )
   return (
     <div className="dock-pad">
-      <div className="sect-h"><h3>Dokumenty</h3><span className="sub">dokumenty wydania wystawione z zamówienia</span></div>
+      <div className="sect-h"><h3>Wydruki i dokumenty</h3><span className="sub">PDF zapiszesz z okna druku albo otworzy się w czytniku</span></div>
+      <div className="doc-tiles">
+        {akcja('Zamówienie dla klienta', <Printer size={18} />, () => app.printOrder(order.id), 'A4 z logo — do wysłania klientowi')}
+        {akcja('Lista kompletacji', <ClipboardList size={18} />, () => app.printPicking([order.id]), 'wewnętrzna, z kratkami i paletami')}
+        {akcja('Wystaw WZ', <Truck size={18} />, () => app.issueWz(order.id), 'zdejmuje towar ze stanu', draft || closed, draft ? 'Najpierw potwierdź zamówienie' : 'Zamówienie zamknięte')}
+        {akcja(closed ? 'Podgląd HDI' : 'Generuj HDI', <FileText size={18} />, () => app.genHdi(order.id), closed ? 'zamrożone po realizacji' : 'na stan faktyczny', draft, 'Najpierw potwierdź zamówienie')}
+        {akcja('Wystaw CMR', <FileText size={18} />, () => app.openCmr(order.id), 'przewoźnik, faktura, instrukcje', draft, 'Najpierw potwierdź zamówienie')}
+        {akcja('Podział wysyłki', <Split size={18} />, () => app.toast({ kind: 'info', title: 'Podział wysyłki na fakturę i WZ', detail: 'Następny krok próby — teraz w starym MES na tej samej kopii.' }), 'faktura + WM — wkrótce')}
+      </div>
+
+      <div className="sect-h"><h3>Wystawione WZ / WM</h3><span className="sub">dokumenty wydania powiązane z zamówieniem</span></div>
       <div className="box">
         <table className="tbl">
-          <thead><tr><th>Dokument</th><th>Numer</th><th>Stan</th><th className="hide-s">Data</th><th className="hide-m">Wystawił</th><th>Uwagi</th><th className="r">Działania</th></tr></thead>
+          <thead><tr><th>Numer</th><th className="hide-s">Data</th><th>Stan</th><th className="r">Podgląd</th></tr></thead>
           <tbody>
-            {order.docs.length === 0 && <tr><td colSpan={7}><div className="empty">Brak WZ/WM wystawionych z tego zamówienia. HDI i CMR nie są jeszcze powiązane z zamówieniem w API listy — sprawdź w starym MES.</div></td></tr>}
+            {order.docs.length === 0 && <tr><td colSpan={4}><div className="empty">Brak WZ/WM wystawionych z tego zamówienia.</div></td></tr>}
             {order.docs.map((d, i) => (
-              <tr key={`${d.kind}-${d.number ?? i}`} className={`row${i % 2 ? ' zebra' : ''}`}>
-                <td className="strong">{DOC_NAME[d.kind]}</td>
-                <td className="num">{d.number ?? <span className="faint">—</span>}</td>
-                <td><span className="status">{STATE[d.state].icon}{STATE[d.state].label}</span></td>
-                <td className="num hide-s">{d.date ?? <span className="faint">—</span>}</td>
-                <td className="hide-m">{d.by ?? <span className="faint">—</span>}</td>
-                <td className={`ell ${d.state === 'available' && d.kind === 'HDI' && /stan faktyczny/.test(d.note ?? '') ? 'warn-ink' : 'muted'}`} style={{ maxWidth: 380 }} title={d.note}>{d.note}</td>
-                <td className="r"><span style={{ display: 'inline-flex', gap: 4 }}>{actions(d)}</span></td>
+              <tr key={`${d.number ?? i}`} className={`row${i % 2 ? ' zebra' : ''}`}>
+                <td className="num strong">{d.number}</td>
+                <td className="num hide-s">{d.date ?? '—'}</td>
+                <td className="muted">{d.note}</td>
+                <td className="r">{d.id && <button className="btn sm ghost" onClick={() => void pdf(d.id!, d.number)}><Eye size={14} />PDF</button>}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <div className="note"><FlagIcon level="info" size={15} /><div>Anulowanie WZ, edycja HDI i rejestr wszystkich dokumentów — w module „Dokumenty WZ, CMR, HDI” starego MES (w próbie bez zmian).</div></div>
     </div>
   )
 }

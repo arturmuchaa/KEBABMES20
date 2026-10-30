@@ -60,3 +60,17 @@
   .print-sheet .dz-tbl td { border: 0; border-bottom: 1px solid #e3e6ea; }
   .print-sheet .dz-tbl tbody tr:nth-child(even) td { background: #f6f7f9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* ─── Lista kompletacji (wewnętrzna) ─────────────────────────────────── */
+.doc-komp .dk-mut { color: #666; }
+.doc-komp .dk-pal { color: #555; font-size: 8pt; }
+.doc-komp .dk-wydane td { color: #888; }
+.doc-komp .dk-wyd { font-size: 7pt; font-weight: 700; letter-spacing: .08em; }
+.doc-komp .dk-box { display: inline-block; width: 4.5mm; height: 4.5mm; border: 1.3px solid #000; vertical-align: middle; }
+.doc-komp .dk-pals { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.doc-komp .dk-pal-card { border: 1px solid #aaa; border-radius: 3px; padding: 5px 7px; font-size: 8.5pt; break-inside: avoid; }
+.doc-komp .dk-pal-h { display: flex; justify-content: space-between; margin-bottom: 2px; }
+.doc-komp .dk-pal-l { display: flex; justify-content: space-between; gap: 8px; }
+
+.doc-preview .dk-page { border-top: 2px dashed #bbb; margin-top: 18mm; padding-top: 10mm; }
+@media print { .print-sheet .dk-page { break-before: page; border: 0; margin: 0; padding: 0; } }

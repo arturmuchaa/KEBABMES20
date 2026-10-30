@@ -195,6 +195,7 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
       { label: 'Palety i kartony', icon: <Boxes size={15} />, onSelect: () => { select(id); setTab('pallets') } },
       { label: 'Dokumenty', icon: <FileText size={15} />, onSelect: () => { select(id); setTab('documents') } },
       { label: 'Drukuj zamówienie dla klienta…', icon: <Printer size={15} />, onSelect: () => app.printOrder(id) },
+      { label: 'Lista kompletacji…', icon: <ClipboardList size={15} />, onSelect: () => app.printPicking([id]) },
       { label: 'Wystaw WZ…', icon: <FileText size={15} />, disabled: r.o.status !== 'confirmed' && r.o.status !== 'in_production', onSelect: () => app.issueWz(id) },
       { sep: true },
       { label: 'Podziel wysyłkę na fakturę i WZ', icon: <Split size={15} />, onSelect: () => app.toast({ kind: 'info', title: 'Podział wysyłki', detail: FAZA_ZAPISU }) },
@@ -244,7 +245,7 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
           <input type="checkbox" className="cbx" checked readOnly onClick={() => setChecked(new Set())} aria-label="Odznacz wszystkie" />
           <span className="cnt">Zaznaczono {checked.size} {checked.size === 1 ? 'zamówienie' : checked.size < 5 ? 'zamówienia' : 'zamówień'}<span>{kg(checkedRows.reduce((a, r) => a + r.m.orderedKg, 0))}</span></span>
           <button className="btn" onClick={() => setReqOpen(true)}><Calculator size={15} />Zapotrzebowanie na masowanie</button>
-          <button className="btn" onClick={() => app.toast({ kind: 'info', title: 'Lista kompletacji', detail: FAZA_ZAPISU })}><ClipboardList size={15} />Lista kompletacji</button>
+          <button className="btn" onClick={() => app.printPicking(checkedRows.map(r => r.o.id))}><ClipboardList size={15} />Lista kompletacji</button>
           <button className="btn" onClick={() => app.toast({ kind: 'info', title: 'Druk zaznaczonych', detail: FAZA_ZAPISU })}><Printer size={15} />Drukuj</button>
           <button className="btn hide-s" onClick={() => app.toast({ kind: 'info', title: 'Eksport do Excela', detail: 'Eksport dojdzie po próbie wyglądu. Teraz: stary MES.' })}><FileSpreadsheet size={15} />Eksportuj</button>
           <span className="grow" style={{ flex: 1 }} />

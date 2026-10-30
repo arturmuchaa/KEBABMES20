@@ -22,6 +22,12 @@ export interface AppApi {
   printOrder(id: string): void
   /** WZ z zamówienia (karta robocza). */
   issueWz(orderId: string): void
+  /** Lista kompletacji (wewnętrzna) — jedno albo kilka zamówień. */
+  printPicking(orderIds: string[]): void
+  /** Okno CMR z zamówienia. */
+  openCmr(orderId: string): void
+  /** HDI z zamówienia → PDF. */
+  genHdi(orderId: string): void
   toast(t: Omit<Toast, 'id'>): void
   setStatusCtx(node: React.ReactNode): void
   appRef: React.RefObject<HTMLDivElement>

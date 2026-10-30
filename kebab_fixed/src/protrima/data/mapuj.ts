@@ -102,6 +102,7 @@ export function dokumentyZamowienia(orderId: string, wz: WzDoc[]): OrderDoc[] {
   const moje = wz.filter(d => (d.source_type ?? d.sourceType) === 'order' && (d.source_id ?? d.sourceId) === orderId && d.status !== 'anulowany')
   if (!moje.length) return []
   return moje.map(d => ({
+    id: d.id,
     kind: 'WZ',
     state: 'issued',
     number: d.number,

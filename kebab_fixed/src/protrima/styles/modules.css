@@ -376,3 +376,13 @@ button.pstage:hover .pn { background: var(--accent-tint-2); }
 .achip.over .bar i { background: var(--crit) !important; }
 /* Pole formularza z etykietą nad spodem (WZ, edytory). */
 .fld { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+
+/* ─── Dokumenty zamówienia: kafle akcji ──────────────────────────────── */
+.doc-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.doc-tile { display: grid; grid-template-columns: 34px 1fr; grid-template-rows: auto auto; gap: 1px 10px; align-items: center; text-align: left;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); cursor: pointer; }
+.doc-tile:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-tint-2); }
+.doc-tile:disabled { opacity: .5; cursor: default; }
+.doc-tile .dt-ico { grid-row: 1 / 3; width: 34px; height: 34px; border-radius: 6px; background: var(--accent-tint); color: var(--accent-ink); display: flex; align-items: center; justify-content: center; }
+.doc-tile .dt-t { font-weight: 600; color: var(--ink-1); }
+.doc-tile .dt-d { font-size: var(--fs-sm); color: var(--ink-3); }

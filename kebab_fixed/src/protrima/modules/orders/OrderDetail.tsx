@@ -46,15 +46,15 @@ export function orderCommands(order: Order | null, app: AppApi, onTab: (t: Detai
     { id: 'shipping', group: 3, label: 'Wysyłka', icon: <Truck size={17} />, disabled: none || order!.status === 'draft', run: () => onTab('shipping') },
     { id: 'docs', group: 3, label: 'Dokumenty', icon: <FileText size={17} />, disabled: none, menu: [
       { label: 'Wystaw WZ…', icon: <Truck size={15} />, onSelect: () => order && app.issueWz(order.id), disabled: closed || order?.status === 'draft' },
-      { label: 'Wystaw CMR…', icon: <FileText size={15} />, onSelect: () => onTab('documents'), disabled: closed || order?.client.country === 'PL' },
-      { label: 'Generuj HDI', icon: <FileText size={15} />, onSelect: () => onTab('documents') },
+      { label: 'Wystaw CMR…', icon: <FileText size={15} />, onSelect: () => order && app.openCmr(order.id), disabled: none || order?.status === 'draft' },
+      { label: closed ? 'Podgląd HDI (zamrożone)' : 'Generuj HDI', icon: <FileText size={15} />, onSelect: () => order && app.genHdi(order.id), disabled: none || order?.status === 'draft' },
       { sep: true },
       { label: 'Podział wysyłki na fakturę i WZ', icon: <Split size={15} />, onSelect: () => demo('Podział wysyłki'), disabled: closed },
       { label: 'Wszystkie dokumenty zamówienia', icon: <List size={15} />, onSelect: () => onTab('documents') },
     ] },
     { id: 'print', group: 4, label: 'Drukuj', icon: <Printer size={17} />, kbd: 'Ctrl+P', menuOnly: true, disabled: none, menu: [
       { label: 'Zamówienie dla klienta (wydruk / PDF)', icon: <Printer size={15} />, onSelect: () => order && app.printOrder(order.id) },
-      { label: 'Lista kompletacji (wewnętrzna)', icon: <ClipboardList size={15} />, onSelect: () => demo('Wydruk listy kompletacji', 'Wydruki zamówień przeniesiemy w fazie 3. Teraz: stary MES na tej samej kopii.') },
+      { label: 'Lista kompletacji (wewnętrzna)', icon: <ClipboardList size={15} />, onSelect: () => order && app.printPicking([order.id]) },
       { label: 'Kartki palet', icon: <Boxes size={15} />, onSelect: () => demo('Kartki palet', 'Wydruki zamówień przeniesiemy w fazie 3. Teraz: stary MES na tej samej kopii.'), disabled: !order?.pallets.length },
     ] },
     { id: 'stock', group: 4, label: 'Wyrób w magazynie', icon: <PackageCheck size={17} />, opt: true, disabled: none, tip: 'Pozycje magazynowe przydzielone do zamówienia', run: () => app.gotoStock(order?.id) },
