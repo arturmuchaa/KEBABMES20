@@ -11,21 +11,22 @@
 .login-brand { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 
 /* ─── Logowanie: panel marki + formularz (pierwsze wrażenie) ───────────── */
-.login-wrap.split { padding: 0; align-items: stretch; justify-content: stretch; background: var(--surface); }
+.login-wrap.split { padding: 0; align-items: stretch; justify-content: stretch; background: var(--canvas); }
 .login-side {
-  flex: 0 0 min(44%, 600px); display: flex; flex-direction: column; gap: 44px; padding: 52px 56px 40px;
+  flex: 0 0 min(42%, 580px); display: flex; flex-direction: column; gap: 48px; padding: 56px 64px 40px;
   background: #16202B; color: #E9EDF2; --logo-type: #F1F4F8; --logo-mark: #7FA3F3;
 }
-.ls-copy h2 { font-size: 34px; font-weight: 600; letter-spacing: -.025em; line-height: 1.12; color: #FFFFFF; max-width: 13ch; }
+.ls-copy { margin-top: auto; }
+.ls-copy h2 { font-size: 40px; font-weight: 600; letter-spacing: -.03em; line-height: 1.08; color: #FFFFFF; max-width: 12ch; }
 .ls-copy p { margin-top: 16px; font-size: 15px; line-height: 1.55; color: #A9B4C2; max-width: 38ch; }
-.ls-rail { list-style: none; margin: auto 0 0; padding: 0; display: flex; flex-direction: column; }
+.ls-rail { list-style: none; margin: 0 0 auto; padding: 0; display: flex; flex-direction: column; }
 .ls-rail li { position: relative; display: flex; align-items: center; gap: 14px; height: 38px; color: #C3CDD9; font-size: 14px; }
 .ls-rail li i { position: relative; z-index: 1; flex: none; width: 12px; height: 12px; border-radius: 50%; background: #16202B; box-shadow: inset 0 0 0 2px #7FA3F3; }
 .ls-rail li:not(:last-child)::before { content: ""; position: absolute; left: 5px; top: 25px; height: 26px; width: 2px; background: rgba(127, 163, 243, .32); }
 .ls-rail li:last-child { color: #FFFFFF; font-weight: 600; }
 .ls-rail li:last-child i { background: #7FA3F3; box-shadow: 0 0 0 4px rgba(127, 163, 243, .2); }
 .ls-foot { font-size: 12px; color: #7D8A9A; }
-.login-wrap.split .login-card { margin: auto; width: min(380px, calc(100% - 48px)); padding: 0; gap: 12px; background: transparent; border: 0; box-shadow: none; }
+.login-wrap.split .login-card { margin: auto; width: min(440px, calc(100% - 48px)); padding: 36px 40px 40px; gap: 12px; background: var(--surface); border: 0; border-radius: var(--r-lg); box-shadow: var(--e2); }
 .login-wrap.split .login-card h1 { font-size: 26px; letter-spacing: -.02em; margin-top: 18px; }
 .login-wrap.split .login-card .field { height: 40px; }
 .login-wrap.split .login-card .btn.primary { height: 42px; font-size: 14px; }
