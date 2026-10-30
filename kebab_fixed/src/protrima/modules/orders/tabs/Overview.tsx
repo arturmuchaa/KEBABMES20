@@ -3,6 +3,7 @@ import { Building2, ClipboardList, StickyNote } from 'lucide-react'
 import type { DetailTab } from '../../../shell/context'
 import { computeMetrics, kg, num, pct, fmtDate, dueText, type Order } from '../../../data/model'
 import { StageNode, FlagIcon } from '../../../ui/Glyphs'
+import { poziomPokrycia } from '../../../ui/Meters'
 
 type Lvl = 'ok' | 'warn' | 'crit' | 'idle'
 
@@ -50,7 +51,7 @@ export function OverviewTab({ order, onTab }: { order: Order; onTab: (t: DetailT
         <div className="measure">
           <span className="mk"><i className="f-stock" />Pokrycie</span>
           <span className="mv num">{pct(m.coverPct)}<small>{m.missingKg > 0 && !closed ? <span className="crit-ink">brak {kg(m.missingKg)}</span> : 'komplet'}</small></span>
-          <span className="track">
+          <span className={`track cov-${poziomPokrycia(m.coverPct)}`}>
             {m.shipPct > 0 && <i className="f-ship" style={{ width: `${m.shipPct}%` }} />}
             {m.stockPct > 0 && <i className="f-stock" style={{ width: `${m.stockPct}%` }} />}
             {m.missingKg > 0 && <i className="f-short" style={{ flex: 1 }} />}

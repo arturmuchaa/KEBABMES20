@@ -413,7 +413,7 @@ const OrderRow = React.memo(function OrderRow({ r, zebra, sel, checked, onClick,
       <td className="num">{kg(m.orderedKg)}</td>
       <td className="opt-col">{o.status === 'draft' || o.status === 'cancelled' ? <span className="faint">—</span> : <ProdMeter value={m.prodPct} />}</td>
       <td>{o.status === 'draft' || o.status === 'cancelled' ? <span className="faint">—</span> : <CoverMeter ship={m.shipPct} stock={m.stockPct} />}</td>
-      <td className="num">{closed ? <span className="faint">—</span> : m.missingKg > 0 ? <span className={due !== null && due <= 1 ? 'crit-ink strong' : ''}>{num(m.missingKg)}</span> : <span className="ok-ink">0</span>}</td>
+      <td className="num">{closed ? <span className="faint">—</span> : m.missingKg > 0 ? <span className={`crit-ink${due !== null && due <= 1 ? ' strong' : ''}`}>{num(m.missingKg)}</span> : <span className="ok-ink">0</span>}</td>
       <td className="num">
         {m.palletsTotal > 0 ? <span><b>{m.palletsReady}</b><span className="faint"> / {m.palletsTotal}</span>{m.unassignedQty > 0 && <span className="warn-ink" data-tip={`${m.unassignedQty} szt. bez palety`}> +</span>}</span>
           : o.status === 'draft' || closed ? <span className="faint">—</span>

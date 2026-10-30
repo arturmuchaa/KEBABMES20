@@ -13,11 +13,15 @@ export function ProdMeter({ value, w = 64 }: { value: number; w?: number }) {
   )
 }
 
-/** Pokrycie = wydano (ciemny) + w magazynie (jasny). Segmenty rozdzielone szczeliną. */
+/** Poziom pokrycia do koloru: komplet — zielony, częściowe — pomarańczowy, nic — czerwony. */
+export type PoziomPokrycia = 'ok' | 'part' | 'none'
+export const poziomPokrycia = (pokrycie: number): PoziomPokrycia => pokrycie >= 99.95 ? 'ok' : pokrycie > 0 ? 'part' : 'none'
+
+/** Pokrycie = wydano (ciemniejszy odcień) + w magazynie (jaśniejszy); kolor wg stanu pokrycia. */
 export function CoverMeter({ ship, stock, w = 64 }: { ship: number; stock: number; w?: number }) {
   const s = clamp(ship), k = clamp(Math.min(100 - s, stock))
   return (
-    <span className="meter" style={{ ['--meter-w' as string]: `${w}px` }}>
+    <span className={`meter cov-${poziomPokrycia(s + k)}`} style={{ ['--meter-w' as string]: `${w}px` }}>
       <span className="track">
         {s > 0 && <i className="fill f-ship" style={{ width: `${s}%` }} />}
         {k > 0 && <i className="fill f-stock" style={{ width: `${k}%` }} />}
@@ -31,9 +35,10 @@ export function MeasureLegend({ withShort = true, withProd = true }: { withShort
   return (
     <span className="legend">
       {withProd && <span><i className="f-prod" />Produkcja (zgłoszono)</span>}
-      <span><i className="f-ship" />Wydano</span>
-      <span><i className="f-stock" />W magazynie</span>
-      {withShort && <span><i className="f-short" />Brak</span>}
+      <span className="cov-ok"><i className="f-ship" />komplet</span>
+      <span className="cov-part"><i className="f-ship" />częściowo</span>
+      {withShort && <span><i className="f-short" />brak</span>}
+      <span className="muted">ciemniej — wydano, jaśniej — w magazynie</span>
     </span>
   )
 }

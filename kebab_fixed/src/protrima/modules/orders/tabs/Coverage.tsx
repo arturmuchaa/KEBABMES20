@@ -5,7 +5,7 @@ import { useOrders } from '../../../data/store'
 import { FAZA_ZAPISU } from '../../../proba'
 import { computeMetrics, kg, num, pct, lineMissing, type Order } from '../../../data/model'
 import { posKg } from '../../../data/stock'
-import { MeasureLegend } from '../../../ui/Meters'
+import { MeasureLegend, poziomPokrycia } from '../../../ui/Meters'
 import { FlagIcon } from '../../../ui/Glyphs'
 
 /**
@@ -55,13 +55,13 @@ export function CoverageTab({ order }: { order: Order }) {
                   <td className="num">{miss ? <b className="crit-ink">{num(miss)}</b> : <span className="ok-ink">0</span>}</td>
                   <td className="num">{miss ? <span className="crit-ink">{kg(miss * l.kgPerUnit)}</span> : <span className="faint">—</span>}</td>
                   <td>
-                    <span className="cov-bar" data-tip={`Wydano ${l.delivered} · w magazynie ${l.stock} · brak ${miss} szt.`}>
+                    <span className={`cov-bar cov-${poziomPokrycia(((l.qty - miss) / l.qty) * 100)}`} data-tip={`Wydano ${l.delivered} · w magazynie ${l.stock} · brak ${miss} szt.`}>
                       {l.delivered > 0 && <i className="f-ship" style={{ width: w(l.delivered) }} />}
                       {l.stock > 0 && <i className="f-stock" style={{ width: w(Math.min(l.stock, l.qty - l.delivered)) }} />}
                       {miss > 0 && <i className="f-short" style={{ flex: 1 }} />}
                     </span>
                   </td>
-                  <td className="num strong">{pct(((l.qty - miss) / l.qty) * 100)}</td>
+                  <td className={`num strong cov-txt-${poziomPokrycia(((l.qty - miss) / l.qty) * 100)}`}>{pct(((l.qty - miss) / l.qty) * 100)}</td>
                 </tr>
               )
             })}

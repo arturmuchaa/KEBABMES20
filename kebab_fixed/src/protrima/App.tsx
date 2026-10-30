@@ -10,6 +10,7 @@ import { Dashboard } from './modules/dashboard/Dashboard'
 import { OrdersModule } from './modules/orders/OrdersModule'
 import { OrderTab } from './modules/orders/OrderTab'
 import { FinishedGoods } from './modules/stock/FinishedGoods'
+import { PrzyjeciaModule } from './modules/przyjecia/PrzyjeciaModule'
 import { Placeholder } from './modules/misc/Placeholder'
 import { DesignSystem } from './modules/misc/DesignSystem'
 import { Logo } from './brand/Logo'
@@ -110,6 +111,7 @@ function Shell() {
     { id: 'pulpit', kind: 'module', key: 'pulpit', title: 'Pulpit zakładu', icon: LayoutGrid },
     { id: 'zamowienia', kind: 'module', key: 'zamowienia', title: 'Zamówienia', icon: ShoppingCart },
     { id: 'magazyn-wg', kind: 'module', key: 'magazyn-wg', title: 'Wyrób gotowy', icon: Package },
+    { id: 'przyjecia', kind: 'module', key: 'przyjecia', title: 'Przyjęcia surowca', icon: PackageOpen },
   ])
   const [active, setActive] = useState('pulpit')
   const [ordersCmd, setOrdersCmd] = useState<OrdersCmd>({ n: 0 })
@@ -342,6 +344,7 @@ function Shell() {
     if (t.key === 'pulpit') return <Dashboard active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'zamowienia') return <OrdersModule cmd={ordersCmd} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'magazyn-wg') return <FinishedGoods cmd={stockCmd} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
+    if (t.key === 'przyjecia') return <PrzyjeciaModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'system') return <DesignSystem />
     const def = moduleDef(t.key)
     return def ? <Placeholder def={def} /> : null
