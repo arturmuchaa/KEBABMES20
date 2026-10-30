@@ -22,6 +22,8 @@ export interface WierszWz {
   vatRate: number
   clientOrderNo?: string | null
   clientName?: string | null
+  /** Wyrób bez gramatury („KEBAB UDO BEYAZ HALAL”) — klucz ceny „według wyrobu”. */
+  grupa?: string
 }
 export interface FormWz {
   buyer: { name: string; address: string; nip: string }
@@ -56,10 +58,33 @@ export const wartosc = (r: WierszWz) => Math.round((masa(r) > 0 ? masa(r) : ilos
 export const cenaDlaWszystkich = (f: FormWz, priceStr: string): FormWz => ({ ...f, rows: f.rows.map(r => ({ ...r, priceStr })) })
 
 /** Wspólna cena pozycji ('' gdy pozycje mają różne albo puste ceny). */
-export const wspolnaCena = (f: FormWz): string => {
-  const ceny = [...new Set(f.rows.map(r => cena(r)))]
-  return ceny.length === 1 && ceny[0] > 0 ? f.rows[0].priceStr : ''
+export const wspolnaCena = (f: FormWz): string => wspolna(f.rows)
+const wspolna = (rows: WierszWz[]): string => {
+  const ceny = [...new Set(rows.map(r => cena(r)))]
+  return rows.length > 0 && ceny.length === 1 && ceny[0] > 0 ? rows[0].priceStr : ''
 }
+
+/** Klucz ceny „według wyrobu”: rodzaj + receptura, bez gramatury (cena idzie za kg). */
+export const kluczCeny = (r: WierszWz) => r.grupa || r.name.replace(/\s+\d+(?:[.,]\d+)?\s*kg$/i, '').trim()
+
+export interface GrupaCen { key: string; pozycji: number; szt: number; kg: number; priceStr: string }
+/** Wyroby na dokumencie (kolejność pierwszego wystąpienia) z ich wspólną ceną. */
+export function grupyCen(f: FormWz): GrupaCen[] {
+  const m = new Map<string, WierszWz[]>()
+  f.rows.forEach(r => m.set(kluczCeny(r), [...(m.get(kluczCeny(r)) ?? []), r]))
+  return [...m.entries()].map(([key, rows]) => ({
+    key, pozycji: rows.length, priceStr: wspolna(rows),
+    szt: rows.reduce((a, r) => a + ilosc(r), 0),
+    kg: Math.round(rows.reduce((a, r) => a + masa(r) * 1000, 0)) / 1000,
+  }))
+}
+export const cenaDlaGrupy = (f: FormWz, key: string, priceStr: string): FormWz =>
+  ({ ...f, rows: f.rows.map(r => (kluczCeny(r) === key ? { ...r, priceStr } : r)) })
+
+export const vatDlaWszystkich = (f: FormWz, vatRate: number): FormWz => ({ ...f, rows: f.rows.map(r => ({ ...r, vatRate })) })
+/** Wspólna stawka VAT (null gdy pozycje mają różne). */
+export const wspolnyVat = (f: FormWz): number | null => { const v = [...new Set(f.rows.map(r => r.vatRate))]; return v.length === 1 ? v[0] : null }
+export const bezCeny = (f: FormWz) => f.rows.filter(r => !(cena(r) > 0)).length
 
 /** Formularz z odpowiedzi `/wz/from-order/{id}/picks`. Brakuje = zamówiono − wstawione. */
 export function zPicks(d: Picks, dzis: string): { form: FormWz; orderNo: string; brakuje: number; clientId: string } {
@@ -74,6 +99,7 @@ export function zPicks(d: Picks, dzis: string): { form: FormWz; orderNo: string;
     kgPerUnit: p.kg_per_unit || undefined,
     priceStr: '',
     vatRate: vat,
+    grupa: p.product_type_name && p.recipe_name ? zlozNazweWyrobu(p.product_type_name, p.recipe_name) : undefined,
   }))
   const wstawione = d.picks.reduce((a, p) => a + p.qty, 0)
   return {

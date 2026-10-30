@@ -50,7 +50,7 @@ describe('WZ z zamówienia', () => {
     fireEvent.click(karta.getByRole('button', { name: 'Zamknij' }))
     expect(onDone).toHaveBeenCalled()
   })
-  it('dokument wartościowy: jedna cena za kg dla wszystkich pozycji (Enter), wartość za kilogram jak na serwerze', async () => {
+  it('karta Ceny: jedna cena za kg dla wszystkich pozycji, wartość za kilogram jak na serwerze, ręczna poprawka wiersza', async () => {
     wz.fromOrderPicks.mockResolvedValue({ ...PICKS, picks: [...PICKS.picks, { stock_id: 'f2', qty: 10, batch_no: '291026 670', name: 'KEBAB UDO BEYAZ HALAL 10kg', product_type_name: 'KEBAB UDO', recipe_name: 'BEYAZ HALAL', kg_per_unit: 10, qty_available: 10 }] })
     wz.createManual.mockResolvedValue({ id: 'w9', number: 'WZ/7/10/26', buyer_name: 'BUBU KEBAB S.C.', valued: true, status: 'wstepny', lines: [], total_value: 6250 })
     mount()
@@ -58,15 +58,19 @@ describe('WZ z zamówienia', () => {
     fireEvent.click(screen.getByLabelText('Dokument wartościowy'))
     const wsz = screen.getByLabelText('Cena za kg dla wszystkich pozycji') as HTMLInputElement
     fireEvent.change(wsz, { target: { value: '12,50' } })
-    fireEvent.keyDown(wsz, { key: 'Enter' })
     expect((screen.getByLabelText('Cena za kg, KEBAB UDO BEYAZ HALAL 20kg') as HTMLInputElement).value).toBe('12,50')
     expect((screen.getByLabelText('Cena za kg, KEBAB UDO BEYAZ HALAL 10kg') as HTMLInputElement).value).toBe('12,50')
     // 20 szt × 20 kg × 12,50 = 5000 zł; 10 × 10 × 12,50 = 1250 zł (nie 20 × 12,50).
     expect(screen.getAllByText(/^5\s?000,00\s?zł$/).length).toBeGreaterThan(0)
     expect(screen.getAllByText(/^6\s?250,00\s?zł$/).length).toBeGreaterThan(0)
+    expect(screen.getByText('wszystkie pozycje mają cenę')).toBeTruthy()
+    // Jeden wiersz poprawiony ręcznie → pole „wszystkie” pokazuje różne ceny.
+    fireEvent.change(screen.getByLabelText('Cena za kg, KEBAB UDO BEYAZ HALAL 10kg'), { target: { value: '13' } })
+    expect(wsz.value).toBe('')
+    expect(wsz.placeholder).toBe('różne ceny')
     run('issue')
     await waitFor(() => expect(wz.createManual).toHaveBeenCalledTimes(1))
-    expect(wz.createManual.mock.calls[0][0].items.map((i: { price: number }) => i.price)).toEqual([12.5, 12.5])
+    expect(wz.createManual.mock.calls[0][0].items.map((i: { price: number }) => i.price)).toEqual([12.5, 13])
   })
   it('odmowa serwera — jego słowami, formularz zostaje', async () => {
     wz.createManual.mockRejectedValue(new Error('Partia 291026 669: na stanie 18 szt.'))

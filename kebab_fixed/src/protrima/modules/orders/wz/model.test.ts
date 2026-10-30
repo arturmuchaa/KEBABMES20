@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cenaDlaWszystkich, cudzeRezerwacje, doDto, sumy, walidacja, wartosc, wspolnaCena, zPicks } from './model'
+import { bezCeny, cenaDlaGrupy, cenaDlaWszystkich, cudzeRezerwacje, doDto, grupyCen, sumy, vatDlaWszystkich, walidacja, wartosc, wspolnaCena, wspolnyVat, zPicks } from './model'
 
 const PICKS = {
   order_id: 'o1', order_no: 'ISSA/Z/3/10/26', client_id: 'c1', ordered: 190,
@@ -56,6 +56,18 @@ describe('WZ z zamówienia — model', () => {
     expect(wspolnaCena({ ...f, rows: [f.rows[0], { ...f.rows[1], priceStr: '13' }] })).toBe('')
     expect(wspolnaCena(form)).toBe('')
     expect(sumy(f).vat?.netto).toBeCloseTo(1500 * 12.5, 2)
+  })
+  it('ceny według wyrobu (bez gramatury), wspólny VAT, licznik pozycji bez ceny', () => {
+    const dwa = { ...form, valued: true, rows: [...form.rows, { ...form.rows[0], stockId: 'f3', name: 'KEBAB UDO CZERWONY 10kg', grupa: 'KEBAB UDO CZERWONY', qtyStr: '10', kgPerUnit: 10 }] }
+    const g = grupyCen(dwa)
+    expect(g.map(x => [x.key, x.pozycji, x.kg])).toEqual([['KEBAB UDO BEYAZ HALAL', 2, 1500], ['KEBAB UDO CZERWONY', 1, 100]])
+    const z = cenaDlaGrupy(dwa, 'KEBAB UDO BEYAZ HALAL', '12,5')
+    expect(z.rows.map(r => r.priceStr)).toEqual(['12,5', '12,5', ''])
+    expect(grupyCen(z)[0].priceStr).toBe('12,5')
+    expect(bezCeny(z)).toBe(1)
+    expect(wspolnaCena(z)).toBe('')
+    expect(wspolnyVat(vatDlaWszystkich(z, 5))).toBe(5)
+    expect(wspolnyVat({ ...z, rows: [z.rows[0], { ...z.rows[1], vatRate: 8 }] })).toBeNull()
   })
   it('ostrzeżenie: towar ze stemplem innego klienta', () => {
     const f = { ...form, rows: [{ ...form.rows[0], clientOrderNo: 'POLAT/Z/4/10/26', clientName: 'POLAT' }] }

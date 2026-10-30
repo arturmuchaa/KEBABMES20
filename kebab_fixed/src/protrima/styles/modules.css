@@ -422,4 +422,23 @@ button.pstage:hover .pn { background: var(--accent-tint-2); }
 .sign-opt img { margin-left: auto; height: 30px; max-width: 120px; object-fit: contain; }
 .rec-lines input[type="date"] { width: 150px; }
 .fld .seg { align-self: flex-start; }
-.wz-bulk { display: inline-flex; gap: 6px; align-items: center; padding-left: 8px; border-left: 1px solid var(--line-soft); }
+/* WZ — karta „Ceny” nad pozycjami */
+.wz-prices { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(0, 1.4fr) minmax(200px, auto) minmax(220px, auto); gap: 14px 22px; padding: 14px 16px; align-items: start; border-left: 3px solid var(--accent); }
+.wz-p-main { display: flex; flex-direction: column; gap: 6px; }
+.wz-p-in { display: inline-flex; align-items: center; gap: 6px; }
+.wz-p-in > span { color: var(--ink-3); font-size: var(--fs-sm); white-space: nowrap; }
+.wz-p-in .field { width: 110px; }
+.wz-p-in.big .field { width: 150px; height: 40px; font-size: 20px; font-weight: 600; }
+.wz-p-groups { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.wz-p-row { display: flex; align-items: center; gap: 12px; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--line-soft); }
+.wz-p-row:last-child { border-bottom: 0; }
+.wz-p-row .nm { display: flex; flex-direction: column; min-width: 0; }
+.wz-p-row .nm b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wz-p-side { display: flex; flex-direction: column; gap: 10px; }
+.wz-p-side .field { width: auto; }
+.wz-p-sum { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; text-align: right; }
+.wz-p-sum .f { display: flex; gap: 10px; align-items: baseline; }
+.wz-p-sum .k { color: var(--ink-3); font-size: var(--fs-sm); }
+.wz-p-sum .v { font-variant-numeric: tabular-nums; font-weight: 600; }
+.wz-p-sum .f.big .v { font-size: 22px; }
+@media (max-width: 1250px) { .wz-prices { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }

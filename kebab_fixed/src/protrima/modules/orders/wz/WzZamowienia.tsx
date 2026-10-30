@@ -7,7 +7,10 @@ import { FlagIcon } from '../../../ui/Glyphs'
 import { downloadDocPdf, fxApi, wzApi, type WzDoc } from '@/lib/api'
 import { STAWKI_VAT } from '@/features/wz/wzVat'
 import { OTHER_CARRIER_KINDS } from '@/lib/containers'
-import { cenaDlaWszystkich, cudzeRezerwacje, doDto, ilosc, masa, sumy, walidacja, wartosc, wspolnaCena, zPicks, type FormWz, type WierszWz } from './model'
+import {
+  bezCeny, cenaDlaGrupy, cenaDlaWszystkich, cudzeRezerwacje, doDto, grupyCen, ilosc, masa, sumy, vatDlaWszystkich, walidacja, wartosc,
+  wspolnaCena, wspolnyVat, zPicks, type FormWz, type WierszWz,
+} from './model'
 
 const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 const zl = (n: number, cur: string) => `${new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)} ${cur === 'EUR' ? '€' : 'zł'}`
@@ -29,7 +32,6 @@ export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: st
   const [pytanie, setPytanie] = useState<ReturnType<typeof cudzeRezerwacje> | null>(null)
   const [saved, setSaved] = useState<WzDoc | null>(null)
   const lock = useRef(false)
-  const [cenaWsz, setCenaWsz] = useState('')
   const cenaRef = useRef<HTMLInputElement>(null)
 
   const wczytaj = useCallback(() => {
@@ -42,11 +44,9 @@ export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: st
 
   const upd = (p: Partial<FormWz>) => setF(x => x ? { ...x, ...p } : x)
   const setRow = (i: number, p: Partial<WierszWz>) => setF(x => x ? { ...x, rows: x.rows.map((r, j) => j === i ? { ...r, ...p } : r) } : x)
-  // Jedna cena za kg na wszystkie pozycje — wpisana raz, a nie w każdym wierszu.
-  const ustawWszystkim = (v = cenaWsz) => { if (v.trim()) setF(x => x ? cenaDlaWszystkich(x, v.trim()) : x) }
   const wartosciowy = (on: boolean) => {
     upd({ valued: on })
-    if (on) { setCenaWsz(f ? wspolnaCena(f) : ''); requestAnimationFrame(() => cenaRef.current?.focus()) }
+    if (on) requestAnimationFrame(() => cenaRef.current?.focus())
   }
 
   const zapisz = useCallback(async (potwierdzone = false) => {
@@ -140,17 +140,9 @@ export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: st
             <div className="sect-h"><h3>Pozycje z magazynu</h3><span className="sub">wiersze magazynu wg FEFO dobrane przez serwer · {num(s!.szt)} szt. · {kg(s!.kg)}</span>
               <div className="tools">
                 <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><input type="checkbox" className="cbx" checked={f.valued} onChange={e => wartosciowy(e.target.checked)} />Dokument wartościowy</label>
-                {f.valued && <>
-                  <span className="wz-bulk">
-                    <input ref={cenaRef} className="field num w-num" inputMode="decimal" placeholder="cena / kg" value={cenaWsz} aria-label="Cena za kg dla wszystkich pozycji"
-                      onChange={e => setCenaWsz(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey) { e.preventDefault(); ustawWszystkim() } }} />
-                    <button className="btn sm primary" disabled={!cenaWsz.trim()} onClick={() => ustawWszystkim()} data-tip="Ta sama cena za kg w każdej pozycji (Enter). Pojedyncze wiersze możesz potem zmienić.">Ustaw wszystkim</button>
-                  </span>
-                  <select className="field" style={{ width: 'auto', height: 28 }} value={f.currency} onChange={e => upd({ currency: e.target.value as 'PLN' | 'EUR' })} aria-label="Waluta"><option>PLN</option><option>EUR</option></select>
-                  {f.currency === 'EUR' && <><input className="field num w-num" placeholder="kurs" value={f.eurRateStr} onChange={e => upd({ eurRateStr: e.target.value })} aria-label="Kurs EUR" /><button className="btn sm" onClick={() => void kurs()}>Kurs NBP</button></>}
-                </>}
               </div>
             </div>
+            {f.valued && <KartaCen f={f} setF={setF} cenaRef={cenaRef} onKurs={() => void kurs()} />}
             <div className="box"><table className="tbl">
               <thead><tr><th>Pozycja</th><th>Partia</th><th className="num">Na stanie</th><th className="num">Wydać</th><th className="num">Masa</th>
                 {f.valued && <><th className="num">Cena / kg</th><th className="num">VAT</th><th className="num">Wartość</th></>}<th style={{ width: 40 }} /></tr></thead>
@@ -178,10 +170,6 @@ export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: st
               {f.rows.length > 0 && <tfoot><tr><td colSpan={3}>Razem</td><td className="num">{num(s!.szt)} szt.</td><td className="num">{kg(s!.kg)}</td>
                 {f.valued && <><td /><td /><td className="num">{s!.vat ? zl(s!.vat.netto, cur) : ''}</td></>}<td /></tr></tfoot>}
             </table></div>
-            {f.valued && s!.vat && <div className="box" style={{ padding: '8px 14px', alignSelf: 'flex-end', minWidth: 300 }}><dl className="kv">
-              {s!.vat.wiersze.map(w => <React.Fragment key={w.stawka}><dt>VAT {w.stawka}%</dt><dd className="num">{zl(w.netto, cur)} + {zl(w.vat, cur)}</dd></React.Fragment>)}
-              <dt className="strong">Brutto</dt><dd className="num strong">{zl(s!.vat.brutto, cur)}</dd>
-            </dl></div>}
 
             <div className="sect-h"><h3>Transport</h3><span className="sub">palety na całym dokumencie; pojemniki puste = suma z pozycji</span></div>
             <div className="box" style={{ padding: 12, display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'end' }}>
@@ -200,5 +188,65 @@ export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: st
         <div className="note warn"><FlagIcon level="warn" size={15} /><div>Te sztuki zostaną zdjęte z pokrycia tamtych zamówień — pokażą brak i trzeba będzie dorobić.</div></div>
       </Dialog>}
     </>
+  )
+}
+
+/**
+ * Karta „Ceny” nad pozycjami dokumentu wartościowego: jedna cena za kg dla
+ * wszystkich pozycji, ceny według wyrobu (rodzaj + receptura, bez gramatury),
+ * waluta z kursem NBP, wspólna stawka VAT i podsumowanie. Pola są POCHODNĄ
+ * cen w wierszach — wpisanie od razu ustawia wiersze, a pojedynczą cenę
+ * poprawia się w tabeli (wtedy pole „wszystkie” pokazuje „różne ceny”).
+ */
+function KartaCen({ f, setF, cenaRef, onKurs }: {
+  f: FormWz; setF: React.Dispatch<React.SetStateAction<FormWz | null>>; cenaRef: React.RefObject<HTMLInputElement>; onKurs: () => void
+}) {
+  const grupy = grupyCen(f)
+  const s = sumy(f)
+  const brak = bezCeny(f)
+  const vat = wspolnyVat(f)
+  const cur = f.currency
+  const jedn = cur === 'EUR' ? '€/kg' : 'zł/kg'
+  const ustaw = (fn: (x: FormWz) => FormWz) => setF(x => (x ? fn(x) : x))
+  return (
+    <div className="box wz-prices" aria-label="Ceny dokumentu">
+      <div className="wz-p-main">
+        <label className="fld"><span className="label">Cena za kg — wszystkie pozycje</span>
+          <span className="wz-p-in big"><input ref={cenaRef} className="field num" inputMode="decimal" placeholder={f.rows.some(r => r.priceStr.trim()) ? 'różne ceny' : '0,00'}
+            value={wspolnaCena(f)} onChange={e => ustaw(x => cenaDlaWszystkich(x, e.target.value))} aria-label="Cena za kg dla wszystkich pozycji" /><span>{jedn}</span></span></label>
+        <span className="sub">Wpisz raz — trafi do każdej pozycji. Pojedynczą cenę zmienisz w tabeli niżej.</span>
+      </div>
+      {grupy.length > 1 && <div className="wz-p-groups">
+        <span className="label">Według wyrobu</span>
+        {grupy.map(g => (
+          <label key={g.key} className="wz-p-row">
+            <span className="nm"><b>{g.key}</b><span className="sub">{g.pozycji} poz. · {num(g.szt)} szt. · {kg(g.kg)}</span></span>
+            <span className="wz-p-in"><input className="field num" inputMode="decimal" placeholder="—" value={g.priceStr}
+              onChange={e => ustaw(x => cenaDlaGrupy(x, g.key, e.target.value))} aria-label={`Cena za kg, ${g.key}`} /><span>{jedn}</span></span>
+          </label>
+        ))}
+      </div>}
+      <div className="wz-p-side">
+        <div className="fld"><span className="label">Waluta</span>
+          <div className="seg" role="group" aria-label="Waluta">
+            {(['PLN', 'EUR'] as const).map(c => <button key={c} type="button" aria-pressed={cur === c} onClick={() => ustaw(x => ({ ...x, currency: c }))}>{c}</button>)}
+          </div></div>
+        {cur === 'EUR' && <div className="fld"><span className="label">Kurs EUR</span>
+          <span style={{ display: 'flex', gap: 6 }}><input className="field num w-num" placeholder="4,25" value={f.eurRateStr} onChange={e => ustaw(x => ({ ...x, eurRateStr: e.target.value }))} aria-label="Kurs EUR" />
+            <button className="btn sm" type="button" onClick={onKurs}>Kurs NBP</button></span></div>}
+        <label className="fld"><span className="label">VAT — wszystkie pozycje</span>
+          <select className="field" value={vat ?? ''} onChange={e => ustaw(x => vatDlaWszystkich(x, Number(e.target.value)))} aria-label="Stawka VAT dla wszystkich pozycji">
+            {vat === null && <option value="">różne</option>}
+            {STAWKI_VAT.map(v => <option key={v} value={v}>{v}%</option>)}
+          </select></label>
+      </div>
+      <div className="wz-p-sum">
+        <div className="f"><span className="k">Netto</span><span className="v">{zl(s.vat?.netto ?? 0, cur)}</span></div>
+        <div className="f"><span className="k">VAT</span><span className="v">{zl(s.vat ? s.vat.brutto - s.vat.netto : 0, cur)}</span></div>
+        <div className="f big"><span className="k">Brutto</span><span className="v">{zl(s.vat?.brutto ?? 0, cur)}</span></div>
+        {s.vat && s.vat.wiersze.length > 1 && <span className="sub">{s.vat.wiersze.map(w => `${w.stawka}%: ${zl(w.netto, cur)}`).join(' · ')}</span>}
+        {brak > 0 ? <span className="warn-ink strong">{brak} {brak === 1 ? 'pozycja' : brak < 5 ? 'pozycje' : 'pozycji'} bez ceny</span> : <span className="ok-ink">wszystkie pozycje mają cenę</span>}
+      </div>
+    </div>
   )
 }
