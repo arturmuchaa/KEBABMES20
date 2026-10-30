@@ -61,9 +61,9 @@ export function PalletsTab({ order }: { order: Order }) {
             </div>
           )}
           {order.pallets.length === 0 && !closed ? (
-            <div className="box" style={{ padding: 20, display: 'flex', gap: 16, alignItems: 'center' }}>
+            <div className="box empty-state">
               <Boxes size={28} color="var(--ink-3)" />
-              <div style={{ flex: 1 }}>
+              <div className="es-text">
                 <div className="strong">Palety nie są rozpisane</div>
                 <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>{num(m.unassignedQty)} szt. ({kg(m.orderedKg)}) czeka na przypisanie. Rozpis automatyczny łączy pozycje do ok. {CAP_KG} kg na paletę.</div>
               </div>

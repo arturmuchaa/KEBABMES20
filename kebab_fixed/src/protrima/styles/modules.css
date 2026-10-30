@@ -359,3 +359,15 @@ button.pstage:hover .pn { background: var(--accent-tint-2); }
 .raw-kpis .kpi .s { font-size: var(--fs-sm); color: var(--ink-3); }
 .raw-tbl { max-height: 232px; overflow: auto; }
 @media (max-width: 1400px) { .raw-grid { grid-template-columns: minmax(0, 1fr); } .raw-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); border-right: 0; } .raw-kpis .kpi { border-right: 1px solid var(--line-soft); } }
+
+/* ─── Panel z boku: nic się nie rozjeżdża (30.10.2026, „rozpisz palety”) ─── */
+.sect-h { flex-wrap: wrap; row-gap: 6px; }
+.empty-state { padding: 20px; display: flex; flex-wrap: wrap; gap: 12px 16px; align-items: center; }
+.empty-state .es-text { flex: 1 1 260px; min-width: 0; }
+/* Siatki z układem inline (np. Wysyłka 1fr/2fr) też w jednej kolumnie. */
+.workarea.side .dock .ov-grid { grid-template-columns: minmax(0, 1fr) !important; }
+.workarea.side .dock .gates { grid-template-columns: minmax(0, 1fr) !important; }
+/* Szeroka tabela w wąskim panelu przewija się sama, zamiast rozpychać panel. */
+.workarea.side .dock .box { overflow-x: auto; }
+.workarea.side .dock .empty-state .es-text { flex-basis: 100%; }
+.workarea.side .dock .row-wrap { flex-wrap: wrap; }

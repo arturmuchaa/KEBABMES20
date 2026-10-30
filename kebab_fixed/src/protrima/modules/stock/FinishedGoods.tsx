@@ -440,9 +440,9 @@ function StockDetail({ r, tab, onTab, maxed, onMax, onClose, candidates, onAlloc
 
           {tab === 'alloc' && <>
             {order && line ? (
-              <div className="box" style={{ padding: 14, display: 'flex', gap: 16, alignItems: 'center' }}>
+              <div className="box empty-state" style={{ padding: 14 }}>
                 <Link2 size={22} color="var(--accent)" />
-                <div style={{ flex: 1 }}>
+                <div className="es-text">
                   <div className="strong">Przydzielone do {order.no} · {order.client.name}</div>
                   <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Poz. {line.lp}: {line.recipe} {line.kgPerUnit} kg · zamówiono {line.qty} szt. · w magazynie {line.stock} · brak {lineMissing(line)} · termin {relDay(order.delivery)}</div>
                 </div>
