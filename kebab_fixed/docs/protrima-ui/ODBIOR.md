@@ -51,3 +51,15 @@ Poprawione względem starego formularza (stary MES ma te błędy nadal):
 Próba na kopii (e2e, sesja `claude-probe`, posprzątana): przyjęcie 51/10 KOKO 1000 + 500,5 kg → nr 680/681,
 pojemniki 67/34, cena 7,20; F2 → edycja 1000 → 1100 kg; HACCP b/z, b/z, 2,5 °C / 3,1 °C, K; anulowanie
 całej dostawy → oba numery `cancelled`, numery wróciły do puli. `vitest src/protrima` 107/107, `tsc` 0 błędów.
+
+## Wydania i druki, 30.10.2026 (0.3.8–0.4.0)
+
+- **WZ — ceny:** jedna cena za kg dla wszystkich pozycji + karta „Ceny” (według wyrobu, wspólny VAT, waluta).
+  Wartość liczona ZA KG jak serwer (`value = total_kg × price`); wcześniej podgląd mnożył cenę przez sztuki.
+- **Kartki na palety:** A4 poziomo, 2 kopie, wybór palet (menu Drukuj zamówienia, zakładka Palety). Treść
+  jak stary MES (`buildCartonLabelContent`, nazwy z kartoteki odbiorcy, sufit 90 pt). W PRÓBIE: podgląd ze znakiem
+  PRÓBA, bez QR, druk zablokowany (ZASADY pkt 4); w buildzie produkcyjnym druk z QR `PAL|id|nr`.
+- **WZ z zaznaczonych w Wyrobie gotowym** (bez zamówienia): odbiorca z kartoteki (podpowiedź przy jednym kliencie
+  w zaznaczeniu), nazwy pozycji wg kartoteki odbiorcy, `createManual` bez `orderId`. Ostrzeżenie o cudzej rezerwacji
+  porównuje stempel z nazwą handlową I pełną odbiorcy (stary MES tylko z pełną → fałszywe ostrzeżenia, np. DEM`S).
+  E2e na kopii: WZ/65/10/26 z 2 wierszy (12 + 3 szt.) → stan 0/0 → anulowanie → 12/3.
