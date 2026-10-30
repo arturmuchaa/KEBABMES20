@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link2, MoveRight, Truck, Tag, ClipboardCheck, Search, ChevronDown, ChevronRight, X, Maximize2, Minimize2, ExternalLink, PanelRight, PanelBottom, Rows3, Lock, Snowflake, Layers, ArrowUp, ArrowDown, FileText, Package } from 'lucide-react'
+import { Link2, MoveRight, Truck, Tag, ClipboardCheck, Search, ChevronDown, ChevronRight, X, Maximize2, Minimize2, ExternalLink, PanelRight, PanelBottom, Rows3, Lock, Snowflake, Layers, ArrowUp, ArrowDown, FileText, Package, PenLine } from 'lucide-react'
 import { useApp, Menu, useMenu, CommandBar, wierszMenu, type Cmd } from '../../shell/context'
 import { useOrders } from '../../data/store'
 import { computeMetrics, fmtDate, kg, num, relDay, isClosed, lineMissing, type Order } from '../../data/model'
 import { posKg, daysLeft, STOCK_STATUS, type StockPos } from '../../data/stock'
 import { FlagIcon } from '../../ui/Glyphs'
 import { DRUK_ETYKIET, W_STARYM_MES } from '../../proba'
+import { PoprawWyrobDialog, blokadaPoprawki } from './PoprawWyrob'
 import { useDock } from '../../shell/useDock'
 import { StanDlaKlientaDialog, klientPozycji, WOLNE } from './StanDlaKlienta'
 import { SzkieletWierszy } from '../../ui/Szkielet'
@@ -59,6 +60,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const [sort, setSort] = useState<{ col: SortCol; dir: 1 | -1 } | null>(null)
   const [sel, setSel] = useState<string | null>(null)
   const [checked, setChecked] = useState<Set<string>>(new Set())
+  const [popraw, setPopraw] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [tab, setTab] = useState<Tab>('details')
   const [maxed, setMaxed] = useState(false)
@@ -143,6 +145,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
       { label: 'Wydanie WZ z zamówienia', icon: <Truck size={15} />, disabled: !sp?.orderId, onSelect: () => sp?.orderId && app.gotoOrders({ select: sp.orderId, tab: 'shipping', view: 'active' }) },
       { label: 'Rozchód wewnętrzny…', icon: <MoveRight size={15} />, onSelect: () => demo('Rozchód wewnętrzny') },
     ] },
+    { id: 'fix', group: 3, label: 'Popraw rodzaj / recepturę…', icon: <PenLine size={17} />, opt: true, disabled: !sp || !!(sp && blokadaPoprawki(sp)), tip: sp && blokadaPoprawki(sp) ? 'po wyjeździe rodzaj i receptura stoją na dokumentach' : undefined, run: () => sp && setPopraw(sp.id) },
     { id: 'print', group: 4, label: 'Etykieta', icon: <Tag size={17} />, kbd: 'Ctrl+P', disabled: !sp, run: () => app.toast({ kind: 'warn', title: 'Etykieta kartonu', detail: DRUK_ETYKIET }) },
     { id: 'stan', group: 4, label: 'Stan dla klienta', icon: <ClipboardCheck size={17} />, tip: 'Wydruk: co klient ma na magazynie', run: () => setStanOpen(true) },
   ], [canAlloc, sp, app, zaznaczone.join(','), rows]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -296,7 +299,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
           <div className={`splitter${dock.drag ? ' drag' : ''}`} role="separator" aria-orientation={dock.side ? 'vertical' : 'horizontal'} onMouseDown={startDrag} onDoubleClick={() => { dock.reset(); setMaxed(false) }} data-tip="Przeciągnij, aby zmienić rozmiar. Dwuklik — domyślnie." />
           <div className="dock" aria-label="Szczegóły pozycji magazynowej">
             <StockDetail r={selRow} tab={tab} onTab={setTab} maxed={maxed} onMax={() => setMaxed(m => !m)} onClose={() => setSel(null)}
-              candidates={candidatesFor(selRow.p)} />
+              candidates={candidatesFor(selRow.p)} onFix={() => setPopraw(selRow.p.id)} />
           </div>
         </>}
       </div>
@@ -306,6 +309,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
       {weightMenu.anchor && <Menu anchor={weightMenu.anchor} onClose={weightMenu.close} items={[{ header: 'Gramatura' }, ...weightOpts.map(w => ({ label: `${w} kg`, checked: weights.includes(w), onSelect: () => setWeights(a => a.includes(w) ? a.filter(x => x !== w) : [...a, w]) }))]} />}
       {packMenu.anchor && <Menu anchor={packMenu.anchor} onClose={packMenu.close} items={[{ header: 'Opakowanie' }, ...packOpts.map(t => ({ label: t || '(bez opakowania)', checked: packs.includes(t), onSelect: () => setPacks(a => a.includes(t) ? a.filter(x => x !== t) : [...a, t]) }))]} />}
       {okresMenu.anchor && <Menu anchor={okresMenu.anchor} onClose={okresMenu.close} items={[{ header: 'Data produkcji' }, ...(Object.keys(OKRES) as Array<Exclude<Okres, ''>>).map(k => ({ label: OKRES[k], checked: okres === k, onSelect: () => setOkres(k) }))]} />}
+      {popraw && (() => { const r = rows.find(x => x.p.id === popraw); return r ? <PoprawWyrobDialog p={r.p} onClose={() => setPopraw(null)} /> : null })()}
       {stanOpen && <StanDlaKlientaDialog stock={stock} start={stanStart || klient} onClose={() => { setStanOpen(false); setStanStart('') }} />}
       {ctxMenu && (() => {
         const r = rows.find(x => x.p.id === ctxMenu.id)
@@ -318,6 +322,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
           ...(k !== WOLNE ? [{ label: `Pokaż cały wyrób: ${k}`, onSelect: () => setKlient(k) }, { label: `Stan dla klienta: ${k}…`, onSelect: () => { setStanStart(k); setStanOpen(true) } }] : []),
           { sep: true },
           { label: 'Kto czeka na ten wyrób', onSelect: () => setTab('alloc') },
+          { label: 'Popraw rodzaj / recepturę…', disabled: !!blokadaPoprawki(r.p), onSelect: () => setPopraw(r.p.id) },
           checked.has(r.p.id) && checked.size > 1
             ? { label: `Wystaw WZ z zaznaczonych (${zaznaczone.length})…`, onSelect: () => doWz(zaznaczone) }
             : { label: 'Wystaw WZ z tej pozycji…', onSelect: () => doWz([r.p.id]) },
@@ -362,8 +367,8 @@ const StockRow = React.memo(function StockRow({ r, zebra, sel, checked, onClick,
   )
 })
 
-function StockDetail({ r, tab, onTab, maxed, onMax, onClose, candidates }: {
-  r: Row; tab: Tab; onTab: (t: Tab) => void; maxed: boolean; onMax: () => void; onClose: () => void
+function StockDetail({ r, tab, onTab, maxed, onMax, onClose, candidates, onFix }: {
+  r: Row; tab: Tab; onTab: (t: Tab) => void; maxed: boolean; onMax: () => void; onClose: () => void; onFix: () => void
   candidates: Array<{ o: Order; l: Order['lines'][number]; miss: number; m: ReturnType<typeof computeMetrics> }>
 }) {
   const app = useApp()
@@ -412,7 +417,7 @@ function StockDetail({ r, tab, onTab, maxed, onMax, onClose, candidates }: {
             {p.status === 'blocked' && <div className="note crit"><Lock size={15} /><div><b>Blokada jakościowa.</b> {p.blockReason}. Pozycji nie można przydzielać ani wydawać.</div></div>}
             {short && p.status !== 'blocked' && <div className="note warn"><FlagIcon level="warn" size={15} /><div><b>Krótka data.</b> Zostało {dl} dni przydatności — przydziel w pierwszej kolejności (FEFO).</div></div>}
             <div className="ov-grid">
-              <div className="box ov-card"><h4>Wyrób</h4><dl className="kv">
+              <div className="box ov-card"><h4>Wyrób{!blokadaPoprawki(p) && <button className="btn sm ghost" style={{ marginLeft: 'auto' }} onClick={onFix}><PenLine size={14} />Popraw</button>}</h4><dl className="kv">
                 <dt>Rodzaj</dt><dd>{p.product}</dd><dt>Receptura</dt><dd className="strong">{p.recipe}</dd><dt>Gramatura</dt><dd>{p.kgPerUnit} kg / szt.</dd><dt>Opakowanie</dt><dd>{p.packaging}</dd>
               </dl></div>
               <div className="box ov-card"><h4>Partia</h4><dl className="kv">

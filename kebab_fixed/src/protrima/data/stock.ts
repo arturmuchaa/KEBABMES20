@@ -13,6 +13,10 @@ export interface StockPos {
   product: string
   recipe: string
   recipeId: string
+  /** Rodzaj z wiersza magazynu — do poprawki rodzaju (PoprawWyrob). */
+  productTypeId?: string
+  /** Ile sztuk z tej partii już wyjechało — po wyjeździe rodzaju/receptury się nie poprawia. */
+  qtyShipped?: number
   kgPerUnit: number
   packaging: string
   batch: string
