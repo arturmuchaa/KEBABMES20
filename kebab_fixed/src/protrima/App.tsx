@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { LayoutGrid, ShoppingCart, FilePlus2, Palette, Package, Printer, FileSpreadsheet, Upload, LogOut, XSquare, Search, Pencil, Copy, Keyboard, Info, RefreshCw, FileBarChart, Users, Clock, Car, UserCog, SlidersHorizontal, Wallet, BarChart3, Calculator, Thermometer, Layers, Archive, Tags, Plus, PackageOpen, ClipboardList, MoreHorizontal, FileText, type LucideIcon } from 'lucide-react'
 import { AppCtx, type AppApi, type Cmd, type MenuItem, type OrdersCmd, type PanelWybor, type Toast, Toasts, TooltipLayer, Dialog } from './shell/context'
-import { TitleBar, MainToolbar, TabStrip, Nav, StatusBar, type MenuDef, type ToolItem, type WTab } from './shell/Chrome'
+import { TitleBar, MenuBar, MainToolbar, TabStrip, Nav, StatusBar, type MenuDef, type ToolItem, type WTab } from './shell/Chrome'
 import { CommandPalette } from './shell/CommandPalette'
 import { moduleDef } from './shell/modules'
 import { useOrders } from './data/store'
@@ -427,7 +427,8 @@ function Shell() {
 
   const app = (
     <div ref={appRef} className="app" style={vp.scaled ? { transform: `scale(${vp.scale})`, width: vp.lw, height: vp.lh } : undefined}>
-      <TitleBar onPalette={() => setPalette(true)} onLogout={() => { logout() }} menus={menus} />
+      <TitleBar onPalette={() => setPalette(true)} onLogout={() => { logout() }} />
+      <MenuBar menus={menus} />
       <MainToolbar items={toolItems} />
       <Nav current={currentKey} onOpen={openModule} badges={badges} collapsed={navCollapsed} onToggle={toggleNav} />
       <main className="main">

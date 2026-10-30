@@ -84,7 +84,7 @@
   --pad:     16px;
   --gap:     12px;
   --title-h: 46px;
-  --menu-h:  0px;    /* menu siedzi w pasie tytułu */
+  --menu-h:  32px;   /* menu w osobnym pasku pod znakiem */
   --tool-h:  44px;
   --tabs-h:  36px;
   --cmd-h:   46px;
@@ -122,7 +122,7 @@
   --pad:     12px;
   --gap:     10px;
   --title-h: 40px;
-  --menu-h:  0px;
+  --menu-h:  28px;
   --tool-h:  40px;
   --tabs-h:  30px;
   --cmd-h:   40px;

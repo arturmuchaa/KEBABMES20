@@ -17,7 +17,6 @@
 .titlebar {
   grid-row: 1; grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; min-width: 0; position: relative; z-index: 3;
   padding-left: 14px; background: var(--chrome-1); color: var(--bar-ink); user-select: none;
-  box-shadow: inset 0 -1px 0 var(--line);
 }
 .tb-brand { flex: none; display: flex; align-items: center; gap: 10px; height: 100%; padding-right: 6px; }
 .tb-brand .logo { display: block; }
@@ -57,10 +56,10 @@
 
 /* ─── Pas 2: menu (Plik, Edycja, Widok…) ─────────────────────────────────── */
 .menubar {
-  display: flex; align-items: center; gap: 1px; min-width: 0; height: 100%; padding: 0 2px 0 8px; flex: none;
-  color: var(--bar-ink); user-select: none; border-left: 1px solid var(--line);
+  grid-row: 2; grid-column: 1 / -1; display: flex; align-items: center; gap: 1px; min-width: 0; padding: 0 8px;
+  background: var(--chrome-1); color: var(--bar-ink); user-select: none; border-bottom: 1px solid var(--line);
 }
-.mb-item { height: 30px; padding: 0 9px; border-radius: var(--r-sm); color: var(--ink-2); font-size: var(--fs-md); white-space: nowrap; transition: background-color .12s, color .12s; }
+.mb-item { height: calc(var(--menu-h) - 6px); padding: 0 10px; border-radius: var(--r-sm); color: var(--ink-2); font-size: var(--fs-md); white-space: nowrap; transition: background-color .12s, color .12s; }
 .mb-item:hover { background: var(--bar-2); color: var(--ink-1); }
 .mb-item[aria-expanded="true"] { background: var(--accent-tint); color: var(--accent-ink); }
 .mb-item u { text-decoration: none; }
