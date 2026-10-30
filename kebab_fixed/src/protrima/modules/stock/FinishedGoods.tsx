@@ -3,7 +3,7 @@ import {
   PackagePlus, Link2, Unlink, MoveRight, Truck, Tag, ClipboardCheck, FileSpreadsheet, Search, ChevronDown, ChevronRight,
   X, Maximize2, Minimize2, ExternalLink, PanelRight, PanelBottom, Rows3, Lock, Snowflake, Layers, ArrowUp, ArrowDown,
 } from 'lucide-react'
-import { useApp, Menu, useMenu, Dialog, CommandBar, type Cmd } from '../../shell/context'
+import { useApp, Menu, useMenu, Dialog, CommandBar, wierszMenu, type Cmd } from '../../shell/context'
 import { useOrders } from '../../data/store'
 import { computeMetrics, fmtDate, kg, num, relDay, isClosed, lineMissing, type Order } from '../../data/model'
 import { posKg, daysLeft, STOCK_STATUS, type StockPos } from '../../data/stock'
@@ -54,6 +54,8 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const [packs, setPacks] = useState<string[]>([])
   const [okres, setOkres] = useState<Okres>('')
   const [stanOpen, setStanOpen] = useState(false)
+  const [stanStart, setStanStart] = useState('')
+  const [ctxMenu, setCtxMenu] = useState<{ id: string; anchor: Element } | null>(null)
   const [groupBy, setGroupBy] = useState<GroupBy>('product')
   const [sort, setSort] = useState<{ col: SortCol; dir: 1 | -1 } | null>(null)
   const [sel, setSel] = useState<string | null>(null)
@@ -243,7 +245,8 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
 
       <div className={`workarea${dock.side ? ' side' : ''}`} ref={workRef}>
         <div className="list-pane" style={dock.listStyle(!!selRow, maxed)}>
-          <div className="tbl-wrap" ref={listRef} tabIndex={0} onKeyDown={onListKey} aria-label="Lista pozycji magazynowych">
+          <div className="tbl-wrap" ref={listRef} tabIndex={0} onKeyDown={onListKey} aria-label="Lista pozycji magazynowych"
+            onContextMenu={e => { const w = wierszMenu(e); if (w) { select(w.id); setCtxMenu(w) } }}>
             <table className="tbl" role="grid">
               <thead><tr>
                 <th className="cb"><input type="checkbox" className="cbx" checked={flat.length > 0 && flat.every(r => checked.has(r.p.id))} onChange={() => setChecked(c => c.size ? new Set() : new Set(flat.map(r => r.p.id)))} aria-label="Zaznacz wszystkie" /></th>
@@ -302,7 +305,21 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
       {weightMenu.anchor && <Menu anchor={weightMenu.anchor} onClose={weightMenu.close} items={[{ header: 'Gramatura' }, ...weightOpts.map(w => ({ label: `${w} kg`, checked: weights.includes(w), onSelect: () => setWeights(a => a.includes(w) ? a.filter(x => x !== w) : [...a, w]) }))]} />}
       {packMenu.anchor && <Menu anchor={packMenu.anchor} onClose={packMenu.close} items={[{ header: 'Opakowanie' }, ...packOpts.map(t => ({ label: t || '(bez opakowania)', checked: packs.includes(t), onSelect: () => setPacks(a => a.includes(t) ? a.filter(x => x !== t) : [...a, t]) }))]} />}
       {okresMenu.anchor && <Menu anchor={okresMenu.anchor} onClose={okresMenu.close} items={[{ header: 'Data produkcji' }, ...(Object.keys(OKRES) as Array<Exclude<Okres, ''>>).map(k => ({ label: OKRES[k], checked: okres === k, onSelect: () => setOkres(k) }))]} />}
-      {stanOpen && <StanDlaKlientaDialog stock={stock} start={klient} onClose={() => setStanOpen(false)} />}
+      {stanOpen && <StanDlaKlientaDialog stock={stock} start={stanStart || klient} onClose={() => { setStanOpen(false); setStanStart('') }} />}
+      {ctxMenu && (() => {
+        const r = rows.find(x => x.p.id === ctxMenu.id)
+        if (!r) return null
+        const k = klientPozycji(r.p)
+        return <Menu anchor={ctxMenu.anchor} onClose={() => setCtxMenu(null)} items={[
+          { header: `${r.p.recipe} ${r.p.kgPerUnit} kg · ${r.p.batch}` },
+          { label: 'Szczegóły', onSelect: () => setTab('details') },
+          ...(r.order ? [{ label: `Otwórz ${r.order.no}`, onSelect: () => app.gotoOrders({ select: r.order!.id, tab: 'coverage', view: 'active' }) }] : []),
+          ...(k !== WOLNE ? [{ label: `Pokaż cały wyrób: ${k}`, onSelect: () => setKlient(k) }, { label: `Stan dla klienta: ${k}…`, onSelect: () => { setStanStart(k); setStanOpen(true) } }] : []),
+          { sep: true },
+          { label: 'Przydziel do zamówienia', disabled: !!r.p.orderNo, onSelect: () => setTab('alloc') },
+          { label: 'Etykieta kartonu', onSelect: () => app.toast({ kind: 'warn', title: 'Etykieta kartonu', detail: BEZ_DRUKU_ETYKIET }) },
+        ]} />
+      })()}
       {groupMenu.anchor && <Menu anchor={groupMenu.anchor} align="right" onClose={groupMenu.close} items={[
         { header: 'Grupowanie listy' },
         { label: 'Według wyrobu (receptura × gramatura)', icon: <Layers size={15} />, checked: groupBy === 'product', onSelect: () => setGroupBy('product') },

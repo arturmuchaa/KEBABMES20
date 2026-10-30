@@ -88,6 +88,14 @@ export function Menu({ anchor, items, onClose, align = 'left', onLeft, onRight }
   )
 }
 
+/** Prawy przycisk na wierszu listy: id wiersza (`data-id`) i komórka jako zaczep menu. */
+export function wierszMenu(e: React.MouseEvent): { id: string; anchor: Element } | null {
+  const tr = (e.target as Element).closest('tr[data-id]')
+  if (!tr) return null
+  e.preventDefault()
+  return { id: tr.getAttribute('data-id') ?? '', anchor: (e.target as Element).closest('td') ?? tr }
+}
+
 /** Hook: przycisk + menu. */
 export function useMenu() {
   const [anchor, setAnchor] = useState<Element | null>(null)

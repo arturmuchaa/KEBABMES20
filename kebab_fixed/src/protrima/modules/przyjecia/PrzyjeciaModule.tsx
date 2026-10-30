@@ -3,7 +3,7 @@ import {
   PackagePlus, Pencil, ClipboardCheck, Tag, Ban, Search, ChevronDown, ChevronRight, X, Maximize2, Minimize2,
   PanelRight, PanelBottom, Rows3, ArrowUp, ArrowDown, Thermometer, FileText, Layers,
 } from 'lucide-react'
-import { useApp, Menu, useMenu, CommandBar, type Cmd } from '../../shell/context'
+import { useApp, Menu, useMenu, CommandBar, wierszMenu, type Cmd } from '../../shell/context'
 import { useDock } from '../../shell/useDock'
 import { kg, num, fmtDate } from '../../data/model'
 import { dataZApi } from '../../data/mapuj'
@@ -89,6 +89,7 @@ export function PrzyjeciaModule({ active, setCtx, setCmds }: { active: boolean; 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [tab, setTab] = useState<Tab>('overview')
   const [maxed, setMaxed] = useState(false)
+  const [ctxMenu, setCtxMenu] = useState<{ id: string; anchor: Element } | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const workRef = useRef<HTMLDivElement>(null)
@@ -232,7 +233,8 @@ export function PrzyjeciaModule({ active, setCtx, setCmds }: { active: boolean; 
 
       <div className={`workarea${dock.side ? ' side' : ''}`} ref={workRef}>
         <div className="list-pane" style={dock.listStyle(!!selRow, maxed)}>
-          <div className="tbl-wrap" ref={listRef} tabIndex={0} onKeyDown={onListKey} aria-label="Lista przyjęć">
+          <div className="tbl-wrap" ref={listRef} tabIndex={0} onKeyDown={onListKey} aria-label="Lista przyjęć"
+            onContextMenu={e => { const w = wierszMenu(e); if (w) { select(w.id); setCtxMenu(w) } }}>
             <table className="tbl" role="grid">
               <thead><tr>
                 <th className="al"><span className="sr">Alert</span></th>
@@ -283,6 +285,23 @@ export function PrzyjeciaModule({ active, setCtx, setCmds }: { active: boolean; 
         </>}
       </div>
 
+      {ctxMenu && (() => {
+        const r = rows.find(x => x.p.id === ctxMenu.id)
+        if (!r) return null
+        return <Menu anchor={ctxMenu.anchor} onClose={() => setCtxMenu(null)} items={[
+          { header: `Przyjęcie ${r.p.no} · ${r.supplier}` },
+          { label: 'Przegląd', onSelect: () => setTab('overview') },
+          { label: 'Numery porządkowe', onSelect: () => setTab('numbers') },
+          { label: 'Partie dostawcy', onSelect: () => setTab('supplier') },
+          { label: 'Kontrola HACCP', onSelect: () => setTab('haccp') },
+          { sep: true },
+          { label: `Pokaż dostawy: ${r.supplier}`, onSelect: () => setDostawca(r.supplier) },
+          { label: 'Edytuj przyjęcie', disabled: r.p.cancelled, onSelect: () => faza('Edycja przyjęcia') },
+          { label: 'Zawieszki palet', onSelect: () => app.toast({ kind: 'warn', title: 'Zawieszki palet', detail: BEZ_DRUKU_ETYKIET }) },
+          { sep: true },
+          { label: 'Anuluj przyjęcie…', danger: true, disabled: r.p.cancelled, onSelect: () => faza('Anulowanie przyjęcia') },
+        ]} />
+      })()}
       {matMenu.anchor && <Menu anchor={matMenu.anchor} onClose={matMenu.close} items={[{ header: 'Rodzaj surowca' }, ...matOpts.map(m => ({ label: m, checked: mats.includes(m), onSelect: () => setMats(a => a.includes(m) ? a.filter(x => x !== m) : [...a, m]) }))]} />}
       {monthMenu.anchor && <Menu anchor={monthMenu.anchor} onClose={monthMenu.close} items={[{ header: 'Miesiąc przyjęcia' }, ...monthOpts.map(m => ({ label: nazwaMiesiaca(m), checked: miesiac === m, onSelect: () => setMiesiac(miesiac === m ? '' : m) }))]} />}
       {terminMenu.anchor && <Menu anchor={terminMenu.anchor} onClose={terminMenu.close} items={[{ header: 'Termin przydatności (na stanie)' },

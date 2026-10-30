@@ -3,7 +3,7 @@ import {
   Plus, Upload, Search, ChevronDown, ChevronRight, ArrowUp, ArrowDown, MoreHorizontal, X, Layers, Printer, FileSpreadsheet,
   ClipboardList, ExternalLink, Pencil, Boxes, FileText, Copy, Ban, Split, Rows3, Calculator,
 } from 'lucide-react'
-import { useApp, Menu, useMenu, Dialog, CommandBar, type Cmd, type ViewKey, type DetailTab, type OrdersCmd, type MenuItem } from '../../shell/context'
+import { useApp, Menu, useMenu, Dialog, CommandBar, wierszMenu, type Cmd, type ViewKey, type DetailTab, type OrdersCmd, type MenuItem } from '../../shell/context'
 import { useOrders } from '../../data/store'
 import {
   computeMetrics, isClosed, kg, num, relDay, fmtDay, BUCKET_LABEL, mixingByRecipe, weekday, DOC_NAME,
@@ -274,7 +274,8 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
 
       <div className={`workarea${dock.side ? ' side' : ''}`} ref={workRef}>
         <div className="list-pane" style={dock.listStyle(hasDock, maxed)}>
-          <div className="tbl-wrap" ref={listRef} tabIndex={0} onKeyDown={onListKey} aria-label="Lista zamówień">
+          <div className="tbl-wrap" ref={listRef} tabIndex={0} onKeyDown={onListKey} aria-label="Lista zamówień"
+            onContextMenu={e => { const w = wierszMenu(e); if (w) { select(w.id); setRowMenuId(w.id); rowMenu.open({ currentTarget: w.anchor }) } }}>
             <table className="tbl" role="grid" aria-rowcount={flat.length}>
               <thead>
                 <tr>

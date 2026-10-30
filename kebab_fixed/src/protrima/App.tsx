@@ -177,6 +177,16 @@ function Shell() {
   const modCmds = cmdMap[active] ?? []
   const runCmd = useCallback((id: string) => { const c = modCmds.find(x => x.id === id); if (c && !c.disabled) { c.run?.(); return true } return false }, [modCmds])
 
+  // Prawy przycisk: menu przeglądarki tylko w polach tekstowych; na listach moduły pokazują własne menu akcji.
+  useEffect(() => {
+    const ctx = (e: MouseEvent) => {
+      const t = e.target as HTMLElement | null
+      if (t?.closest('input, textarea, select, [contenteditable="true"]')) return
+      e.preventDefault()
+    }
+    document.addEventListener('contextmenu', ctx)
+    return () => document.removeEventListener('contextmenu', ctx)
+  }, [])
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey
