@@ -12,6 +12,7 @@ import { OrderTab } from './modules/orders/OrderTab'
 import { FinishedGoods } from './modules/stock/FinishedGoods'
 import { PrzyjeciaModule } from './modules/przyjecia/PrzyjeciaModule'
 import { OrderEditor } from './modules/orders/edytor/OrderEditor'
+import { ZamowienieDrukDialog } from './modules/orders/druk/ZamowienieDruk'
 import { Placeholder } from './modules/misc/Placeholder'
 import { DesignSystem } from './modules/misc/DesignSystem'
 import { Logo } from './brand/Logo'
@@ -155,6 +156,8 @@ function Shell() {
     openTab({ id: `edit:${id}`, kind: 'edit-order', key: id, title: `Edycja ${o?.no ?? ''}`, icon: FilePlus2 })
   }, [orders, openTab])
   const copyOrder = useCallback((id: string) => newOrder(id), [newOrder])
+  const [drukId, setDrukId] = useState<string | null>(null)
+  const printOrder = useCallback((id: string) => setDrukId(id), [])
   const gotoOrders = useCallback((cmd: Omit<OrdersCmd, 'n'> = {}) => {
     openModule('zamowienia')
     setOrdersCmd({ ...cmd, n: Date.now() })
@@ -222,10 +225,10 @@ function Shell() {
   const cmdsFor = (id: string) => (cmdSetters.current[id] ??= (c: Cmd[]) => setTabCmds(id, c))
 
   const api = useMemo<AppApi>(() => ({
-    openOrder, gotoOrders, gotoStock, openModule, newOrder: () => newOrder(), editOrder, copyOrder, toast,
+    openOrder, gotoOrders, gotoStock, openModule, newOrder: () => newOrder(), editOrder, copyOrder, printOrder, toast,
     setStatusCtx: () => undefined,
     appRef, scale: vp.scale, prosty, panel, panelWybor, setPanel,
-  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, editOrder, copyOrder, toast, vp.scale, prosty, panel, panelWybor, setPanel])
+  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, editOrder, copyOrder, printOrder, toast, vp.scale, prosty, panel, panelWybor, setPanel])
 
   const badges = useMemo(() => {
     const problem = orders.filter(o => { const m = computeMetrics(o); return m.level === 'crit' || m.level === 'warn' }).length
@@ -390,6 +393,7 @@ function Shell() {
       <Toasts items={toasts} dismiss={id => setToasts(ts => ts.filter(t => t.id !== id))} />
       {palette && <CommandPalette orders={orders} onClose={() => setPalette(false)} openOrder={openOrder} openModule={openModule}
         newOrder={newOrder} toggleTheme={toggleTheme} toggleNav={toggleNav} showShortcuts={() => setShortcuts(true)} />}
+      {drukId && <ZamowienieDrukDialog orderId={drukId} onClose={() => setDrukId(null)} />}
       {shortcuts && <ShortcutsDialog onClose={() => setShortcuts(false)} />}
       {about && <Dialog title="O programie" onClose={() => setAbout(false)} footer={<button className="btn primary" onClick={() => setAbout(false)}>Zamknij</button>}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

@@ -17,3 +17,46 @@
   .print-sheet tr { break-inside: avoid; }
   .print-sheet .ps-foot { margin-top: 10px; font-size: 8.5pt; color: #333; }
 }
+
+/* ─── Dokument: zamówienie dla klienta (podgląd + A4) ─────────────────── */
+.doc-preview { background: var(--canvas); border: 1px solid var(--line); border-radius: 6px; padding: 16px; max-height: 62vh; overflow: auto; }
+.doc-paper { background: #fff; color: #111; width: 210mm; max-width: 100%; margin: 0 auto; padding: 14mm 12mm; box-shadow: 0 2px 10px rgba(0,0,0,.12); }
+.doc-zam { font-family: var(--font-ui); color: #1a1a1a; font-size: 10pt; line-height: 1.35; }
+.doc-zam h3 { margin: 0 0 4px; font-size: 7.5pt; letter-spacing: .08em; text-transform: uppercase; color: #666; font-weight: 600; }
+.dz-head { display: flex; justify-content: space-between; gap: 20px; padding-bottom: 12px; border-bottom: 2px solid #1d2b3a; }
+.dz-firm { display: flex; gap: 12px; align-items: flex-start; }
+.dz-firm img { height: 54px; width: auto; }
+.dz-firm div { display: flex; flex-direction: column; font-size: 8.5pt; color: #333; }
+.dz-firm strong { font-size: 11pt; color: #111; margin-bottom: 2px; }
+.dz-title { text-align: right; display: flex; flex-direction: column; align-items: flex-end; }
+.dz-kind { font-size: 20pt; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #1d2b3a; line-height: 1.1; }
+.dz-no { font-size: 12pt; font-weight: 600; margin: 2px 0 8px; font-variant-numeric: tabular-nums; }
+.dz-title dl { display: grid; grid-template-columns: auto auto; gap: 1px 12px; margin: 0; font-size: 8.5pt; }
+.dz-title dt { color: #666; } .dz-title dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.dz-parties { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
+.dz-parties > div { display: flex; flex-direction: column; border: 1px solid #d8dde3; border-radius: 4px; padding: 8px 10px; font-size: 9pt; }
+.dz-parties strong { font-size: 10pt; }
+.dz-tbl { width: 100%; border-collapse: collapse; font-size: 9pt; }
+.dz-tbl th { background: #1d2b3a; color: #fff; font-weight: 600; text-align: left; padding: 5px 8px; font-size: 8pt; letter-spacing: .03em; }
+.dz-tbl td { padding: 5px 8px; border-bottom: 1px solid #e3e6ea; vertical-align: top; font-variant-numeric: tabular-nums; }
+.dz-tbl tbody tr:nth-child(even) td { background: #f6f7f9; }
+.dz-tbl .r { text-align: right; white-space: nowrap; }
+.dz-tbl .c-lp { width: 26px; color: #666; }
+.dz-tbl small { display: block; color: #666; font-size: 8pt; }
+.dz-tbl .dz-note { font-style: italic; }
+.dz-sum { display: flex; justify-content: space-between; gap: 20px; margin-top: 10px; }
+.dz-notes { flex: 1; font-size: 9pt; } .dz-notes p { margin: 0; white-space: pre-wrap; }
+.dz-totals { display: grid; grid-template-columns: auto auto; gap: 2px 18px; margin: 0; min-width: 220px; border-top: 2px solid #1d2b3a; padding-top: 6px; font-variant-numeric: tabular-nums; }
+.dz-totals dt { color: #555; } .dz-totals dd { margin: 0; text-align: right; font-weight: 600; }
+.dz-totals .big { font-size: 12pt; font-weight: 700; color: #111; }
+.dz-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 36px; }
+.dz-sign { display: flex; flex-direction: column; border-top: 1px solid #999; padding-top: 3px; font-size: 9pt; }
+.dz-sign small { color: #777; font-size: 7.5pt; }
+.dz-foot p { grid-column: 1 / -1; margin: 14px 0 0; font-size: 7.5pt; color: #888; text-align: center; }
+.dz-tbl tr, .dz-sum, .dz-foot { break-inside: avoid; }
+@media print {
+  .print-sheet.doc-print { font-size: 10pt; }
+  .print-sheet .dz-tbl th { background: #1d2b3a !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; border: 0; }
+  .print-sheet .dz-tbl td { border: 0; border-bottom: 1px solid #e3e6ea; }
+  .print-sheet .dz-tbl tbody tr:nth-child(even) td { background: #f6f7f9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}

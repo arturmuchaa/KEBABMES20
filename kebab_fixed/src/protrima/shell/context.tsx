@@ -18,6 +18,8 @@ export interface AppApi {
   editOrder(id: string): void
   /** Nowe zamówienie z pozycjami skopiowanymi z istniejącego. */
   copyOrder(id: string): void
+  /** Wydruk / PDF zamówienia dla klienta. */
+  printOrder(id: string): void
   toast(t: Omit<Toast, 'id'>): void
   setStatusCtx(node: React.ReactNode): void
   appRef: React.RefObject<HTMLDivElement>

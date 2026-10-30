@@ -194,6 +194,7 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
       { label: 'Edytuj zamówienie', icon: <Pencil size={15} />, kbd: 'F2', disabled: !dozwolone(r.o).delete, onSelect: () => app.editOrder(id) },
       { label: 'Palety i kartony', icon: <Boxes size={15} />, onSelect: () => { select(id); setTab('pallets') } },
       { label: 'Dokumenty', icon: <FileText size={15} />, onSelect: () => { select(id); setTab('documents') } },
+      { label: 'Drukuj zamówienie dla klienta…', icon: <Printer size={15} />, onSelect: () => app.printOrder(id) },
       { sep: true },
       { label: 'Podziel wysyłkę na fakturę i WZ', icon: <Split size={15} />, onSelect: () => app.toast({ kind: 'info', title: 'Podział wysyłki', detail: FAZA_ZAPISU }) },
       { label: 'Duplikuj jako nowe zamówienie', icon: <Copy size={15} />, onSelect: () => app.copyOrder(id) },

@@ -53,7 +53,7 @@ export function orderCommands(order: Order | null, app: AppApi, onTab: (t: Detai
       { label: 'Wszystkie dokumenty zamówienia', icon: <List size={15} />, onSelect: () => onTab('documents') },
     ] },
     { id: 'print', group: 4, label: 'Drukuj', icon: <Printer size={17} />, kbd: 'Ctrl+P', menuOnly: true, disabled: none, menu: [
-      { label: 'Zamówienie dla klienta', icon: <Printer size={15} />, onSelect: () => demo('Wydruk zamówienia', 'Wydruki zamówień przeniesiemy w fazie 3. Teraz: stary MES na tej samej kopii.') },
+      { label: 'Zamówienie dla klienta (wydruk / PDF)', icon: <Printer size={15} />, onSelect: () => order && app.printOrder(order.id) },
       { label: 'Lista kompletacji (wewnętrzna)', icon: <ClipboardList size={15} />, onSelect: () => demo('Wydruk listy kompletacji', 'Wydruki zamówień przeniesiemy w fazie 3. Teraz: stary MES na tej samej kopii.') },
       { label: 'Kartki palet', icon: <Boxes size={15} />, onSelect: () => demo('Kartki palet', 'Wydruki zamówień przeniesiemy w fazie 3. Teraz: stary MES na tej samej kopii.'), disabled: !order?.pallets.length },
     ] },
