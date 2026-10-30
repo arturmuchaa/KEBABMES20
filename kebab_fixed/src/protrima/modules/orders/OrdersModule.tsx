@@ -1,20 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Plus, Upload, Search, ChevronDown, ChevronRight, ArrowUp, ArrowDown, MoreHorizontal, X, Layers, Printer, FileSpreadsheet,
-  ClipboardList, ExternalLink, Pencil, Boxes, FileText, Copy, Ban, Split, Rows3, Calculator,
-  ShoppingCart,
-} from 'lucide-react'
+import { Plus, Search, ChevronDown, ChevronRight, ArrowUp, ArrowDown, MoreHorizontal, X, Layers, Printer, ClipboardList, ExternalLink, Pencil, Boxes, FileText, Copy, Ban, Split, Rows3, Calculator, ShoppingCart } from 'lucide-react'
 import { useApp, Menu, useMenu, Dialog, CommandBar, wierszMenu, type Cmd, type ViewKey, type DetailTab, type OrdersCmd, type MenuItem } from '../../shell/context'
 import { useOrders } from '../../data/store'
-import {
-  computeMetrics, isClosed, kg, num, relDay, fmtDay, BUCKET_LABEL, mixingByRecipe, weekday, DOC_NAME,
-  type Bucket, type Metrics, type Order,
-} from '../../data/model'
+import { computeMetrics, isClosed, kg, num, relDay, fmtDay, BUCKET_LABEL, mixingByRecipe, weekday, DOC_NAME, type Bucket, type Metrics, type Order } from '../../data/model'
 import { FlagIcon, OrderStatusLabel } from '../../ui/Glyphs'
 import { CoverMeter, ProdMeter } from '../../ui/Meters'
 import { OrderDetail, orderCommands } from './OrderDetail'
 import { useOrderActions, dozwolone } from './akcje'
-import { FAZA_ZAPISU } from '../../proba'
+import { W_STARYM_MES } from '../../proba'
 import { useDock } from '../../shell/useDock'
 import { SzkieletWierszy } from '../../ui/Szkielet'
 import { Pusto } from '../../ui/Pusto'
@@ -230,10 +223,8 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
   const selOrder = selRow?.o ?? null
   const cmds = useMemo<Cmd[]>(() => [
     { id: 'new', group: 1, label: 'Nowe zamówienie', icon: <Plus size={15} />, kbd: 'Ctrl+N', menuOnly: true, run: app.newOrder },
-    { id: 'import', group: 1, label: 'Importuj z pliku CSV…', icon: <Upload size={15} />, menuOnly: true, run: () => app.toast({ kind: 'info', title: 'Import zamówień z pliku CSV', detail: FAZA_ZAPISU }) },
     ...orderCommands(selOrder, app, t => setTab(t), akcje.zapytaj),
     { id: 'req', group: 5, label: 'Zapotrzebowanie', icon: <Calculator size={17} />, opt: true, tip: 'Zapotrzebowanie na masowanie — dla zaznaczonych albo wybranego', disabled: !checked.size && !selOrder, run: () => setReqOpen(true) },
-    { id: 'export', group: 5, label: 'Eksport do Excela', icon: <FileSpreadsheet size={15} />, menuOnly: true, tip: 'Eksport widocznych wierszy do Excela', run: () => app.toast({ kind: 'info', title: 'Eksport do Excela', detail: 'Eksport dojdzie po próbie wyglądu. Teraz: stary MES.' }) },
   ], [app, selOrder, checked.size, akcje.zapytaj])
   useEffect(() => { setCmds(cmds) }, [cmds, setCmds])
 
@@ -249,8 +240,6 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
           <span className="cnt">Zaznaczono {checked.size} {checked.size === 1 ? 'zamówienie' : checked.size < 5 ? 'zamówienia' : 'zamówień'}<span>{kg(checkedRows.reduce((a, r) => a + r.m.orderedKg, 0))}</span></span>
           <button className="btn" onClick={() => setReqOpen(true)}><Calculator size={15} />Zapotrzebowanie na masowanie</button>
           <button className="btn" onClick={() => app.printPicking(checkedRows.map(r => r.o.id))}><ClipboardList size={15} />Lista kompletacji</button>
-          <button className="btn" onClick={() => app.toast({ kind: 'info', title: 'Druk zaznaczonych', detail: FAZA_ZAPISU })}><Printer size={15} />Drukuj</button>
-          <button className="btn hide-s" onClick={() => app.toast({ kind: 'info', title: 'Eksport do Excela', detail: 'Eksport dojdzie po próbie wyglądu. Teraz: stary MES.' })}><FileSpreadsheet size={15} />Eksportuj</button>
           <span className="grow" style={{ flex: 1 }} />
           <button className="btn ghost" onClick={() => setChecked(new Set())}>Odznacz<span className="kbd">Esc</span></button>
         </div>
@@ -454,7 +443,7 @@ function RequirementsDialog({ rows, onClose }: { rows: Row[]; onClose: () => voi
   return (
     <Dialog wide title="Zapotrzebowanie na masowanie" icon={<Calculator size={20} color="var(--accent)" />} onClose={onClose}
       footer={<><span className="left">Dla {open.length} zamówień · brakującego wyrobu</span><button className="btn" onClick={onClose}>Zamknij</button>
-        <button className="btn primary" onClick={() => { onClose(); app.toast({ kind: 'info', title: 'Przekazanie do planu masowania', detail: FAZA_ZAPISU }) }} disabled={!list.length}>Przekaż do planu masowania</button></>}>
+        <button className="btn primary" onClick={() => { onClose(); app.toast({ kind: 'info', title: 'Przekazanie do planu masowania', detail: W_STARYM_MES }) }} disabled={!list.length}>Przekaż do planu masowania</button></>}>
       <div className="req-sum">
         <div className="f"><span className="k">Mięso do masowania</span><span className="v">{kg(total)}{unknown.length > 0 && <small className="warn-ink"> + nieznane</small>}</span></div>
         <div className="f"><span className="k">Wyrób do zmasowania</span><span className="v">{kg(remaining)}</span></div>

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Pencil, Save, X, Plus } from 'lucide-react'
 import { useApp } from '../../../shell/context'
-import { FAZA_ZAPISU } from '../../../proba'
+import { W_STARYM_MES } from '../../../proba'
 import { kg, num, type Order } from '../../../data/model'
 import { FlagIcon } from '../../../ui/Glyphs'
 
@@ -45,7 +45,7 @@ export function LinesTab({ order }: { order: Order }) {
     if (hasErr) return
     if (!changed.length) { setEdit(false); return }
     // Faza 2: tylko odczyt. Zapis pójdzie przez clientOrdersApi.update (faza 3).
-    app.toast({ kind: 'info', title: 'Nie zapisano', detail: FAZA_ZAPISU })
+    app.toast({ kind: 'info', title: 'Nie zapisano', detail: W_STARYM_MES })
     setEdit(false); setDraft({})
   }
 

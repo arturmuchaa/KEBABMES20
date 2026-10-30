@@ -1,16 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  PackagePlus, Link2, Unlink, MoveRight, Truck, Tag, ClipboardCheck, FileSpreadsheet, Search, ChevronDown, ChevronRight,
-  X, Maximize2, Minimize2, ExternalLink, PanelRight, PanelBottom, Rows3, Lock, Snowflake, Layers, ArrowUp, ArrowDown,
-  FileText,
-  Package,
-} from 'lucide-react'
-import { useApp, Menu, useMenu, Dialog, CommandBar, wierszMenu, type Cmd } from '../../shell/context'
+import { Link2, MoveRight, Truck, Tag, ClipboardCheck, Search, ChevronDown, ChevronRight, X, Maximize2, Minimize2, ExternalLink, PanelRight, PanelBottom, Rows3, Lock, Snowflake, Layers, ArrowUp, ArrowDown, FileText, Package } from 'lucide-react'
+import { useApp, Menu, useMenu, CommandBar, wierszMenu, type Cmd } from '../../shell/context'
 import { useOrders } from '../../data/store'
 import { computeMetrics, fmtDate, kg, num, relDay, isClosed, lineMissing, type Order } from '../../data/model'
 import { posKg, daysLeft, STOCK_STATUS, type StockPos } from '../../data/stock'
 import { FlagIcon } from '../../ui/Glyphs'
-import { BEZ_DRUKU_ETYKIET, FAZA_ZAPISU } from '../../proba'
+import { BEZ_DRUKU_ETYKIET, W_STARYM_MES } from '../../proba'
 import { useDock } from '../../shell/useDock'
 import { StanDlaKlientaDialog, klientPozycji, WOLNE } from './StanDlaKlienta'
 import { SzkieletWierszy } from '../../ui/Szkielet'
@@ -137,14 +132,12 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   // ─── Polecenia ─────────────────────────────────────────────────────────
   const sp = selRow?.p
   const canAlloc = !!sp && !sp.orderNo && sp.status !== 'blocked'
-  const demo = (t: string, d = FAZA_ZAPISU) => app.toast({ kind: 'info', title: t, detail: d })
+  const demo = (t: string, d = W_STARYM_MES) => app.toast({ kind: 'info', title: t, detail: d })
   // WZ z magazynu: zaznaczone wiersze (w kolejności listy) albo — bez zaznaczenia — wybrany wiersz, cała ilość.
   const doWz = (ids: string[]) => app.issueWzFromStock(ids.flatMap(id => { const r = rows.find(x => x.p.id === id); return r ? [{ id, qty: r.p.qty }] : [] }))
   const zaznaczone = flat.filter(r => checked.has(r.p.id)).map(r => r.p.id)
   const cmds = useMemo<Cmd[]>(() => [
-    { id: 'receive', group: 1, label: 'Przyjmij z produkcji', icon: <PackagePlus size={17} />, run: () => demo('Przyjęcie z produkcji', 'Przyjęcie tworzy partię i ruch magazynowy — zostaje w starym MES (tablet produkcji i biuro).') },
     { id: 'alloc', group: 2, label: 'Kto czeka na ten wyrób', icon: <Link2 size={17} />, disabled: !sp, run: () => setTab('alloc') },
-    { id: 'move', group: 3, label: 'Przesuń', icon: <MoveRight size={17} />, opt: true, disabled: !sp, run: () => demo('Przesunięcie między lokalizacjami') },
     { id: 'issue', group: 3, label: 'Wydaj', icon: <Truck size={17} />, disabled: !sp && !zaznaczone.length, menu: [
       { label: zaznaczone.length ? `Wystaw WZ z zaznaczonych (${zaznaczone.length})` : 'Wystaw WZ z tej pozycji', icon: <FileText size={15} />, disabled: !zaznaczone.length && !sp, onSelect: () => doWz(zaznaczone.length ? zaznaczone : sp ? [sp.id] : []) },
       { label: 'Wydanie WZ z zamówienia', icon: <Truck size={15} />, disabled: !sp?.orderId, onSelect: () => sp?.orderId && app.gotoOrders({ select: sp.orderId, tab: 'shipping', view: 'active' }) },
@@ -152,8 +145,6 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
     ] },
     { id: 'print', group: 4, label: 'Etykieta', icon: <Tag size={17} />, kbd: 'Ctrl+P', disabled: !sp, run: () => app.toast({ kind: 'warn', title: 'Etykieta kartonu', detail: BEZ_DRUKU_ETYKIET }) },
     { id: 'stan', group: 4, label: 'Stan dla klienta', icon: <ClipboardCheck size={17} />, tip: 'Wydruk: co klient ma na magazynie', run: () => setStanOpen(true) },
-    { id: 'inv', group: 4, label: 'Inwentaryzacja', icon: <ClipboardCheck size={17} />, opt: true, run: () => demo('Inwentaryzacja') },
-    { id: 'export', group: 5, label: 'Eksport do Excela', icon: <FileSpreadsheet size={15} />, menuOnly: true, run: () => demo('Eksport do Excela', 'Eksport dojdzie po próbie wyglądu. Teraz: stary MES.') },
   ], [canAlloc, sp, app, zaznaczone.join(','), rows]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setCmds(cmds) }, [cmds, setCmds])
 

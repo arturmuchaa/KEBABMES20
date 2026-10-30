@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { CheckCircle2, CircleDashed, Truck, FileText, Printer } from 'lucide-react'
-import { useApp, Dialog } from '../../../shell/context'
-import { FAZA_ZAPISU } from '../../../proba'
+import { useApp } from '../../../shell/context'
+import { W_STARYM_MES } from '../../../proba'
 import { computeMetrics, kg, num, palletKg, dueText, type Order } from '../../../data/model'
 import { FlagIcon, PalletStatusLabel } from '../../../ui/Glyphs'
 
@@ -37,7 +37,7 @@ export function ShippingTab({ order }: { order: Order }) {
           </dl>
           <p className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Kursy i pojazdy są w module Wysyłki starego MES — w próbie bez zmian.</p>
           {!closed && <div className="row-wrap">
-            <button className="btn sm" onClick={() => app.toast({ kind: 'info', title: 'Dokumenty dla kierowcy', detail: FAZA_ZAPISU })}><Printer size={14} />Dokumenty dla kierowcy</button>
+            <button className="btn sm" onClick={() => app.toast({ kind: 'info', title: 'Dokumenty dla kierowcy', detail: W_STARYM_MES })}><Printer size={14} />Dokumenty dla kierowcy</button>
           </div>}
         </div>
         <div className="box">

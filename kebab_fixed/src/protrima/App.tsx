@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { LayoutGrid, ShoppingCart, FilePlus2, Palette, Package, Printer, FileSpreadsheet, Upload, LogOut, XSquare, Search, Pencil, Copy, Keyboard, Info, RefreshCw, FileBarChart, Users, Clock, Car, UserCog, SlidersHorizontal, Wallet, BarChart3, Calculator, Thermometer, Layers, Archive, Tags, Plus, PackageOpen, ClipboardList, MoreHorizontal, FileText, type LucideIcon } from 'lucide-react'
+import { LayoutGrid, ShoppingCart, FilePlus2, Palette, Package, Printer, LogOut, XSquare, Search, Pencil, Copy, Keyboard, Info, RefreshCw, FileBarChart, Users, Clock, Car, UserCog, SlidersHorizontal, Wallet, BarChart3, Calculator, Thermometer, Layers, Archive, Tags, Plus, PackageOpen, ClipboardList, MoreHorizontal, FileText, type LucideIcon } from 'lucide-react'
 import { AppCtx, type AppApi, type Cmd, type MenuItem, type OrdersCmd, type PanelWybor, type Toast, Toasts, TooltipLayer, Dialog } from './shell/context'
 import { TitleBar, MenuBar, MainToolbar, TabStrip, Nav, StatusBar, type MenuDef, type ToolItem, type WTab } from './shell/Chrome'
 import { CommandPalette } from './shell/CommandPalette'
@@ -24,7 +24,7 @@ import { Placeholder } from './modules/misc/Placeholder'
 import { DesignSystem } from './modules/misc/DesignSystem'
 import { Logo } from './brand/Logo'
 import { useAuth } from '@/features/auth/AuthContext'
-import { FAZA_ZAPISU } from './proba'
+import { W_STARYM_MES } from './proba'
 import { ProbaZnacznik } from './kopia'
 
 // Poniżej ~1180 px (telefon, wąski panel podglądu) pokazujemy cały pulpit pomniejszony
@@ -227,7 +227,7 @@ function Shell() {
   const [palette, setPalette] = useState(false)
   const [shortcuts, setShortcuts] = useState(false)
   const [about, setAbout] = useState(false)
-  const demo = useCallback((title: string, detail = FAZA_ZAPISU) => toast({ kind: 'info', title, detail }), [toast])
+  const demo = useCallback((title: string, detail = W_STARYM_MES) => toast({ kind: 'info', title, detail }), [toast])
 
   const modCmds = cmdMap[active] ?? []
   const runCmd = useCallback((id: string) => { const c = modCmds.find(x => x.id === id); if (c && !c.disabled) { c.run?.(); return true } return false }, [modCmds])
@@ -298,11 +298,9 @@ function Shell() {
     { key: 'plik', label: 'Plik', access: 'p', items: [
       { label: 'Nowe zamówienie', icon: <FilePlus2 size={15} />, kbd: 'Ctrl+N', onSelect: newOrder },
       { label: 'Nowe przyjęcie surowca', icon: <PackageOpen size={15} />, onSelect: newReception },
-      { label: 'Importuj zamówienia z pliku…', icon: <Upload size={15} />, onSelect: () => demo('Import zamówień z CSV') },
       { sep: true },
       { label: 'Otwórz… (szukaj wszędzie)', icon: <Search size={15} />, kbd: 'Ctrl+K', onSelect: () => setPalette(true) },
       { label: 'Drukuj…', icon: <Printer size={15} />, kbd: 'Ctrl+P', onSelect: () => { if (!runCmd('print')) demo('Drukowanie') } },
-      { label: 'Eksportuj do Excela', icon: <FileSpreadsheet size={15} />, onSelect: () => demo('Eksport do Excela', 'Eksport dojdzie po próbie wyglądu. Teraz: stary MES.') },
       { sep: true },
       { label: 'Zamknij okno', icon: <XSquare size={15} />, kbd: 'Ctrl+W', disabled: active === 'pulpit', onSelect: () => closeTab(active) },
       { label: 'Wyloguj', icon: <LogOut size={15} />, onSelect: () => { logout() } },
@@ -357,11 +355,9 @@ function Shell() {
 
   // ─── Pasek narzędzi (pas 3): sprawy programu, nie zaznaczonego rekordu ──
   const modPrint = modCmds.find(c => c.id === 'print')
-  const modExport = modCmds.find(c => c.id === 'export')
   const printItems: MenuItem[] = modPrint
     ? (modPrint.menu ? modPrint.menu.map(m => ({ ...m, disabled: m.disabled || modPrint.disabled })) : [{ label: modPrint.label, icon: <Printer size={15} />, disabled: modPrint.disabled, onSelect: modPrint.run }])
     : [{ label: 'Brak wydruków dla tego okna', disabled: true }]
-  const exportDemo = (fmt: string) => toast({ kind: 'info', title: `Eksport do ${fmt}`, detail: 'Eksport dojdzie po próbie wyglądu. Teraz: stary MES.' })
   const toolItems: ToolItem[] = [
     { id: 'new', label: 'Nowe zamówienie', icon: <Plus size={16} />, kbd: 'Ctrl+N', primary: true, split: true, run: newOrder, menu: [
       { header: 'Nowy dokument' },
@@ -369,8 +365,6 @@ function Shell() {
       { label: 'Przyjęcie surowca', icon: <PackageOpen size={15} />, onSelect: newReception },
       { label: 'Zlecenie masowania', icon: <Layers size={15} />, onSelect: () => openModule('plan-masowania') },
       { label: 'Plan produkcji', icon: <ClipboardList size={15} />, onSelect: () => openModule('plan-produkcji') },
-      { sep: true },
-      { label: 'Importuj zamówienia z pliku…', icon: <Upload size={15} />, onSelect: () => demo('Import zamówień z CSV') },
     ] },
     { id: 's1', sep: true },
     { id: 'plan', label: 'Plan produkcji', icon: <ClipboardList size={16} />, tip: 'Otwórz plan produkcji', run: () => openModule('plan-produkcji') },
@@ -381,18 +375,11 @@ function Shell() {
       { sep: true }, { header: 'Raporty' },
       { label: 'Raport dzienny produkcji', icon: <FileText size={15} />, onSelect: () => openModule('raporty') },
     ] },
-    { id: 'export', label: 'Eksport', icon: <FileSpreadsheet size={16} />, tip: 'Eksport bieżącej listy', menu: [
-      { header: `Eksport · ${activeTab.title}` },
-      { label: 'Excel (.xlsx)', icon: <FileSpreadsheet size={15} />, onSelect: () => modExport?.run ? modExport.run() : exportDemo('Excela') },
-      { label: 'CSV (średnik)', icon: <FileText size={15} />, onSelect: () => exportDemo('CSV') },
-      { label: 'PDF', icon: <FileText size={15} />, onSelect: () => exportDemo('PDF') },
-    ] },
     { id: 'refresh', label: 'Odśwież', icon: <RefreshCw size={16} />, kbd: 'F5', run: reload },
     { id: 'grow', grow: true },
     { id: 'more', label: 'Więcej akcji', icon: <MoreHorizontal size={16} />, menu: [
       { label: 'Etykiety na pasku narzędzi', checked: toolLabels, onSelect: toggleLabels },
       { label: 'Ukryj pasek narzędzi', onSelect: toggleToolbar },
-      { label: 'Dostosuj pasek narzędzi…', onSelect: () => demo('Dostosowanie paska', 'Każdy użytkownik wybierze własne skróty — po próbie.') },
       { sep: true },
       { label: 'Skróty klawiszowe', icon: <Keyboard size={15} />, kbd: 'F1', onSelect: () => setShortcuts(true) },
       { label: 'System projektowy', icon: <Palette size={15} />, onSelect: () => openModule('system') },

@@ -1,11 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Ban } from 'lucide-react'
 import { useOrders } from '../../data/store'
-import { computeMetrics, kg, type Order } from '../../data/model'
-import { useApp, CommandBar, Dialog, type Cmd, type DetailTab } from '../../shell/context'
+import { computeMetrics, kg } from '../../data/model'
+import { useApp, CommandBar, type Cmd, type DetailTab } from '../../shell/context'
 import { OrderDetail, TAB_DEFS, orderCommands } from './OrderDetail'
 import { useOrderActions } from './akcje'
-import { FAZA_ZAPISU } from '../../proba'
 
 /** Zamówienie otwarte w osobnym oknie — ten sam panel co pod listą, na całą wysokość, z tym samym paskiem narzędzi. */
 export function OrderTab({ orderId, active, setCtx, setCmds }: { orderId: string; active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void }) {

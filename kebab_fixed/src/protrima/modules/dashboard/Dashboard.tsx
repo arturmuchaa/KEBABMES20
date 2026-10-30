@@ -1,15 +1,11 @@
 import React, { useEffect, useMemo } from 'react'
-import { ArrowRight, Printer, SlidersHorizontal, Clock3 } from 'lucide-react'
+import { ArrowRight, SlidersHorizontal, Clock3 } from 'lucide-react'
 import { useApp, CommandBar, type Cmd, type DetailTab } from '../../shell/context'
 import { useOrders } from '../../data/store'
-import {
-  computeMetrics, isClosed, kg, num, pct, longDate, TODAY, BUCKET_LABEL, fmtDay, fmtDate, weekday, addDays, mixingByRecipe,
-  type Bucket, type Order, type Level,
-} from '../../data/model'
+import { computeMetrics, isClosed, kg, num, pct, longDate, TODAY, BUCKET_LABEL, fmtDay, fmtDate, weekday, addDays, mixingByRecipe, type Bucket, type Order, type Level } from '../../data/model'
 import { dataZApi } from '../../data/mapuj'
 import { posKg } from '../../data/stock'
 import { FlagIcon, StageNode, LEVEL_WORD } from '../../ui/Glyphs'
-import { FAZA_ZAPISU } from '../../proba'
 import { useApi } from '@/hooks/useApi'
 import { useLiveRefresh } from '@/hooks/useLiveRefresh'
 import { deboningApi, meatStockApi, productionPlansApi, productionSessionsApi, rawBatchesApi, receptionChecksApi, seasonedMeatApi, zaladunkiApi, type ZaladunekDoWydruku } from '@/lib/api'
@@ -52,7 +48,6 @@ export function Dashboard({ active, setCtx, setCmds }: { active: boolean; setCtx
   }
 
   const cmds = useMemo<Cmd[]>(() => [
-    { id: 'print', group: 2, label: 'Raport zmiany', icon: <Printer size={17} />, kbd: 'Ctrl+P', menuOnly: true, run: () => app.toast({ kind: 'info', title: 'Raport zmiany', detail: FAZA_ZAPISU }) },
     { id: 'history', group: 2, label: 'Poprzednie zmiany', icon: <Clock3 size={17} />, opt: true, run: () => app.toast({ kind: 'info', title: 'Historia zmian', detail: 'Widok poprzednich zmian dojdzie po próbie.' }) },
     { id: 'custom', group: 3, label: 'Dostosuj pulpit', icon: <SlidersHorizontal size={17} />, opt: true, run: () => app.toast({ kind: 'info', title: 'Układ pulpitu', detail: 'Każda rola (właściciel, kierownik, biuro) dostanie własny zestaw paneli — po próbie.' }) },
   ], [app])

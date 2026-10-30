@@ -2,7 +2,6 @@ import React from 'react'
 import { RotateCcw, Trash2, X, ExternalLink, Maximize2, Minimize2, PanelRight, PanelBottom, FileText, Printer, Truck, Split, Copy, Ban, Boxes, CheckCheck, Pencil, List, ClipboardList, PackageCheck } from 'lucide-react'
 import { useApp, type AppApi, type Cmd, type DetailTab } from '../../shell/context'
 import { computeMetrics, kg, num, pct, dueText, type Order } from '../../data/model'
-import { FAZA_ZAPISU } from '../../proba'
 import { dozwolone } from './akcje'
 import { OrderStatusLabel } from '../../ui/Glyphs'
 import { OverviewTab } from './tabs/Overview'
@@ -37,7 +36,6 @@ export function orderCommands(order: Order | null, app: AppApi, onTab: (t: Detai
   const none = !order
   const closed = !!order && (order.status === 'done' || order.status === 'cancelled')
   const can = order ? dozwolone(order) : null
-  const demo = (t: string, d = FAZA_ZAPISU) => app.toast({ kind: 'info', title: t, detail: d })
   return [
     { id: 'edit', group: 2, label: 'Edytuj', icon: <Pencil size={17} />, kbd: 'F2', disabled: none || !can?.delete, tip: order && !can?.delete ? 'Edytować można szkic albo potwierdzone' : undefined, run: () => order && app.editOrder(order.id) },
     { id: 'duplicate', group: 2, label: 'Duplikuj', icon: <Copy size={17} />, kbd: 'Ctrl+D', opt: true, disabled: none, run: () => order && app.copyOrder(order.id) },
