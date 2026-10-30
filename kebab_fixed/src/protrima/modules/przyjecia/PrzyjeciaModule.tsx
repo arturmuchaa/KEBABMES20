@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   PackagePlus, Pencil, ClipboardCheck, Tag, Ban, Search, ChevronDown, ChevronRight, X, Maximize2, Minimize2,
-  PanelRight, PanelBottom, Rows3, ArrowUp, ArrowDown, Thermometer, FileText, Layers,
+  PanelRight, PanelBottom, Rows3, ArrowUp, ArrowDown, Thermometer, FileText, Layers, Printer,
   PackageOpen,
 } from 'lucide-react'
 import { useApp, Menu, useMenu, CommandBar, wierszMenu, type Cmd } from '../../shell/context'
@@ -15,6 +15,7 @@ import {
 import { FlagIcon } from '../../ui/Glyphs'
 import { DRUK_ETYKIET } from '../../proba'
 import { AnulujPrzyjecie } from './AnulujPrzyjecie'
+import { KartyHaccpDialog, kartaBiezaca, pobierzKarte } from './KartyHaccp'
 import { KontrolaHaccp } from './KontrolaHaccp'
 import { useApi } from '@/hooks/useApi'
 import { useLiveRefresh } from '@/hooks/useLiveRefresh'
@@ -98,6 +99,7 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
   const [maxed, setMaxed] = useState(false)
   const [ctxMenu, setCtxMenu] = useState<{ id: string; anchor: Element } | null>(null)
   const [anuluj, setAnuluj] = useState<string | null>(null)
+  const [karty, setKarty] = useState(false)
   const [doZaznaczenia, setDoZaznaczenia] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -200,6 +202,12 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
     { id: 'new', group: 1, label: 'Nowe przyjęcie', icon: <PackagePlus size={17} />, kbd: 'Ctrl+N', primary: true, run: () => app.newReception() },
     { id: 'edit', group: 2, label: 'Edytuj', icon: <Pencil size={17} />, kbd: 'F2', disabled: !sp || sp.cancelled, run: () => sp && app.editReception(sp.id, sp.no) },
     { id: 'haccp', group: 2, label: 'Kontrola HACCP', icon: <ClipboardCheck size={17} />, disabled: !sp || sp.cancelled, run: () => setTab('haccp') },
+    { id: 'print', group: 4, label: 'Drukuj', icon: <Printer size={17} />, kbd: 'Ctrl+P', menuOnly: true, menu: [
+      { label: `Karta 1.1.1 — ${kartaBiezaca().when} (PDF)`, icon: <FileText size={15} />, onSelect: () => { const k = kartaBiezaca(); void pobierzKarte(app, '111', k.day, true, k.no) } },
+      { label: `Karta 1.1.1/2 — ${kartaBiezaca().when} (PDF)`, icon: <FileText size={15} />, onSelect: () => { const k = kartaBiezaca(); void pobierzKarte(app, '1112', k.day, true, k.no) } },
+      { sep: true },
+      { label: 'Karty z poprzednich miesięcy…', icon: <ClipboardCheck size={15} />, onSelect: () => setKarty(true) },
+    ] },
     { id: 'tags', group: 3, label: 'Zawieszki palet', icon: <Tag size={17} />, opt: true, disabled: !sp, run: () => app.toast({ kind: 'warn', title: 'Zawieszki palet', detail: DRUK_ETYKIET }) },
     { id: 'cancel', group: 9, label: 'Anuluj przyjęcie…', icon: <Ban size={15} />, menuOnly: true, danger: true, disabled: !sp || sp.cancelled, run: () => sp && setAnuluj(sp.id) },
   ], [sp, app])
@@ -332,6 +340,7 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
           { label: 'Anuluj przyjęcie…', danger: true, disabled: r.p.cancelled, onSelect: () => setAnuluj(r.p.id) },
         ]} />
       })()}
+      {karty && <KartyHaccpDialog app={app} onClose={() => setKarty(false)} />}
       {anuluj && (() => {
         const r = rows.find(x => x.p.id === anuluj)
         return r ? <AnulujPrzyjecie p={r.p} supplier={r.supplier} onClose={() => setAnuluj(null)}
