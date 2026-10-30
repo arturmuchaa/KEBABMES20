@@ -2,7 +2,7 @@ import React from 'react'
 import { PackageCheck } from 'lucide-react'
 import { useApp } from '../../../shell/context'
 import { useOrders } from '../../../data/store'
-import { FAZA_ZAPISU } from '../../../proba'
+import { KartonyZMagazynu } from './Kartony'
 import { computeMetrics, kg, num, pct, lineMissing, type Order } from '../../../data/model'
 import { posKg } from '../../../data/stock'
 import { MeasureLegend, poziomPokrycia } from '../../../ui/Meters'
@@ -77,26 +77,28 @@ export function CoverageTab({ order }: { order: Order }) {
       </div>
 
       {suggestions.length > 0 && <>
-        <div className="sect-h"><h3>Wolny wyrób pasujący do braków</h3><span className="sub">bez zamówienia na wierszu magazynu · najstarsza produkcja pierwsza</span></div>
+        <div className="sect-h"><h3>Wyrób bez zamówienia tego samego rodzaju</h3><span className="sub">bez stempla zamówienia na wierszu magazynu · najstarsza produkcja pierwsza</span></div>
         <div className="box">
           <table className="tbl">
-            <thead><tr><th>Wyrób w magazynie</th><th>Partia</th><th>Produkcja</th><th className="num">Wolne</th><th className="num">Brakuje w poz.</th><th /></tr></thead>
+            <thead><tr><th>Wyrób w magazynie</th><th>Partia</th><th>Produkcja</th><th className="hide-m">Klient na wierszu</th><th className="num">Sztuk</th><th className="num">Brakuje w poz.</th></tr></thead>
             <tbody>
-              {suggestions.map(({ l, fs, take }) => (
+              {suggestions.map(({ l, fs }) => (
                 <tr key={l.id} className="row">
                   <td><b>{fs.recipe}</b> {fs.kgPerUnit} kg <span className="sub">→ poz. {l.lp}</span></td>
                   <td className="code">{fs.batch}</td>
                   <td className="num">{fs.prodDate ? fs.prodDate.toLocaleDateString('pl-PL') : '—'}</td>
+                  <td className="hide-m">{fs.clientName || <span className="muted">na magazyn</span>}</td>
                   <td className="num">{fs.qty} szt. <span className="sub">{kg(posKg(fs))}</span></td>
                   <td className="num">{lineMissing(l)} szt.</td>
-                  <td className="r"><button className="btn sm" onClick={() => app.toast({ kind: 'info', title: `Przydział ${take} szt. do poz. ${l.lp}`, detail: FAZA_ZAPISU })}
-                    data-tip="Przydział — faza 3"><PackageCheck size={15} />Przydziel {take} szt.</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        <div className="note"><FlagIcon level="info" size={15} /><div>Wyrób luzem przydziela serwer sam — przy każdym odświeżeniu, dla wszystkich zamówień naraz: najpierw stempel z produkcji, potem zapas tego klienta, potem wyrób „na magazyn” od najstarszego zamówienia. Jeśli taki wyrób leży, a brak nadal widać, pokrył starsze zamówienie albo jest zapasem innego klienta.</div></div>
       </>}
+
+      {order.status !== 'draft' && <KartonyZMagazynu order={order} />}
       <div className="note"><FlagIcon level="info" size={15} /><div>Do wysłania = zamówiono − wydano ({kg(m.orderedKg - m.deliveredKg)}). Brak wyrobu = zamówiono − wydano − magazyn ({kg(m.missingKg)}). Wyrób sprzedany innemu klientowi nie pokrywa tego zamówienia.</div></div>
     </div>
   )

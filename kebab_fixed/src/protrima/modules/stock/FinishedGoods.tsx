@@ -21,7 +21,7 @@ type SortCol = 'product' | 'batch' | 'prod' | 'bb' | 'qty' | 'kg'
 
 const SHORT_DAYS = 14
 const TABS: Array<{ key: Tab; label: string }> = [
-  { key: 'details', label: 'Szczegóły' }, { key: 'alloc', label: 'Przydział' }, { key: 'cartons', label: 'Kartony' },
+  { key: 'details', label: 'Szczegóły' }, { key: 'alloc', label: 'Zamówienia' }, { key: 'cartons', label: 'Kartony' },
   { key: 'moves', label: 'Ruchy magazynowe' }, { key: 'trace', label: 'Śledzenie partii' },
 ]
 
@@ -63,7 +63,6 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [tab, setTab] = useState<Tab>('details')
   const [maxed, setMaxed] = useState(false)
-  const [releaseId, setReleaseId] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const workRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
@@ -78,7 +77,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const VIEWS: Array<{ key: View; label: string; tip: string; test: (r: Row) => boolean }> = [
     { key: 'all', label: 'Wszystko', tip: 'Cały wyrób gotowy na stanie', test: () => true },
     { key: 'free', label: 'Wolne', tip: 'Wiersz magazynu bez numeru zamówienia', test: r => !r.p.orderNo && r.p.status !== 'blocked' },
-    { key: 'allocated', label: 'Przydzielone', tip: 'Wiersz magazynu z numerem zamówienia', test: r => !!r.p.orderNo },
+    { key: 'allocated', label: 'Ze stemplem', tip: 'Wiersz magazynu ze stemplem zamówienia z produkcji', test: r => !!r.p.orderNo },
     { key: 'pallet', label: 'Na paletach', tip: 'Spakowane na palety wydania', test: r => r.p.status === 'pallet' },
     { key: 'blocked', label: 'Zablokowane', tip: 'Blokada jakościowa', test: r => r.p.status === 'blocked' },
     { key: 'short', label: 'Krótka data', tip: `Przydatność ≤ ${SHORT_DAYS} dni (API nie podaje jeszcze daty przydatności)`, test: r => { const d = daysLeft(r.p); return d !== null && d <= SHORT_DAYS } },
@@ -137,8 +136,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const demo = (t: string, d = FAZA_ZAPISU) => app.toast({ kind: 'info', title: t, detail: d })
   const cmds = useMemo<Cmd[]>(() => [
     { id: 'receive', group: 1, label: 'Przyjmij z produkcji', icon: <PackagePlus size={17} />, run: () => demo('Przyjęcie z produkcji', 'Przyjęcie tworzy partię i ruch magazynowy — zostaje w starym MES (tablet produkcji i biuro).') },
-    { id: 'alloc', group: 2, label: 'Przydziel do zamówienia', icon: <Link2 size={17} />, disabled: !canAlloc, tip: sp?.status === 'blocked' ? 'Pozycja zablokowana' : sp?.orderId ? 'Już przydzielona' : undefined, run: () => setTab('alloc') },
-    { id: 'release', group: 2, label: 'Zwolnij przydział', icon: <Unlink size={17} />, opt: true, disabled: !sp?.orderNo, tip: !sp?.orderNo ? 'Pozycja nie jest przydzielona' : undefined, run: () => sp && setReleaseId(sp.id) },
+    { id: 'alloc', group: 2, label: 'Kto czeka na ten wyrób', icon: <Link2 size={17} />, disabled: !sp, run: () => setTab('alloc') },
     { id: 'move', group: 3, label: 'Przesuń', icon: <MoveRight size={17} />, opt: true, disabled: !sp, run: () => demo('Przesunięcie między lokalizacjami') },
     { id: 'issue', group: 3, label: 'Wydaj', icon: <Truck size={17} />, disabled: !sp, menu: [
       { label: 'Wydanie WZ z zamówienia', icon: <Truck size={15} />, disabled: !sp?.orderId, onSelect: () => sp?.orderId && app.gotoOrders({ select: sp.orderId, tab: 'shipping', view: 'active' }) },
@@ -293,9 +291,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
           <div className={`splitter${dock.drag ? ' drag' : ''}`} role="separator" aria-orientation={dock.side ? 'vertical' : 'horizontal'} onMouseDown={startDrag} onDoubleClick={() => { dock.reset(); setMaxed(false) }} data-tip="Przeciągnij, aby zmienić rozmiar. Dwuklik — domyślnie." />
           <div className="dock" aria-label="Szczegóły pozycji magazynowej">
             <StockDetail r={selRow} tab={tab} onTab={setTab} maxed={maxed} onMax={() => setMaxed(m => !m)} onClose={() => setSel(null)}
-              candidates={candidatesFor(selRow.p)} onAllocate={(o, _lineId, qty) => {
-                app.toast({ kind: 'info', title: `Przydział ${qty} szt. do ${o.no}`, detail: FAZA_ZAPISU })
-              }} onRelease={() => setReleaseId(selRow.p.id)} />
+              candidates={candidatesFor(selRow.p)} />
           </div>
         </>}
       </div>
@@ -316,7 +312,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
           ...(r.order ? [{ label: `Otwórz ${r.order.no}`, onSelect: () => app.gotoOrders({ select: r.order!.id, tab: 'coverage', view: 'active' }) }] : []),
           ...(k !== WOLNE ? [{ label: `Pokaż cały wyrób: ${k}`, onSelect: () => setKlient(k) }, { label: `Stan dla klienta: ${k}…`, onSelect: () => { setStanStart(k); setStanOpen(true) } }] : []),
           { sep: true },
-          { label: 'Przydziel do zamówienia', disabled: !!r.p.orderNo, onSelect: () => setTab('alloc') },
+          { label: 'Kto czeka na ten wyrób', onSelect: () => setTab('alloc') },
           { label: 'Etykieta kartonu', onSelect: () => app.toast({ kind: 'warn', title: 'Etykieta kartonu', detail: BEZ_DRUKU_ETYKIET }) },
         ]} />
       })()}
@@ -327,22 +323,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
         { label: 'Według zamówienia', icon: <Snowflake size={15} />, checked: groupBy === 'location', onSelect: () => setGroupBy('location') },
         { label: 'Bez grupowania', icon: <Rows3 size={15} />, checked: groupBy === 'none', onSelect: () => setGroupBy('none') },
       ]} />}
-      {releaseId && (() => {
-        const r = rows.find(x => x.p.id === releaseId)!
-        const m = r.order ? computeMetrics(r.order) : null
-        return (
-          <Dialog title="Zwolnić przydział?" icon={<Unlink size={20} color="var(--warn)" />} onClose={() => setReleaseId(null)}
-            footer={<><button className="btn" onClick={() => setReleaseId(null)} data-autofocus>Wróć</button>
-              <button className="btn primary" onClick={() => { setReleaseId(null); app.toast({ kind: 'info', title: 'Zwolnienie przydziału', detail: FAZA_ZAPISU }) }}>Zwolnij przydział</button></>}>
-            <p><b>{r.p.recipe} {r.p.kgPerUnit} kg</b> · partia <span className="code">{r.p.batch}</span> · {r.p.qty} szt. ({kg(posKg(r.p))})</p>
-            {r.order && m && <div className="note warn"><FlagIcon level="warn" size={16} /><div>
-              <b>{r.order.no} ({r.order.client.name})</b> straci pokrycie {kg(posKg(r.p))}. Brak wyrobu wzrośnie z {kg(m.missingKg)} do {kg(m.missingKg + posKg(r.p))}, a wyjazd {relDay(r.order.delivery)}.
-              {r.p.status === 'pallet' && <> Pozycja jest na palecie {r.p.palletNo} — paleta wróci do stanu „Pakowanie”.</>}
-            </div></div>}
-            <p className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Operacja zapisze ruch magazynowy „Zwolniono przydział”. Wyrób zostaje na stanie.</p>
-          </Dialog>
-        )
-      })()}
+
     </>
   )
 }
@@ -373,10 +354,9 @@ const StockRow = React.memo(function StockRow({ r, zebra, sel, checked, onClick,
   )
 })
 
-function StockDetail({ r, tab, onTab, maxed, onMax, onClose, candidates, onAllocate, onRelease }: {
+function StockDetail({ r, tab, onTab, maxed, onMax, onClose, candidates }: {
   r: Row; tab: Tab; onTab: (t: Tab) => void; maxed: boolean; onMax: () => void; onClose: () => void
   candidates: Array<{ o: Order; l: Order['lines'][number]; miss: number; m: ReturnType<typeof computeMetrics> }>
-  onAllocate: (o: Order, lineId: string, qty: number) => void; onRelease: () => void
 }) {
   const app = useApp()
   const { p, order } = r
@@ -385,7 +365,7 @@ function StockDetail({ r, tab, onTab, maxed, onMax, onClose, candidates, onAlloc
   const line = order?.lines.find(l => l.id === p.lineId)
   let primary: React.ReactNode = null
   if (order) primary = <button className="btn" onClick={() => app.gotoOrders({ select: order.id, tab: 'coverage', view: 'active' })}><ExternalLink size={15} />Otwórz {order.no}</button>
-  else if (p.status !== 'blocked' && candidates.length) primary = <button className="btn primary" onClick={() => onTab('alloc')}><Link2 size={16} />Przydziel do zamówienia</button>
+  else if (p.status !== 'blocked' && candidates.length) primary = <button className="btn" onClick={() => onTab('alloc')}><Link2 size={16} />Kto czeka ({candidates.length})</button>
 
 
   return (
@@ -443,31 +423,29 @@ function StockDetail({ r, tab, onTab, maxed, onMax, onClose, candidates, onAlloc
               <div className="box empty-state" style={{ padding: 14 }}>
                 <Link2 size={22} color="var(--accent)" />
                 <div className="es-text">
-                  <div className="strong">Przydzielone do {order.no} · {order.client.name}</div>
+                  <div className="strong">Stempel z produkcji: {order.no} · {order.client.name}</div>
                   <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Poz. {line.lp}: {line.recipe} {line.kgPerUnit} kg · zamówiono {line.qty} szt. · w magazynie {line.stock} · brak {lineMissing(line)} · termin {relDay(order.delivery)}</div>
                 </div>
                 <button className="btn" onClick={() => app.gotoOrders({ select: order.id, tab: 'coverage', view: 'active' })}>Pokrycie zamówienia</button>
-                <button className="btn danger" onClick={onRelease}><Unlink size={15} />Zwolnij przydział…</button>
               </div>
             ) : p.status === 'blocked' ? (
               <div className="note crit"><Lock size={15} /><div>Pozycja zablokowana — przydział możliwy po decyzji kontroli jakości.</div></div>
             ) : (<>
-              <div className="sect-h"><h3>Zamówienia z brakiem {p.recipe} {p.kgPerUnit} kg</h3><span className="sub">od najbliższego terminu · dostępne {p.qty} szt.</span></div>
-              {candidates.length === 0 ? <div className="note">Żadne otwarte zamówienie nie ma braku tego wyrobu. Pozycja zostaje w puli wolnej.</div> : (
+              <div className="sect-h"><h3>Zamówienia z brakiem {p.recipe} {p.kgPerUnit} kg</h3><span className="sub">od najbliższego wyjazdu · na tym wierszu {p.qty} szt.</span></div>
+              {candidates.length === 0 ? <div className="note">Żadne otwarte zamówienie nie ma braku tego wyrobu.</div> : (
                 <div className="box"><table className="tbl">
-                  <thead><tr><th>Zamówienie</th><th>Klient</th><th>Termin</th><th className="num">Pozycja</th><th className="num">Brakuje</th><th className="r">Przydział</th></tr></thead>
+                  <thead><tr><th>Zamówienie</th><th>Klient</th><th>Wyjazd</th><th className="num">Pozycja</th><th className="num">Brakuje</th><th /></tr></thead>
                   <tbody>{candidates.map((c, i) => {
-                    const take = Math.min(c.miss, p.qty)
                     return <tr key={c.l.id} className={`row${i % 2 ? ' zebra' : ''}`}>
                       <td className="strong">{c.o.no}</td><td>{c.o.client.name}</td>
                       <td><span className={`due${(c.m.dueDays ?? 9) < 0 ? ' over' : ''}`}><span className="rel">{(c.m.dueDays ?? 9) < 0 ? `${-(c.m.dueDays ?? 0)} ${c.m.dueDays === -1 ? 'dzień' : 'dni'} po terminie` : relDay(c.o.delivery)}</span></span></td>
                       <td className="num">poz. {c.l.lp}</td><td className="num crit-ink strong">{c.miss} szt.</td>
-                      <td className="r"><button className={`btn sm${i === 0 ? ' primary' : ''}`} onClick={() => onAllocate(c.o, c.l.id, take)}><Link2 size={14} />Przydziel {take} szt.</button></td>
+                      <td className="r"><button className="btn sm" onClick={() => app.gotoOrders({ select: c.o.id, tab: 'coverage', view: 'active' })}>Otwórz pokrycie</button></td>
                     </tr>
                   })}</tbody>
                 </table></div>
               )}
-              <div className="note info"><FlagIcon level="info" size={15} /><div>Przydział tworzy ruch magazynowy i od razu zwiększa pokrycie zamówienia. Gdy przydzielasz część, partia dzieli się na dwie pozycje.</div></div>
+              <div className="note info"><FlagIcon level="info" size={15} /><div>Wyrób luzem przydziela serwer sam, dla wszystkich zamówień naraz: stempel z produkcji → zapas tego klienta → wyrób „na magazyn” od najstarszego zamówienia (FEFO). Ręcznie przypisuje się tylko <b>spakowane kartony magazynowe</b> — w zamówieniu: Pokrycie → Kartony z magazynu.</div></div>
             </>)}
           </>}
 
