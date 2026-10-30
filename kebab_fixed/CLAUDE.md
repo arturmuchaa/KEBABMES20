@@ -74,3 +74,5 @@ Frontend = React + TypeScript + Vite + Tailwind (font Fira). Desktop = Tauri.
 - Pure logic (yields, allocations, requirements) is unit-tested without DB; API logic via monkeypatched loaders (auth middleware blocks raw TestClient).
 - **Every screen where an operator types numbers that reach the ledger gets a COMPONENT test** (`*.test.tsx`, jsdom via the `// @vitest-environment jsdom` docblock, `afterEach(cleanup)` — there is no `globals: true`). Mount it with real document data and assert what the operator sees. Reason: on 2026-08-19 three bugs reached production (empty edit form, ordinals shown as `#1/#2`, missing carriers) while every pure-logic test stayed green — all three lived in EFFECT ORDER and field mapping, where pure logic does not reach. Pattern: `src/features/raw-batches/receptionEditForm.test.tsx`.
 - **Response mappers are testable and tested** (`mapRawBatch` is exported for that): a field the mapper silently drops type-checks fine and disappears only on screen.
+
+@docs/protrima-ui/ZASADY_PROBY.md
