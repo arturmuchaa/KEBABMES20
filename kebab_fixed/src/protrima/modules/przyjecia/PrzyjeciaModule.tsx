@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   PackagePlus, Pencil, ClipboardCheck, Tag, Ban, Search, ChevronDown, ChevronRight, X, Maximize2, Minimize2,
   PanelRight, PanelBottom, Rows3, ArrowUp, ArrowDown, Thermometer, FileText, Layers,
+  PackageOpen,
 } from 'lucide-react'
 import { useApp, Menu, useMenu, CommandBar, wierszMenu, type Cmd } from '../../shell/context'
 import { useDock } from '../../shell/useDock'
@@ -20,6 +21,8 @@ import { useLiveRefresh } from '@/hooks/useLiveRefresh'
 import { receptionChecksApi, suppliersApi, wzApi } from '@/lib/api'
 import type { ReceptionCheck } from '@/features/raw-batches/receptionCheck'
 import { progPrzyjecia } from '@/features/raw-batches/storageState'
+import { SzkieletWierszy } from '../../ui/Szkielet'
+import { Pusto } from '../../ui/Pusto'
 
 type View = 'live' | 'today' | 'week' | 'nohaccp' | 'all' | 'cancelled'
 type Tab = 'overview' | 'numbers' | 'supplier' | 'haccp'
@@ -272,8 +275,13 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
                 <th className="side-hide">Stan</th>
               </tr></thead>
               <tbody>
-                {recRes.loading && !recRes.data && <tr><td colSpan={COLS}><div className="empty">Pobieranie przyjęć…</div></td></tr>}
-                {recRes.data && flat.length === 0 && <tr><td colSpan={COLS}><div className="empty"><h3>Brak przyjęć w tym widoku</h3>{anyFilter ? 'Zmień lub wyczyść filtry.' : 'Zmień widok, np. „Wszystkie”.'}</div></td></tr>}
+                {recRes.loading && !recRes.data && <SzkieletWierszy kolumny={COLS} />}
+                {recRes.data && flat.length === 0 && <tr><td colSpan={COLS}><Pusto ikona={<PackageOpen size={20} />} tytul="Brak przyjęć w tym widoku"
+                  akcja={anyFilter
+                    ? <button className="btn sm" onClick={() => { setQ(''); setDostawca(''); setMats([]); setMiesiac(''); setTermin('') }}>Wyczyść filtry</button>
+                    : <>{view !== 'all' && <button className="btn sm" onClick={() => setView('all')}>Pokaż wszystkie</button>}<button className="btn sm primary" onClick={() => app.newReception()}>Nowe przyjęcie</button></>}>
+                  {anyFilter ? 'Żadna dostawa nie pasuje do filtrów.' : 'W tym widoku nie ma dostaw.'}
+                </Pusto></td></tr>}
                 {groups.map(g => {
                   const isCol = collapsed.has(g.key)
                   const gs = g.rows.reduce((a, r) => ({ kg: a.kg + r.p.kgReceived, left: a.left + r.p.kgLeft }), { kg: 0, left: 0 })

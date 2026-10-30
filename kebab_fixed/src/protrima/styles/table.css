@@ -65,3 +65,17 @@
 
 .empty { padding: 48px 24px; text-align: center; color: var(--ink-3); }
 .empty h3 { color: var(--ink-1); font-size: var(--fs-lg); margin-bottom: 6px; }
+
+/* ─── Szkielet ładowania i pusty widok ─────────────────────────────────── */
+.sk {
+  display: block; height: 10px; border-radius: var(--r-xs);
+  background: linear-gradient(90deg, var(--surface-sunk) 25%, color-mix(in srgb, var(--surface-sunk) 30%, var(--surface)) 50%, var(--surface-sunk) 75%);
+  background-size: 300% 100%; animation: sk-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes sk-shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+.tbl tr.sk-row td { height: var(--row-h); }
+.sk-block { display: flex; flex-direction: column; gap: 12px; padding: 14px 2px; }
+.sk-block .sk { height: 12px; }
+.empty-ico { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin-bottom: 12px; border-radius: 50%; background: var(--surface-sunk); color: var(--ink-3); }
+.empty p { margin: 0 auto; max-width: 52ch; line-height: 1.5; }
+.empty-act { margin-top: 14px; display: inline-flex; gap: 8px; }

@@ -12,6 +12,7 @@ import {
   wspolnaCena, wspolnyVat, zPicks, klientZWyboru, nabywcaZKlienta, zMagazynu, zNabywca, zNazwami,
   type FgStock, type FormWz, type KlientWz, type WierszWz, type Wybor,
 } from './model'
+import { SzkieletBloku } from '../../../ui/Szkielet'
 
 const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 // Spacja tysięcy także w liczbach 4-cyfrowych (pl-PL jej tam nie stawia) — „7 500,00” obok „15 000,00”.
@@ -149,7 +150,7 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         <div className="dock-pad" style={{ maxWidth: 1320 }}>
           {loadErr && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div>{loadErr} <button className="btn sm" onClick={wczytaj}>Ponów</button></div></div>}
-          {!f && !loadErr && <div className="note">Wczytywanie pozycji z magazynu…</div>}
+          {!f && !loadErr && <SzkieletBloku linie={6} opis="Wczytywanie pozycji z magazynu…" />}
           {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Nie wystawiono:</b> {blad}</div></div>}
           {f && <>
             {meta && meta.brakuje > 0 && <div className="note warn"><FlagIcon level="warn" size={15} /><div>Na magazynie brakuje <b>{num(meta.brakuje)} szt.</b> do pełnego zamówienia — WZ będzie częściowy (na stan faktyczny).</div></div>}

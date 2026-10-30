@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Plus, Upload, Search, ChevronDown, ChevronRight, ArrowUp, ArrowDown, MoreHorizontal, X, Layers, Printer, FileSpreadsheet,
   ClipboardList, ExternalLink, Pencil, Boxes, FileText, Copy, Ban, Split, Rows3, Calculator,
+  ShoppingCart,
 } from 'lucide-react'
 import { useApp, Menu, useMenu, Dialog, CommandBar, wierszMenu, type Cmd, type ViewKey, type DetailTab, type OrdersCmd, type MenuItem } from '../../shell/context'
 import { useOrders } from '../../data/store'
@@ -15,6 +16,8 @@ import { OrderDetail, orderCommands } from './OrderDetail'
 import { useOrderActions, dozwolone } from './akcje'
 import { FAZA_ZAPISU } from '../../proba'
 import { useDock } from '../../shell/useDock'
+import { SzkieletWierszy } from '../../ui/Szkielet'
+import { Pusto } from '../../ui/Pusto'
 
 type Row = { o: Order; m: Metrics }
 type SortCol = 'no' | 'client' | 'due' | 'status' | 'kg' | 'prod' | 'cover' | 'missing' | 'pallets'
@@ -34,7 +37,7 @@ const ALL_TABS: DetailTab[] = ['overview', 'lines', 'production', 'coverage', 'p
 
 export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd; active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void }) {
   const app = useApp()
-  const { orders } = useOrders()
+  const { orders, loading, stamp, error } = useOrders()
   const akcje = useOrderActions()
   const confirmOrder = useCallback((o: Order) => akcje.zapytaj('confirm', o), [akcje])
   const rows = useMemo<Row[]>(() => orders.map(o => ({ o, m: computeMetrics(o) })), [orders])
@@ -306,8 +309,14 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
                 </tr>
               </thead>
               <tbody>
-                {flat.length === 0 && (
-                  <tr><td colSpan={COLS}><div className="empty"><h3>Brak zamówień w tym widoku</h3>{anyFilter ? 'Zmień lub wyczyść filtry, aby zobaczyć więcej.' : 'Nowe zamówienie dodasz przyciskiem „Nowe zamówienie" (Ctrl+N).'}</div></td></tr>
+                {!stamp && loading && !error && <SzkieletWierszy kolumny={COLS} />}
+                {(stamp || error) && flat.length === 0 && (
+                  <tr><td colSpan={COLS}><Pusto ikona={<ShoppingCart size={20} />} tytul={error && !stamp ? 'Nie udało się pobrać zamówień' : 'Brak zamówień w tym widoku'}
+                    akcja={anyFilter
+                      ? <button className="btn sm" onClick={() => { setQ(''); setClients([]); setRecipes([]); setBucket(null) }}>Wyczyść filtry</button>
+                      : <button className="btn sm primary" onClick={() => app.newOrder()}>Nowe zamówienie</button>}>
+                    {error && !stamp ? `${error} Sprawdź połączenie (pasek stanu na dole) i odśwież (F5).` : anyFilter ? 'Żadne zamówienie nie pasuje do filtrów.' : 'W tym widoku nie ma zamówień. Zmień widok u góry albo dodaj nowe (Ctrl+N).'}
+                  </Pusto></td></tr>
                 )}
                 {groups.map(g => {
                   const isCol = collapsed.has(g.key)

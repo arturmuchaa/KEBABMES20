@@ -5,6 +5,7 @@ import { FlagIcon } from '../../ui/Glyphs'
 import { receptionChecksApi, signaturesApi } from '@/lib/api'
 import { checkIssues, checkStatus, needsCorrectiveAction, tempExceeded, type ReceptionCheck } from '@/features/raw-batches/receptionCheck'
 import { progPrzyjecia } from '@/features/raw-batches/storageState'
+import { SzkieletBloku } from '../../ui/Szkielet'
 
 const PUSTY: ReceptionCheck = {
   receptionId: '', visual: null, tempChamber: null, tempMeat: null, kgMatch: null, notes: '', verdict: null,
@@ -94,7 +95,7 @@ export function KontrolaHaccp({ receptionId, category, storageState, cancelled, 
     } finally { lock.current = false; setZapisuje(false) }
   }
 
-  if (!check) return <div className={`note${blad ? ' crit' : ''}`}>{blad ?? 'Wczytywanie kontroli HACCP…'}</div>
+  if (!check) return blad ? <div className="note crit">{blad}</div> : <SzkieletBloku linie={5} opis="Wczytywanie kontroli HACCP…" />
 
   const status = checkStatus(check)
   const uwagi = checkIssues(check, category, storageState)

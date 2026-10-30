@@ -11,6 +11,7 @@ import type { LineForm } from '@/features/orders/order-form/types'
 import { filterRecipesFor } from '@/features/orders/order-form/types'
 import { num } from '@/features/orders/order-entry/model'
 import { doDto, kolejnaPozycja, nowyFormularz, ostrzezenieUsuniecia, pustyWiersz, sumy, walidacja, zZamowienia, type FormZam } from './model'
+import { SzkieletBloku } from '../../../ui/Szkielet'
 
 const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 
@@ -128,7 +129,7 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         <div className="dock-pad" style={{ maxWidth: 1320 }}>
           {loadError && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div>Nie udało się pobrać danych: {loadError}</div></div>}
-          {!ready && !loadError && <div className="note">Pobieranie kartotek…</div>}
+          {!ready && !loadError && <SzkieletBloku linie={6} opis="Pobieranie kartotek…" />}
           {blokada && <div className="note warn" role="alert"><FlagIcon level="warn" size={15} /><div>{blokada}</div></div>}
           {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Serwer odmówił zapisu:</b> {blad}</div></div>}
           {errCount > 0 && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Popraw {errCount} {errCount === 1 ? 'pole' : errCount < 5 ? 'pola' : 'pól'}.</b> Błędne pola są oznaczone na czerwono.</div></div>}

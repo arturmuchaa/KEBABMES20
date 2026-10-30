@@ -20,6 +20,7 @@ import {
   SERVICE_MATERIAL_ID, doEdycji, doUtworzenia, dzisIso, grupy, kolejnaPozycja, nowyFormularz, numeryGrup, zamrozona,
   zDokumentu, zmianaUboju, zSkanu, type FormPrzyjecia, type SkanHdi,
 } from './model'
+import { SzkieletBloku } from '../../../ui/Szkielet'
 
 interface Rodzaj { id: string; name: string; requiresDeboning: boolean; receivable: boolean; category: string }
 interface Dostawca { id: string; name: string; displayName?: string }
@@ -259,7 +260,7 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
         onDrop={e => { e.preventDefault(); setDragOver(false); const fl = e.dataTransfer.files?.[0]; if (fl) void loadHdi(fl) }}>
         <div className="dock-pad" style={{ maxWidth: 1320 }}>
           {loadError && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div>Nie udało się pobrać danych: {loadError}</div></div>}
-          {!ready && !loadError && <div className="note">{edycja ? 'Wczytywanie dostawy…' : 'Pobieranie kartotek…'}</div>}
+          {!ready && !loadError && <SzkieletBloku linie={6} opis={edycja ? 'Wczytywanie dostawy…' : 'Pobieranie kartotek…'} />}
           {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>{edycja ? 'Serwer odmówił zapisu:' : 'Nie można przyjąć:'}</b> {blad}</div></div>}
           {edycja && zamrozone && <div className="note warn"><FlagIcon level="warn" size={15} /><div>Część numerów jest już użyta w produkcji — ich pozycji nie da się zmienić (wyszarzone). Nagłówek i pozostałe numery poprawisz normalnie.</div></div>}
 

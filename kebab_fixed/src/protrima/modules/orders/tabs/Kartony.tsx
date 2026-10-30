@@ -7,6 +7,7 @@ import { FlagIcon } from '../../../ui/Glyphs'
 import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, type StockCartonOption, type StockCartonOptions } from '@/lib/api'
 import { formatCartonNo } from '@/lib/unitLocation'
+import { SzkieletBloku } from '../../../ui/Szkielet'
 
 const nr = (c: StockCartonOption) => formatCartonNo(c.cartonNo) || '—'
 const masa = (c: StockCartonOption) => c.lines.reduce((s, l) => s + l.packedQty * l.kgPerUnit, 0)
@@ -66,7 +67,7 @@ export function KartonyZMagazynu({ order }: { order: Order }) {
         <span className="sub">spakowane kartony przypisywane ręcznie do zamówienia</span>
         <div className="tools"><button className="btn sm ghost" onClick={() => void refetch()} disabled={!!busy}><RefreshCw size={14} />Odśwież</button></div>
       </div>
-      {loading && !data && <div className="note">Szukam kartonów z magazynu…</div>}
+      {loading && !data && <SzkieletBloku linie={3} opis="Szukam kartonów z magazynu…" />}
       {error && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div>Nie udało się pobrać listy kartonów: {error}. Lista jest ukryta, dopóki nie uda się jej pobrać.</div></div>}
       {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div>{blad}</div></div>}
       {data && !error && <>

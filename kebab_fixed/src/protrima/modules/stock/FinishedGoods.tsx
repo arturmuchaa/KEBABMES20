@@ -3,6 +3,7 @@ import {
   PackagePlus, Link2, Unlink, MoveRight, Truck, Tag, ClipboardCheck, FileSpreadsheet, Search, ChevronDown, ChevronRight,
   X, Maximize2, Minimize2, ExternalLink, PanelRight, PanelBottom, Rows3, Lock, Snowflake, Layers, ArrowUp, ArrowDown,
   FileText,
+  Package,
 } from 'lucide-react'
 import { useApp, Menu, useMenu, Dialog, CommandBar, wierszMenu, type Cmd } from '../../shell/context'
 import { useOrders } from '../../data/store'
@@ -12,6 +13,8 @@ import { FlagIcon } from '../../ui/Glyphs'
 import { BEZ_DRUKU_ETYKIET, FAZA_ZAPISU } from '../../proba'
 import { useDock } from '../../shell/useDock'
 import { StanDlaKlientaDialog, klientPozycji, WOLNE } from './StanDlaKlienta'
+import { SzkieletWierszy } from '../../ui/Szkielet'
+import { Pusto } from '../../ui/Pusto'
 
 type View = 'all' | 'free' | 'allocated' | 'pallet' | 'blocked' | 'short'
 type Tab = 'details' | 'alloc' | 'cartons' | 'moves' | 'trace'
@@ -35,7 +38,7 @@ interface Row { p: StockPos; order?: Order; cands: number }
  */
 export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: number; select?: string }; active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void }) {
   const app = useApp()
-  const { stock, orders } = useOrders()
+  const { stock, orders, loading, stamp, error } = useOrders()
 
   const openOrders = useMemo(() => orders.filter(o => !isClosed(o) && o.status !== 'draft'), [orders])
   const candidatesFor = useCallback((p: StockPos) => openOrders.flatMap(o => o.lines
@@ -266,7 +269,13 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
                 <th>Stan</th>
               </tr></thead>
               <tbody>
-                {flat.length === 0 && <tr><td colSpan={COLS}><div className="empty"><h3>Brak pozycji w tym widoku</h3>Zmień widok albo wyczyść wyszukiwanie.</div></td></tr>}
+                {!stamp && loading && !error && <SzkieletWierszy kolumny={COLS} />}
+                {(stamp || error) && flat.length === 0 && <tr><td colSpan={COLS}><Pusto ikona={<Package size={20} />} tytul={error && !stamp ? 'Nie udało się pobrać magazynu' : 'Brak pozycji w tym widoku'}
+                  akcja={(q || klient || types.length || recipes.length || weights.length || packs.length || okres)
+                    ? <button className="btn sm" onClick={() => { setQ(''); setKlient(''); setTypes([]); setRecipes([]); setWeights([]); setPacks([]); setOkres('') }}>Wyczyść filtry</button>
+                    : view !== 'all' ? <button className="btn sm" onClick={() => setView('all')}>Pokaż cały magazyn</button> : undefined}>
+                  {error && !stamp ? `${error} Sprawdź połączenie i odśwież (F5).` : 'Żaden wyrób nie pasuje do widoku i filtrów.'}
+                </Pusto></td></tr>}
                 {groups.map(g => {
                   const isCol = collapsed.has(g.key)
                   const gq = g.rows.reduce((a, r) => ({ qty: a.qty + r.p.qty, kg: a.kg + posKg(r.p), free: a.free + (!r.p.orderNo && r.p.status !== 'blocked' ? r.p.qty : 0), blk: a.blk + (r.p.status === 'blocked' ? r.p.qty : 0) }), { qty: 0, kg: 0, free: 0, blk: 0 })
