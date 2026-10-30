@@ -55,7 +55,7 @@ export function orderCommands(order: Order | null, app: AppApi, onTab: (t: Detai
     { id: 'print', group: 4, label: 'Drukuj', icon: <Printer size={17} />, kbd: 'Ctrl+P', menuOnly: true, disabled: none, menu: [
       { label: 'Zamówienie dla klienta (wydruk / PDF)', icon: <Printer size={15} />, onSelect: () => order && app.printOrder(order.id) },
       { label: 'Lista kompletacji (wewnętrzna)', icon: <ClipboardList size={15} />, onSelect: () => order && app.printPicking([order.id]) },
-      { label: 'Kartki palet', icon: <Boxes size={15} />, onSelect: () => demo('Kartki palet', 'Wydruki zamówień przeniesiemy w fazie 3. Teraz: stary MES na tej samej kopii.'), disabled: !order?.pallets.length },
+      { label: 'Kartki palet', icon: <Boxes size={15} />, onSelect: () => order && app.printPallets(order.id), disabled: !order?.pallets.length },
     ] },
     { id: 'stock', group: 4, label: 'Wyrób w magazynie', icon: <PackageCheck size={17} />, opt: true, disabled: none, tip: 'Pozycje magazynowe przydzielone do zamówienia', run: () => app.gotoStock(order?.id) },
     { id: 'done', group: 8, label: 'Oznacz jako zrealizowane…', icon: <PackageCheck size={15} />, menuOnly: true, disabled: !can?.done, run: () => order && akcja('done', order) },

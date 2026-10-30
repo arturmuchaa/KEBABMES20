@@ -13,6 +13,7 @@ import { FinishedGoods } from './modules/stock/FinishedGoods'
 import { PrzyjeciaModule } from './modules/przyjecia/PrzyjeciaModule'
 import { OrderEditor } from './modules/orders/edytor/OrderEditor'
 import { ZamowienieDrukDialog } from './modules/orders/druk/ZamowienieDruk'
+import { KartkiPaletDialog } from './modules/orders/druk/KartkiPalet'
 import { WzZamowienia } from './modules/orders/wz/WzZamowienia'
 import { ListaKompletacjiDialog } from './modules/orders/druk/ListaKompletacji'
 import { CmrDialog, generujHdi } from './modules/orders/dokumenty/Cmr'
@@ -164,6 +165,8 @@ function Shell() {
   }, [orders, openTab])
   const copyOrder = useCallback((id: string) => newOrder(id), [newOrder])
   const [drukId, setDrukId] = useState<string | null>(null)
+  const [kartki, setKartki] = useState<{ orderId: string; nos?: number[] } | null>(null)
+  const printPallets = useCallback((orderId: string, nos?: number[]) => setKartki({ orderId, nos }), [])
   const printOrder = useCallback((id: string) => setDrukId(id), [])
   const [kompIds, setKompIds] = useState<string[] | null>(null)
   const printPicking = useCallback((ids: string[]) => setKompIds(ids.length ? ids : null), [])
@@ -257,10 +260,10 @@ function Shell() {
   const cmdsFor = (id: string) => (cmdSetters.current[id] ??= (c: Cmd[]) => setTabCmds(id, c))
 
   const api = useMemo<AppApi>(() => ({
-    openOrder, gotoOrders, gotoStock, openModule, newOrder: () => newOrder(), editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, splitOrder, newReception, editReception, gotoReceptions, toast,
+    openOrder, gotoOrders, gotoStock, openModule, newOrder: () => newOrder(), editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, splitOrder, printPallets, newReception, editReception, gotoReceptions, toast,
     setStatusCtx: () => undefined,
     appRef, scale: vp.scale, prosty, panel, panelWybor, setPanel,
-  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, splitOrder, newReception, editReception, gotoReceptions, toast, vp.scale, prosty, panel, panelWybor, setPanel])
+  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, splitOrder, printPallets, newReception, editReception, gotoReceptions, toast, vp.scale, prosty, panel, panelWybor, setPanel])
 
   const badges = useMemo(() => {
     const problem = orders.filter(o => { const m = computeMetrics(o); return m.level === 'crit' || m.level === 'warn' }).length
@@ -433,6 +436,7 @@ function Shell() {
         newOrder={newOrder} toggleTheme={toggleTheme} toggleNav={toggleNav} showShortcuts={() => setShortcuts(true)} />}
       {cmrId && <CmrDialog orderId={cmrId} orderNo={orders.find(o => o.id === cmrId)?.no ?? ''} onClose={() => setCmrId(null)} />}
       {kompIds && <ListaKompletacjiDialog orderIds={kompIds} onClose={() => setKompIds(null)} />}
+      {kartki && <KartkiPaletDialog orderId={kartki.orderId} palletNos={kartki.nos} onClose={() => setKartki(null)} />}
       {drukId && <ZamowienieDrukDialog orderId={drukId} onClose={() => setDrukId(null)} />}
       {shortcuts && <ShortcutsDialog onClose={() => setShortcuts(false)} />}
       {about && <Dialog title="O programie" onClose={() => setAbout(false)} footer={<button className="btn primary" onClick={() => setAbout(false)}>Zamknij</button>}>

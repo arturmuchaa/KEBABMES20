@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { Plus, Printer, Wand2, Boxes, Lock, ScanLine, Pencil, Trash2 } from 'lucide-react'
 import { useApp, Dialog } from '../../../shell/context'
 import { useOrders } from '../../../data/store'
-import { BEZ_DRUKU_ETYKIET } from '../../../proba'
 import { computeMetrics, kg, num, palletKg, palletQty, PALLET_STATUS, type Order, type Pallet } from '../../../data/model'
 import { PalletFlow, PalletStatusLabel, FlagIcon } from '../../../ui/Glyphs'
 import { orderPalletsApi, type OrderPallet } from '@/lib/api'
@@ -60,7 +59,7 @@ export function PalletsTab({ order }: { order: Order }) {
             <h3>Palety zamówienia</h3>
             <span className="sub">{m.palletsTotal ? `${m.palletsReady} z ${m.palletsTotal} gotowych · ${m.palletsLoaded} załadowanych` : 'nierozpisane'}</span>
             <div className="tools">
-              <button className="btn sm" disabled={!order.pallets.length} onClick={() => app.toast({ kind: 'warn', title: `Kartki palet: ${marked.length || order.pallets.length}`, detail: BEZ_DRUKU_ETYKIET })} data-tip="W próbie wyłączone">
+              <button className="btn sm" disabled={!order.pallets.length} onClick={() => app.printPallets(order.id, marked.length ? marked : undefined)}>
                 <Printer size={15} />{marked.length ? `Drukuj kartki (${marked.length})` : 'Drukuj wszystkie kartki'}
               </button>
             </div>

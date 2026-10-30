@@ -74,3 +74,32 @@
 
 .doc-preview .dk-page { border-top: 2px dashed #bbb; margin-top: 18mm; padding-top: 10mm; }
 @media print { .print-sheet .dk-page { break-before: page; border: 0; margin: 0; padding: 0; } }
+
+/* ─── Kartki na palety: A4 poziomo, 287 × 200 mm (margines druku 5 mm) ─── */
+.kp-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 14px; min-height: 0; }
+.kp-list { display: flex; flex-direction: column; gap: 4px; max-height: 60vh; overflow: auto; }
+.kp-opt { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 4px; cursor: pointer; }
+.kp-opt:hover { background: var(--hover, rgba(0,0,0,.04)); }
+.kp-preview { display: flex; flex-wrap: wrap; gap: 12px; align-content: flex-start; max-height: 60vh; overflow: auto; background: var(--canvas); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
+.kp-thumb { --kp-s: .3; width: calc(287mm * var(--kp-s)); height: calc(200mm * var(--kp-s)); overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.15); background: #fff; flex: none; }
+.kp-thumb .kp-page { transform: scale(var(--kp-s)); transform-origin: top left; }
+.kp-page { position: relative; width: 287mm; height: 200mm; background: #fff; color: #000; display: flex; flex-direction: column; padding: 10mm 7mm; box-sizing: border-box; overflow: hidden; font-family: Arial, sans-serif; }
+.kp-proba { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 900 140pt/1 Arial, sans-serif; color: rgba(200, 30, 30, .13); transform: rotate(-18deg); pointer-events: none; }
+.kp-corner { text-align: right; font-size: 12pt; font-weight: 700; letter-spacing: .1em; color: #333; line-height: 1; }
+.kp-box { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 4mm 0; }
+.kp-txt { text-align: center; text-transform: uppercase; line-height: .94; font-family: "Arial Black", Arial, sans-serif; font-weight: 900; white-space: nowrap; }
+.kp-txt .kp-first { margin-top: 4mm; }
+.kp-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-shrink: 0; }
+.kp-wl { font-size: 13pt; font-weight: 600; letter-spacing: .03em; color: #444; }
+.kp-wv { font-size: 18pt; font-weight: 700; }
+.kp-ord { margin-top: 2mm; font-size: 10pt; text-transform: uppercase; letter-spacing: .03em; color: #555; }
+.kp-qr { display: flex; flex-direction: column; align-items: center; }
+.kp-qr-slot { width: 60mm; height: 60mm; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 11pt; color: #999; border: 1px dashed transparent; }
+.kp-qr-slot:has(span) { border-color: #ccc; }
+.kp-qr-slot img { width: 100%; height: 100%; image-rendering: pixelated; }
+.kp-qr-cap { margin-top: 1mm; font: 8pt/1 ui-monospace, monospace; color: #444; }
+@page kartka { size: A4 landscape; margin: 5mm; }
+@media print {
+  .print-sheet.kartki-print .kp-page { page: kartka; break-after: page; page-break-after: always; }
+  .print-sheet.kartki-print .kp-page:last-child { break-after: auto; page-break-after: auto; }
+}
