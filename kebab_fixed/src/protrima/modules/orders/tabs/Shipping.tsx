@@ -35,7 +35,7 @@ export function ShippingTab({ order }: { order: Order }) {
             <dt>Wyjazd</dt><dd>{dueText(order)}</dd>
             <dt>Załadowano</dt><dd className="num">{m.palletsLoaded} z {m.palletsTotal} palet</dd>
           </dl>
-          <p className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Kursy i pojazdy są w module Wysyłki starego MES — w próbie bez zmian.</p>
+          <p className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Kursy i pojazdy są na razie w module Wysyłki starego MES.</p>
           {!closed && <div className="row-wrap">
             <button className="btn sm" onClick={() => app.toast({ kind: 'info', title: 'Dokumenty dla kierowcy', detail: W_STARYM_MES })}><Printer size={14} />Dokumenty dla kierowcy</button>
           </div>}

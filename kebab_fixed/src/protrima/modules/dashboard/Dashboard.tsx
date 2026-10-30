@@ -48,8 +48,6 @@ export function Dashboard({ active, setCtx, setCmds }: { active: boolean; setCtx
   }
 
   const cmds = useMemo<Cmd[]>(() => [
-    { id: 'history', group: 2, label: 'Poprzednie zmiany', icon: <Clock3 size={17} />, opt: true, run: () => app.toast({ kind: 'info', title: 'Historia zmian', detail: 'Widok poprzednich zmian dojdzie po próbie.' }) },
-    { id: 'custom', group: 3, label: 'Dostosuj pulpit', icon: <SlidersHorizontal size={17} />, opt: true, run: () => app.toast({ kind: 'info', title: 'Układ pulpitu', detail: 'Każda rola (właściciel, kierownik, biuro) dostanie własny zestaw paneli — po próbie.' }) },
   ], [app])
   useEffect(() => { setCmds(cmds) }, [cmds, setCmds])
 

@@ -10,7 +10,7 @@ import { bezPalety, bledyPalety, rozpisz, sztukNaPalete, wykryjSztuki, zDodanymi
 /**
  * Palety zamówienia. Zapis przez orderPalletsApi.save — zawsze ze świeżej listy
  * z serwera (palety/model.ts), numer i karton nowej palety nadaje serwer.
- * Druk kartek palet w próbie wyłączony (prawdziwe adresy QR).
+ * Kartki palet: KartkiPaletDialog (w próbie bez QR i bez druku — prawdziwe adresy palet).
  */
 export function PalletsTab({ order }: { order: Order }) {
   const app = useApp()

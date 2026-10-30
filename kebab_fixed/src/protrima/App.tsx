@@ -24,7 +24,7 @@ import { Placeholder } from './modules/misc/Placeholder'
 import { DesignSystem } from './modules/misc/DesignSystem'
 import { Logo } from './brand/Logo'
 import { useAuth } from '@/features/auth/AuthContext'
-import { W_STARYM_MES } from './proba'
+import { PROBA, W_STARYM_MES } from './proba'
 import { ProbaZnacznik } from './kopia'
 
 // Poniżej ~1180 px (telefon, wąski panel podglądu) pokazujemy cały pulpit pomniejszony
@@ -220,7 +220,7 @@ function Shell() {
   }, [])
   toastRef.current = toast
   const reload = useCallback(() => {
-    refresh().then(() => toast({ kind: 'ok', title: 'Odświeżono', detail: 'Dane pobrane z serwera próby.' }))
+    refresh().then(() => toast({ kind: 'ok', title: 'Odświeżono', detail: PROBA ? 'Dane pobrane z serwera próby.' : 'Dane pobrane z serwera.' }))
   }, [refresh, toast])
 
   // ─── Warstwy ────────────────────────────────────────────────────────────
@@ -441,7 +441,7 @@ function Shell() {
           <Logo height={40} />
           <div className="muted">Production under control</div>
           <div>Wersja {__PROTRIMA_VERSION__} · <ProbaZnacznik /></div>
-          <div className="note info" style={{ marginTop: 8 }}>Nowy interfejs biura KEBABMES20 w wersji PRÓBNEJ. Dane z KOPII bazy produkcji — zmiany tutaj nie trafiają do prawdziwego MES. Znak z paczki grafika (Koncepcja 02, wektory robocze).</div>
+          <div className="note info" style={{ marginTop: 8 }}>{PROBA ? 'Nowy interfejs biura KEBABMES20 w wersji PRÓBNEJ. Dane z KOPII bazy produkcji — zmiany tutaj nie trafiają do prawdziwego MES.' : 'Nowy interfejs biura. Pracuje równolegle ze starym MES na tej samej bazie — zmiana zrobiona w jednym programie od razu jest w drugim.'} Znak z paczki grafika (Koncepcja 02, wektory robocze).</div>
         </div>
       </Dialog>}
     </div>

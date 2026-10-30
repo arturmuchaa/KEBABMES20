@@ -52,7 +52,7 @@ export function DocumentsTab({ order }: { order: Order }) {
           </tbody>
         </table>
       </div>
-      <div className="note"><FlagIcon level="info" size={15} /><div>Anulowanie WZ, edycja HDI i rejestr wszystkich dokumentów — w module „Dokumenty WZ, CMR, HDI” starego MES (w próbie bez zmian).</div></div>
+      <div className="note"><FlagIcon level="info" size={15} /><div>Anulowanie WZ, edycja HDI i rejestr wszystkich dokumentów — w module „Dokumenty WZ, CMR, HDI” starego MES.</div></div>
     </div>
   )
 }

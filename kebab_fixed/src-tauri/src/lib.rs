@@ -174,7 +174,7 @@ pub fn run() {
                     }
                 });
             }
-            #[cfg(not(any(feature = "kiosk", feature = "proba")))]
+            #[cfg(not(any(feature = "kiosk", feature = "proba", feature = "protrima")))]
             {
                 let handle = _app.handle().clone();
                 tauri::async_runtime::spawn(async move {
@@ -211,7 +211,7 @@ async fn silent_auto_update(app: tauri::AppHandle) -> tauri_plugin_updater::Resu
     Ok(())
 }
 
-#[cfg(not(any(feature = "kiosk", feature = "proba")))]
+#[cfg(not(any(feature = "kiosk", feature = "proba", feature = "protrima")))]
 async fn check_for_updates(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
     if let Some(update) = app.updater()?.check().await? {
         let version = update.version.clone();

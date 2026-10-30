@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BASE } from '@/lib/api'
+import { PROBA } from './proba'
 
 /** Data zrobienia kopii bazy próby — nginx :8090 podaje ją jako /proba-kopia.json. */
 export interface KopiaBazy { kopia: string; baza: string }
@@ -27,7 +28,12 @@ export const dataKopii = (k: KopiaBazy | null) => {
   return Number.isNaN(d.getTime()) ? null : d.toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+/** Znacznik „PRÓBA — kopia bazy z …” — tylko w buildzie próby; w produkcji nic. */
 export function ProbaZnacznik({ compact = false }: { compact?: boolean }) {
+  return PROBA ? <ZnacznikKopii compact={compact} /> : null
+}
+
+function ZnacznikKopii({ compact }: { compact: boolean }) {
   const { kopia, blad } = useKopia()
   const d = dataKopii(kopia)
   return (

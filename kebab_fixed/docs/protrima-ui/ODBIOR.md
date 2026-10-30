@@ -63,3 +63,14 @@ całej dostawy → oba numery `cancelled`, numery wróciły do puli. `vitest src
   w zaznaczeniu), nazwy pozycji wg kartoteki odbiorcy, `createManual` bez `orderId`. Ostrzeżenie o cudzej rezerwacji
   porównuje stempel z nazwą handlową I pełną odbiorcy (stary MES tylko z pełną → fałszywe ostrzeżenia, np. DEM`S).
   E2e na kopii: WZ/65/10/26 z 2 wierszy (12 + 3 szt.) → stan 0/0 → anulowanie → 12/3.
+
+## Pilot produkcyjny — PROTRIMA obok starego MES (od 30.10.2026)
+
+Decyzja właściciela: „powoli uruchamiamy PROTRIMA”. Osobny instalator **PROTRIMA** (`pl.protrima.biuro`,
+`src-tauri/tauri.protrima.conf.json`, workflow `tauri-protrima.yml`, artefakt `PROTRIMA-Windows`):
+- build `--mode produkcja` → serwer zakładu :8080 (ta sama baza co stary MES), bez znaczników PRÓBA,
+  druk kartek palet z QR włączony; funkcja Cargo `protrima` wyłącza sprawdzanie aktualizacji starego MES;
+- instaluje się OBOK starego MES (inny identyfikator) i obok „PROTRIMA Test” (kopia :8090);
+- backend bez zmian; funkcje jeszcze nieprzeniesione mówią „działa na razie w starym MES” (`W_STARYM_MES`);
+- strażnik w workflow: identyfikator, `--mode produkcja`, CSP tylko :8080, brak :8090 w paczce.
+Plan: jeden komputer biura → uwagi → kolejne stanowiska → wyłączenie starego MES dopiero na sygnał właściciela.

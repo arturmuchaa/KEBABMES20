@@ -13,7 +13,7 @@ import {
   type Przyjecie, type StanHaccp,
 } from '../../data/przyjecia'
 import { FlagIcon } from '../../ui/Glyphs'
-import { BEZ_DRUKU_ETYKIET } from '../../proba'
+import { DRUK_ETYKIET } from '../../proba'
 import { AnulujPrzyjecie } from './AnulujPrzyjecie'
 import { KontrolaHaccp } from './KontrolaHaccp'
 import { useApi } from '@/hooks/useApi'
@@ -200,7 +200,7 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
     { id: 'new', group: 1, label: 'Nowe przyjęcie', icon: <PackagePlus size={17} />, kbd: 'Ctrl+N', primary: true, run: () => app.newReception() },
     { id: 'edit', group: 2, label: 'Edytuj', icon: <Pencil size={17} />, kbd: 'F2', disabled: !sp || sp.cancelled, run: () => sp && app.editReception(sp.id, sp.no) },
     { id: 'haccp', group: 2, label: 'Kontrola HACCP', icon: <ClipboardCheck size={17} />, disabled: !sp || sp.cancelled, run: () => setTab('haccp') },
-    { id: 'tags', group: 3, label: 'Zawieszki palet', icon: <Tag size={17} />, opt: true, disabled: !sp, run: () => app.toast({ kind: 'warn', title: 'Zawieszki palet', detail: BEZ_DRUKU_ETYKIET }) },
+    { id: 'tags', group: 3, label: 'Zawieszki palet', icon: <Tag size={17} />, opt: true, disabled: !sp, run: () => app.toast({ kind: 'warn', title: 'Zawieszki palet', detail: DRUK_ETYKIET }) },
     { id: 'cancel', group: 9, label: 'Anuluj przyjęcie…', icon: <Ban size={15} />, menuOnly: true, danger: true, disabled: !sp || sp.cancelled, run: () => sp && setAnuluj(sp.id) },
   ], [sp, app])
   useEffect(() => { setCmds(cmds) }, [cmds, setCmds])
@@ -327,7 +327,7 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
           { sep: true },
           { label: `Pokaż dostawy: ${r.supplier}`, onSelect: () => setDostawca(r.supplier) },
           { label: 'Edytuj przyjęcie', kbd: 'F2', disabled: r.p.cancelled, onSelect: () => app.editReception(r.p.id, r.p.no) },
-          { label: 'Zawieszki palet', onSelect: () => app.toast({ kind: 'warn', title: 'Zawieszki palet', detail: BEZ_DRUKU_ETYKIET }) },
+          { label: 'Zawieszki palet', onSelect: () => app.toast({ kind: 'warn', title: 'Zawieszki palet', detail: DRUK_ETYKIET }) },
           { sep: true },
           { label: 'Anuluj przyjęcie…', danger: true, disabled: r.p.cancelled, onSelect: () => setAnuluj(r.p.id) },
         ]} />

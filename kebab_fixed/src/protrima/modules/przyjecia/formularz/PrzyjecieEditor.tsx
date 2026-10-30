@@ -4,7 +4,7 @@ import { useApp, CommandBar, Dialog, type Cmd } from '../../../shell/context'
 import { kg, num, fmtDate } from '../../../data/model'
 import { dataZApi } from '../../../data/mapuj'
 import { FlagIcon } from '../../../ui/Glyphs'
-import { BEZ_DRUKU_ETYKIET } from '../../../proba'
+import { DRUK_ETYKIET, PROBA } from '../../../proba'
 import { useApi } from '@/hooks/useApi'
 import { rawBatchesApi, receptionsApi, suppliersApi } from '@/lib/api'
 import { CALIBER_OPTIONS, OTHER_CARRIER_KINDS, caliberKg, caliberValue, containersForKg, type CaliberValue } from '@/lib/containers'
@@ -211,7 +211,7 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
         const out = await receptionsApi.create(doUtworzenia(h, groups))
         const nr = out.batches.map((b: { internalBatchNo: string }) => b.internalBatchNo)
         app.toast({ kind: 'ok', title: `Przyjęcie ${out.reception?.reception_no ?? ''} — ${kg(out.batches.reduce((a: number, b: { kgReceived: number }) => a + Number(b.kgReceived), 0))}`,
-          detail: `Nr przyjęcia zewnętrznego: ${nr.join(', ')}. ${BEZ_DRUKU_ETYKIET}` })
+          detail: `Nr przyjęcia zewnętrznego: ${nr.join(', ')}. ${PROBA ? DRUK_ETYKIET : 'Zawieszki palet wydrukujesz na razie w starym MES.'}` })
         setConfirm(null); setDirty(false); onDone(out.reception?.id || undefined)
       }
     } catch (e) {
@@ -428,7 +428,7 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
             <button className="btn primary" disabled={!mozna || saving} onClick={przyjmij}>{edycja ? <Save size={15} /> : <PackagePlus size={15} />}
               {saving ? 'Zapisywanie…' : `${tytulZapisu} (${kg(totalKg)}${f.groupCount > 1 ? ` → nr ${nos.join(', ')}` : `, nr ${nos[0] ?? '—'}`})`}</button>
           </div>
-          <div className="note info"><FlagIcon level="info" size={15} /><div>Zapis idzie na serwer — do KOPII bazy w wersji próbnej. Zawieszki palet drukuje na razie stary MES.</div></div>
+          <div className="note info"><FlagIcon level="info" size={15} /><div>{PROBA ? 'Zapis idzie na serwer — do KOPII bazy w wersji próbnej. ' : ''}Zawieszki palet drukuje na razie stary MES.</div></div>
         </div>
       </div>
 

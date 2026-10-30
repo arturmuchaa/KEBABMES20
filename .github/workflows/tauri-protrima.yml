@@ -1,0 +1,111 @@
+name: PROTRIMA — build produkcyjny, pilot (Windows, tylko artefakt)
+
+# Build PRODUKCYJNEJ aplikacji biurowej PROTRIMA (pl.protrima.biuro), serwer zakładu :8080.
+# Pilot uruchamiania (od 30.10.2026): instaluje się OBOK starego MES (inny identyfikator),
+# pracuje na tej samej bazie. Niczego nie publikuje: brak kanału aktualizacji, brak GitHub
+# Release, brak sekretów podpisu — instalator jest wyłącznie artefaktem tego przebiegu.
+# Nowy instalator = podbicie "version" w src-tauri/tauri.protrima.conf.json + push gałęzi.
+
+on:
+  push:
+    branches:
+      - protrima-ui
+    paths:
+      - 'kebab_fixed/src-tauri/tauri.protrima.conf.json'
+      - '.github/workflows/tauri-protrima.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: protrima-prod-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: kebab_fixed
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './kebab_fixed/src-tauri -> target'
+          key: protrima-prod
+
+
+
+      - name: Strażnik konfiguracji produkcji
+        shell: pwsh
+        run: |
+          $c = Get-Content src-tauri/tauri.protrima.conf.json -Raw | ConvertFrom-Json
+          $bledy = @()
+          if ($c.identifier -ne 'pl.protrima.biuro') { $bledy += "identifier = $($c.identifier) (ma być pl.protrima.biuro — obok starego MES)" }
+          if ($c.bundle.createUpdaterArtifacts) { $bledy += 'createUpdaterArtifacts musi być false (pilot bez kanału aktualizacji)' }
+          if ($c.build.beforeBuildCommand -notmatch '--mode produkcja') { $bledy += 'build frontu bez --mode produkcja' }
+          if ($c.app.security.csp -notmatch ':8080') { $bledy += 'CSP nie dopuszcza serwera zakładu (:8080)' }
+          if ($c.app.security.csp -match ':8090') { $bledy += 'CSP dopuszcza serwer próby (:8090)' }
+          if (-not (Select-String -Path src-tauri/Cargo.toml -Pattern '^\s*protrima\s*=' -Quiet)) { $bledy += 'brak funkcji protrima w Cargo.toml' }
+          if ($bledy.Count) { $bledy | ForEach-Object { Write-Host "##[error]$_" }; exit 1 }
+          Write-Host "Konfiguracja produkcji OK: $($c.productName) $($c.version)"
+
+      - name: Install frontend dependencies
+        run: npm install
+
+      - name: Install Tauri CLI
+        run: npm install --save-dev @tauri-apps/cli@^2
+
+      - name: Ikony PROTRIMA (tylko w tym przebiegu)
+        run: npx tauri icon public/brand/PROTRIMA_ikona_1024px.png
+
+      - name: Build PROTRIMA (NSIS, bez podpisu aktualizacji)
+        run: npx tauri build --target x86_64-pc-windows-msvc --config src-tauri/tauri.protrima.conf.json --features protrima
+
+      - name: Paczka wskazuje serwer zakładu, nie próbę
+        shell: pwsh
+        run: |
+          $proba = Get-ChildItem dist/assets/*.js | Select-String -Pattern '91\.98\.105\.107:8090' -List
+          if ($proba) { Write-Host "##[error]Adres próby :8090 w paczce produkcyjnej: $(($proba | ForEach-Object { $_.Filename }) -join ', ')"; exit 1 }
+          $prod = Get-ChildItem dist/assets/*.js | Select-String -Pattern '91\.98\.105\.107:8080' -List
+          if (-not $prod) { Write-Host '##[error]Brak adresu serwera zakładu :8080 w paczce'; exit 1 }
+          Write-Host "Serwer zakładu w: $(($prod | ForEach-Object { $_.Filename }) -join ', ')"
+
+      # Zmiana w lib.rs (funkcje proba/protrima) nie może zepsuć buildów starego MES i kiosku.
+      - name: cargo check — build biurowy (bez funkcji)
+        run: cargo check --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc
+
+      - name: cargo check — build kiosku
+        run: cargo check --manifest-path src-tauri/Cargo.toml --target x86_64-pc-windows-msvc --features kiosk
+
+      - name: Instalator
+        id: meta
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe" | Select-Object -First 1
+          if (-not $exe) { Write-Host '##[error]Brak instalatora NSIS'; exit 1 }
+          "exe_path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+          Write-Host "$($exe.Name) ($([math]::Round($exe.Length/1MB, 1)) MB)"
+
+      - name: Upload artefaktu
+        uses: actions/upload-artifact@v4
+        with:
+          name: PROTRIMA-Windows
+          path: ${{ steps.meta.outputs.exe_path }}
+          retention-days: 30

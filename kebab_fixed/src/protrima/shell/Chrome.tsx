@@ -7,6 +7,8 @@ import { useOrders } from '../data/store'
 import { ProbaZnacznik } from '../kopia'
 import { jestTauri, okno } from '../okno'
 import { Logo } from '../brand/Logo'
+import { PROBA } from '../proba'
+import { useFirma } from '../zaklad/firma'
 
 export interface WTab { id: string; kind: 'module' | 'order' | 'new-order' | 'edit-order' | 'wz' | 'split' | 'new-reception' | 'edit-reception' | 'wz-stock'; key: string; title: string; icon?: LucideIcon }
 export interface MenuDef { key: string; label: string; access: string; items: MenuItem[] }
@@ -203,10 +205,12 @@ export function Nav({ current, onOpen, badges, collapsed, onToggle }: {
           </React.Fragment>
         ))}
       </div>
-      <div className="nav-plant" data-tip="Dane z KOPII bazy produkcji — zmiany nie trafiają do prawdziwego MES">
-        <div className="l1"><i /><span>Serwer próby</span></div>
-        <div className="l2">kopia bazy, :8090</div>
-      </div>
+      {PROBA
+        ? <div className="nav-plant" data-tip="Dane z KOPII bazy produkcji — zmiany nie trafiają do prawdziwego MES">
+            <div className="l1"><i /><span>Serwer próby</span></div>
+            <div className="l2">kopia bazy, :8090</div>
+          </div>
+        : <ZakladNav />}
       <button className="nav-toggle" onClick={onToggle} data-tip={collapsed ? 'Rozwiń panel (Ctrl+B)' : 'Zwiń panel (Ctrl+B)'} aria-label={collapsed ? 'Rozwiń panel nawigacji' : 'Zwiń panel nawigacji'}>
         {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}<span className="t">Zwiń panel</span>
       </button>
@@ -225,7 +229,7 @@ export function StatusBar({ ctx, density, onDensity }: { ctx: React.ReactNode; d
       <span className="right">
         <Stamp />
         <button className="hint" onClick={onDensity} data-tip="Gęstość dobierana do rozdzielczości. Kliknij, aby przełączyć ręcznie.">Gęstość: <b style={{ color: 'var(--ink-2)', fontWeight: 600 }}>{density === 'compact' ? 'kompaktowa' : 'komfortowa'}</b></button>
-        <span className="hide-m">PROTRIMA {__PROTRIMA_VERSION__} · próba</span>
+        <span className="hide-m">PROTRIMA {__PROTRIMA_VERSION__}{PROBA ? ' · próba' : ''}</span>
       </span>
     </footer>
   )
@@ -233,12 +237,24 @@ export function StatusBar({ ctx, density, onDensity }: { ctx: React.ReactNode; d
 
 declare const __PROTRIMA_VERSION__: string
 
+/** Produkcja: nazwa zakładu z serwera (ustawienia firmy) zamiast „serwer próby”. */
+function ZakladNav() {
+  const firma = useFirma()
+  const { error } = useOrders()
+  return (
+    <div className="nav-plant" data-tip={error ? `Brak połączenia z serwerem: ${error}` : 'Serwer zakładu — ta sama baza co stary MES'}>
+      <div className="l1"><i style={error ? { background: 'var(--crit)' } : undefined} /><span>{firma?.name ? firma.name.split(/\s+/).slice(0, 3).join(' ') : 'Serwer zakładu'}</span></div>
+      <div className="l2">{firma?.city || 'baza wspólna ze starym MES'}</div>
+    </div>
+  )
+}
+
 function Polaczenie() {
   const { error, loading, stamp } = useOrders()
   const stan = error ? 'err' : loading && !stamp ? 'wait' : 'ok'
   return (
-    <span className={`conn hide-s ${stan}`} data-tip={error ? `Ostatnie pobranie się nie udało: ${error}` : 'Dane z API kopii bazy, odświeżane co 30 s i klawiszem F5'}>
-      <i />{error ? 'Brak połączenia z serwerem próby' : loading && !stamp ? 'Łączenie…' : 'Połączono z serwerem próby'}
+    <span className={`conn hide-s ${stan}`} data-tip={error ? `Ostatnie pobranie się nie udało: ${error}` : `Dane z ${PROBA ? 'kopii bazy' : 'serwera zakładu'}, odświeżane co 30 s i klawiszem F5`}>
+      <i />{error ? `Brak połączenia z serwerem${PROBA ? ' próby' : ''}` : loading && !stamp ? 'Łączenie…' : `Połączono z serwerem${PROBA ? ' próby' : ''}`}
     </span>
   )
 }

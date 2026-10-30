@@ -5,7 +5,7 @@ import { useOrders } from '../../data/store'
 import { computeMetrics, fmtDate, kg, num, relDay, isClosed, lineMissing, type Order } from '../../data/model'
 import { posKg, daysLeft, STOCK_STATUS, type StockPos } from '../../data/stock'
 import { FlagIcon } from '../../ui/Glyphs'
-import { BEZ_DRUKU_ETYKIET, W_STARYM_MES } from '../../proba'
+import { DRUK_ETYKIET, W_STARYM_MES } from '../../proba'
 import { useDock } from '../../shell/useDock'
 import { StanDlaKlientaDialog, klientPozycji, WOLNE } from './StanDlaKlienta'
 import { SzkieletWierszy } from '../../ui/Szkielet'
@@ -143,7 +143,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
       { label: 'Wydanie WZ z zamówienia', icon: <Truck size={15} />, disabled: !sp?.orderId, onSelect: () => sp?.orderId && app.gotoOrders({ select: sp.orderId, tab: 'shipping', view: 'active' }) },
       { label: 'Rozchód wewnętrzny…', icon: <MoveRight size={15} />, onSelect: () => demo('Rozchód wewnętrzny') },
     ] },
-    { id: 'print', group: 4, label: 'Etykieta', icon: <Tag size={17} />, kbd: 'Ctrl+P', disabled: !sp, run: () => app.toast({ kind: 'warn', title: 'Etykieta kartonu', detail: BEZ_DRUKU_ETYKIET }) },
+    { id: 'print', group: 4, label: 'Etykieta', icon: <Tag size={17} />, kbd: 'Ctrl+P', disabled: !sp, run: () => app.toast({ kind: 'warn', title: 'Etykieta kartonu', detail: DRUK_ETYKIET }) },
     { id: 'stan', group: 4, label: 'Stan dla klienta', icon: <ClipboardCheck size={17} />, tip: 'Wydruk: co klient ma na magazynie', run: () => setStanOpen(true) },
   ], [canAlloc, sp, app, zaznaczone.join(','), rows]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setCmds(cmds) }, [cmds, setCmds])
@@ -321,7 +321,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
           checked.has(r.p.id) && checked.size > 1
             ? { label: `Wystaw WZ z zaznaczonych (${zaznaczone.length})…`, onSelect: () => doWz(zaznaczone) }
             : { label: 'Wystaw WZ z tej pozycji…', onSelect: () => doWz([r.p.id]) },
-          { label: 'Etykieta kartonu', onSelect: () => app.toast({ kind: 'warn', title: 'Etykieta kartonu', detail: BEZ_DRUKU_ETYKIET }) },
+          { label: 'Etykieta kartonu', onSelect: () => app.toast({ kind: 'warn', title: 'Etykieta kartonu', detail: DRUK_ETYKIET }) },
         ]} />
       })()}
       {groupMenu.anchor && <Menu anchor={groupMenu.anchor} align="right" onClose={groupMenu.close} items={[

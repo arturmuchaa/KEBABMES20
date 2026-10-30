@@ -13,6 +13,7 @@ import {
   type FgStock, type FormWz, type KlientWz, type WierszWz, type Wybor,
 } from './model'
 import { SzkieletBloku } from '../../../ui/Szkielet'
+import { PROBA } from '../../../proba'
 
 const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 // Spacja tysięcy także w liczbach 4-cyfrowych (pl-PL jej tam nie stawia) — „7 500,00” obok „15 000,00”.
@@ -136,7 +137,7 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
         <CheckCircle2 size={34} color="var(--ok)" />
         <h2>Wystawiono {saved.number}</h2>
         <p className="muted">{saved.buyer_name} · {f?.rows.length ?? 0} poz. · {f ? kg(sumy(f).kg) : ''}{saved.valued ? ` · ${zl(saved.total_value ?? 0, saved.currency ?? 'PLN')}` : ' · bez cen'}</p>
-        <div className="note info"><FlagIcon level="info" size={15} /><div>Dokument jest na KOPII bazy — nie używaj go w obrocie. Towar zszedł ze stanu kopii.</div></div>
+        {PROBA && <div className="note info"><FlagIcon level="info" size={15} /><div>Dokument jest na KOPII bazy — nie używaj go w obrocie. Towar zszedł ze stanu kopii.</div></div>}
         <div className="row-wrap"><button className="btn primary" onClick={() => void pdf()}><FileDown size={15} />Otwórz PDF</button><button className="btn" onClick={onDone}>Zamknij</button></div>
       </div></div>
     </>
@@ -218,7 +219,7 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
               <label className="fld"><span className="label">Rodzaj</span><select className="field" style={{ width: 'auto' }} value={f.palletsOtherKind} onChange={e => upd({ palletsOtherKind: e.target.value })}>{OTHER_CARRIER_KINDS.map(k => <option key={k.value} value={k.value}>{k.label}</option>)}</select></label>
               <label className="fld"><span className="label">Pojemniki (razem)</span><input className="field num w-num" inputMode="numeric" value={f.containersStr} onChange={e => upd({ containersStr: e.target.value })} placeholder="auto" /></label>
             </div>
-            <div className="note info"><FlagIcon level="info" size={15} /><div>Wystawienie WZ <b>zdejmuje towar ze stanu</b> (ruchy magazynowe robi serwer). W wersji próbnej — ze stanu KOPII bazy.</div></div>
+            <div className="note info"><FlagIcon level="info" size={15} /><div>Wystawienie WZ <b>zdejmuje towar ze stanu</b> (ruchy magazynowe robi serwer). {PROBA ? 'W wersji próbnej — ze stanu KOPII bazy.' : 'Dokument od razu widać też w starym MES.'}</div></div>
           </>}
         </div>
       </div>

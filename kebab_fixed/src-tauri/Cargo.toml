@@ -17,6 +17,8 @@ kiosk = []
 # Build PRÓBNY PROTRIMA (pl.protrima.test): bez sprawdzania aktualizacji przy starcie.
 # Próba nie ma kanału aktualizacji — nowa wersja to nowy instalator z CI.
 proba = []
+# PROTRIMA produkcja (pilot): jak próba — bez sprawdzania aktualizacji starego MES.
+protrima = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

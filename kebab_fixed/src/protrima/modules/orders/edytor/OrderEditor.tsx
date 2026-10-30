@@ -12,6 +12,7 @@ import { filterRecipesFor } from '@/features/orders/order-form/types'
 import { num } from '@/features/orders/order-entry/model'
 import { doDto, kolejnaPozycja, nowyFormularz, ostrzezenieUsuniecia, pustyWiersz, sumy, walidacja, zZamowienia, type FormZam } from './model'
 import { SzkieletBloku } from '../../../ui/Szkielet'
+import { PROBA } from '../../../proba'
 
 const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 
@@ -211,7 +212,7 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
             </table>
           </div>
           {errors.lines && <div className="note crit"><FlagIcon level="crit" size={15} /><div>{errors.lines}</div></div>}
-          <div className="note info"><FlagIcon level="info" size={15} /><div>Zapis idzie na serwer — do KOPII bazy w wersji próbnej. Nowe zamówienie powstaje jako szkic; „Zapisz i potwierdź” od razu je potwierdza.</div></div>
+          {PROBA && <div className="note info"><FlagIcon level="info" size={15} /><div>Zapis idzie na serwer — do KOPII bazy w wersji próbnej. Nowe zamówienie powstaje jako szkic; „Zapisz i potwierdź” od razu je potwierdza.</div></div>}
         </div>
       </div>
 
