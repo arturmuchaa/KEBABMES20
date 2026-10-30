@@ -370,7 +370,7 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
             <div className="tools"><button className="btn sm" onClick={addGroup}><Layers size={15} />Rozbij na kolejny numer</button></div></div>
           <div className="box">
             <table className="tbl">
-              <thead><tr><th>Nr</th><th className="num">Waga</th><th className="num">Pojemniki</th><th>Partie dostawcy</th><th>Ubój</th><th>Ważność</th><th style={{ width: 40 }} /></tr></thead>
+              <thead><tr><th>Nr</th><th className="num">Waga</th><th className="num">Pojemniki</th><th>Partie dostawcy</th><th className="num">Ubój</th><th className="num">Ważność</th><th style={{ width: 40 }} /></tr></thead>
               <tbody>{gs.map(g => {
                 const zam = zamrozona(f, frozen, g.index)
                 const auto = containersForKg(g.kg, h.containerKg ?? null)

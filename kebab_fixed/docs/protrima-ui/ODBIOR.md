@@ -35,3 +35,19 @@ Dane demo prototypu (`demo.ts`, łańcuchy partii, kursy, surowce) nie weszły.
 
 Do sprawdzenia przez człowieka (1920×1080 i 1366×768): logowanie; 5 zamówień stary widok vs nowy
 (zamówiono, w magazynie, wydano, brak, palety); 10 pozycji wyrobu; liczby Pulpitu vs stary pulpit.
+
+## Faza 4a — zapis w Przyjęciach surowca, 30.10.2026
+
+Nowe przyjęcie i edycja w karcie roboczej (`modules/przyjecia/formularz/`), anulowanie (cała dostawa albo
+pojedynczy numer) i kontrola HACCP karty 1.1.1 z podpisami PIN — zakładka panelu. Reguły i DTO ze starego
+MES (`receptionSplit`, `receptionEditView`, `validateReception`, `receptionCheck`), backend bez zmian.
+Zawieszki palet — dalej stary MES (druk etykiet w próbie wyłączony).
+
+Poprawione względem starego formularza (stary MES ma te błędy nadal):
+- dołożony numer w EDYCJI wysyłał etykietę „nowy” jako numer — backend odpowiada 400
+  „Numer partii musi być liczbą” (sprawdzone PUT-em na kopii),
+- zdjęcie numeru ze środka dostawy w edycji nie przesuwało `batchIds` — pozycje trafiały pod cudzą partię.
+
+Próba na kopii (e2e, sesja `claude-probe`, posprzątana): przyjęcie 51/10 KOKO 1000 + 500,5 kg → nr 680/681,
+pojemniki 67/34, cena 7,20; F2 → edycja 1000 → 1100 kg; HACCP b/z, b/z, 2,5 °C / 3,1 °C, K; anulowanie
+całej dostawy → oba numery `cancelled`, numery wróciły do puli. `vitest src/protrima` 107/107, `tsc` 0 błędów.

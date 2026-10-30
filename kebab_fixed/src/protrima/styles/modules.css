@@ -420,3 +420,5 @@ button.pstage:hover .pn { background: var(--accent-tint-2); }
 .sign-opt { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; text-align: left; background: var(--field); }
 .sign-opt.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .sign-opt img { margin-left: auto; height: 30px; max-width: 120px; object-fit: contain; }
+.rec-lines input[type="date"] { width: 150px; }
+.fld .seg { align-self: flex-start; }
