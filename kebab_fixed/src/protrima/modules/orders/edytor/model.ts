@@ -53,7 +53,7 @@ export function walidacja(f: FormZam): Bledy {
   const e: Bledy = {}
   if (!f.clientId) e.client = 'Wybierz klienta.'
   if (!f.orderDate) e.orderDate = 'Podaj datę zamówienia.'
-  if (f.deliveryDate && f.orderDate && f.deliveryDate < f.orderDate) e.deliveryDate = 'Termin dostawy nie może być wcześniejszy niż data zamówienia.'
+  if (f.deliveryDate && f.orderDate && f.deliveryDate < f.orderDate) e.deliveryDate = 'Termin wyjazdu nie może być wcześniejszy niż data zamówienia.'
   const pozycje = f.lines.filter(l => !pustyWiersz(l))
   if (!pozycje.length) e.lines = 'Dodaj przynajmniej jedną pozycję.'
   f.lines.forEach((l, i) => {

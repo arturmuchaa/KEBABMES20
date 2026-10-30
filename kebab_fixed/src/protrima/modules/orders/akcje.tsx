@@ -74,7 +74,7 @@ export function useOrderActions() {
             disabled={busy || (r === 'delete' && !deleteReady)} onClick={wykonaj}>{busy ? 'Zapisywanie…' : t.btn}</button></>}>
         <div className="box" style={{ padding: '8px 12px' }}><dl className="kv">
           <dt>Zamówienie</dt><dd className="strong">{o.no}</dd><dt>Klient</dt><dd>{o.client.name}</dd>
-          <dt>Ilość</dt><dd>{kg(m.orderedKg)} · {o.lines.length} poz.</dd>{o.delivery && <><dt>Dostawa</dt><dd>{fmtDate(o.delivery)}</dd></>}
+          <dt>Ilość</dt><dd>{kg(m.orderedKg)} · {o.lines.length} poz.</dd>{o.delivery && <><dt>Wyjazd</dt><dd>{fmtDate(o.delivery)}</dd></>}
         </dl></div>
         {r === 'confirm' && <p>Zamówienie trafi do planowania produkcji i zacznie brać wyrób z magazynu (przydział globalny).</p>}
         {r === 'done' && <p>Zamówienie przejdzie do zamkniętych i przestanie brać wyrób z magazynu. Zwykle robi to samo wydanie (WZ) — ręcznie tylko, gdy realizacja odbyła się poza systemem.</p>}

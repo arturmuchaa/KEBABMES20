@@ -150,7 +150,7 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
                   <input type="date" className={`field${errors.orderDate ? ' invalid' : ''}`} value={f.orderDate} onChange={e => upd({ orderDate: e.target.value })} disabled={!!blokada} />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span className="label">Termin dostawy</span>
+                  <span className="label">Termin wyjazdu</span>
                   <input type="date" className={`field${errors.deliveryDate ? ' invalid' : ''}`} value={f.deliveryDate} min={f.orderDate} onChange={e => upd({ deliveryDate: e.target.value })} disabled={!!blokada} />
                 </label>
                 {errors.deliveryDate && <span className="crit-ink" style={{ gridColumn: '1 / -1', fontSize: 'var(--fs-sm)', marginTop: -4 }}>{errors.deliveryDate}</span>}

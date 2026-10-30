@@ -103,7 +103,7 @@ export function OrderDetail({ order, tab, onTab, mode, maxed, onMax, onClose, on
           </div>
           <div className="l2">
             <b style={{ color: 'var(--ink-1)', fontWeight: 600 }}>{order.client.name}</b>{order.client.city && <> · {order.client.city}</>}{order.client.country && order.client.country !== 'PL' && <>, {order.client.country}</>}
-            {' · '}dostawa <span className={m.dueDays !== null && m.dueDays < 0 && !closed ? 'crit-ink strong' : ''}>{dueText(order)}</span>
+            {' · '}wyjazd <span className={m.dueDays !== null && m.dueDays < 0 && !closed ? 'crit-ink strong' : ''}>{dueText(order)}</span>
           </div>
         </div>
         <div className="dock-figs" aria-label="Kluczowe liczby">

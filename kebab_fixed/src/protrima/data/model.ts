@@ -173,7 +173,7 @@ export const weekday = (d: Date) => WD[d.getDay()]
 export const longDate = (d: Date) => `${WD_LONG[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
 
 export function relDay(d?: Date): string {
-  if (!d) return 'bez terminu'
+  if (!d) return 'bez terminu wyjazdu'
   const n = dayDiff(d, TODAY)
   if (n === 0) return 'dziś'
   if (n === 1) return 'jutro'
@@ -230,7 +230,7 @@ export const BUCKET_LABEL: Record<Bucket, string> = {
   tomorrow: 'Jutro',
   week: 'Najbliższe 7 dni',
   later: 'Później',
-  nodate: 'Bez terminu',
+  nodate: 'Bez terminu wyjazdu',
   closed: 'Zamknięte',
 }
 
@@ -273,12 +273,12 @@ export function computeMetrics(o: Order): Metrics {
     if (dueDays !== null && dueDays < 0) {
       flags.push({
         level: 'crit', code: 'overdue', label: `Zaległe ${-dueDays} ${-dueDays === 1 ? 'dzień' : 'dni'}`,
-        detail: `Termin minął ${fmtDate(o.delivery)}. ${missingKg > 0 ? `Brakuje ${kg(missingKg)} wyrobu.` : 'Wyrób kompletny — czeka na wydanie.'}`,
+        detail: `Termin wyjazdu minął ${fmtDate(o.delivery)}. ${missingKg > 0 ? `Brakuje ${kg(missingKg)} wyrobu.` : 'Wyrób kompletny — czeka na wydanie.'}`,
       })
     } else if (dueDays !== null && dueDays <= 1 && missingKg > 0 && o.status !== 'draft') {
       flags.push({
         level: dueDays === 0 ? 'crit' : 'warn', code: 'risk', label: 'Zagrożone',
-        detail: `Termin ${relDay(o.delivery)}${o.deliveryTime ? ' ' + o.deliveryTime : ''}, pokrycie ${pct(p(coveredKg))}. Brakuje ${kg(missingKg)}.`,
+        detail: `Wyjazd ${relDay(o.delivery)}${o.deliveryTime ? ' ' + o.deliveryTime : ''}, pokrycie ${pct(p(coveredKg))}. Brakuje ${kg(missingKg)}.`,
       })
     }
     if (o.materialIssue) flags.push({ level: 'warn', code: 'material', label: 'Brak surowca', detail: o.materialIssue })
@@ -343,14 +343,18 @@ export function mixingByRecipe(items: Array<{ line: Line; orderNo: string }>) {
   })).sort((a, b) => (b.meatKg ?? -1) - (a.meatKg ?? -1) || a.recipe.localeCompare(b.recipe, 'pl'))
 }
 
-/** Termin dostawy opisany słowami i datą — do nagłówków i kart. */
+/**
+ * Termin WYJAZDU z zakładu opisany słowami i datą — do nagłówków i kart.
+ * Pole w API nazywa się delivery_date, ale biuro wpisuje w nie dzień wyjazdu
+ * (właściciel 30.10.2026: „termin wyjazdu zawsze znamy, dostawy nie”).
+ */
 export function dueText(o: Pick<Order, 'delivery' | 'deliveryTime'>): string {
-  if (!o.delivery) return 'bez terminu'
+  if (!o.delivery) return 'bez terminu wyjazdu'
   const n = dayDiff(o.delivery, TODAY)
   const t = o.deliveryTime ? ` ${o.deliveryTime}` : ''
   const d = `${weekday(o.delivery)} ${fmtDay(o.delivery)}`
   if (n === 0) return `dziś, ${d}${t}`
   if (n === 1) return `jutro, ${d}${t}`
-  if (n < 0) return `${d}${t} — ${-n} ${-n === 1 ? 'dzień' : 'dni'} po terminie`
+  if (n < 0) return `${d}${t} — ${-n} ${-n === 1 ? 'dzień' : 'dni'} po terminie wyjazdu`
   return `${d}${t}`
 }

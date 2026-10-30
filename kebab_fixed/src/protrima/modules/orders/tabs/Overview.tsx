@@ -80,7 +80,7 @@ export function OverviewTab({ order, onTab }: { order: Order; onTab: (t: DetailT
           <h4><ClipboardList size={16} />Zamówienie</h4>
           <dl className="kv">
             <dt>Data zamówienia</dt><dd className="num">{fmtDate(order.orderDate)}</dd>
-            <dt>Termin dostawy</dt><dd className={m.dueDays !== null && m.dueDays < 0 && !closed ? 'crit-ink strong' : 'strong'}>{dueText(order)}</dd>
+            <dt>Termin wyjazdu</dt><dd className={m.dueDays !== null && m.dueDays < 0 && !closed ? 'crit-ink strong' : 'strong'}>{dueText(order)}</dd>
             <dt>Ilość</dt><dd className="num">{order.lines.length} poz. · {num(m.orderedQty)} szt. · {kg(m.orderedKg)}</dd>
           </dl>
         </div>

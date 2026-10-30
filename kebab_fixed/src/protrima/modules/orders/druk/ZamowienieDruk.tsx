@@ -92,7 +92,7 @@ export function DokumentZamowienia({ o, firma, klient, wystawil, uwagiPoz }: { o
           <span className="dz-no">{o.orderNo}</span>
           <dl>
             <dt>Data zamówienia</dt><dd>{dataPl(o.orderDate)}</dd>
-            <dt>Termin dostawy</dt><dd>{o.deliveryDate ? dataPl(o.deliveryDate) : 'do uzgodnienia'}</dd>
+            <dt>Planowany wyjazd</dt><dd>{o.deliveryDate ? dataPl(o.deliveryDate) : 'do uzgodnienia'}</dd>
           </dl>
         </div>
       </header>

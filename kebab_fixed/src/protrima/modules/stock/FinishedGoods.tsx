@@ -336,7 +336,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
               <button className="btn primary" onClick={() => { setReleaseId(null); app.toast({ kind: 'info', title: 'Zwolnienie przydziału', detail: FAZA_ZAPISU }) }}>Zwolnij przydział</button></>}>
             <p><b>{r.p.recipe} {r.p.kgPerUnit} kg</b> · partia <span className="code">{r.p.batch}</span> · {r.p.qty} szt. ({kg(posKg(r.p))})</p>
             {r.order && m && <div className="note warn"><FlagIcon level="warn" size={16} /><div>
-              <b>{r.order.no} ({r.order.client.name})</b> straci pokrycie {kg(posKg(r.p))}. Brak wyrobu wzrośnie z {kg(m.missingKg)} do {kg(m.missingKg + posKg(r.p))}, a termin dostawy to {relDay(r.order.delivery)}.
+              <b>{r.order.no} ({r.order.client.name})</b> straci pokrycie {kg(posKg(r.p))}. Brak wyrobu wzrośnie z {kg(m.missingKg)} do {kg(m.missingKg + posKg(r.p))}, a wyjazd {relDay(r.order.delivery)}.
               {r.p.status === 'pallet' && <> Pozycja jest na palecie {r.p.palletNo} — paleta wróci do stanu „Pakowanie”.</>}
             </div></div>}
             <p className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Operacja zapisze ruch magazynowy „Zwolniono przydział”. Wyrób zostaje na stanie.</p>

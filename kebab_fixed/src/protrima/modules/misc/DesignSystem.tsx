@@ -60,7 +60,7 @@ export function DesignSystem() {
             <div className="type-row"><span className="muted">Liczba główna</span><span style={{ fontSize: 'var(--fs-fig)', fontWeight: 600 }}>9 860 kg</span></div>
             <div className="type-row"><span className="muted">Nagłówek sekcji</span><span style={{ fontSize: 'var(--fs-lg)', fontWeight: 600 }}>Pokrycie pozycji</span></div>
             <div className="type-row"><span className="muted">Treść / tabela</span><span className="num">ZAM-2026-0412 · Anatolia Food GmbH · 2 120 kg</span></div>
-            <div className="type-row"><span className="muted">Etykieta</span><span className="label">Termin dostawy</span></div>
+            <div className="type-row"><span className="muted">Etykieta</span><span className="label">Termin wyjazdu</span></div>
             <div className="type-row"><span className="muted">Kody</span><span className="code">karton 000214 · P-261028-04</span></div>
           </div>
         </section>

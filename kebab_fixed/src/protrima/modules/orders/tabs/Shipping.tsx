@@ -33,7 +33,7 @@ export function ShippingTab({ order }: { order: Order }) {
         <div className="box ov-card">
           <h4><Truck size={16} />Kurs</h4>
           <dl className="kv">
-            <dt>Dostawa</dt><dd>{dueText(order)}</dd>
+            <dt>Wyjazd</dt><dd>{dueText(order)}</dd>
             <dt>Załadowano</dt><dd className="num">{m.palletsLoaded} z {m.palletsTotal} palet</dd>
           </dl>
           <p className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Kursy i pojazdy są w module Wysyłki starego MES — w próbie bez zmian.</p>

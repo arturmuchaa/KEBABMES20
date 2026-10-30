@@ -291,7 +291,7 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
                   <th className="al"><span className="sr">Alert</span></th>
                   {thSort('client', 'Klient')}
                   {thSort('no', 'Numer')}
-                  {thSort('due', 'Termin')}
+                  {thSort('due', 'Wyjazd', '', 'Termin wyjazdu z zakładu')}
                   {thSort('status', 'Status', 'side-hide')}
                   <th className="hide-m">Pozycje</th>
                   {thSort('kg', 'Zamówiono', 'num')}
@@ -370,7 +370,7 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
       ]} />}
       {groupMenu.anchor && <Menu anchor={groupMenu.anchor} align="right" onClose={groupMenu.close} items={[
         { header: 'Grupowanie listy' },
-        { label: 'Według terminu dostawy', icon: <Layers size={15} />, onSelect: () => setGroupBy('due') },
+        { label: 'Według terminu wyjazdu', icon: <Layers size={15} />, onSelect: () => setGroupBy('due') },
         { label: 'Według klienta', icon: <Layers size={15} />, onSelect: () => setGroupBy('client') },
         { label: 'Bez grupowania', icon: <Rows3 size={15} />, onSelect: () => setGroupBy('none') },
       ]} />}

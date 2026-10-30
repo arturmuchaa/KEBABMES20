@@ -318,7 +318,7 @@ function DuePanel({ open }: { open: Open }) {
   const buckets: Bucket[] = ['overdue', 'today', 'tomorrow', 'week', 'later', 'nodate']
   const sub: Partial<Record<Bucket, string>> = {
     today: `${weekday(TODAY)} ${fmtDay(TODAY)}`, tomorrow: `${weekday(addDays(TODAY, 1))} ${fmtDay(addDays(TODAY, 1))}`,
-    week: `do ${fmtDay(addDays(TODAY, 7))}`, later: `od ${fmtDay(addDays(TODAY, 8))}`, nodate: 'bez daty dostawy', overdue: 'termin minął',
+    week: `do ${fmtDay(addDays(TODAY, 7))}`, later: `od ${fmtDay(addDays(TODAY, 8))}`, nodate: 'bez daty wyjazdu', overdue: 'termin minął',
   }
   const rows = buckets.map(b => {
     const xs = open.filter(x => x.m.bucket === b)
@@ -327,7 +327,7 @@ function DuePanel({ open }: { open: Open }) {
   const tot = rows.reduce((a, r) => ({ n: a.n + r.n, ordered: a.ordered + r.ordered, missing: a.missing + r.missing }), { n: 0, ordered: 0, missing: 0 })
   return (
     <section className="panel" aria-label="Terminy zamówień">
-      <div className="panel-h"><h2>Terminy zamówień</h2><span className="sub">otwarte, wg terminu dostawy</span></div>
+      <div className="panel-h"><h2>Terminy zamówień</h2><span className="sub">otwarte, wg terminu wyjazdu</span></div>
       <div className="panel-b">
         <table className="ladder">
           <thead><tr><th>Termin</th><th className="num" style={{ textAlign: 'right' }}>Zam.</th><th style={{ textAlign: 'right' }}>Zamówiono</th><th style={{ textAlign: 'right' }}>Brak wyrobu</th></tr></thead>
