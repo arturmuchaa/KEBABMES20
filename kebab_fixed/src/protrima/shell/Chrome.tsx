@@ -202,9 +202,9 @@ export function Nav({ current, onOpen, badges, collapsed, onToggle }: {
           </React.Fragment>
         ))}
       </div>
-      <div className="nav-plant" data-tip="Zakład pracuje · zmiana I · 06:00–14:00">
-        <div className="l1"><i /><span>Zakład pracuje</span></div>
-        <div className="l2">Zmiana I · 06:00–14:00</div>
+      <div className="nav-plant" data-tip="Dane z KOPII bazy produkcji — zmiany nie trafiają do prawdziwego MES">
+        <div className="l1"><i /><span>Serwer próby</span></div>
+        <div className="l2">kopia bazy, :8090</div>
       </div>
       <button className="nav-toggle" onClick={onToggle} data-tip={collapsed ? 'Rozwiń panel (Ctrl+B)' : 'Zwiń panel (Ctrl+B)'} aria-label={collapsed ? 'Rozwiń panel nawigacji' : 'Zwiń panel nawigacji'}>
         {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}<span className="t">Zwiń panel</span>
