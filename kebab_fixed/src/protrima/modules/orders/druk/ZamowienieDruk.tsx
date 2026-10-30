@@ -7,7 +7,9 @@ import { useAuth } from '@/features/auth/AuthContext'
 import { clientOrdersApi, clientsApi, settingsApi } from '@/lib/api'
 import type { ClientOrder } from '@/lib/mockApi'
 
+/** Liczba po polsku z odstępem tysięcy także dla 4 cyfr („1 600”, jak w całej aplikacji). */
 const nf = (n: number, d = 0) => new Intl.NumberFormat('pl-PL', { minimumFractionDigits: d, maximumFractionDigits: d === 0 ? 3 : d }).format(n)
+  .replace(/^(-?\d)(\d{3})(?=,|$)/, '$1 $2')
 const dataPl = (iso?: string) => { if (!iso) return '—'; const [y, m, d] = iso.slice(0, 10).split('-'); return d && m && y ? `${d}.${m}.${y}` : iso }
 
 interface Firma { name?: string; address?: string; postalCode?: string; city?: string; nip?: string; phone?: string; email?: string; vetNumber?: string }
