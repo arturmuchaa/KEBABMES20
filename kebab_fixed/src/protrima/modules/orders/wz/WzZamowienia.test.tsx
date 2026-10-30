@@ -4,9 +4,10 @@ import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-li
 import React from 'react'
 import { AppCtx, type AppApi } from '../../../shell/context'
 
-const wz = vi.hoisted(() => ({ fromOrderPicks: vi.fn(), nextNumber: vi.fn(), createManual: vi.fn(), pdfUrl: (id: string) => `/api/wz/${id}/pdf` }))
+const wz = vi.hoisted(() => ({ fromOrderPicks: vi.fn(), nextNumber: vi.fn(), createManual: vi.fn(), stockFg: vi.fn(), pdfUrl: (id: string) => `/api/wz/${id}/pdf` }))
+const clients = vi.hoisted(() => ({ list: vi.fn() }))
 const pdf = vi.hoisted(() => vi.fn(() => Promise.resolve()))
-vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), wzApi: wz, downloadDocPdf: pdf, fxApi: { eurRate: vi.fn() } }))
+vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), wzApi: wz, clientsApi: clients, downloadDocPdf: pdf, fxApi: { eurRate: vi.fn() } }))
 const refresh = vi.fn(() => Promise.resolve())
 vi.mock('../../../data/store', () => ({ useOrders: () => ({ refresh }) }))
 import { WzZamowienia } from './WzZamowienia'
@@ -79,5 +80,43 @@ describe('WZ z zamówienia', () => {
     run('issue')
     expect(await screen.findByText(/na stanie 18 szt/)).toBeTruthy()
     expect(screen.getByLabelText(/Ilość do wydania/)).toBeTruthy()
+  })
+})
+
+describe('WZ z magazynu (zaznaczone w Wyrobie gotowym)', () => {
+  const FG = [
+    { id: 'g1', batch_no: '291026 659', qty_available: 12, kg_per_unit: 20, name: 'KEBAB YAPRAK 20kg', product_type_name: 'KEBAB YAPRAK', recipe_name: 'YAPRAK', client_name: 'DEM`S', client_order_no: 'DEM-S/Z/4/10/26' },
+    { id: 'g2', batch_no: '291026 660', qty_available: 5, kg_per_unit: 20, name: 'KEBAB YAPRAK 20kg', product_type_name: 'KEBAB YAPRAK', recipe_name: 'YAPRAK', client_name: 'DEM`S', client_order_no: 'DEM-S/Z/4/10/26' },
+  ]
+  beforeEach(() => {
+    clients.list.mockReset()
+    clients.list.mockResolvedValue([{ id: 'c1', name: 'DEM`S GMBH', displayName: 'DEM`S', address: 'Hauptstr. 1', city: 'Wien', nip: 'ATU12345678' }, { id: 'c2', name: 'BUBU KEBAB S.C.', city: 'Nysa', nip: '7532482090' }])
+    wz.stockFg.mockImplementation((id = '') => Promise.resolve(id === 'c1' ? FG.map(g => ({ ...g, name: 'DÖNER YAPRAK 20kg' })) : FG))
+  })
+  const mountMag = () => { const onDone = vi.fn(); render(<AppCtx.Provider value={app}><WzZamowienia wybor={[{ id: 'g2', qty: 5 }, { id: 'g1', qty: 12 }]} active setCmds={c => { cmds = c }} onDone={onDone} /></AppCtx.Provider>); return onDone }
+
+  it('odbiorca podpowiedziany z zaznaczenia, nazwy wg jego kartoteki, zapis BEZ zamówienia', async () => {
+    wz.createManual.mockResolvedValue({ id: 'w9', number: 'WZ/66/10/26', buyer_name: 'DEM`S GMBH', valued: false, status: 'wstepny', lines: [], total_value: 0 })
+    mountMag()
+    expect(await screen.findByText('WZ z magazynu')).toBeTruthy()
+    await waitFor(() => expect((screen.getByLabelText('Odbiorca z kartoteki') as HTMLSelectElement).value).toBe('c1'))
+    expect((screen.getByLabelText('Nazwa odbiorcy') as HTMLInputElement).value).toBe('DEM`S GMBH')
+    await screen.findAllByText('DÖNER YAPRAK 20kg')
+    run('issue')
+    await waitFor(() => expect(wz.createManual).toHaveBeenCalledTimes(1))
+    const dto = wz.createManual.mock.calls[0][0]
+    expect(dto.orderId).toBeUndefined()
+    expect(dto.buyer).toEqual({ name: 'DEM`S GMBH', address: 'Hauptstr. 1 Wien', nip: 'ATU12345678' })
+    expect(dto.items.map((i: { stockId: string; qty: number; name: string }) => [i.stockId, i.qty, i.name])).toEqual([['g2', 5, 'DÖNER YAPRAK 20kg'], ['g1', 12, 'DÖNER YAPRAK 20kg']])
+  })
+
+  it('inny odbiorca niż stempel → pytanie o cudzą rezerwację przed wystawieniem', async () => {
+    mountMag()
+    await waitFor(() => expect((screen.getByLabelText('Odbiorca z kartoteki') as HTMLSelectElement).value).toBe('c1'))
+    fireEvent.change(screen.getByLabelText('Odbiorca z kartoteki'), { target: { value: 'c2' } })
+    expect((screen.getByLabelText('Nazwa odbiorcy') as HTMLInputElement).value).toBe('BUBU KEBAB S.C.')
+    run('issue')
+    expect(await screen.findByText('Wydajesz towar zarezerwowany pod inne zamówienia')).toBeTruthy()
+    expect(wz.createManual).not.toHaveBeenCalled()
   })
 })

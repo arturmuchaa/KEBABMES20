@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { bezCeny, cenaDlaGrupy, cenaDlaWszystkich, cudzeRezerwacje, doDto, grupyCen, sumy, vatDlaWszystkich, walidacja, wartosc, wspolnaCena, wspolnyVat, zPicks } from './model'
+import { bezCeny, cenaDlaGrupy, cenaDlaWszystkich, cudzeRezerwacje, doDto, grupyCen, sumy, vatDlaWszystkich, walidacja, wartosc, wspolnaCena, wspolnyVat, zPicks, klientZWyboru, nabywcaZKlienta, zMagazynu, zNabywca, zNazwami } from './model'
 
 const PICKS = {
   order_id: 'o1', order_no: 'ISSA/Z/3/10/26', client_id: 'c1', ordered: 190,
@@ -73,5 +73,42 @@ describe('WZ z zamówienia — model', () => {
     const f = { ...form, rows: [{ ...form.rows[0], clientOrderNo: 'POLAT/Z/4/10/26', clientName: 'POLAT' }] }
     expect(cudzeRezerwacje(f).map(r => r.orderNo)).toEqual(['POLAT/Z/4/10/26'])
     expect(cudzeRezerwacje(form)).toEqual([])
+  })
+})
+
+describe('WZ z magazynu (bez zamówienia)', () => {
+  const FG = [
+    { id: 'g1', batch_no: '291026 659', qty_available: 12, kg_per_unit: 20, name: 'KEBAB YAPRAK 20kg', product_type_name: 'KEBAB YAPRAK', recipe_name: 'YAPRAK', client_name: 'DEM`S', client_order_no: 'DEM-S/Z/4/10/26' },
+    { id: 'g2', batch_no: '291026 660', qty_available: 5, kg_per_unit: 10, product_type_name: 'KEBAB UDO', recipe_name: 'BEYAZ', client_name: null, client_order_no: null },
+  ]
+  const KLIENCI = [
+    { id: 'c1', name: 'DEM`S GMBH', displayName: 'DEM`S', address: 'Hauptstr. 1', city: 'Wien', nip: 'ATU12345678' },
+    { id: 'c2', name: 'BUBU KEBAB S.C.', address: 'Niezapominajek 12', city: 'Nysa', nip: '7532482090' },
+  ]
+  it('pozycje w kolejności zaznaczenia, ilość ≤ stan, stempel cudzego zamówienia zostaje (ostrzeżenie)', () => {
+    const f = zMagazynu(FG, [{ id: 'g2', qty: 5 }, { id: 'g1', qty: 99 }, { id: 'nie-ma', qty: 1 }], '2026-10-30')
+    expect(f.rows.map(r => [r.stockId, r.qtyStr, r.available])).toEqual([['g2', '5', 5], ['g1', '12', 12]])
+    expect(f.rows[0].name).toMatch(/BEYAZ 10kg$/)
+    expect(walidacja(f)).toMatch(/nazwę odbiorcy/)
+    const z = zNabywca(f, nabywcaZKlienta(KLIENCI[1]))
+    expect(z.buyer).toEqual({ name: 'BUBU KEBAB S.C.', address: 'Niezapominajek 12 Nysa', nip: '7532482090' })
+    expect(cudzeRezerwacje(z).map(r => r.orderNo)).toEqual(['DEM-S/Z/4/10/26'])
+    // Ten sam odbiorca pod nazwą handlową — to realizacja, nie cudza rezerwacja.
+    const dems = zNabywca(f, nabywcaZKlienta(KLIENCI[0]))
+    expect(cudzeRezerwacje(dems).map(r => r.orderNo)).toEqual(['DEM-S/Z/4/10/26'])
+    expect(cudzeRezerwacje(dems, [KLIENCI[0].name, KLIENCI[0].displayName!])).toEqual([])
+    expect(doDto(z).orderId).toBeUndefined()
+  })
+  it('VAT idzie za nabywcą, ale ręcznie zmieniona stawka zostaje', () => {
+    const f = zNabywca(zMagazynu(FG, [{ id: 'g1', qty: 1 }, { id: 'g2', qty: 1 }], '2026-10-30'), nabywcaZKlienta(KLIENCI[1]))
+    expect(f.rows.map(r => r.vatRate)).toEqual([5, 5])
+    const recznie = { ...f, rows: [{ ...f.rows[0], vatRate: 8 }, f.rows[1]] }
+    expect(zNabywca(recznie, nabywcaZKlienta(KLIENCI[0])).rows.map(r => r.vatRate)).toEqual([8, 0])
+  })
+  it('nazwy wg kartoteki odbiorcy; odbiorca podpowiedziany tylko przy jednym kliencie w zaznaczeniu', () => {
+    const f = zMagazynu(FG, [{ id: 'g1', qty: 1 }], '2026-10-30')
+    expect(zNazwami(f, [{ ...FG[0], name: 'DÖNER YAPRAK 20kg' }]).rows[0].name).toBe('DÖNER YAPRAK 20kg')
+    expect(klientZWyboru(FG, [{ id: 'g1', qty: 1 }], KLIENCI)?.id).toBe('c1')
+    expect(klientZWyboru(FG, [{ id: 'g1', qty: 1 }, { id: 'g2', qty: 1 }], KLIENCI)).toBeUndefined()
   })
 })

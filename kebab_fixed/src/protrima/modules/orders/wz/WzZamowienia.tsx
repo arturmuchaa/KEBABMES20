@@ -4,12 +4,13 @@ import { useApp, CommandBar, Dialog, type Cmd } from '../../../shell/context'
 import { useOrders } from '../../../data/store'
 import { kg, num } from '../../../data/model'
 import { FlagIcon } from '../../../ui/Glyphs'
-import { downloadDocPdf, fxApi, wzApi, type WzDoc } from '@/lib/api'
+import { clientsApi, downloadDocPdf, fxApi, wzApi, type WzDoc } from '@/lib/api'
 import { STAWKI_VAT } from '@/features/wz/wzVat'
 import { OTHER_CARRIER_KINDS } from '@/lib/containers'
 import {
   bezCeny, cenaDlaGrupy, cenaDlaWszystkich, cudzeRezerwacje, doDto, grupyCen, ilosc, masa, sumy, vatDlaWszystkich, walidacja, wartosc,
-  wspolnaCena, wspolnyVat, zPicks, type FormWz, type WierszWz,
+  wspolnaCena, wspolnyVat, zPicks, klientZWyboru, nabywcaZKlienta, zMagazynu, zNabywca, zNazwami,
+  type FgStock, type FormWz, type KlientWz, type WierszWz, type Wybor,
 } from './model'
 
 const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
@@ -17,11 +18,14 @@ const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${Strin
 const zl = (n: number, cur: string) => `${new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n).replace(/^(-?\d)(\d{3})(?=,)/, '$1 $2')} ${cur === 'EUR' ? '€' : 'zł'}`
 
 /**
- * WZ z zamówienia — karta robocza. Pozycje: `wzApi.fromOrderPicks` (wiersze
- * magazynu wg FEFO), zapis: `wzApi.createManual` z orderId — tak jak stary MES.
- * Dokument zdejmuje towar ze stanu (rozchód i ruchy robi serwer).
+ * WZ — karta robocza, dwa źródła pozycji:
+ *  - z zamówienia (`orderId`): `wzApi.fromOrderPicks` (wiersze magazynu wg FEFO),
+ *    zapis z orderId — dokument wiąże się z zamówieniem;
+ *  - z magazynu (`wybor`): zaznaczone wiersze Wyrobu gotowego, odbiorca z kartoteki,
+ *    nazwy pozycji wg kartoteki odbiorcy, zapis BEZ orderId (jak stary „Wystaw WZ”).
+ * Zapis: `wzApi.createManual` — rozchód i ruchy magazynowe robi serwer.
  */
-export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: string; active: boolean; setCmds: (c: Cmd[]) => void; onDone: () => void }) {
+export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orderId?: string; wybor?: Wybor[]; active: boolean; setCmds: (c: Cmd[]) => void; onDone: () => void }) {
   const app = useApp()
   const { refresh } = useOrders()
   const [f, setF] = useState<FormWz | null>(null)
@@ -34,13 +38,41 @@ export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: st
   const [saved, setSaved] = useState<WzDoc | null>(null)
   const lock = useRef(false)
   const cenaRef = useRef<HTMLInputElement>(null)
+  const zMag = !orderId
+  const [klienci, setKlienci] = useState<KlientWz[]>([])
+  const [klientId, setKlientId] = useState('')
+  const wyborKey = (wybor ?? []).map(w => `${w.id}:${w.qty}`).join(',')
 
+  // Nazwy pozycji zależą od kartoteki odbiorcy — po jego wyborze magazyn czytamy na nowo.
+  const nazwyDla = useCallback((id: string) => {
+    wzApi.stockFg(id).then(fg => setF(x => (x ? zNazwami(x, fg as FgStock[]) : x))).catch(() => undefined)
+  }, [])
   const wczytaj = useCallback(() => {
     setLoadErr(null)
-    wzApi.fromOrderPicks(orderId).then(d => { const z = zPicks(d, dzisIso()); setF(z.form); setMeta({ orderNo: z.orderNo, brakuje: z.brakuje }) })
-      .catch(e => setLoadErr(e instanceof Error ? e.message : 'Nie udało się wczytać pozycji zamówienia'))
+    if (orderId) {
+      wzApi.fromOrderPicks(orderId).then(d => { const z = zPicks(d, dzisIso()); setF(z.form); setMeta({ orderNo: z.orderNo, brakuje: z.brakuje }) })
+        .catch(e => setLoadErr(e instanceof Error ? e.message : 'Nie udało się wczytać pozycji zamówienia'))
+    } else {
+      Promise.all([clientsApi.list(), wzApi.stockFg()]).then(([cl, fg]) => {
+        const kl = (cl as Array<KlientWz & { active?: boolean }>).filter(c => c.active !== false)
+          .sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name, 'pl'))
+        setKlienci(kl)
+        const w = wybor ?? []
+        let form = zMagazynu(fg as FgStock[], w, dzisIso())
+        const k = klientZWyboru(fg as FgStock[], w, kl)
+        if (k) { form = zNabywca(form, nabywcaZKlienta(k)); setKlientId(k.id); nazwyDla(k.id) }
+        setF(form)
+      }).catch(e => setLoadErr(e instanceof Error ? e.message : 'Nie udało się wczytać magazynu'))
+    }
     wzApi.nextNumber().then(n => setNextNo(n.number)).catch(() => undefined)
-  }, [orderId])
+  }, [orderId, wyborKey, nazwyDla]) // eslint-disable-line react-hooks/exhaustive-deps
+  const wybierzKlienta = (id: string) => {
+    setKlientId(id)
+    const c = klienci.find(x => x.id === id)
+    if (!c) return
+    setF(x => (x ? zNabywca(x, nabywcaZKlienta(c)) : x))
+    nazwyDla(id)
+  }
   useEffect(() => { wczytaj() }, [wczytaj])
 
   const upd = (p: Partial<FormWz>) => setF(x => x ? { ...x, ...p } : x)
@@ -54,18 +86,19 @@ export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: st
     if (!f || lock.current) return
     const v = walidacja(f)
     if (v) { setBlad(v); return }
-    const cudze = cudzeRezerwacje(f)
+    const kl = klienci.find(c => c.id === klientId)
+    const cudze = cudzeRezerwacje(f, kl ? [kl.name, kl.displayName ?? ''] : [])
     if (cudze.length && !potwierdzone) { setPytanie(cudze); return }
     lock.current = true; setSaving(true); setBlad(null); setPytanie(null)
     try {
-      const doc = await wzApi.createManual(doDto(f, orderId))
+      const doc = await wzApi.createManual(doDto(f, orderId || undefined))
       setSaved(doc)
       await refresh().catch(() => undefined)
       app.toast({ kind: 'ok', title: `Wystawiono ${doc.number}`, detail: `${f.rows.length} poz. · ${kg(sumy(f).kg)} — towar zdjęty ze stanu.` })
     } catch (e) {
       setBlad(e instanceof Error ? e.message : 'Błąd wystawiania WZ')
     } finally { lock.current = false; setSaving(false) }
-  }, [f, orderId, refresh, app])
+  }, [f, orderId, refresh, app, klienci, klientId])
 
   const pdf = async () => {
     if (!saved) return
@@ -94,7 +127,7 @@ export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: st
     return () => window.removeEventListener('keydown', key)
   }, [active, saved])
 
-  const title = `WZ — ${meta?.orderNo ?? 'zamówienie'}`
+  const title = zMag ? 'WZ z magazynu' : `WZ — ${meta?.orderNo ?? 'zamówienie'}`
   if (saved) return (
     <>
       <CommandBar title={title} count="wystawiony" cmds={cmds} />
@@ -123,6 +156,11 @@ export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: st
             <div className="ov-grid" style={{ gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)' }}>
               <div className="box ov-card"><h4>Odbiorca</h4>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px', gap: '8px 12px' }}>
+                  {zMag && <label className="fld" style={{ gridColumn: '1 / -1' }}><span className="label">Z kartoteki odbiorców</span>
+                    <select className={`field${!f.buyer.name.trim() ? ' invalid' : ''}`} value={klientId} onChange={e => wybierzKlienta(e.target.value)} aria-label="Odbiorca z kartoteki" autoFocus={!klientId}>
+                      <option value="">Wybierz odbiorcę…</option>
+                      {klienci.map(c => <option key={c.id} value={c.id}>{c.displayName || c.name}{c.city ? ` — ${c.city}` : ''}</option>)}
+                    </select></label>}
                   <label className="fld" style={{ gridColumn: '1 / -1' }}><span className="label">Nazwa</span><input className="field" value={f.buyer.name} onChange={e => upd({ buyer: { ...f.buyer, name: e.target.value } })} aria-label="Nazwa odbiorcy" /></label>
                   <label className="fld"><span className="label">Adres</span><input className="field" value={f.buyer.address} onChange={e => upd({ buyer: { ...f.buyer, address: e.target.value } })} /></label>
                   <label className="fld"><span className="label">NIP / VAT</span><input className="field" value={f.buyer.nip} onChange={e => upd({ buyer: { ...f.buyer, nip: e.target.value } })} /></label>
@@ -138,7 +176,7 @@ export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: st
               </div>
             </div>
 
-            <div className="sect-h"><h3>Pozycje z magazynu</h3><span className="sub">wiersze magazynu wg FEFO dobrane przez serwer · {num(s!.szt)} szt. · {kg(s!.kg)}</span>
+            <div className="sect-h"><h3>Pozycje z magazynu</h3><span className="sub">{zMag ? 'zaznaczone w Wyrobie gotowym' : 'wiersze magazynu wg FEFO dobrane przez serwer'} · {num(s!.szt)} szt. · {kg(s!.kg)}</span>
               <div className="tools">
                 <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><input type="checkbox" className="cbx" checked={f.valued} onChange={e => wartosciowy(e.target.checked)} />Dokument wartościowy</label>
               </div>
@@ -148,7 +186,7 @@ export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: st
               <thead><tr><th>Pozycja</th><th>Partia</th><th className="num">Na stanie</th><th className="num">Wydać</th><th className="num">Masa</th>
                 {f.valued && <><th className="num">Cena / kg</th><th className="num">VAT</th><th className="num">Wartość</th></>}<th style={{ width: 40 }} /></tr></thead>
               <tbody>
-                {f.rows.length === 0 && <tr><td colSpan={9}><div className="empty">Na magazynie nie ma wyrobu dla tego zamówienia.</div></td></tr>}
+                {f.rows.length === 0 && <tr><td colSpan={9}><div className="empty">{zMag ? 'Zaznaczonych wierszy nie ma już na magazynie.' : 'Na magazynie nie ma wyrobu dla tego zamówienia.'}</div></td></tr>}
                 {f.rows.map((r, i) => {
                   const za = ilosc(r) > r.available
                   return (

@@ -112,10 +112,72 @@ export function zPicks(d: Picks, dzis: string): { form: FormWz; orderNo: string;
   }
 }
 
+/** Wiersz `/wz/stock/finished-goods` (nazwa pozycji wg kartoteki odbiorcy, gdy podano `client_id`). */
+export interface FgStock {
+  id: string; batch_no?: string | null; qty_available: number; kg_per_unit: number; name?: string
+  product_type_name?: string; recipe_name?: string; client_name?: string | null; client_order_no?: string | null
+}
+export interface Wybor { id: string; qty: number }
+export interface KlientWz { id: string; name: string; displayName?: string; address?: string; city?: string; nip?: string }
+
+const nazwaFg = (g: FgStock) => g.name || (zlozNazweWyrobu(g.product_type_name ?? '', g.recipe_name ?? '') + (g.kg_per_unit > 0 ? ` ${String(g.kg_per_unit).replace('.', ',')}kg` : ''))
+
+/** Odbiorca z kartoteki — ten sam kształt, który backend składa dla WZ z zamówienia. */
+export const nabywcaZKlienta = (c: KlientWz): FormWz['buyer'] =>
+  ({ name: c.name || c.displayName || '', address: `${c.address ?? ''} ${c.city ?? ''}`.trim(), nip: c.nip ?? '' })
+
+/**
+ * WZ z zaznaczonych wierszy magazynu (bez zamówienia) — jak stary MES
+ * („Wystaw WZ” w Magazynie wyrobu, `?fg=id:szt`). Kolejność pozycji = kolejność
+ * zaznaczenia; stempel zamówienia zostaje na wierszu, żeby ostrzec przed wydaniem
+ * cudzej rezerwacji.
+ */
+export function zMagazynu(fg: FgStock[], wybor: Wybor[], dzis: string): FormWz {
+  const po = new Map(fg.map(g => [g.id, g]))
+  const rows: WierszWz[] = wybor.flatMap(w => {
+    const g = po.get(w.id)
+    if (!g) return []
+    return [{
+      stockId: g.id, name: nazwaFg(g), batchNo: g.batch_no ?? undefined,
+      qtyStr: String(Math.max(1, Math.min(w.qty, Number(g.qty_available) || 0))), available: Number(g.qty_available) || 0,
+      kgPerUnit: g.kg_per_unit || undefined, priceStr: '', vatRate: stawkaVatDlaNabywcy(''),
+      clientOrderNo: g.client_order_no ?? null, clientName: g.client_name ?? null,
+      grupa: g.product_type_name && g.recipe_name ? zlozNazweWyrobu(g.product_type_name, g.recipe_name) : undefined,
+    }]
+  })
+  return {
+    buyer: { name: '', address: '', nip: '' }, rows, valued: false, currency: 'PLN', eurRateStr: '', place: '',
+    issuedDate: dzis, releaseDate: dzis, notes: '', palletsH1Str: '', palletsOtherStr: '', palletsOtherKind: 'net_e1', containersStr: '',
+  }
+}
+
+/**
+ * Zmiana odbiorcy: nowy nabywca i stawka VAT z jego NIP-u — ale tylko w wierszach,
+ * które miały stawkę domyślną poprzedniego nabywcy (poprawione ręcznie zostają).
+ */
+export function zNabywca(f: FormWz, buyer: FormWz['buyer']): FormWz {
+  const stara = stawkaVatDlaNabywcy(f.buyer.nip), nowa = stawkaVatDlaNabywcy(buyer.nip)
+  return { ...f, buyer, rows: f.rows.map(r => (r.vatRate === stara ? { ...r, vatRate: nowa } : r)) }
+}
+
+/** Nazwy pozycji wg kartoteki odbiorcy (magazyn przeczytany z `client_id`). */
+export const zNazwami = (f: FormWz, fg: FgStock[]): FormWz => {
+  const po = new Map(fg.map(g => [g.id, g]))
+  return { ...f, rows: f.rows.map(r => { const g = po.get(r.stockId); return g ? { ...r, name: nazwaFg(g) } : r }) }
+}
+
+/** Odbiorca podpowiadany z zaznaczenia: wszystkie wiersze z jednym klientem i ten klient jest w kartotece. */
+export function klientZWyboru(fg: FgStock[], wybor: Wybor[], klienci: KlientWz[]): KlientWz | undefined {
+  const nazwy = [...new Set(wybor.map(w => fg.find(g => g.id === w.id)?.client_name).filter((n): n is string => !!n))]
+  if (nazwy.length !== 1 || wybor.some(w => !fg.find(g => g.id === w.id)?.client_name)) return undefined
+  const kand = klienci.filter(c => c.name === nazwy[0] || c.displayName === nazwy[0])
+  return kand.length === 1 ? kand[0] : undefined
+}
+
 /** Komunikaty jak w starym formularzu WZ; '' = można wystawić. */
 export function walidacja(f: FormWz): string {
   if (!f.buyer.name.trim()) return 'Wpisz nazwę odbiorcy.'
-  if (!f.rows.length) return 'Dokument nie ma pozycji — nic nie leży na magazynie dla tego zamówienia.'
+  if (!f.rows.length) return 'Dokument nie ma pozycji — nic nie leży na magazynie.'
   if (f.rows.some(r => !(ilosc(r) > 0) || !Number.isInteger(ilosc(r)))) return 'Ilość każdej pozycji musi być liczbą całkowitą większą od zera.'
   const za = f.rows.filter(r => ilosc(r) > r.available)
   if (za.length) return `Ilość przekracza stan magazynowy: ${za.map(r => `${r.name} (${r.batchNo ?? '—'}) — na stanie ${r.available}`).join(', ')}`
@@ -124,9 +186,17 @@ export function walidacja(f: FormWz): string {
   return ''
 }
 
-/** O co zapytać przed zapisem: towar zarezerwowany pod zamówienia innego klienta. */
-export const cudzeRezerwacje = (f: FormWz): Rezerwacja[] =>
-  rezerwacjeObcegoKlienta(f.rows.map(r => ({ stockType: 'fg', qtyStr: r.qtyStr, clientOrderNo: r.clientOrderNo, clientName: r.clientName })), f.buyer.name)
+/**
+ * O co zapytać przed zapisem: towar zarezerwowany pod zamówienia innego klienta.
+ * `nazwyOdbiorcy` — pozostałe nazwy TEGO odbiorcy z kartoteki (handlowa i pełna):
+ * stempel na wyrobie bywa jedną albo drugą („DEM`S” / „ROYAL BEOS e.U (DEM`S GOURMET)”),
+ * a wydanie właścicielowi to realizacja, nie odebranie towaru.
+ */
+export const cudzeRezerwacje = (f: FormWz, nazwyOdbiorcy: string[] = []): Rezerwacja[] => {
+  const swoje = nazwyOdbiorcy.map(n => n.trim().toLowerCase()).filter(Boolean)
+  return rezerwacjeObcegoKlienta(f.rows.map(r => ({ stockType: 'fg', qtyStr: r.qtyStr, clientOrderNo: r.clientOrderNo, clientName: r.clientName })), f.buyer.name)
+    .filter(r => !swoje.includes(r.clientName.trim().toLowerCase()))
+}
 
 export function sumy(f: FormWz) {
   const szt = f.rows.reduce((a, r) => a + ilosc(r), 0)
@@ -136,7 +206,7 @@ export function sumy(f: FormWz) {
 }
 
 /** Ciało `wzApi.createManual` — pola jak w starym formularzu (palety na dokumencie, pojemniki: '' = auto). */
-export function doDto(f: FormWz, orderId: string) {
+export function doDto(f: FormWz, orderId?: string) {
   const intOrUndef = (s: string) => s.trim() === '' ? undefined : Math.max(0, Math.floor(liczba(s)))
   return {
     buyer: { name: f.buyer.name.trim(), address: f.buyer.address.trim(), nip: f.buyer.nip.trim() },
