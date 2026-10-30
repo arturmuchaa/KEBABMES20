@@ -193,6 +193,10 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
   const loadError = supRes.error || typesRes.error || recRes.error
   const ready = !!supRes.data && !!typesRes.data && (!edycja || seeded.current)
   const mozna = ready && !!h.supplierId && totalKg > 0 && issues.errors.length === 0
+  // Dlaczego nie można jeszcze zapisać — słowami operatora (podpowiedź przy przycisku).
+  const czegoBrak = !ready ? 'wczytywanie kartotek' : !h.supplierId ? 'wybierz dostawcę' : totalKg <= 0 ? 'wpisz masę netto pozycji z HDI' : issues.errors[0] ?? ''
+  // Błędy podziału pokazujemy dopiero, gdy jest co oceniać — pusty formularz nie krzyczy na czerwono.
+  const pokazBledy = totalKg > 0 || edycja
 
   const zapisz = useCallback(async (groups: ReceptionGroup[]) => {
     if (lock.current) return
@@ -229,11 +233,11 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
   const close = useCallback(() => { if (dirty) setDiscardAsk(true); else onDone() }, [dirty, onDone])
   const tytulZapisu = edycja ? 'Zapisz zmiany' : 'Przyjmij dostawę'
   const cmds = useMemo<Cmd[]>(() => [
-    { id: 'save', group: 1, label: tytulZapisu, icon: edycja ? <Save size={17} /> : <PackagePlus size={17} />, kbd: 'Ctrl+Enter', primary: true, disabled: !mozna || saving, run: () => przyjmijRef.current() },
+    { id: 'save', group: 1, label: tytulZapisu, icon: edycja ? <Save size={17} /> : <PackagePlus size={17} />, kbd: 'Ctrl+Enter', primary: true, disabled: !mozna || saving, tip: !mozna ? czegoBrak : undefined, run: () => przyjmijRef.current() },
     { id: 'add-line', group: 2, label: 'Dodaj pozycję', icon: <Plus size={17} />, run: () => addLine() },
     { id: 'hdi', group: 2, label: 'Wczytaj HDI', icon: <ScanLine size={17} />, disabled: scanning, run: () => fileRef.current?.click() },
     { id: 'discard', group: 3, label: edycja ? 'Zamknij bez zapisu' : 'Odrzuć', icon: <X size={17} />, run: close },
-  ], [tytulZapisu, edycja, mozna, saving, scanning, addLine, close])
+  ], [tytulZapisu, edycja, mozna, czegoBrak, saving, scanning, addLine, close])
   useEffect(() => { setCmds(cmds) }, [cmds, setCmds])
   useEffect(() => {
     if (!active) return
@@ -415,7 +419,7 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
             </div>
           </div>
 
-          {issues.errors.map(m => <div key={m} className="note crit"><FlagIcon level="crit" size={15} /><div>{m}</div></div>)}
+          {pokazBledy && issues.errors.map(m => <div key={m} className="note crit"><FlagIcon level="crit" size={15} /><div>{m}</div></div>)}
           {issues.warnings.map(m => <div key={m} className="note warn"><FlagIcon level="warn" size={15} /><div>{m}</div></div>)}
           {ready && !h.supplierId && <div className="note"><FlagIcon level="info" size={15} /><div>Wybierz dostawcę, żeby przyjąć dostawę.</div></div>}
           <div className="row-wrap" style={{ justifyContent: 'flex-end' }}>
