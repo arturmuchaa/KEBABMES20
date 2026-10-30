@@ -27,6 +27,8 @@ type Termin = '' | 'soon' | 'over'
 
 /** Kontrole HACCP pobieramy za tyle dni wstecz — starsze dostawy pokazują „—”, nie „brak”. */
 const DNI_HACCP = 180
+/** Od tego dnia kontrolę przyjęcia wypełnia się w MES (wdrożenie 02.09.2026). */
+const HACCP_W_SYSTEMIE_OD = '2026-09-02'
 const TABS: Array<{ key: Tab; label: string }> = [
   { key: 'overview', label: 'Przegląd' }, { key: 'numbers', label: 'Numery porządkowe' },
   { key: 'supplier', label: 'Partie dostawcy' }, { key: 'haccp', label: 'Kontrola HACCP' },
@@ -54,7 +56,8 @@ export function PrzyjeciaModule({ active, setCtx, setCmds }: { active: boolean; 
   const rodzaje = useMemo(() => mapujRodzaje(typesRes.data ?? []), [typesRes.data])
   const meat = useMemo(() => mapaMiesa(stockRes.data ?? []), [stockRes.data])
   const checks = useMemo(() => new Map((checksRes.data ?? []).map(c => [c.receptionId, c])), [checksRes.data])
-  const haccpOd = isoDni(DNI_HACCP)
+  // Kontrola HACCP przyjęcia jest w systemie od 02.09.2026 — wcześniejsze dostawy mają kartę papierową, nie „brak”.
+  const haccpOd = [isoDni(DNI_HACCP), HACCP_W_SYSTEMIE_OD].sort().reverse()[0]
   const supName = useMemo(() => new Map((supRes.data ?? []).map(s => [s.id, s.displayName || s.name])), [supRes.data])
 
   const rows = useMemo<Row[]>(() => (recRes.data ?? []).map(r => {
@@ -97,7 +100,7 @@ export function PrzyjeciaModule({ active, setCtx, setCmds }: { active: boolean; 
     { key: 'live', label: 'W obiegu', tip: 'Dostawy, z których coś jeszcze leży', test: r => r.p.stan === 'w_obiegu' },
     { key: 'today', label: 'Dziś', tip: 'Przyjęte dzisiaj', test: r => r.p.date === dzis && !r.p.cancelled },
     { key: 'week', label: '7 dni', tip: 'Przyjęte w ostatnim tygodniu', test: r => r.p.date >= tydzien && !r.p.cancelled },
-    { key: 'nohaccp', label: 'Bez HACCP', tip: `Kontrola HACCP brak lub niepełna (ostatnie ${DNI_HACCP} dni)`, test: r => !r.p.cancelled && !!r.h && r.h.status !== 'komplet' },
+    { key: 'nohaccp', label: 'Bez HACCP', tip: 'Kontrola HACCP brak lub niepełna (dostawy od 02.09.2026, gdy kontrola weszła do MES)', test: r => !r.p.cancelled && !!r.h && r.h.status !== 'komplet' },
     { key: 'all', label: 'Wszystkie', tip: 'Cała historia przyjęć (bez anulowanych)', test: r => !r.p.cancelled },
     { key: 'cancelled', label: 'Anulowane', tip: 'Dostawy anulowane — numery wróciły do puli', test: r => r.p.cancelled },
   ]
@@ -295,7 +298,7 @@ export function PrzyjeciaModule({ active, setCtx, setCmds }: { active: boolean; 
 }
 
 function HaccpTag({ h }: { h: StanHaccp | null }) {
-  if (!h) return <span className="faint" data-tip={`Kontrole starsze niż ${DNI_HACCP} dni nie są pobierane`}>—</span>
+  if (!h) return <span className="faint" data-tip="Dostawa sprzed kontroli HACCP w systemie albo starsza niż 180 dni — karta papierowa">—</span>
   if (h.ponadProg) return <span className="tag crit">Temp.!</span>
   if (h.status === 'komplet') return <span className={`tag ${h.niezgodnosc ? 'warn' : 'ok'}`}>{h.niezgodnosc ? 'Niezgodność' : 'Komplet'}</span>
   return <span className="tag warn">{h.status === 'brak' ? 'Brak' : 'Niepełne'}</span>
