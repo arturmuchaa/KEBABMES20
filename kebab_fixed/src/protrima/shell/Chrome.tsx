@@ -12,8 +12,10 @@ export interface WTab { id: string; kind: 'module' | 'order' | 'new-order' | 'ed
 export interface MenuDef { key: string; label: string; access: string; items: MenuItem[] }
 
 
-// ─── Pas 1: pasek tytułu ──────────────────────────────────────────────────
-export function TitleBar({ onPalette, onLogout }: { onPalette: () => void; onLogout: () => void }) {
+// ─── Pas tytułu: znak, menu, szukaj, konto, przyciski okna — JEDEN pas ──────
+// Menu siedzi w pasie tytułu (jak VS Code / Windows 11): mniej „chromu”, więcej
+// miejsca na dane; skróty Alt działają bez zmian.
+export function TitleBar({ onPalette, onLogout, menus }: { onPalette: () => void; onLogout: () => void; menus?: MenuDef[] }) {
   const { user } = useAuth()
   const [menu, setMenu] = useState<Element | null>(null)
   const name = user?.name ?? '—'
@@ -26,6 +28,7 @@ export function TitleBar({ onPalette, onLogout }: { onPalette: () => void; onLog
         <span className="mes" data-tauri-drag-region>MES</span>
         <ProbaZnacznik compact />
       </div>
+      {menus && <MenuBar menus={menus} />}
       <div className="tb-center" data-tauri-drag-region>
         <button className="search-trigger" onClick={onPalette} aria-label="Szukaj lub wykonaj polecenie (Ctrl+K)">
           <Search size={15} /><span>Szukaj zamówienia, klienta, wyrobu, partii, polecenia…</span><span className="kbd">Ctrl K</span>

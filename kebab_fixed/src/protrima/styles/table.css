@@ -4,9 +4,9 @@
 .tbl-wrap { flex: 1; min-height: 0; overflow: auto; background: var(--surface); position: relative; scroll-padding: 68px 0 40px; }
 .tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--fs-md); }
 .tbl th {
-  position: sticky; top: 0; z-index: 2; height: 34px; padding: 0 10px;
+  position: sticky; top: 0; z-index: 2; height: 35px; padding: 0 10px;
   background: var(--surface-alt); border-bottom: 1px solid var(--line);
-  color: var(--ink-2); font-weight: 600; font-size: var(--fs-sm); text-align: left; white-space: nowrap;
+  color: var(--ink-3); font-weight: 600; font-size: var(--fs-sm); letter-spacing: .005em; text-align: left; white-space: nowrap;
   user-select: none;
 }
 .tbl th.sortable { cursor: pointer; }
@@ -21,6 +21,7 @@
 }
 .tbl tbody tr.zebra td { background: color-mix(in srgb, var(--surface-alt) 55%, var(--surface)); }
 .tbl tbody tr.row { cursor: default; }
+.tbl tbody tr.row td { transition: background-color .08s; }
 .tbl tbody tr.row:hover td { background: var(--accent-tint-2); }
 .tbl tbody tr.row.sel td { background: var(--accent-tint); }
 .tbl tbody tr.row.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }

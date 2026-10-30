@@ -16,6 +16,7 @@ import { deboningApi, meatStockApi, productionPlansApi, productionSessionsApi, r
 import { filterDeboningBatches } from '@/features/dashboard/dashboardLists'
 import { computeDisplayStatus } from '@/components/ui/badge'
 import type { RawBatch } from '@/types'
+import { fig } from '../../ui/Fig'
 
 type Open = Array<{ o: Order; m: ReturnType<typeof computeMetrics> }>
 interface PlanLite { id: string; planNo: string; planDate: string; status: string; lines: Array<{ qty: number; kgPerUnit: number; qtyDone: number; recipeName: string }> }
@@ -130,10 +131,10 @@ function RawPanel({ raw }: { raw: Surowiec }) {
       </div>
       <div className="raw-grid">
         <div className="raw-kpis">
-          <div className="kpi"><span className="k">Ćwiartka na stanie</span><span className="v">{kg(raw.kgCwiartki)}</span><span className="s">≈ {num(raw.pojemniki)} pojemników · {raw.partie.length} {raw.partie.length === 1 ? 'partia' : 'partii'}</span></div>
-          <div className="kpi"><span className="k">Pobrano dziś do rozbioru</span><span className="v">{kg(raw.dzisPobrano)}</span><span className="s">{raw.dzisWpisow} {raw.dzisWpisow === 1 ? 'pobranie' : 'pobrań'}{raw.dzisOtwarte > 0 ? ` · ${raw.dzisOtwarte} w toku` : ''}</span></div>
-          <div className="kpi"><span className="k">Mięso z/s dziś</span><span className="v">{kg(raw.dzisMieso)}</span><span className="s">{raw.wydajnosc === null ? 'brak domkniętych wpisów' : <>wydajność <b className={raw.wydajnosc < 60 || raw.wydajnosc > 71 ? 'warn-ink' : ''}>{raw.wydajnosc.toFixed(1).replace('.', ',')}%</b></>}</span></div>
-          <div className="kpi"><span className="k">Mięso z/s w terminie</span><span className="v">{kg(raw.kgMiesa)}</span><span className="s">{raw.partiiPoTerminie > 0
+          <div className="kpi"><span className="k">Ćwiartka na stanie</span><span className="v fig">{fig(kg(raw.kgCwiartki))}</span><span className="s">≈ {num(raw.pojemniki)} pojemników · {raw.partie.length} {raw.partie.length === 1 ? 'partia' : 'partii'}</span></div>
+          <div className="kpi"><span className="k">Pobrano dziś do rozbioru</span><span className="v fig">{fig(kg(raw.dzisPobrano))}</span><span className="s">{raw.dzisWpisow} {raw.dzisWpisow === 1 ? 'pobranie' : 'pobrań'}{raw.dzisOtwarte > 0 ? ` · ${raw.dzisOtwarte} w toku` : ''}</span></div>
+          <div className="kpi"><span className="k">Mięso z/s dziś</span><span className="v fig">{fig(kg(raw.dzisMieso))}</span><span className="s">{raw.wydajnosc === null ? 'brak domkniętych wpisów' : <>wydajność <b className={raw.wydajnosc < 60 || raw.wydajnosc > 71 ? 'warn-ink' : ''}>{raw.wydajnosc.toFixed(1).replace('.', ',')}%</b></>}</span></div>
+          <div className="kpi"><span className="k">Mięso z/s w terminie</span><span className="v fig">{fig(kg(raw.kgMiesa))}</span><span className="s">{raw.partiiPoTerminie > 0
             ? <span className="warn-ink" data-tip="Partie z datą przydatności w przeszłości, które w ewidencji nadal są dostępne — do wyjaśnienia w magazynie (korekta stanu w starym MES)">+ {kg(raw.kgMiesaPoTerminie)} po terminie ({raw.partiiPoTerminie} partii)</span>
             : 'gotowe do masowania'}</span></div>
         </div>

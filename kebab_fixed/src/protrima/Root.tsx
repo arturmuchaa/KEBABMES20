@@ -45,6 +45,8 @@ function Bramka() {
   return <OrdersProvider><App /></OrdersProvider>
 }
 
+const ETAPY = ['Przyjęcie surowca', 'Rozbiór', 'Masowanie', 'Produkcja', 'Wyrób gotowy', 'Wysyłka']
+
 function Logowanie({ blad: bladZewn }: { blad?: string }) {
   const { loginOffice, logout, user } = useAuth()
   const [login, setLogin] = useState('')
@@ -68,11 +70,23 @@ function Logowanie({ blad: bladZewn }: { blad?: string }) {
   }
 
   return (
-    <div className="login-wrap">
+    <div className="login-wrap split">
+      {/* Panel marki: linia procesu zakładu — ten sam motyw co „Przebieg dnia” na Pulpicie. */}
+      <aside className="login-side" aria-hidden="true">
+        <Logo height={30} />
+        <div className="ls-copy">
+          <h2>Produkcja pod kontrolą</h2>
+          <p>Od przyjęcia surowca do wysyłki: zamówienia, magazyn, dokumenty i HACCP w jednym miejscu.</p>
+        </div>
+        <ol className="ls-rail">
+          {ETAPY.map(e => <li key={e}><i />{e}</li>)}
+        </ol>
+        <span className="ls-foot">PROTRIMA {__PROTRIMA_VERSION__}</span>
+      </aside>
       <form className="login-card" onSubmit={submit} aria-labelledby="login-h">
-        <div className="login-brand"><Logo height={34} /><ProbaZnacznik /></div>
-        <h1 id="login-h">Logowanie</h1>
-        <p className="muted">Konto biurowe z MES — ten sam login i hasło. Dane pochodzą z KOPII bazy produkcji; zmiany tutaj nie trafiają do prawdziwego MES.</p>
+        <div className="login-brand"><span className="login-logo"><Logo height={30} /></span><ProbaZnacznik /></div>
+        <h1 id="login-h">Zaloguj się</h1>
+        <p className="muted">Konto biurowe z MES: ten sam login i hasło. Dane pochodzą z KOPII bazy produkcji; zmiany tutaj nie trafiają do prawdziwego MES.</p>
         <label className="label" htmlFor="login">Login</label>
         <input id="login" className="field" autoComplete="username" autoFocus value={login} onChange={e => setLogin(e.target.value)} />
         <label className="label" htmlFor="haslo">Hasło</label>
@@ -83,3 +97,5 @@ function Logowanie({ blad: bladZewn }: { blad?: string }) {
     </div>
   )
 }
+
+declare const __PROTRIMA_VERSION__: string
