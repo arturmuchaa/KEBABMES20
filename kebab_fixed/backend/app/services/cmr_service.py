@@ -65,7 +65,14 @@ def country_from_nip(nip: str, default: str = "Poland") -> str:
 
 
 def _carrier_snapshot(carrier_id: str, plate: str) -> Dict[str, Any]:
+    """Pole 16 CMR. Numer rejestracyjny idzie TYLKO z wybranym przewoźnikiem.
+
+    Biuro (30.10.2026): przy własnym aucie (np. KOL47267 z załadunku) bez
+    przewoźnika numer nie ma się drukować — wcześniej wchodził z kursu.
+    """
     c = query_one("SELECT * FROM carriers WHERE id=%s", (carrier_id,)) if carrier_id else None
+    if not c:
+        plate = ""
     c = c or {}
     return {
         "name": c.get("name", ""), "address": c.get("address", ""),
