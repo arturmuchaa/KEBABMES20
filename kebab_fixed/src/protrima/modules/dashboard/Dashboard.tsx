@@ -12,7 +12,10 @@ import { FlagIcon, StageNode, LEVEL_WORD } from '../../ui/Glyphs'
 import { FAZA_ZAPISU } from '../../proba'
 import { useApi } from '@/hooks/useApi'
 import { useLiveRefresh } from '@/hooks/useLiveRefresh'
-import { productionPlansApi, productionSessionsApi, receptionChecksApi, seasonedMeatApi, zaladunkiApi, type ZaladunekDoWydruku } from '@/lib/api'
+import { deboningApi, meatStockApi, productionPlansApi, productionSessionsApi, rawBatchesApi, receptionChecksApi, seasonedMeatApi, zaladunkiApi, type ZaladunekDoWydruku } from '@/lib/api'
+import { filterDeboningBatches } from '@/features/dashboard/dashboardLists'
+import { computeDisplayStatus } from '@/components/ui/badge'
+import type { RawBatch } from '@/types'
 
 type Open = Array<{ o: Order; m: ReturnType<typeof computeMetrics> }>
 interface PlanLite { id: string; planNo: string; planDate: string; status: string; lines: Array<{ qty: number; kgPerUnit: number; qtyDone: number; recipeName: string }> }
@@ -33,12 +36,18 @@ export function Dashboard({ active, setCtx, setCmds }: { active: boolean; setCtx
   const pendingRes = useApi(() => productionSessionsApi.pending())
   const haccpRes = useApi(() => receptionChecksApi.pending(14))
   const kursyRes = useApi(() => zaladunkiApi.doWydruku())
-  useLiveRefresh({ plansRes, seasonedRes, pendingRes, haccpRes, kursyRes }, 30_000)
+  const batchRes = useApi(() => rawBatchesApi.list({ active_only: true, limit: 500 }))
+  const matTypesRes = useApi(() => rawBatchesApi.materialTypes())
+  const debRes = useApi(() => deboningApi.list())
+  const meatRes = useApi(() => meatStockApi.list())
+  useLiveRefresh({ plansRes, seasonedRes, pendingRes, haccpRes, kursyRes, batchRes, debRes, meatRes }, 30_000)
+  const raw = useMemo(() => surowiec(batchRes.data?.data ?? [], (matTypesRes.data ?? []) as never[], (debRes.data?.data ?? []) as unknown[], (meatRes.data?.data ?? []) as Array<{ status?: string; kgAvailable: number }>), [batchRes.data, matTypesRes.data, debRes.data, meatRes.data])
 
   const ext: Ext = {
     plans: plansRes.data ?? [], seasoned: seasonedRes.data ?? [],
     pending: pendingRes.data?.length ?? 0, haccp: haccpRes.data?.length ?? 0, kursy: kursyRes.data ?? [],
     stockKg: stock.reduce((a, p) => a + posKg(p), 0), allocKg: stock.reduce((a, p) => a + (p.orderNo ? posKg(p) : 0), 0),
+    raw,
   }
 
   const cmds = useMemo<Cmd[]>(() => [
@@ -60,6 +69,7 @@ export function Dashboard({ active, setCtx, setCmds }: { active: boolean; setCtx
       <CommandBar title="Pulpit zakładu" count={`${longDate(TODAY)}${stamp ? ` · stan na ${stamp.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}` : ''}`} cmds={cmds} />
       <div className="dash">
         <ProcessPanel open={open} ext={ext} />
+        <RawPanel raw={raw} />
         <AttentionPanel open={open} ext={ext} />
         <ProductionPanel plans={ext.plans} />
         <DuePanel open={open} />
@@ -72,7 +82,80 @@ export function Dashboard({ active, setCtx, setCmds }: { active: boolean; setCtx
 
 interface Ext {
   plans: PlanLite[]; seasoned: SeasonedLite[]; pending: number; haccp: number; kursy: ZaladunekDoWydruku[]
-  stockKg: number; allocKg: number
+  stockKg: number; allocKg: number; raw: Surowiec
+}
+
+// ─── Ćwiartka i rozbiór — te same reguły co stary pulpit (DashboardPage) ──
+/** Ćwiartka pakowana po 15 kg na pojemnik (jak w starym MES). */
+const KG_POJEMNIK = 15
+interface Surowiec {
+  partie: RawBatch[]; kgCwiartki: number; pojemniki: number
+  dzisPobrano: number; dzisWpisow: number; dzisOtwarte: number; dzisMieso: number; wydajnosc: number | null
+  kgMiesa: number; najblizszyTermin: string | null
+}
+const num0 = (v: unknown) => Number(v ?? 0) || 0
+function surowiec(batches: RawBatch[], typy: never[], deb: unknown[], meat: Array<{ status?: string; kgAvailable: number }>): Surowiec {
+  // Partie, które idą na rozbiór (mięso z/s, filet itp. omija rozbiór) i nie są zużyte.
+  const partie = filterDeboningBatches(batches, typy).filter(b => computeDisplayStatus(b.expiryDate, Number(b.kgAvailable)) !== 'used')
+    .sort((a, b) => (a.expiryDate || '9').localeCompare(b.expiryDate || '9'))
+  const kgCwiartki = partie.reduce((s, b) => s + Number(b.kgAvailable), 0)
+  const dzis = new Date().toISOString().slice(0, 10)
+  const wpisy = deb.map(d => d as Record<string, unknown>).filter(d => String(d.createdAt ?? d.created_at ?? '').slice(0, 10) === dzis)
+  // Wydajność tylko z domkniętych wpisów — otwarte pobranie (mięso czeka na wagę) zaniżałoby procent.
+  const domkniete = wpisy.filter(d => (d.status ?? 'complete') === 'complete')
+  const pobranoDomk = domkniete.reduce((s, d) => s + num0(d.kgTaken ?? d.kg_taken), 0)
+  const mieso = domkniete.reduce((s, d) => s + num0(d.kgMeat ?? d.kg_meat), 0)
+  return {
+    partie, kgCwiartki, pojemniki: Math.ceil(kgCwiartki / KG_POJEMNIK),
+    dzisPobrano: wpisy.reduce((s, d) => s + num0(d.kgTaken ?? d.kg_taken), 0), dzisWpisow: wpisy.length,
+    dzisOtwarte: wpisy.length - domkniete.length, dzisMieso: mieso, wydajnosc: pobranoDomk > 0 ? mieso / pobranoDomk * 100 : null,
+    kgMiesa: meat.filter(m => m.status === 'AVAILABLE' && Number(m.kgAvailable) > 0).reduce((s, m) => s + Number(m.kgAvailable), 0),
+    najblizszyTermin: partie.find(b => b.expiryDate)?.expiryDate ?? null,
+  }
+}
+
+function RawPanel({ raw }: { raw: Surowiec }) {
+  const app = useApp()
+  const dzis = new Date(); dzis.setHours(0, 0, 0, 0)
+  const dniDo = (iso: string) => { const d = dataZApi(iso); return d ? Math.round((d.getTime() - dzis.getTime()) / 86_400_000) : null }
+  return (
+    <section className="panel p-raw" aria-label="Ćwiartka i rozbiór">
+      <div className="panel-h"><h2>Ćwiartka i rozbiór</h2><span className="sub">stan ćwiartki, rozbiór dziś, mięso z/s gotowe do masowania</span>
+        <span className="tools"><button className="btn sm ghost" onClick={() => app.openModule('rozbior')}>Rozbiór<ArrowRight size={14} /></button></span>
+      </div>
+      <div className="raw-grid">
+        <div className="raw-kpis">
+          <div className="kpi"><span className="k">Ćwiartka na stanie</span><span className="v">{kg(raw.kgCwiartki)}</span><span className="s">≈ {num(raw.pojemniki)} pojemników · {raw.partie.length} {raw.partie.length === 1 ? 'partia' : 'partii'}</span></div>
+          <div className="kpi"><span className="k">Pobrano dziś do rozbioru</span><span className="v">{kg(raw.dzisPobrano)}</span><span className="s">{raw.dzisWpisow} {raw.dzisWpisow === 1 ? 'pobranie' : 'pobrań'}{raw.dzisOtwarte > 0 ? ` · ${raw.dzisOtwarte} w toku` : ''}</span></div>
+          <div className="kpi"><span className="k">Mięso z/s dziś</span><span className="v">{kg(raw.dzisMieso)}</span><span className="s">{raw.wydajnosc === null ? 'brak domkniętych wpisów' : <>wydajność <b className={raw.wydajnosc < 60 || raw.wydajnosc > 71 ? 'warn-ink' : ''}>{raw.wydajnosc.toFixed(1).replace('.', ',')}%</b></>}</span></div>
+          <div className="kpi"><span className="k">Mięso z/s na stanie</span><span className="v">{kg(raw.kgMiesa)}</span><span className="s">gotowe do masowania</span></div>
+        </div>
+        <div className="raw-tbl">
+          <table className="tbl">
+            <thead><tr><th>Partia</th><th>Dostawca</th><th className="num">Przyjęto</th><th className="num">Zostało</th><th>Zużycie</th><th>Termin</th></tr></thead>
+            <tbody>
+              {raw.partie.length === 0 && <tr><td colSpan={6}><div className="empty">Brak ćwiartki na stanie.</div></td></tr>}
+              {raw.partie.map(b => {
+                const rec = Number(b.kgReceived) || 0, av = Number(b.kgAvailable) || 0
+                const used = rec > 0 ? Math.min(100, Math.max(0, (rec - av) / rec * 100)) : 0
+                const dd = b.expiryDate ? dniDo(b.expiryDate) : null
+                return (
+                  <tr key={b.id} className="row">
+                    <td className="code strong">{b.internalBatchNo || '—'}</td>
+                    <td className="ell" style={{ maxWidth: 200 }}>{b.supplierDisplayName || b.supplierName || '—'}</td>
+                    <td className="num">{kg(rec)}</td>
+                    <td className="num strong">{kg(av)}</td>
+                    <td><span className="reach ok"><span className="rt" aria-hidden="true"><i style={{ width: `${used}%` }} /></span><span className="rv">{pct(used)}</span></span></td>
+                    <td>{b.expiryDate ? <span className={dd !== null && dd < 0 ? 'crit-ink strong' : dd !== null && dd <= 3 ? 'warn-ink strong' : ''}>{fmtDate(dataZApi(b.expiryDate))}{dd !== null && <span className="sub">{dd < 0 ? `${-dd} dni po terminie` : dd === 0 ? 'dziś' : `za ${dd} dni`}</span>}</span> : '—'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  )
 }
 const planKg = (p: PlanLite) => p.lines.reduce((a, l) => a + l.qty * l.kgPerUnit, 0)
 const planDoneKg = (p: PlanLite) => p.lines.reduce((a, l) => a + Math.min(l.qtyDone, l.qty) * l.kgPerUnit, 0)

@@ -1,0 +1,19 @@
+/* Wydruki PROTRIMA: arkusz w portalu, reszta aplikacji znika z papieru. */
+.print-sheet { display: none; }
+@media print {
+  @page { size: A4; margin: 12mm; }
+  body > *:not(.print-sheet) { display: none !important; }
+  html, body { height: auto !important; background: #fff !important; }
+  .print-sheet { display: block; color: #000; font-family: var(--font-ui); font-size: 10.5pt; }
+  .print-sheet .ps-head { display: flex; gap: 16px; align-items: center; border-bottom: 1.5px solid #000; padding-bottom: 8px; margin-bottom: 10px; }
+  .print-sheet .ps-head img { height: 48px; width: auto; }
+  .print-sheet h1 { font-size: 15pt; margin: 0 0 2px; }
+  .print-sheet .ps-sub { font-size: 10pt; }
+  .print-sheet table { width: 100%; border-collapse: collapse; }
+  .print-sheet th, .print-sheet td { border: 1px solid #888; padding: 3px 6px; background: #fff !important; color: #000 !important; height: auto !important; }
+  .print-sheet th { font-weight: 600; text-align: left; }
+  .print-sheet .num { text-align: right; }
+  .print-sheet tfoot td { font-weight: 700; }
+  .print-sheet tr { break-inside: avoid; }
+  .print-sheet .ps-foot { margin-top: 10px; font-size: 8.5pt; color: #333; }
+}

@@ -10,10 +10,13 @@ import { posKg, daysLeft, STOCK_STATUS, type StockPos } from '../../data/stock'
 import { FlagIcon } from '../../ui/Glyphs'
 import { BEZ_DRUKU_ETYKIET, FAZA_ZAPISU } from '../../proba'
 import { useDock } from '../../shell/useDock'
+import { StanDlaKlientaDialog, klientPozycji, WOLNE } from './StanDlaKlienta'
 
 type View = 'all' | 'free' | 'allocated' | 'pallet' | 'blocked' | 'short'
 type Tab = 'details' | 'alloc' | 'cartons' | 'moves' | 'trace'
-type GroupBy = 'product' | 'location' | 'none'
+type GroupBy = 'product' | 'location' | 'client' | 'none'
+type Okres = '' | 'd1' | 'd7' | 'd30' | 'old30'
+const OKRES: Record<Exclude<Okres, ''>, string> = { d1: 'dziś i wczoraj', d7: 'ostatnie 7 dni', d30: 'ostatnie 30 dni', old30: 'starsze niż 30 dni' }
 type SortCol = 'product' | 'batch' | 'prod' | 'bb' | 'qty' | 'kg'
 
 const SHORT_DAYS = 14
@@ -44,6 +47,13 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const [view, setView] = useState<View>('all')
   const [q, setQ] = useState('')
   const [recipes, setRecipes] = useState<string[]>([])
+  // Filtry: klient (z listy), rodzaj, gramatura, opakowanie, okres produkcji.
+  const [klient, setKlient] = useState('')
+  const [types, setTypes] = useState<string[]>([])
+  const [weights, setWeights] = useState<number[]>([])
+  const [packs, setPacks] = useState<string[]>([])
+  const [okres, setOkres] = useState<Okres>('')
+  const [stanOpen, setStanOpen] = useState(false)
   const [groupBy, setGroupBy] = useState<GroupBy>('product')
   const [sort, setSort] = useState<{ col: SortCol; dir: 1 | -1 } | null>(null)
   const [sel, setSel] = useState<string | null>(null)
@@ -55,7 +65,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const listRef = useRef<HTMLDivElement>(null)
   const workRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
-  const recipeMenu = useMenu(), groupMenu = useMenu()
+  const recipeMenu = useMenu(), groupMenu = useMenu(), typeMenu = useMenu(), weightMenu = useMenu(), packMenu = useMenu(), okresMenu = useMenu()
 
   useEffect(() => {
     if (!cmd.n) return
@@ -77,6 +87,15 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
     const t = q.trim().toLowerCase()
     let list = rows.filter(VIEWS.find(v => v.key === view)!.test)
     if (recipes.length) list = list.filter(r => recipes.includes(r.p.recipe))
+    if (klient) list = list.filter(r => klientPozycji(r.p) === klient)
+    if (types.length) list = list.filter(r => types.includes(r.p.product))
+    if (weights.length) list = list.filter(r => weights.includes(r.p.kgPerUnit))
+    if (packs.length) list = list.filter(r => packs.includes(r.p.packaging))
+    if (okres) {
+      const dni = (p: StockPos) => p.prodDate ? Math.round((Date.now() - p.prodDate.getTime()) / 86_400_000) : 9999
+      const lim = { d1: 1, d7: 7, d30: 30, old30: 30 }[okres]
+      list = list.filter(r => okres === 'old30' ? dni(r.p) > lim : dni(r.p) <= lim)
+    }
     if (t) list = list.filter(r => [r.p.recipe, r.p.product, r.p.batch, r.p.location, `${r.p.kgPerUnit} kg`, r.p.orderNo ?? '', r.p.clientName ?? '', r.p.planNo ?? '', ...r.p.cartons].join(' ').toLowerCase().includes(t))
     const base = (a: Row, b: Row) => a.p.recipe.localeCompare(b.p.recipe) || a.p.kgPerUnit - b.p.kgPerUnit || (a.p.prodDate?.getTime() ?? 0) - (b.p.prodDate?.getTime() ?? 0)
     return [...list].sort((a, b) => {
@@ -91,11 +110,11 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
         case 'kg': return d * (posKg(a.p) - posKg(b.p))
       }
     })
-  }, [rows, view, recipes, q, sort]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rows, view, recipes, q, sort, klient, types, weights, packs, okres]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const groups = useMemo(() => {
     if (groupBy === 'none') return [{ key: 'all', label: '', rows: visible }]
-    const keyOf = (r: Row) => groupBy === 'product' ? `${r.p.recipe} ${r.p.kgPerUnit} kg` : (r.p.orderNo ? `${r.p.clientName ?? ''} ${r.p.orderNo}` : 'Wolne')
+    const keyOf = (r: Row) => groupBy === 'product' ? `${r.p.recipe} ${r.p.kgPerUnit} kg` : groupBy === 'client' ? klientPozycji(r.p) : (r.p.orderNo ? `${r.p.clientName ?? ''} ${r.p.orderNo}` : 'Wolne')
     const m = new Map<string, Row[]>()
     visible.forEach(r => m.set(keyOf(r), [...(m.get(keyOf(r)) ?? []), r]))
     return [...m.entries()].map(([k, rs]) => ({ key: k, label: k, rows: rs }))
@@ -124,6 +143,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
       { label: 'Rozchód wewnętrzny…', icon: <MoveRight size={15} />, onSelect: () => demo('Rozchód wewnętrzny') },
     ] },
     { id: 'print', group: 4, label: 'Etykieta', icon: <Tag size={17} />, kbd: 'Ctrl+P', disabled: !sp, run: () => app.toast({ kind: 'warn', title: 'Etykieta kartonu', detail: BEZ_DRUKU_ETYKIET }) },
+    { id: 'stan', group: 4, label: 'Stan dla klienta', icon: <ClipboardCheck size={17} />, tip: 'Wydruk: co klient ma na magazynie', run: () => setStanOpen(true) },
     { id: 'inv', group: 4, label: 'Inwentaryzacja', icon: <ClipboardCheck size={17} />, opt: true, run: () => demo('Inwentaryzacja') },
     { id: 'export', group: 5, label: 'Eksport do Excela', icon: <FileSpreadsheet size={15} />, menuOnly: true, run: () => demo('Eksport do Excela', 'Eksport dojdzie po próbie wyglądu. Teraz: stary MES.') },
   ], [canAlloc, sp, app]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -165,6 +185,14 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
       {label}<span className="sort">{on ? (sort!.dir === 1 ? <ArrowUp size={13} /> : <ArrowDown size={13} />) : null}</span></th>
   }
   const recipeOpts = [...new Set(stock.map(p => p.recipe))].sort()
+  const typeOpts = [...new Set(stock.map(p => p.product))].sort()
+  const weightOpts = [...new Set(stock.map(p => p.kgPerUnit))].sort((a, b) => a - b)
+  const packOpts = [...new Set(stock.map(p => p.packaging))].sort()
+  const klientOpts = useMemo(() => {
+    const m = new Map<string, number>()
+    stock.forEach(p => m.set(klientPozycji(p), (m.get(klientPozycji(p)) ?? 0) + 1))
+    return [...m.entries()].sort((a, b) => a[0] === WOLNE ? 1 : b[0] === WOLNE ? -1 : a[0].localeCompare(b[0], 'pl'))
+  }, [stock])
   const COLS = 12
 
   return (
@@ -184,13 +212,33 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
           <input ref={searchRef} id="stock-search" className="field" placeholder="Partia, karton, receptura, zamówienie…" value={q} onChange={e => setQ(e.target.value)} aria-label="Szukaj w magazynie" />
           {!q && <span className="kbd">Ctrl F</span>}
         </div>
+        <select className={`field chip-select${klient ? ' on' : ''}`} value={klient} onChange={e => setKlient(e.target.value)} aria-label="Klient" data-tip="Pokaż wyrób jednego klienta (z numerem jego zamówienia)">
+          <option value="">Klient: wszyscy</option>
+          {klientOpts.map(([k, n]) => <option key={k} value={k}>{k} ({n})</option>)}
+        </select>
+        <button className={`chip${types.length ? ' on' : ''}`} onClick={typeMenu.open}>
+          Rodzaj{types.length ? `: ${types.length === 1 ? types[0] : types.length}` : ''}
+          {types.length ? <span className="x" role="button" aria-label="Wyczyść filtr rodzaju" onClick={e => { e.stopPropagation(); setTypes([]) }}><X size={13} /></span> : <ChevronDown size={14} />}
+        </button>
         <button className={`chip${recipes.length ? ' on' : ''}`} onClick={recipeMenu.open}>
           Receptura{recipes.length ? `: ${recipes.join(', ')}` : ''}
           {recipes.length ? <span className="x" role="button" aria-label="Wyczyść filtr receptury" onClick={e => { e.stopPropagation(); setRecipes([]) }}><X size={13} /></span> : <ChevronDown size={14} />}
         </button>
-        {q && <button className="btn sm ghost" onClick={() => setQ('')}>Wyczyść</button>}
+        <button className={`chip${weights.length ? ' on' : ''}`} onClick={weightMenu.open}>
+          Gramatura{weights.length ? `: ${weights.map(w => `${w} kg`).join(', ')}` : ''}
+          {weights.length ? <span className="x" role="button" aria-label="Wyczyść filtr gramatury" onClick={e => { e.stopPropagation(); setWeights([]) }}><X size={13} /></span> : <ChevronDown size={14} />}
+        </button>
+        <button className={`chip hide-s${packs.length ? ' on' : ''}`} onClick={packMenu.open}>
+          Opakowanie{packs.length ? `: ${packs.length === 1 ? packs[0] : packs.length}` : ''}
+          {packs.length ? <span className="x" role="button" aria-label="Wyczyść filtr opakowania" onClick={e => { e.stopPropagation(); setPacks([]) }}><X size={13} /></span> : <ChevronDown size={14} />}
+        </button>
+        <button className={`chip${okres ? ' on' : ''}`} onClick={okresMenu.open}>
+          Produkcja{okres ? `: ${OKRES[okres]}` : ''}
+          {okres ? <span className="x" role="button" aria-label="Wyczyść filtr daty" onClick={e => { e.stopPropagation(); setOkres('') }}><X size={13} /></span> : <ChevronDown size={14} />}
+        </button>
+        {(q || klient || types.length || recipes.length || weights.length || packs.length || okres) ? <button className="btn sm ghost" onClick={() => { setQ(''); setKlient(''); setTypes([]); setRecipes([]); setWeights([]); setPacks([]); setOkres('') }}>Wyczyść filtry</button> : null}
         <span className="grow" />
-        <button className="btn sm ghost" onClick={groupMenu.open}><Rows3 size={15} />Grupuj: {groupBy === 'product' ? 'wyrób' : groupBy === 'location' ? 'zamówienie' : 'brak'}<ChevronDown size={14} /></button>
+        <button className="btn sm ghost" onClick={groupMenu.open}><Rows3 size={15} />Grupuj: {groupBy === 'product' ? 'wyrób' : groupBy === 'location' ? 'zamówienie' : groupBy === 'client' ? 'klient' : 'brak'}<ChevronDown size={14} /></button>
       </div>
 
       <div className={`workarea${dock.side ? ' side' : ''}`} ref={workRef}>
@@ -250,9 +298,15 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
       </div>
 
       {recipeMenu.anchor && <Menu anchor={recipeMenu.anchor} onClose={recipeMenu.close} items={[{ header: 'Receptura' }, ...recipeOpts.map(r => ({ label: r, checked: recipes.includes(r), onSelect: () => setRecipes(a => a.includes(r) ? a.filter(x => x !== r) : [...a, r]) }))]} />}
+      {typeMenu.anchor && <Menu anchor={typeMenu.anchor} onClose={typeMenu.close} items={[{ header: 'Rodzaj' }, ...typeOpts.map(t => ({ label: t, checked: types.includes(t), onSelect: () => setTypes(a => a.includes(t) ? a.filter(x => x !== t) : [...a, t]) }))]} />}
+      {weightMenu.anchor && <Menu anchor={weightMenu.anchor} onClose={weightMenu.close} items={[{ header: 'Gramatura' }, ...weightOpts.map(w => ({ label: `${w} kg`, checked: weights.includes(w), onSelect: () => setWeights(a => a.includes(w) ? a.filter(x => x !== w) : [...a, w]) }))]} />}
+      {packMenu.anchor && <Menu anchor={packMenu.anchor} onClose={packMenu.close} items={[{ header: 'Opakowanie' }, ...packOpts.map(t => ({ label: t || '(bez opakowania)', checked: packs.includes(t), onSelect: () => setPacks(a => a.includes(t) ? a.filter(x => x !== t) : [...a, t]) }))]} />}
+      {okresMenu.anchor && <Menu anchor={okresMenu.anchor} onClose={okresMenu.close} items={[{ header: 'Data produkcji' }, ...(Object.keys(OKRES) as Array<Exclude<Okres, ''>>).map(k => ({ label: OKRES[k], checked: okres === k, onSelect: () => setOkres(k) }))]} />}
+      {stanOpen && <StanDlaKlientaDialog stock={stock} start={klient} onClose={() => setStanOpen(false)} />}
       {groupMenu.anchor && <Menu anchor={groupMenu.anchor} align="right" onClose={groupMenu.close} items={[
         { header: 'Grupowanie listy' },
         { label: 'Według wyrobu (receptura × gramatura)', icon: <Layers size={15} />, checked: groupBy === 'product', onSelect: () => setGroupBy('product') },
+        { label: 'Według klienta', icon: <Layers size={15} />, checked: groupBy === 'client', onSelect: () => setGroupBy('client') },
         { label: 'Według zamówienia', icon: <Snowflake size={15} />, checked: groupBy === 'location', onSelect: () => setGroupBy('location') },
         { label: 'Bez grupowania', icon: <Rows3 size={15} />, checked: groupBy === 'none', onSelect: () => setGroupBy('none') },
       ]} />}

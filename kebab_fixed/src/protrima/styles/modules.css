@@ -341,3 +341,21 @@ button.pstage:hover .pn { background: var(--accent-tint-2); }
 :root[data-uklad="prosty"] .tbl .sub.hide-m { display: none; }
 .workarea.side .list-pane .side-hide { display: none !important; }
 .workarea.side .pline.mini .pstage .rail { display: none; }
+
+/* Wybór klienta z listy na pasku filtrów — wygląda jak chip. */
+.chip-select { width: auto; max-width: 240px; height: 30px; padding: 0 8px; border-radius: 15px; font-size: var(--fs-sm); }
+.chip-select.on { border-color: var(--accent); background: var(--accent-tint-2); color: var(--accent-ink); font-weight: 600; }
+.menu { max-height: min(70vh, 520px); overflow-y: auto; }
+
+/* ─── Pulpit: ćwiartka i rozbiór ─────────────────────────────────────── */
+.dash { grid-template-rows: max-content max-content minmax(336px, 1.1fr) minmax(312px, 1fr); }
+.dash .p-raw { grid-column: 1 / -1; }
+.raw-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); min-height: 0; }
+.raw-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-right: 1px solid var(--line-soft); }
+.raw-kpis .kpi { display: flex; flex-direction: column; gap: 2px; padding: 12px 16px; border-bottom: 1px solid var(--line-soft); }
+.raw-kpis .kpi:nth-child(odd) { border-right: 1px solid var(--line-soft); }
+.raw-kpis .kpi .k { font-size: var(--fs-sm); color: var(--ink-3); }
+.raw-kpis .kpi .v { font-size: var(--fs-fig); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink-1); }
+.raw-kpis .kpi .s { font-size: var(--fs-sm); color: var(--ink-3); }
+.raw-tbl { max-height: 232px; overflow: auto; }
+@media (max-width: 1400px) { .raw-grid { grid-template-columns: minmax(0, 1fr); } .raw-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); border-right: 0; } .raw-kpis .kpi { border-right: 1px solid var(--line-soft); } }

@@ -1,7 +1,8 @@
 /* ==========================================================================
    PROTRIMA — tokeny systemu projektowego
    --------------------------------------------------------------------------
-   Układ: ciemny pasek roboczy (karty modułów) → jasny obszar pracy z panelami
+   Jasny, lekki układ do wielogodzinnej pracy (30.10.2026: mniej szarości i linii).
+   Układ: pasek roboczy (karty modułów) → jasny obszar pracy z panelami
    oddzielonymi liniami, nie cieniami. Akcent kobaltowy tylko dla zaznaczenia,
    fokusu i głównej akcji; kolory stanów (czerwony/bursztyn/zielony) tylko dla
    wyjątków. Tła nigdy czysto białe, tekst nigdy czysto czarny.
@@ -9,31 +10,31 @@
 
 :root {
   /* — Neutralne (lekko chłodne, w stronę akcentu) — */
-  --canvas:        #E6E9ED;   /* tło za panelami */
-  --surface:       #F7F8FA;   /* panele, tabele */
-  --surface-alt:   #EFF1F4;   /* naprzemienne wiersze, nagłówki tabel */
-  --surface-sunk:  #E9ECF0;   /* pola tylko-do-odczytu, tory wskaźników */
-  --field:         #FCFCFD;   /* pola formularzy */
-  --line:          #C9CFD7;   /* obramowania paneli i kontrolek */
-  --line-soft:     #DCE0E6;   /* linie wierszy */
-  --line-strong:   #9AA3AF;   /* obramowanie aktywnego pola */
+  --canvas:        #F0F2F5;   /* tło za panelami */
+  --surface:       #FDFDFE;   /* panele, tabele */
+  --surface-alt:   #F6F7F9;   /* naprzemienne wiersze, nagłówki tabel */
+  --surface-sunk:  #EEF0F3;   /* pola tylko-do-odczytu, tory wskaźników */
+  --field:         #FFFFFF;   /* pola formularzy */
+  --line:          #DADFE5;   /* obramowania paneli i kontrolek */
+  --line-soft:     #ECEEF1;   /* linie wierszy */
+  --line-strong:   #A9B1BC;   /* obramowanie aktywnego pola */
 
-  --ink-1:         #161D26;   /* tekst podstawowy */
-  --ink-2:         #3A4553;   /* tekst drugorzędny */
+  --ink-1:         #1F2731;   /* tekst podstawowy */
+  --ink-2:         #424C59;   /* tekst drugorzędny */
   --ink-3:         #5A6675;   /* etykiety, opisy (≥ 4.5:1 na --surface) */
   --ink-4:         #7D8896;   /* wskazówki, nieaktywne */
 
   /* — Chrom okna (pasek menu, karty, nawigacja, pasek stanu) — jasny jak Windows 11 — */
-  --bar:           #ECEFF3;
-  --bar-2:         #DEE3E9;
+  --bar:           #F7F8FA;
+  --bar-2:         #ECEFF3;
   --bar-ink:       #18202A;
   --bar-ink-2:     #4A5564;
-  --nav:           #ECEFF3;
-  --nav-hover:     #DEE3E9;
-  --status:        #E3E7EC;
+  --nav:           #F7F8FA;
+  --nav-hover:     #ECEFF3;
+  --status:        #F3F5F7;
   --win-close:     #C42B1C;
-  --chrome-1:      #E8ECF0;   /* pasek tytułu z logo */
-  --chrome-2:      #F3F5F8;   /* menu i pasek narzędzi — jeden pas jak w klasycznym Windows */
+  --chrome-1:      #F7F8FA;   /* pasek tytułu z logo */
+  --chrome-2:      #FBFBFC;   /* menu i pasek narzędzi — jeden pas jak w klasycznym Windows */
 
   /* — Znak (krzywe z paczki grafika, kolory dopasowane do interfejsu) — */
   --logo-type:     #2C3840;   /* grafit z paczki */
@@ -44,8 +45,8 @@
   --accent:        #2350B8;
   --accent-hover:  #1C4399;
   --accent-ink:    #1D44A0;   /* akcent jako tekst */
-  --accent-tint:   #DDE6F8;   /* zaznaczony wiersz */
-  --accent-tint-2: #EAF0FB;   /* najechany wiersz */
+  --accent-tint:   #E5ECFA;   /* zaznaczony wiersz */
+  --accent-tint-2: #F2F6FD;   /* najechany wiersz */
   --on-accent:     #F6F8FC;
 
   /* — Stany wyjątków (zawsze z ikoną i tekstem) — */
@@ -65,7 +66,7 @@
   --m-ship:        #1C5CAB;   /* wydano do klienta */
   --m-stock:       #6DA7EC;   /* w magazynie, przydzielone */
   --m-short:       #D03B3B;   /* brak wyrobu */
-  --m-track:       #DFE3E9;
+  --m-track:       #E6E9EE;
 
   /* — Typografia — */
   --font-ui:   "IBM Plex Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
