@@ -1,0 +1,151 @@
+/* ==========================================================================
+   PROTRIMA — tokeny systemu projektowego
+   --------------------------------------------------------------------------
+   Układ: ciemny pasek roboczy (karty modułów) → jasny obszar pracy z panelami
+   oddzielonymi liniami, nie cieniami. Akcent kobaltowy tylko dla zaznaczenia,
+   fokusu i głównej akcji; kolory stanów (czerwony/bursztyn/zielony) tylko dla
+   wyjątków. Tła nigdy czysto białe, tekst nigdy czysto czarny.
+   ========================================================================== */
+
+:root {
+  /* — Neutralne (lekko chłodne, w stronę akcentu) — */
+  --canvas:        #E6E9ED;   /* tło za panelami */
+  --surface:       #F7F8FA;   /* panele, tabele */
+  --surface-alt:   #EFF1F4;   /* naprzemienne wiersze, nagłówki tabel */
+  --surface-sunk:  #E9ECF0;   /* pola tylko-do-odczytu, tory wskaźników */
+  --field:         #FCFCFD;   /* pola formularzy */
+  --line:          #C9CFD7;   /* obramowania paneli i kontrolek */
+  --line-soft:     #DCE0E6;   /* linie wierszy */
+  --line-strong:   #9AA3AF;   /* obramowanie aktywnego pola */
+
+  --ink-1:         #161D26;   /* tekst podstawowy */
+  --ink-2:         #3A4553;   /* tekst drugorzędny */
+  --ink-3:         #5A6675;   /* etykiety, opisy (≥ 4.5:1 na --surface) */
+  --ink-4:         #7D8896;   /* wskazówki, nieaktywne */
+
+  /* — Chrom okna (pasek menu, karty, nawigacja, pasek stanu) — jasny jak Windows 11 — */
+  --bar:           #ECEFF3;
+  --bar-2:         #DEE3E9;
+  --bar-ink:       #18202A;
+  --bar-ink-2:     #4A5564;
+  --nav:           #ECEFF3;
+  --nav-hover:     #DEE3E9;
+  --status:        #E3E7EC;
+  --win-close:     #C42B1C;
+  --chrome-1:      #E8ECF0;   /* pasek tytułu z logo */
+  --chrome-2:      #F3F5F8;   /* menu i pasek narzędzi — jeden pas jak w klasycznym Windows */
+
+  /* — Znak (krzywe z paczki grafika, kolory dopasowane do interfejsu) — */
+  --logo-type:     #2C3840;   /* grafit z paczki */
+  --logo-mark:     #2350B8;   /* połączone „pr” = akcent */
+  --logo-on:       #FFFFFF;
+
+  /* — Akcent: kobalt — */
+  --accent:        #2350B8;
+  --accent-hover:  #1C4399;
+  --accent-ink:    #1D44A0;   /* akcent jako tekst */
+  --accent-tint:   #DDE6F8;   /* zaznaczony wiersz */
+  --accent-tint-2: #EAF0FB;   /* najechany wiersz */
+  --on-accent:     #F6F8FC;
+
+  /* — Stany wyjątków (zawsze z ikoną i tekstem) — */
+  --crit:          #C2321F;
+  --crit-ink:      #A3271A;
+  --crit-tint:     #FBE6E2;
+  --warn:          #D9940F;
+  --warn-ink:      #855000;
+  --warn-tint:     #FCF0D8;
+  --ok:            #2E8A4A;
+  --ok-ink:        #22703A;
+  --ok-tint:       #E2F2E6;
+  --info-tint:     #E3EBF8;
+
+  /* — Miary zamówienia (nigdy nie łączone w jeden wskaźnik) — */
+  --m-prod:        #00927E;   /* produkcja: zgłoszono z tabletów */
+  --m-ship:        #1C5CAB;   /* wydano do klienta */
+  --m-stock:       #6DA7EC;   /* w magazynie, przydzielone */
+  --m-short:       #D03B3B;   /* brak wyrobu */
+  --m-track:       #DFE3E9;
+
+  /* — Typografia — */
+  --font-ui:   "IBM Plex Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-code: "IBM Plex Mono", "Cascadia Mono", Consolas, monospace;
+
+  /* — Gęstość: komfortowa (≥ 1440 × 820) — */
+  --fs-xs:   12px;
+  --fs-sm:   12.5px;
+  --fs-md:   13.5px;
+  --fs-lg:   15px;
+  --fs-xl:   18px;
+  --fs-fig:  24px;
+  --row-h:   34px;
+  --ctl-h:   32px;
+  --pad:     16px;
+  --gap:     12px;
+  --title-h: 48px;
+  --menu-h:  30px;
+  --tool-h:  44px;
+  --tabs-h:  36px;
+  --cmd-h:   46px;
+  --status-h: 28px;
+  --nav-w:   232px;
+
+  --r-sm: 4px;
+  --r-md: 6px;
+  --shadow-float: 0 10px 28px rgba(18, 26, 38, .18), 0 2px 6px rgba(18, 26, 38, .10);
+  --focus: 0 0 0 2px var(--surface), 0 0 0 4px var(--accent);
+
+  color-scheme: light;
+}
+
+:root[data-density="compact"] {
+  --fs-xs:   12px;
+  --fs-sm:   12px;
+  --fs-md:   13px;
+  --fs-lg:   14px;
+  --fs-xl:   16px;
+  --fs-fig:  20px;
+  --row-h:   30px;
+  --ctl-h:   30px;
+  --pad:     12px;
+  --gap:     10px;
+  --title-h: 40px;
+  --menu-h:  26px;
+  --tool-h:  40px;
+  --tabs-h:  30px;
+  --cmd-h:   40px;
+  --status-h: 26px;
+  --nav-w:   56px;
+}
+
+/* — Motyw grafitowy — */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --canvas: #12161B; --surface: #1A1F26; --surface-alt: #1F252D; --surface-sunk: #232A33; --field: #151A20;
+    --line: #333C48; --line-soft: #29303A; --line-strong: #5D6876;
+    --ink-1: #E2E6EB; --ink-2: #BCC4CE; --ink-3: #96A1AE; --ink-4: #6F7A87;
+    --bar: #0F1318; --bar-2: #1E252E; --bar-ink: #E2E6EB; --bar-ink-2: #98A3B0; --win-close: #C42B1C; --chrome-1: #0D1014; --chrome-2: #141920; --logo-type: #E2E6EB; --logo-mark: #8AACF4; --logo-on: #0D1424;
+    --nav: #161B21; --nav-hover: #212831; --status: #161B21;
+    --accent: #6F97F0; --accent-hover: #8AACF4; --accent-ink: #92B1F5; --accent-tint: #22355A; --accent-tint-2: #1E2A40; --on-accent: #0D1424;
+    --crit: #EE6A5A; --crit-ink: #F48B7E; --crit-tint: #3A1E1C;
+    --warn: #E5A83A; --warn-ink: #EDBB63; --warn-tint: #382B14;
+    --ok: #4CB46C; --ok-ink: #72C78C; --ok-tint: #1A3222; --info-tint: #1E2A40;
+    --m-prod: #1FA585; --m-ship: #2D69C0; --m-stock: #6E9FE0; --m-short: #DE5A4E; --m-track: #2A323C;
+    --shadow-float: 0 12px 32px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --canvas: #12161B; --surface: #1A1F26; --surface-alt: #1F252D; --surface-sunk: #232A33; --field: #151A20;
+  --line: #333C48; --line-soft: #29303A; --line-strong: #5D6876;
+  --ink-1: #E2E6EB; --ink-2: #BCC4CE; --ink-3: #96A1AE; --ink-4: #6F7A87;
+  --bar: #0F1318; --bar-2: #1E252E; --bar-ink: #E2E6EB; --bar-ink-2: #98A3B0; --win-close: #C42B1C; --chrome-1: #0D1014; --chrome-2: #141920; --logo-type: #E2E6EB; --logo-mark: #8AACF4; --logo-on: #0D1424;
+  --nav: #161B21; --nav-hover: #212831; --status: #161B21;
+  --accent: #6F97F0; --accent-hover: #8AACF4; --accent-ink: #92B1F5; --accent-tint: #22355A; --accent-tint-2: #1E2A40; --on-accent: #0D1424;
+  --crit: #EE6A5A; --crit-ink: #F48B7E; --crit-tint: #3A1E1C;
+  --warn: #E5A83A; --warn-ink: #EDBB63; --warn-tint: #382B14;
+  --ok: #4CB46C; --ok-ink: #72C78C; --ok-tint: #1A3222; --info-tint: #1E2A40;
+  --m-prod: #1FA585; --m-ship: #2D69C0; --m-stock: #6E9FE0; --m-short: #DE5A4E; --m-track: #2A323C;
+  --shadow-float: 0 12px 32px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .35);
+  color-scheme: dark;
+}

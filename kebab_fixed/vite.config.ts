@@ -26,6 +26,10 @@ const masowanieVersion = JSON.parse(
 const magazynVersion = JSON.parse(
   fs.readFileSync(path.resolve(__dirname, 'src-tauri/tauri.magazyn.conf.json'), 'utf-8')
 ).version as string
+// PRÓBA PROTRIMA — osobne wejście protrima.html, wersja z configu próby.
+const protrimaVersion = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, 'src-tauri/tauri.protrima-test.conf.json'), 'utf-8')
+).version as string
 
 export default defineConfig({
   plugins: [react()],
@@ -35,6 +39,7 @@ export default defineConfig({
     __PRODUKCJA_VERSION__: JSON.stringify(produkcjaVersion),
     __MASOWANIE_VERSION__: JSON.stringify(masowanieVersion),
     __MAGAZYN_VERSION__: JSON.stringify(magazynVersion),
+    __PROTRIMA_VERSION__: JSON.stringify(protrimaVersion),
   },
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
@@ -59,6 +64,8 @@ export default defineConfig({
         'masowanie': path.resolve(__dirname, 'masowanie.html'),
         // Stanowisko magazynowe — kartony, wydanie, mroźnia (przyjęcie wkrótce)
         'magazyn': path.resolve(__dirname, 'magazyn.html'),
+        // PRÓBA PROTRIMA — nowy wygląd biura na kopii bazy (docs/protrima-ui)
+        'protrima': path.resolve(__dirname, 'protrima.html'),
       },
       output: {
         // Podział na paczki wg biblioteki.

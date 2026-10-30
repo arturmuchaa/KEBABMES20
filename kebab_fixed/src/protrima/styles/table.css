@@ -1,0 +1,66 @@
+/* ==========================================================================
+   Tabela danych — wspólna dla wszystkich list (zamówienia, palety, dokumenty)
+   ========================================================================== */
+.tbl-wrap { flex: 1; min-height: 0; overflow: auto; background: var(--surface); position: relative; scroll-padding: 68px 0 40px; }
+.tbl { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--fs-md); }
+.tbl th {
+  position: sticky; top: 0; z-index: 2; height: 34px; padding: 0 10px;
+  background: var(--surface-alt); border-bottom: 1px solid var(--line);
+  color: var(--ink-2); font-weight: 600; font-size: var(--fs-sm); text-align: left; white-space: nowrap;
+  user-select: none;
+}
+.tbl th.sortable { cursor: pointer; }
+.tbl th.sortable:hover { color: var(--ink-1); background: var(--surface-sunk); }
+.tbl th .sort { display: inline-flex; vertical-align: -3px; margin-left: 3px; color: var(--ink-4); }
+.tbl th[aria-sort] .sort { color: var(--accent-ink); }
+.tbl th.r, .tbl td.r { text-align: right; }
+.tbl th.c, .tbl td.c { text-align: center; }
+.tbl td {
+  height: var(--row-h); padding: 0 10px; border-bottom: 1px solid var(--line-soft);
+  white-space: nowrap; vertical-align: middle; background: var(--surface);
+}
+.tbl tbody tr.zebra td { background: color-mix(in srgb, var(--surface-alt) 55%, var(--surface)); }
+.tbl tbody tr.row { cursor: default; }
+.tbl tbody tr.row:hover td { background: var(--accent-tint-2); }
+.tbl tbody tr.row.sel td { background: var(--accent-tint); }
+.tbl tbody tr.row.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.tbl tbody tr.row.checked:not(.sel) td { background: color-mix(in srgb, var(--accent-tint) 45%, var(--surface)); }
+.tbl tbody tr.closed td { color: var(--ink-3); }
+.tbl td.num, .tbl th.num { font-variant-numeric: tabular-nums; text-align: right; }
+.tbl td .sub { color: var(--ink-3); font-size: var(--fs-sm); margin-left: 6px; }
+.tbl td.ell { max-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.tbl .no { font-weight: 600; font-variant-numeric: tabular-nums; }
+.tbl tfoot td { position: sticky; bottom: 0; background: var(--surface-alt); border-top: 1px solid var(--line); border-bottom: 0; font-weight: 600; z-index: 1; }
+
+/* pole wyboru */
+.cbx { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; vertical-align: middle; }
+.tbl th.cb, .tbl td.cb { width: 34px; padding: 0 0 0 12px; }
+
+/* wiersz grupy */
+.tbl tr.grp td {
+  height: 32px; background: var(--surface-sunk); border-bottom: 1px solid var(--line);
+  font-size: var(--fs-sm); color: var(--ink-2); position: sticky; top: 34px; z-index: 1;
+}
+.tbl tr.grp .gwrap { display: flex; align-items: center; gap: 12px; }
+.tbl tr.grp button { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--ink-1); }
+.tbl tr.grp .gmeta { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.tbl tr.grp.overdue td { background: color-mix(in srgb, var(--crit-tint) 70%, var(--surface-sunk)); }
+
+/* komórka alertu: kształt + kolor, szczegóły w podpowiedzi */
+.alert-ico { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; }
+.alert-ico.crit { color: var(--crit); }
+.alert-ico.warn { color: var(--warn); }
+.alert-ico.info { color: var(--ink-3); }
+.tbl th.al, .tbl td.al { width: 30px; padding: 0 0 0 4px; }
+
+/* termin */
+.due { display: inline-flex; align-items: baseline; gap: 6px; }
+.due .rel { font-weight: 500; }
+.due .abs { color: var(--ink-3); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.due.over .rel { color: var(--crit-ink); font-weight: 600; }
+.due.today .rel { color: var(--ink-1); font-weight: 600; }
+
+.cc { display: inline-flex; align-items: center; justify-content: center; height: 18px; padding: 0 4px; border-radius: 3px; font-size: 10.5px; font-weight: 600; color: var(--ink-3); box-shadow: inset 0 0 0 1px var(--line); margin-left: 6px; letter-spacing: .03em; vertical-align: 1px; }
+
+.empty { padding: 48px 24px; text-align: center; color: var(--ink-3); }
+.empty h3 { color: var(--ink-1); font-size: var(--fs-lg); margin-bottom: 6px; }

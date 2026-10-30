@@ -51,7 +51,10 @@ const _isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in windo
  *
  *  To Floating IP, nie adres własny serwera: kolejna przeprowadzka w obrębie
  *  strefy eu-central nie wymusi przebudowy kiosku i aplikacji biurowej. */
-const SERWER_MES = 'http://91.98.105.107:8080'
+// PRÓBA PROTRIMA: build `--mode proba` łączy się z backendem na kopii bazy.
+const SERWER_MES = import.meta.env.MODE === 'proba'
+  ? 'http://91.98.105.107:8090'
+  : 'http://91.98.105.107:8080'
 
 export const BASE = (() => {
   // Aplikacje desktopowe (kiosk hali, MES biura) biorą adres STĄD, a nie
@@ -96,7 +99,7 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     // i `masowanie` wypadły z tej listy przy dodawaniu kolejnych stanowisk
     // i 401 wyrzucał tam operatora do pełnego MES-a — tego samego błędu, który
     // naprawiono dla rozbioru w 2026-07.
-    const standaloneKiosk = ['rozbior-v', 'kiosk', 'produkcja', 'masowanie']
+    const standaloneKiosk = ['rozbior-v', 'kiosk', 'produkcja', 'masowanie', 'protrima']
       .some(entry => location.pathname.includes(entry))
     if (standaloneKiosk) {
       location.reload()

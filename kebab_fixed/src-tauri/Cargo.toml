@@ -14,6 +14,9 @@ default = []
 # Build kiosku rozbioru: cichy auto-update w tle (bez dialogu — nikt nie ma
 # dostępu do Windowsa żeby kliknąć "zainstaluj") i blokuje zamknięcie okna.
 kiosk = []
+# Build PRÓBNY PROTRIMA (pl.protrima.test): bez sprawdzania aktualizacji przy starcie.
+# Próba nie ma kanału aktualizacji — nowa wersja to nowy instalator z CI.
+proba = []
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
