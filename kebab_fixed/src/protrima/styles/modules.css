@@ -422,3 +422,4 @@ button.pstage:hover .pn { background: var(--accent-tint-2); }
 .sign-opt img { margin-left: auto; height: 30px; max-width: 120px; object-fit: contain; }
 .rec-lines input[type="date"] { width: 150px; }
 .fld .seg { align-self: flex-start; }
+.wz-bulk { display: inline-flex; gap: 6px; align-items: center; padding-left: 8px; border-left: 1px solid var(--line-soft); }

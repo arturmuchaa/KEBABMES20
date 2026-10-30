@@ -44,8 +44,22 @@ type Picks = Awaited<ReturnType<typeof import('@/lib/api').wzApi.fromOrderPicks>
 const liczba = (s: string) => { const v = parseFloat(String(s ?? '').replace(/\s/g, '').replace(',', '.')); return Number.isFinite(v) ? v : 0 }
 export const ilosc = (r: WierszWz) => liczba(r.qtyStr)
 export const cena = (r: WierszWz) => liczba(r.priceStr)
-export const wartosc = (r: WierszWz) => Math.round(ilosc(r) * cena(r) * 100) / 100
 export const masa = (r: WierszWz) => r.kgPerUnit ? Math.round(ilosc(r) * r.kgPerUnit * 1000) / 1000 : 0
+/**
+ * Wartość pozycji — wyrób gotowy wyceniany ZA KILOGRAM (szt × kg/szt × cena),
+ * tak jak liczy serwer (`wz_service`: value = total_kg × price) i stary MES
+ * (`rowMath.rowValue`). Pozycja bez gramatury — za sztukę.
+ */
+export const wartosc = (r: WierszWz) => Math.round((masa(r) > 0 ? masa(r) : ilosc(r)) * cena(r) * 100) / 100
+
+/** Jedna cena dla wszystkich pozycji dokumentu — żeby nie wpisywać jej w każdym wierszu. */
+export const cenaDlaWszystkich = (f: FormWz, priceStr: string): FormWz => ({ ...f, rows: f.rows.map(r => ({ ...r, priceStr })) })
+
+/** Wspólna cena pozycji ('' gdy pozycje mają różne albo puste ceny). */
+export const wspolnaCena = (f: FormWz): string => {
+  const ceny = [...new Set(f.rows.map(r => cena(r)))]
+  return ceny.length === 1 && ceny[0] > 0 ? f.rows[0].priceStr : ''
+}
 
 /** Formularz z odpowiedzi `/wz/from-order/{id}/picks`. Brakuje = zamówiono − wstawione. */
 export function zPicks(d: Picks, dzis: string): { form: FormWz; orderNo: string; brakuje: number; clientId: string } {

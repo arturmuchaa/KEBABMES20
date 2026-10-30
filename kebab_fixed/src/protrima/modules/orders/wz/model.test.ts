@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cudzeRezerwacje, doDto, sumy, walidacja, zPicks } from './model'
+import { cenaDlaWszystkich, cudzeRezerwacje, doDto, sumy, walidacja, wartosc, wspolnaCena, zPicks } from './model'
 
 const PICKS = {
   order_id: 'o1', order_no: 'ISSA/Z/3/10/26', client_id: 'c1', ordered: 190,
@@ -44,7 +44,18 @@ describe('WZ z zamówienia — model', () => {
     const s = sumy(f)
     expect(s.szt).toBe(180)
     expect(s.kg).toBe(1500)
-    expect(s.vat?.netto).toBeCloseTo(558, 2)
+    // Za KILOGRAM jak serwer: 1500 kg × 3,10 = 4650 (nie 180 szt × 3,10).
+    expect(s.vat?.netto).toBeCloseTo(4650, 2)
+    expect(wartosc(f.rows[0])).toBeCloseTo(700 * 3.1, 2)
+  })
+  it('jedna cena dla wszystkich pozycji; wspólna cena rozpoznana tylko gdy wszędzie ta sama', () => {
+    const f = cenaDlaWszystkich({ ...form, valued: true }, '12,50')
+    expect(f.rows.map(r => r.priceStr)).toEqual(['12,50', '12,50'])
+    expect(walidacja(f)).toBe('')
+    expect(wspolnaCena(f)).toBe('12,50')
+    expect(wspolnaCena({ ...f, rows: [f.rows[0], { ...f.rows[1], priceStr: '13' }] })).toBe('')
+    expect(wspolnaCena(form)).toBe('')
+    expect(sumy(f).vat?.netto).toBeCloseTo(1500 * 12.5, 2)
   })
   it('ostrzeżenie: towar ze stemplem innego klienta', () => {
     const f = { ...form, rows: [{ ...form.rows[0], clientOrderNo: 'POLAT/Z/4/10/26', clientName: 'POLAT' }] }

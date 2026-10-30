@@ -7,7 +7,7 @@ import { FlagIcon } from '../../../ui/Glyphs'
 import { downloadDocPdf, fxApi, wzApi, type WzDoc } from '@/lib/api'
 import { STAWKI_VAT } from '@/features/wz/wzVat'
 import { OTHER_CARRIER_KINDS } from '@/lib/containers'
-import { cudzeRezerwacje, doDto, ilosc, masa, sumy, walidacja, wartosc, zPicks, type FormWz, type WierszWz } from './model'
+import { cenaDlaWszystkich, cudzeRezerwacje, doDto, ilosc, masa, sumy, walidacja, wartosc, wspolnaCena, zPicks, type FormWz, type WierszWz } from './model'
 
 const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 const zl = (n: number, cur: string) => `${new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)} ${cur === 'EUR' ? '€' : 'zł'}`
@@ -29,6 +29,8 @@ export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: st
   const [pytanie, setPytanie] = useState<ReturnType<typeof cudzeRezerwacje> | null>(null)
   const [saved, setSaved] = useState<WzDoc | null>(null)
   const lock = useRef(false)
+  const [cenaWsz, setCenaWsz] = useState('')
+  const cenaRef = useRef<HTMLInputElement>(null)
 
   const wczytaj = useCallback(() => {
     setLoadErr(null)
@@ -40,6 +42,12 @@ export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: st
 
   const upd = (p: Partial<FormWz>) => setF(x => x ? { ...x, ...p } : x)
   const setRow = (i: number, p: Partial<WierszWz>) => setF(x => x ? { ...x, rows: x.rows.map((r, j) => j === i ? { ...r, ...p } : r) } : x)
+  // Jedna cena za kg na wszystkie pozycje — wpisana raz, a nie w każdym wierszu.
+  const ustawWszystkim = (v = cenaWsz) => { if (v.trim()) setF(x => x ? cenaDlaWszystkich(x, v.trim()) : x) }
+  const wartosciowy = (on: boolean) => {
+    upd({ valued: on })
+    if (on) { setCenaWsz(f ? wspolnaCena(f) : ''); requestAnimationFrame(() => cenaRef.current?.focus()) }
+  }
 
   const zapisz = useCallback(async (potwierdzone = false) => {
     if (!f || lock.current) return
@@ -131,8 +139,13 @@ export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: st
 
             <div className="sect-h"><h3>Pozycje z magazynu</h3><span className="sub">wiersze magazynu wg FEFO dobrane przez serwer · {num(s!.szt)} szt. · {kg(s!.kg)}</span>
               <div className="tools">
-                <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><input type="checkbox" className="cbx" checked={f.valued} onChange={e => upd({ valued: e.target.checked })} />Dokument wartościowy</label>
+                <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><input type="checkbox" className="cbx" checked={f.valued} onChange={e => wartosciowy(e.target.checked)} />Dokument wartościowy</label>
                 {f.valued && <>
+                  <span className="wz-bulk">
+                    <input ref={cenaRef} className="field num w-num" inputMode="decimal" placeholder="cena / kg" value={cenaWsz} aria-label="Cena za kg dla wszystkich pozycji"
+                      onChange={e => setCenaWsz(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey) { e.preventDefault(); ustawWszystkim() } }} />
+                    <button className="btn sm primary" disabled={!cenaWsz.trim()} onClick={() => ustawWszystkim()} data-tip="Ta sama cena za kg w każdej pozycji (Enter). Pojedyncze wiersze możesz potem zmienić.">Ustaw wszystkim</button>
+                  </span>
                   <select className="field" style={{ width: 'auto', height: 28 }} value={f.currency} onChange={e => upd({ currency: e.target.value as 'PLN' | 'EUR' })} aria-label="Waluta"><option>PLN</option><option>EUR</option></select>
                   {f.currency === 'EUR' && <><input className="field num w-num" placeholder="kurs" value={f.eurRateStr} onChange={e => upd({ eurRateStr: e.target.value })} aria-label="Kurs EUR" /><button className="btn sm" onClick={() => void kurs()}>Kurs NBP</button></>}
                 </>}
@@ -140,7 +153,7 @@ export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: st
             </div>
             <div className="box"><table className="tbl">
               <thead><tr><th>Pozycja</th><th>Partia</th><th className="num">Na stanie</th><th className="num">Wydać</th><th className="num">Masa</th>
-                {f.valued && <><th className="num">Cena</th><th className="num">VAT</th><th className="num">Wartość</th></>}<th style={{ width: 40 }} /></tr></thead>
+                {f.valued && <><th className="num">Cena / kg</th><th className="num">VAT</th><th className="num">Wartość</th></>}<th style={{ width: 40 }} /></tr></thead>
               <tbody>
                 {f.rows.length === 0 && <tr><td colSpan={9}><div className="empty">Na magazynie nie ma wyrobu dla tego zamówienia.</div></td></tr>}
                 {f.rows.map((r, i) => {
@@ -153,7 +166,7 @@ export function WzZamowienia({ orderId, active, setCmds, onDone }: { orderId: st
                       <td className="num"><input className={`field num w-num${za ? ' invalid' : ''}`} inputMode="numeric" value={r.qtyStr} onChange={e => setRow(i, { qtyStr: e.target.value })} aria-label={`Ilość do wydania, ${r.name}, partia ${r.batchNo ?? ''}`} /> <span className="sub">szt.</span></td>
                       <td className="num">{kg(masa(r))}</td>
                       {f.valued && <>
-                        <td className="num"><input className="field num w-num" inputMode="decimal" value={r.priceStr} onChange={e => setRow(i, { priceStr: e.target.value })} aria-label={`Cena, ${r.name}`} /></td>
+                        <td className="num"><input className="field num w-num" inputMode="decimal" value={r.priceStr} onChange={e => setRow(i, { priceStr: e.target.value })} aria-label={`Cena za kg, ${r.name}`} /></td>
                         <td className="num"><select className="field" style={{ width: 'auto', height: 28 }} value={r.vatRate} onChange={e => setRow(i, { vatRate: Number(e.target.value) })} aria-label={`VAT, ${r.name}`}>{STAWKI_VAT.map(v => <option key={v} value={v}>{v}%</option>)}</select></td>
                         <td className="num">{zl(wartosc(r), cur)}</td>
                       </>}
