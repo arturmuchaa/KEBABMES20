@@ -41,7 +41,7 @@ export function Dashboard({ active, setCtx, setCmds }: { active: boolean; setCtx
   const debRes = useApi(() => deboningApi.list())
   const meatRes = useApi(() => meatStockApi.list())
   useLiveRefresh({ plansRes, seasonedRes, pendingRes, haccpRes, kursyRes, batchRes, debRes, meatRes }, 30_000)
-  const raw = useMemo(() => surowiec(batchRes.data?.data ?? [], (matTypesRes.data ?? []) as never[], (debRes.data?.data ?? []) as unknown[], (meatRes.data?.data ?? []) as Array<{ status?: string; kgAvailable: number }>), [batchRes.data, matTypesRes.data, debRes.data, meatRes.data])
+  const raw = useMemo(() => surowiec(batchRes.data?.data ?? [], (matTypesRes.data ?? []) as never[], (debRes.data?.data ?? []) as unknown[], (meatRes.data?.data ?? []) as Array<{ status?: string; kgAvailable: number; expiryDate?: string }>), [batchRes.data, matTypesRes.data, debRes.data, meatRes.data])
 
   const ext: Ext = {
     plans: plansRes.data ?? [], seasoned: seasonedRes.data ?? [],
@@ -91,10 +91,10 @@ const KG_POJEMNIK = 15
 interface Surowiec {
   partie: RawBatch[]; kgCwiartki: number; pojemniki: number
   dzisPobrano: number; dzisWpisow: number; dzisOtwarte: number; dzisMieso: number; wydajnosc: number | null
-  kgMiesa: number; najblizszyTermin: string | null
+  kgMiesa: number; kgMiesaPoTerminie: number; partiiPoTerminie: number; najblizszyTermin: string | null
 }
 const num0 = (v: unknown) => Number(v ?? 0) || 0
-function surowiec(batches: RawBatch[], typy: never[], deb: unknown[], meat: Array<{ status?: string; kgAvailable: number }>): Surowiec {
+function surowiec(batches: RawBatch[], typy: never[], deb: unknown[], meat: Array<{ status?: string; kgAvailable: number; expiryDate?: string }>): Surowiec {
   // Partie, które idą na rozbiór (mięso z/s, filet itp. omija rozbiór) i nie są zużyte.
   const partie = filterDeboningBatches(batches, typy).filter(b => computeDisplayStatus(b.expiryDate, Number(b.kgAvailable)) !== 'used')
     .sort((a, b) => (a.expiryDate || '9').localeCompare(b.expiryDate || '9'))
@@ -109,7 +109,12 @@ function surowiec(batches: RawBatch[], typy: never[], deb: unknown[], meat: Arra
     partie, kgCwiartki, pojemniki: Math.ceil(kgCwiartki / KG_POJEMNIK),
     dzisPobrano: wpisy.reduce((s, d) => s + num0(d.kgTaken ?? d.kg_taken), 0), dzisWpisow: wpisy.length,
     dzisOtwarte: wpisy.length - domkniete.length, dzisMieso: mieso, wydajnosc: pobranoDomk > 0 ? mieso / pobranoDomk * 100 : null,
-    kgMiesa: meat.filter(m => m.status === 'AVAILABLE' && Number(m.kgAvailable) > 0).reduce((s, m) => s + Number(m.kgAvailable), 0),
+    // Stan mięsa z/s jak w starym pulpicie, ale rozdzielony: partie po terminie, które nadal figurują jako dostępne, to sprawa do wyjaśnienia, nie zapas.
+    ...(() => {
+      const dost = meat.filter(m => m.status === 'AVAILABLE' && Number(m.kgAvailable) > 0)
+      const po = dost.filter(m => m.expiryDate && m.expiryDate.slice(0, 10) < dzis)
+      return { kgMiesa: dost.reduce((s, m) => s + Number(m.kgAvailable), 0) - po.reduce((s, m) => s + Number(m.kgAvailable), 0), kgMiesaPoTerminie: po.reduce((s, m) => s + Number(m.kgAvailable), 0), partiiPoTerminie: po.length }
+    })(),
     najblizszyTermin: partie.find(b => b.expiryDate)?.expiryDate ?? null,
   }
 }
@@ -128,7 +133,9 @@ function RawPanel({ raw }: { raw: Surowiec }) {
           <div className="kpi"><span className="k">Ćwiartka na stanie</span><span className="v">{kg(raw.kgCwiartki)}</span><span className="s">≈ {num(raw.pojemniki)} pojemników · {raw.partie.length} {raw.partie.length === 1 ? 'partia' : 'partii'}</span></div>
           <div className="kpi"><span className="k">Pobrano dziś do rozbioru</span><span className="v">{kg(raw.dzisPobrano)}</span><span className="s">{raw.dzisWpisow} {raw.dzisWpisow === 1 ? 'pobranie' : 'pobrań'}{raw.dzisOtwarte > 0 ? ` · ${raw.dzisOtwarte} w toku` : ''}</span></div>
           <div className="kpi"><span className="k">Mięso z/s dziś</span><span className="v">{kg(raw.dzisMieso)}</span><span className="s">{raw.wydajnosc === null ? 'brak domkniętych wpisów' : <>wydajność <b className={raw.wydajnosc < 60 || raw.wydajnosc > 71 ? 'warn-ink' : ''}>{raw.wydajnosc.toFixed(1).replace('.', ',')}%</b></>}</span></div>
-          <div className="kpi"><span className="k">Mięso z/s na stanie</span><span className="v">{kg(raw.kgMiesa)}</span><span className="s">gotowe do masowania</span></div>
+          <div className="kpi"><span className="k">Mięso z/s w terminie</span><span className="v">{kg(raw.kgMiesa)}</span><span className="s">{raw.partiiPoTerminie > 0
+            ? <span className="warn-ink" data-tip="Partie z datą przydatności w przeszłości, które w ewidencji nadal są dostępne — do wyjaśnienia w magazynie (korekta stanu w starym MES)">+ {kg(raw.kgMiesaPoTerminie)} po terminie ({raw.partiiPoTerminie} partii)</span>
+            : 'gotowe do masowania'}</span></div>
         </div>
         <div className="raw-tbl">
           <table className="tbl">
