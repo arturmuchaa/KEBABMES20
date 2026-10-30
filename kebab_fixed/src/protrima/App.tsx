@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { LayoutGrid, ShoppingCart, FilePlus2, Palette, Package, Printer, LogOut, XSquare, Search, Pencil, Copy, Keyboard, Info, RefreshCw, FileBarChart, Users, Clock, Car, UserCog, SlidersHorizontal, Wallet, BarChart3, Calculator, Thermometer, Layers, Archive, Tags, Plus, PackageOpen, ClipboardList, MoreHorizontal, FileText, type LucideIcon } from 'lucide-react'
+import { LayoutGrid, ShoppingCart, FilePlus2, Palette, Package, Printer, LogOut, XSquare, Search, Pencil, Copy, Keyboard, Info, RefreshCw, FileBarChart, Users, Clock, Car, UserCog, SlidersHorizontal, Wallet, BarChart3, Calculator, Thermometer, Layers, Archive, Tags, Plus, PackageOpen, ClipboardList, MoreHorizontal, FileText, Truck, type LucideIcon } from 'lucide-react'
 import { AppCtx, type AppApi, type Cmd, type MenuItem, type OrdersCmd, type PanelWybor, type Toast, Toasts, TooltipLayer, Dialog } from './shell/context'
 import { TitleBar, MenuBar, MainToolbar, TabStrip, Nav, StatusBar, type MenuDef, type ToolItem, type WTab } from './shell/Chrome'
 import { CommandPalette } from './shell/CommandPalette'
@@ -19,6 +19,7 @@ import { ListaKompletacjiDialog } from './modules/orders/druk/ListaKompletacji'
 import { CmrDialog, generujHdi } from './modules/orders/dokumenty/Cmr'
 import { PodzialWysylki } from './modules/orders/podzial/PodzialWysylki'
 import { PrzyjecieEditor } from './modules/przyjecia/formularz/PrzyjecieEditor'
+import { PapieryKursu } from './modules/wysylki/PapieryKursu'
 import { computeMetrics as metryki } from './data/model'
 import { Placeholder } from './modules/misc/Placeholder'
 import { DesignSystem } from './modules/misc/DesignSystem'
@@ -181,6 +182,9 @@ function Shell() {
     const o = orders.find(x => x.id === id)
     openTab({ id: `wz:${id}`, kind: 'wz', key: id, title: `WZ ${o?.no ?? ''}`, icon: FileText })
   }, [orders, openTab])
+  const openKurs = useCallback((id: string, plate?: string) => {
+    openTab({ id: `kurs:${id}`, kind: 'kurs', key: id, title: `Kurs ${plate ?? ''}`.trim(), icon: Truck })
+  }, [openTab])
   const wzSeq = useRef(0)
   const wzWybor = useRef<Record<string, Array<{ id: string; qty: number }>>>({})
   const issueWzFromStock = useCallback((wybor: Array<{ id: string; qty: number }>) => {
@@ -269,10 +273,10 @@ function Shell() {
   const cmdsFor = (id: string) => (cmdSetters.current[id] ??= (c: Cmd[]) => setTabCmds(id, c))
 
   const api = useMemo<AppApi>(() => ({
-    openOrder, gotoOrders, gotoStock, openModule, newOrder: () => newOrder(), editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, splitOrder, printPallets, issueWzFromStock, newReception, editReception, gotoReceptions, toast,
+    openOrder, gotoOrders, gotoStock, openModule, newOrder: () => newOrder(), editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, splitOrder, printPallets, openKurs, issueWzFromStock, newReception, editReception, gotoReceptions, toast,
     setStatusCtx: () => undefined,
     appRef, scale: vp.scale, prosty, panel, panelWybor, setPanel,
-  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, splitOrder, printPallets, issueWzFromStock, newReception, editReception, gotoReceptions, toast, vp.scale, prosty, panel, panelWybor, setPanel])
+  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, splitOrder, printPallets, openKurs, issueWzFromStock, newReception, editReception, gotoReceptions, toast, vp.scale, prosty, panel, panelWybor, setPanel])
 
   const badges = useMemo(() => {
     const problem = orders.filter(o => { const m = computeMetrics(o); return m.level === 'crit' || m.level === 'warn' }).length
@@ -281,7 +285,7 @@ function Shell() {
 
   // ─── Menu główne ────────────────────────────────────────────────────────
   const activeTab = tabs.find(t => t.id === active)!
-  const modLabel = activeTab.kind === 'new-reception' || activeTab.kind === 'edit-reception' ? 'Przyjęcie' : activeTab.kind === 'wz-stock' ? 'Wydanie' : activeTab.kind !== 'module' ? 'Zamówienie' : activeTab.key === 'pulpit' ? 'Pulpit' : (moduleDef(activeTab.key)?.label ?? 'Moduł')
+  const modLabel = activeTab.kind === 'new-reception' || activeTab.kind === 'edit-reception' ? 'Przyjęcie' : activeTab.kind === 'wz-stock' ? 'Wydanie' : activeTab.kind === 'kurs' ? 'Kurs' : activeTab.kind !== 'module' ? 'Zamówienie' : activeTab.key === 'pulpit' ? 'Pulpit' : (moduleDef(activeTab.key)?.label ?? 'Moduł')
   const fixed = ['p', 'e', 'w', 'r', 'n', 'o', 'c']
   const modAccess = [...modLabel.toLowerCase()].find(ch => /[a-z]/.test(ch) && !fixed.includes(ch)) ?? 'm'
   const findOnList = () => document.querySelector<HTMLInputElement>('.tabpane:not([hidden]) .toolbar .field')?.focus()
@@ -387,7 +391,7 @@ function Shell() {
     ] },
   ]
 
-  const currentKey = activeTab.kind === 'module' ? activeTab.key : activeTab.kind === 'order' || activeTab.kind === 'new-order' || activeTab.kind === 'edit-order' || activeTab.kind === 'wz' || activeTab.kind === 'split' ? 'zamowienia' : activeTab.kind === 'new-reception' || activeTab.kind === 'edit-reception' ? 'przyjecia' : activeTab.kind === 'wz-stock' ? 'magazyn-wg' : ''
+  const currentKey = activeTab.kind === 'module' ? activeTab.key : activeTab.kind === 'order' || activeTab.kind === 'new-order' || activeTab.kind === 'edit-order' || activeTab.kind === 'wz' || activeTab.kind === 'split' ? 'zamowienia' : activeTab.kind === 'new-reception' || activeTab.kind === 'edit-reception' ? 'przyjecia' : activeTab.kind === 'wz-stock' ? 'magazyn-wg' : activeTab.kind === 'kurs' ? 'wysylki' : ''
 
   const renderTab = (t: WTab) => {
     const setTabCtx = ctxFor(t.id)
@@ -396,6 +400,7 @@ function Shell() {
     if (t.kind === 'order') return <OrderTab orderId={t.key} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.kind === 'split') { const o = orders.find(x => x.id === t.key); return <PodzialWysylki orderId={t.key} orderNo={o?.no ?? ''} clientName={o?.client.name ?? ''} kgCalosc={o ? metryki(o).orderedKg : 0}
       active={isActive} setCmds={setCmds} onDone={() => { closeTab(t.id); gotoOrders({ select: t.key, tab: 'documents' }) }} /> }
+    if (t.kind === 'kurs') return <PapieryKursu kursId={t.key} active={isActive} setCmds={setCmds} onDone={() => closeTab(t.id)} />
     if (t.kind === 'wz-stock') return <WzZamowienia wybor={wzWybor.current[t.id] ?? []} active={isActive} setCmds={setCmds} onDone={() => { closeTab(t.id); delete wzWybor.current[t.id]; gotoStock() }} />
     if (t.kind === 'wz') return <WzZamowienia orderId={t.key} active={isActive} setCmds={setCmds} onDone={() => { closeTab(t.id); gotoOrders({ select: t.key, tab: 'documents' }) }} />
     if (t.kind === 'new-order' || t.kind === 'edit-order') return <OrderEditor tabId={t.id} active={isActive} setCmds={setCmds}

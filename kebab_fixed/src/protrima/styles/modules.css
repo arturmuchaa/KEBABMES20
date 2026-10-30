@@ -445,3 +445,13 @@ button.pstage:hover .node { box-shadow: 0 0 0 3px var(--accent-tint-2); transfor
 .wz-p-sum .v { font-variant-numeric: tabular-nums; font-weight: 600; }
 .wz-p-sum .f.big .v { font-size: 22px; }
 @media (max-width: 1250px) { .wz-prices { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+
+/* Papiery kursu */
+.kurs-odb { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.kurs-odb .ko-h { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.kurs-odb .ko-kg { margin-left: auto; color: var(--ink-3); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.kurs-odb .ko-f { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+.kurs-odb .ko-kgfv .field { width: 120px; }
+.kurs-odb .ko-chk { display: inline-flex; align-items: center; gap: 7px; height: var(--ctl-h); font-size: var(--fs-sm); }
+.kurs-tr { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, .8fr) minmax(0, 1.4fr); gap: 10px 12px; }
+@media (max-width: 1100px) { .kurs-tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .kurs-tr-wide { grid-column: 1 / -1; } }

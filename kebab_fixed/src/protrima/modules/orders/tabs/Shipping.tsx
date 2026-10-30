@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { CheckCircle2, CircleDashed, Truck, FileText, Printer } from 'lucide-react'
 import { useApp } from '../../../shell/context'
-import { W_STARYM_MES } from '../../../proba'
+import { zaladunkiApi } from '@/lib/api'
 import { computeMetrics, kg, num, palletKg, dueText, type Order } from '../../../data/model'
 import { FlagIcon, PalletStatusLabel } from '../../../ui/Glyphs'
 
@@ -16,6 +16,21 @@ export function ShippingTab({ order }: { order: Order }) {
   const cmrDoc = order.docs.find(d => d.kind === 'CMR')
   const closed = order.status === 'done' || order.status === 'cancelled'
   const toShip = order.lines.reduce((a, l) => a + l.stock * l.kgPerUnit, 0)
+  // „Dokumenty dla kierowcy” = papiery KURSU, na którym jest to zamówienie (po załadunku).
+  // Kursów czekających na papiery jest zwykle kilka — szukamy wśród nich tego zamówienia.
+  const [szukam, setSzukam] = useState(false)
+  const dokumentyDlaKierowcy = async () => {
+    setSzukam(true)
+    try {
+      for (const k of await zaladunkiApi.doWydruku()) {
+        const d = await zaladunkiApi.get(k.id)
+        if ((d?.pozycje ?? []).some((p: { order_id: string }) => p.order_id === order.id)) { app.openKurs(k.id, k.plate); return }
+      }
+      app.toast({ kind: 'info', title: 'To zamówienie nie czeka na papiery kursu', detail: 'Kurs pojawia się, gdy magazynier zakończy załadunek auta. WZ możesz też wystawić ręcznie („Wystaw WZ…”).' })
+    } catch (e) {
+      app.toast({ kind: 'warn', title: 'Nie udało się sprawdzić kursów', detail: e instanceof Error ? e.message : '' })
+    } finally { setSzukam(false) }
+  }
 
   const gates: Array<{ k: string; d: string; s: G }> = [
     { k: 'Wyrób kompletny', d: m.missingKg ? `brakuje ${kg(m.missingKg)}` : 'cała ilość w magazynie lub wydana', s: m.missingKg ? ((m.dueDays ?? 9) <= 1 ? 'crit' : 'wait') : 'ok' },
@@ -35,9 +50,9 @@ export function ShippingTab({ order }: { order: Order }) {
             <dt>Wyjazd</dt><dd>{dueText(order)}</dd>
             <dt>Załadowano</dt><dd className="num">{m.palletsLoaded} z {m.palletsTotal} palet</dd>
           </dl>
-          <p className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Kursy i pojazdy są na razie w module Wysyłki starego MES.</p>
+          <p className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Planowanie kursów i pojazdów jest na razie w starym MES; papiery kursu po załadunku — tutaj.</p>
           {!closed && <div className="row-wrap">
-            <button className="btn sm" onClick={() => app.toast({ kind: 'info', title: 'Dokumenty dla kierowcy', detail: W_STARYM_MES })}><Printer size={14} />Dokumenty dla kierowcy</button>
+            <button className="btn sm" disabled={szukam} onClick={() => void dokumentyDlaKierowcy()} data-tip="Papiery kursu po załadunku: WM/WZ, HDI, CMR"><Printer size={14} />{szukam ? 'Szukam kursu…' : 'Dokumenty dla kierowcy'}</button>
           </div>}
         </div>
         <div className="box">

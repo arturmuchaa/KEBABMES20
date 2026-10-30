@@ -10,7 +10,7 @@ import { Logo } from '../brand/Logo'
 import { PROBA } from '../proba'
 import { useFirma } from '../zaklad/firma'
 
-export interface WTab { id: string; kind: 'module' | 'order' | 'new-order' | 'edit-order' | 'wz' | 'split' | 'new-reception' | 'edit-reception' | 'wz-stock'; key: string; title: string; icon?: LucideIcon }
+export interface WTab { id: string; kind: 'module' | 'order' | 'new-order' | 'edit-order' | 'wz' | 'split' | 'new-reception' | 'edit-reception' | 'wz-stock' | 'kurs'; key: string; title: string; icon?: LucideIcon }
 export interface MenuDef { key: string; label: string; access: string; items: MenuItem[] }
 
 

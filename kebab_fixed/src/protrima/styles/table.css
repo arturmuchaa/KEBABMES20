@@ -79,3 +79,4 @@
 .empty-ico { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin-bottom: 12px; border-radius: 50%; background: var(--surface-sunk); color: var(--ink-3); }
 .empty p { margin: 0 auto; max-width: 52ch; line-height: 1.5; }
 .empty-act { margin-top: 14px; display: inline-flex; gap: 8px; }
+.tbl tbody tr.row.click { cursor: pointer; }

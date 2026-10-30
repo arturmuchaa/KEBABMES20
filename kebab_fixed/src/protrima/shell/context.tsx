@@ -30,6 +30,8 @@ export interface AppApi {
   genHdi(orderId: string): void
   /** Podział wysyłki na fakturę i WZ (karta robocza). */
   splitOrder(orderId: string): void
+  /** Papiery kursu po załadunku (karta robocza). */
+  openKurs(id: string, plate?: string): void
   /** WZ z zaznaczonych wierszy Wyrobu gotowego (bez zamówienia). */
   issueWzFromStock(wybor: Array<{ id: string; qty: number }>): void
   /** Kartki na palety zamówienia (wszystkie albo wskazane numery). */
