@@ -20,6 +20,8 @@ export interface AppApi {
   copyOrder(id: string): void
   /** Wydruk / PDF zamówienia dla klienta. */
   printOrder(id: string): void
+  /** WZ z zamówienia (karta robocza). */
+  issueWz(orderId: string): void
   toast(t: Omit<Toast, 'id'>): void
   setStatusCtx(node: React.ReactNode): void
   appRef: React.RefObject<HTMLDivElement>

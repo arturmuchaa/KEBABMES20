@@ -45,7 +45,7 @@ export function orderCommands(order: Order | null, app: AppApi, onTab: (t: Detai
     { id: 'pallets', group: 3, label: 'Palety', icon: <Boxes size={17} />, disabled: none || order!.status === 'draft', run: () => onTab('pallets') },
     { id: 'shipping', group: 3, label: 'Wysyłka', icon: <Truck size={17} />, disabled: none || order!.status === 'draft', run: () => onTab('shipping') },
     { id: 'docs', group: 3, label: 'Dokumenty', icon: <FileText size={17} />, disabled: none, menu: [
-      { label: 'Wystaw WZ…', icon: <Truck size={15} />, onSelect: () => onTab('shipping'), disabled: closed },
+      { label: 'Wystaw WZ…', icon: <Truck size={15} />, onSelect: () => order && app.issueWz(order.id), disabled: closed || order?.status === 'draft' },
       { label: 'Wystaw CMR…', icon: <FileText size={15} />, onSelect: () => onTab('documents'), disabled: closed || order?.client.country === 'PL' },
       { label: 'Generuj HDI', icon: <FileText size={15} />, onSelect: () => onTab('documents') },
       { sep: true },

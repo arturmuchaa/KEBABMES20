@@ -11,7 +11,6 @@ const GateIcon = ({ s }: { s: G }) => s === 'ok' ? <CheckCircle2 size={18} color
 export function ShippingTab({ order }: { order: Order }) {
   const app = useApp()
   const m = computeMetrics(order)
-  const [wz, setWz] = useState(false)
   const foreign = !!order.client.country && order.client.country !== 'PL'
   const wzDoc = order.docs.find(d => d.kind === 'WZ')
   const cmrDoc = order.docs.find(d => d.kind === 'CMR')
@@ -44,7 +43,7 @@ export function ShippingTab({ order }: { order: Order }) {
         <div className="box">
           <div className="panel-h"><h2 style={{ fontSize: 'var(--fs-md)' }}>Gotowość do wysyłki</h2>
             <span className="tools">
-              {!closed && <button className="btn sm primary" disabled={toShip === 0} onClick={() => setWz(true)} data-tip={toShip === 0 ? 'Brak wyrobu w magazynie do wydania' : undefined}><FileText size={14} />Wystaw WZ…</button>}
+              {!closed && <button className="btn sm primary" disabled={toShip === 0} onClick={() => app.issueWz(order.id)} data-tip={toShip === 0 ? 'Brak wyrobu w magazynie do wydania' : undefined}><FileText size={14} />Wystaw WZ…</button>}
             </span>
           </div>
           <div className="gates">
@@ -63,21 +62,7 @@ export function ShippingTab({ order }: { order: Order }) {
           </table>
         </div>
       </>}
-      {wz && <Dialog title={`Wystaw WZ — ${order.no}`} icon={<FileText size={20} color="var(--accent)" />} onClose={() => setWz(false)}
-        footer={<><button className="btn" onClick={() => setWz(false)}>Anuluj</button><button className="btn primary" onClick={() => {
-          setWz(false)
-          app.toast({ kind: 'info', title: 'Wystawienie WZ', detail: FAZA_ZAPISU })
-        }}>Wystaw WZ</button></>}>
-        <dl className="kv">
-          <dt>Odbiorca</dt><dd className="strong">{order.client.name}</dd>
-          <dt>Wydanie</dt><dd className="num strong">{kg(toShip)} <span className="muted">z {kg(m.orderedKg)}</span></dd>
-          <dt>Pozycje</dt><dd>{order.lines.filter(l => l.stock > 0).map(l => `${l.recipe} ${l.kgPerUnit} kg × ${l.stock}`).join(', ')}</dd>
-        </dl>
-        {m.missingKg > 0
-          ? <div className="note warn"><FlagIcon level="warn" size={15} /><div><b>WZ będzie częściowa.</b> Obejmie tylko wyrób z magazynu. Brakujące {kg(m.missingKg)} zostanie na zamówieniu jako brak — po dołożeniu wyrobu wystawisz kolejną WZ.</div></div>
-          : <div className="note info"><FlagIcon level="info" size={15} /><div>WZ obejmie całe zamówienie. Po wystawieniu zamówienie można zamknąć.</div></div>}
-        {foreign && <div className="note"><FlagIcon level="info" size={15} /><div>Dostawa za granicę ({order.client.country}) — po WZ wystaw CMR z zakładki Dokumenty.</div></div>}
-      </Dialog>}
+
     </div>
   )
 }

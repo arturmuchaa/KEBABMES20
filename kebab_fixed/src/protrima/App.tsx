@@ -13,6 +13,7 @@ import { FinishedGoods } from './modules/stock/FinishedGoods'
 import { PrzyjeciaModule } from './modules/przyjecia/PrzyjeciaModule'
 import { OrderEditor } from './modules/orders/edytor/OrderEditor'
 import { ZamowienieDrukDialog } from './modules/orders/druk/ZamowienieDruk'
+import { WzZamowienia } from './modules/orders/wz/WzZamowienia'
 import { Placeholder } from './modules/misc/Placeholder'
 import { DesignSystem } from './modules/misc/DesignSystem'
 import { Logo } from './brand/Logo'
@@ -158,6 +159,10 @@ function Shell() {
   const copyOrder = useCallback((id: string) => newOrder(id), [newOrder])
   const [drukId, setDrukId] = useState<string | null>(null)
   const printOrder = useCallback((id: string) => setDrukId(id), [])
+  const issueWz = useCallback((id: string) => {
+    const o = orders.find(x => x.id === id)
+    openTab({ id: `wz:${id}`, kind: 'wz', key: id, title: `WZ ${o?.no ?? ''}`, icon: FileText })
+  }, [orders, openTab])
   const gotoOrders = useCallback((cmd: Omit<OrdersCmd, 'n'> = {}) => {
     openModule('zamowienia')
     setOrdersCmd({ ...cmd, n: Date.now() })
@@ -225,10 +230,10 @@ function Shell() {
   const cmdsFor = (id: string) => (cmdSetters.current[id] ??= (c: Cmd[]) => setTabCmds(id, c))
 
   const api = useMemo<AppApi>(() => ({
-    openOrder, gotoOrders, gotoStock, openModule, newOrder: () => newOrder(), editOrder, copyOrder, printOrder, toast,
+    openOrder, gotoOrders, gotoStock, openModule, newOrder: () => newOrder(), editOrder, copyOrder, printOrder, issueWz, toast,
     setStatusCtx: () => undefined,
     appRef, scale: vp.scale, prosty, panel, panelWybor, setPanel,
-  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, editOrder, copyOrder, printOrder, toast, vp.scale, prosty, panel, panelWybor, setPanel])
+  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, editOrder, copyOrder, printOrder, issueWz, toast, vp.scale, prosty, panel, panelWybor, setPanel])
 
   const badges = useMemo(() => {
     const problem = orders.filter(o => { const m = computeMetrics(o); return m.level === 'crit' || m.level === 'warn' }).length
@@ -355,13 +360,14 @@ function Shell() {
     ] },
   ]
 
-  const currentKey = activeTab.kind === 'module' ? activeTab.key : activeTab.kind === 'order' || activeTab.kind === 'new-order' || activeTab.kind === 'edit-order' ? 'zamowienia' : ''
+  const currentKey = activeTab.kind === 'module' ? activeTab.key : activeTab.kind === 'order' || activeTab.kind === 'new-order' || activeTab.kind === 'edit-order' || activeTab.kind === 'wz' ? 'zamowienia' : ''
 
   const renderTab = (t: WTab) => {
     const setTabCtx = ctxFor(t.id)
     const setCmds = cmdsFor(t.id)
     const isActive = t.id === active
     if (t.kind === 'order') return <OrderTab orderId={t.key} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
+    if (t.kind === 'wz') return <WzZamowienia orderId={t.key} active={isActive} setCmds={setCmds} onDone={() => { closeTab(t.id); gotoOrders({ select: t.key, tab: 'documents' }) }} />
     if (t.kind === 'new-order' || t.kind === 'edit-order') return <OrderEditor tabId={t.id} active={isActive} setCmds={setCmds}
       orderId={t.kind === 'edit-order' ? t.key : undefined} copyFromId={t.kind === 'new-order' && t.key ? t.key : undefined}
       onDone={(id) => { closeTab(t.id); if (id) gotoOrders({ select: id, tab: 'lines', view: 'active' }) }} />

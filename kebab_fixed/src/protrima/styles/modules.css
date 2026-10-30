@@ -374,3 +374,5 @@ button.pstage:hover .pn { background: var(--accent-tint-2); }
 /* Rozpis palet ponad ilość pozycji (incydent ISSA 30.10.2026) — zawsze czerwono. */
 .achip.over { background: var(--crit-tint); box-shadow: inset 0 0 0 1px var(--crit); }
 .achip.over .bar i { background: var(--crit) !important; }
+/* Pole formularza z etykietą nad spodem (WZ, edytory). */
+.fld { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
