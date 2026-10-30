@@ -42,7 +42,8 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
   const [q, setQ] = useState('')
   const [clients, setClients] = useState<string[]>([])
   const [recipes, setRecipes] = useState<string[]>([])
-  const [groupBy, setGroupBy] = useState<GroupBy>('due')
+  // Domyślnie płaska lista (uwaga właściciela 30.10.2026); grupowanie z przycisku „Grupuj”.
+  const [groupBy, setGroupBy] = useState<GroupBy>('none')
   const [sort, setSort] = useState<{ col: SortCol; dir: 1 | -1 } | null>(null)
   const [sel, setSel] = useState<string | null>(null)
   const [checked, setChecked] = useState<Set<string>>(new Set())
@@ -280,8 +281,8 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
                   <th className="cb"><input type="checkbox" className="cbx" checked={allChecked} ref={el => { if (el) el.indeterminate = !allChecked && someChecked }}
                     onChange={() => setChecked(allChecked ? new Set() : new Set(flat.map(r => r.o.id)))} aria-label="Zaznacz wszystkie widoczne" /></th>
                   <th className="al"><span className="sr">Alert</span></th>
-                  {thSort('no', 'Numer')}
                   {thSort('client', 'Klient')}
+                  {thSort('no', 'Numer')}
                   {thSort('due', 'Termin')}
                   {thSort('status', 'Status', 'side-hide')}
                   <th className="hide-m">Pozycje</th>
@@ -395,8 +396,8 @@ const OrderRow = React.memo(function OrderRow({ r, zebra, sel, checked, onClick,
       aria-selected={sel} onClick={onClick} onDoubleClick={onDouble}>
       <td className="cb" onClick={e => e.stopPropagation()}><input type="checkbox" className="cbx" checked={checked} onChange={onCheck} aria-label={`Zaznacz ${o.no}`} /></td>
       <td className="al">{m.level && <span className={`alert-ico ${m.level}`} data-tip={flagTip}><FlagIcon level={m.level} /></span>}</td>
-      <td><span className="no">{o.no}</span></td>
-      <td className="ell" style={{ maxWidth: 250 }} title={o.client.name}>{o.client.name}{o.client.country !== 'PL' && <span className="cc">{o.client.country}</span>}</td>
+      <td className="ell" style={{ maxWidth: 250 }} title={o.client.name}><b>{o.client.name}</b>{o.client.country && o.client.country !== 'PL' && <span className="cc">{o.client.country}</span>}</td>
+      <td className="num" style={{ fontWeight: 400 }}>{o.no}</td>
       <td>
         {o.delivery ? (
           <span className={`due${!closed && due !== null && due < 0 ? ' over' : !closed && due === 0 ? ' today' : ''}`}>
