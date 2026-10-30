@@ -30,7 +30,9 @@
         {
           "identifier": "protrima-okno",
           "description": "Własny pasek tytułu PROTRIMA: przeciąganie, minimalizacja, maksymalizacja, zamknięcie. Tylko w buildzie próby.",
-          "windows": ["main"],
+          "windows": [
+            "main"
+          ],
           "permissions": [
             "core:window:allow-start-dragging",
             "core:window:allow-minimize",
