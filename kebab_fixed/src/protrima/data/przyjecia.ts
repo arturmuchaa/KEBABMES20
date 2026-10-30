@@ -67,6 +67,10 @@ export interface NumerPorzadkowy {
   stan: DeliveryStatus
   kgLeft: number
   kgReserved: number
+  /** Nic z numeru nie poszło dalej — można go anulować (`resolveDelivery.cancellable`). */
+  cancellable: boolean
+  /** Powód, dla którego backend nie pozwoli już zmienić pozycji (pusty = wolna). */
+  frozenReason: string
 }
 
 export interface Przyjecie {
@@ -98,11 +102,11 @@ export interface Przyjecie {
 }
 
 /** Materiały z /raw-batches/material-types (kategoria do progu temperatury). */
-export interface Rodzaj { id: string; name: string; requiresDeboning: boolean; category: string }
+export interface Rodzaj { id: string; name: string; requiresDeboning: boolean; category: string; receivable: boolean }
 
 export function mapujRodzaje(raw: unknown[]): Rodzaj[] {
   return (raw as Array<Record<string, unknown>>).map(r => ({
-    id: s(r.id), name: s(r.name), requiresDeboning: r.requires_deboning !== false, category: s(r.category),
+    id: s(r.id), name: s(r.name), requiresDeboning: r.requires_deboning !== false, category: s(r.category), receivable: r.receivable !== false,
   }))
 }
 
@@ -145,10 +149,11 @@ export function mapujPrzyjecie(r: Record<string, unknown>, rodzaje: Rodzaj[], me
         no: s(p.supplier_batch_no), kg: p.kg == null ? null : n(p.kg), slaughter: d10(p.slaughter_date), expiry: d10(p.expiry_date),
       })),
       notes: s(b.notes),
+      frozenReason: s(b.frozen_reason),
     }
     const no = batchDisplayNo(base)
     const rd = resolveDelivery(base, { requiresDeboning: base.requiresDeboning, meatStock: meat })
-    return { ...base, no, stan: rd.status, kgLeft: rd.kgLeft, kgReserved: rd.kgReserved }
+    return { ...base, no, stan: rd.status, kgLeft: rd.kgLeft, kgReserved: rd.kgReserved, cancellable: rd.cancellable }
   })
   const zywe = numery.filter(x => x.stan === 'awaiting' || x.stan === 'in_progress')
   const cancelled = numery.length > 0 && numery.every(x => x.stan === 'cancelled')

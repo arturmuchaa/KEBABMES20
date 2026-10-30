@@ -12,7 +12,9 @@ import {
   type Przyjecie, type StanHaccp,
 } from '../../data/przyjecia'
 import { FlagIcon } from '../../ui/Glyphs'
-import { BEZ_DRUKU_ETYKIET, FAZA_ZAPISU } from '../../proba'
+import { BEZ_DRUKU_ETYKIET } from '../../proba'
+import { AnulujPrzyjecie } from './AnulujPrzyjecie'
+import { KontrolaHaccp } from './KontrolaHaccp'
 import { useApi } from '@/hooks/useApi'
 import { useLiveRefresh } from '@/hooks/useLiveRefresh'
 import { receptionChecksApi, suppliersApi, wzApi } from '@/lib/api'
@@ -41,9 +43,11 @@ interface Row { p: Przyjecie; h: StanHaccp | null; supplier: string; level: 'cri
 
 /**
  * Przyjęcia surowca — dokumenty dostaw (numer przyjęcia → numery porządkowe →
- * partie dostawcy). Tylko odczyt; nowe przyjęcie, edycja, HACCP i zawieszki — faza 3.
+ * partie dostawcy). Nowe przyjęcie i edycja — karta robocza (PrzyjecieEditor),
+ * anulowanie — AnulujPrzyjecie, kontrola HACCP z podpisami — zakładka panelu.
+ * Zawieszki palet drukuje na razie stary MES.
  */
-export function PrzyjeciaModule({ active, setCtx, setCmds }: { active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void }) {
+export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: number; select?: string }; active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void }) {
   const app = useApp()
   const recRes = useApi(() => getSurowe<Array<Record<string, unknown>>>('/receptions?from=&to=&limit=2000'))
   const typesRes = useApi(() => getSurowe<unknown[]>('/raw-batches/material-types'))
@@ -90,6 +94,8 @@ export function PrzyjeciaModule({ active, setCtx, setCmds }: { active: boolean; 
   const [tab, setTab] = useState<Tab>('overview')
   const [maxed, setMaxed] = useState(false)
   const [ctxMenu, setCtxMenu] = useState<{ id: string; anchor: Element } | null>(null)
+  const [anuluj, setAnuluj] = useState<string | null>(null)
+  const [doZaznaczenia, setDoZaznaczenia] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const workRef = useRef<HTMLDivElement>(null)
@@ -142,6 +148,21 @@ export function PrzyjeciaModule({ active, setCtx, setCmds }: { active: boolean; 
   const selRow = rows.find(r => r.p.id === sel) ?? null
   useEffect(() => { if (sel && recRes.data && !rows.some(r => r.p.id === sel)) setSel(null) }, [rows, sel, recRes.data])
 
+  // Po zapisie w edytorze: odśwież listę i zaznacz zapisaną dostawę (w obiegu albo we „Wszystkich”).
+  useEffect(() => {
+    if (!cmd?.n) return
+    void recRes.refetch(); void stockRes.refetch(); void checksRes.refetch()
+    if (cmd.select) { setDoZaznaczenia(cmd.select); setQ(''); setDostawca(''); setMats([]); setMiesiac(''); setTermin('') }
+  }, [cmd]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!doZaznaczenia) return
+    const r = rows.find(x => x.p.id === doZaznaczenia)
+    if (!r) return
+    setView(r.p.stan === 'w_obiegu' ? 'live' : r.p.cancelled ? 'cancelled' : 'all')
+    setDoZaznaczenia(null)
+    setTimeout(() => select(r.p.id), 0)
+  }, [rows, doZaznaczenia]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const select = (id: string | null) => {
     setSel(id)
     if (id) requestAnimationFrame(() => listRef.current?.querySelector(`[data-id="${id}"]`)?.scrollIntoView({ block: 'nearest' }))
@@ -158,10 +179,11 @@ export function PrzyjeciaModule({ active, setCtx, setCmds }: { active: boolean; 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); searchRef.current?.focus() }
       else if (e.altKey && !e.ctrlKey && /^[1-4]$/.test(e.key) && sel) { e.preventDefault(); setTab(TABS[Number(e.key) - 1].key) }
       else if (e.key === 'Escape' && sel) setSel(null)
+      else if (e.key === 'F2' && sel) { const r = rows.find(x => x.p.id === sel); if (r && !r.p.cancelled) { e.preventDefault(); app.editReception(r.p.id, r.p.no) } }
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  }, [active, sel])
+  }, [active, sel, rows, app])
 
   const tot = visible.reduce((a, r) => ({ kg: a.kg + r.p.kgReceived, left: a.left + r.p.kgLeft, cont: a.cont + r.p.containers }), { kg: 0, left: 0, cont: 0 })
   useEffect(() => {
@@ -171,14 +193,13 @@ export function PrzyjeciaModule({ active, setCtx, setCmds }: { active: boolean; 
   }, [active, visible.length, tot.kg, tot.left, recRes.error, setCtx])
 
   const sp = selRow?.p
-  const faza = (t: string) => app.toast({ kind: 'info', title: t, detail: FAZA_ZAPISU })
   const cmds = useMemo<Cmd[]>(() => [
-    { id: 'new', group: 1, label: 'Nowe przyjęcie', icon: <PackagePlus size={17} />, kbd: 'Ctrl+N', primary: true, run: () => faza('Nowe przyjęcie') },
-    { id: 'edit', group: 2, label: 'Edytuj', icon: <Pencil size={17} />, kbd: 'F2', disabled: !sp || sp.cancelled, run: () => faza('Edycja przyjęcia') },
+    { id: 'new', group: 1, label: 'Nowe przyjęcie', icon: <PackagePlus size={17} />, kbd: 'Ctrl+N', primary: true, run: () => app.newReception() },
+    { id: 'edit', group: 2, label: 'Edytuj', icon: <Pencil size={17} />, kbd: 'F2', disabled: !sp || sp.cancelled, run: () => sp && app.editReception(sp.id, sp.no) },
     { id: 'haccp', group: 2, label: 'Kontrola HACCP', icon: <ClipboardCheck size={17} />, disabled: !sp || sp.cancelled, run: () => setTab('haccp') },
     { id: 'tags', group: 3, label: 'Zawieszki palet', icon: <Tag size={17} />, opt: true, disabled: !sp, run: () => app.toast({ kind: 'warn', title: 'Zawieszki palet', detail: BEZ_DRUKU_ETYKIET }) },
-    { id: 'cancel', group: 9, label: 'Anuluj przyjęcie…', icon: <Ban size={15} />, menuOnly: true, danger: true, disabled: !sp || sp.cancelled, run: () => faza('Anulowanie przyjęcia') },
-  ], [sp, app]) // eslint-disable-line react-hooks/exhaustive-deps
+    { id: 'cancel', group: 9, label: 'Anuluj przyjęcie…', icon: <Ban size={15} />, menuOnly: true, danger: true, disabled: !sp || sp.cancelled, run: () => sp && setAnuluj(sp.id) },
+  ], [sp, app])
   useEffect(() => { setCmds(cmds) }, [cmds, setCmds])
 
   const thSort = (col: SortCol, label: string, cls = '') => {
@@ -280,7 +301,8 @@ export function PrzyjeciaModule({ active, setCtx, setCmds }: { active: boolean; 
           <div className={`splitter${dock.drag ? ' drag' : ''}`} role="separator" aria-orientation={dock.side ? 'vertical' : 'horizontal'}
             onMouseDown={e => { setMaxed(false); dock.startDrag(e) }} onDoubleClick={() => { dock.reset(); setMaxed(false) }} data-tip="Przeciągnij, aby zmienić rozmiar. Dwuklik — domyślnie." />
           <div className="dock" aria-label="Szczegóły przyjęcia">
-            <PrzyjecieDetail r={selRow} tab={tab} onTab={setTab} maxed={maxed} onMax={() => setMaxed(m => !m)} onClose={() => setSel(null)} />
+            <PrzyjecieDetail r={selRow} tab={tab} onTab={setTab} maxed={maxed} onMax={() => setMaxed(m => !m)} onClose={() => setSel(null)}
+              onHaccpSaved={() => void checksRes.refetch()} onCancel={() => setAnuluj(selRow.p.id)} />
           </div>
         </>}
       </div>
@@ -296,11 +318,16 @@ export function PrzyjeciaModule({ active, setCtx, setCmds }: { active: boolean; 
           { label: 'Kontrola HACCP', onSelect: () => setTab('haccp') },
           { sep: true },
           { label: `Pokaż dostawy: ${r.supplier}`, onSelect: () => setDostawca(r.supplier) },
-          { label: 'Edytuj przyjęcie', disabled: r.p.cancelled, onSelect: () => faza('Edycja przyjęcia') },
+          { label: 'Edytuj przyjęcie', kbd: 'F2', disabled: r.p.cancelled, onSelect: () => app.editReception(r.p.id, r.p.no) },
           { label: 'Zawieszki palet', onSelect: () => app.toast({ kind: 'warn', title: 'Zawieszki palet', detail: BEZ_DRUKU_ETYKIET }) },
           { sep: true },
-          { label: 'Anuluj przyjęcie…', danger: true, disabled: r.p.cancelled, onSelect: () => faza('Anulowanie przyjęcia') },
+          { label: 'Anuluj przyjęcie…', danger: true, disabled: r.p.cancelled, onSelect: () => setAnuluj(r.p.id) },
         ]} />
+      })()}
+      {anuluj && (() => {
+        const r = rows.find(x => x.p.id === anuluj)
+        return r ? <AnulujPrzyjecie p={r.p} supplier={r.supplier} onClose={() => setAnuluj(null)}
+          onDone={() => { setAnuluj(null); void recRes.refetch(); void stockRes.refetch() }} /> : null
       })()}
       {matMenu.anchor && <Menu anchor={matMenu.anchor} onClose={matMenu.close} items={[{ header: 'Rodzaj surowca' }, ...matOpts.map(m => ({ label: m, checked: mats.includes(m), onSelect: () => setMats(a => a.includes(m) ? a.filter(x => x !== m) : [...a, m]) }))]} />}
       {monthMenu.anchor && <Menu anchor={monthMenu.anchor} onClose={monthMenu.close} items={[{ header: 'Miesiąc przyjęcia' }, ...monthOpts.map(m => ({ label: nazwaMiesiaca(m), checked: miesiac === m, onSelect: () => setMiesiac(miesiac === m ? '' : m) }))]} />}
@@ -352,7 +379,7 @@ const PrzyjecieRow = React.memo(function PrzyjecieRow({ r, zebra, sel, onClick }
 
 const STAN_NUMERU: Record<string, string> = { awaiting: 'Czeka', in_progress: 'W toku', processed: 'Zużyta', cancelled: 'Anulowana' }
 
-function PrzyjecieDetail({ r, tab, onTab, maxed, onMax, onClose }: { r: Row; tab: Tab; onTab: (t: Tab) => void; maxed: boolean; onMax: () => void; onClose: () => void }) {
+function PrzyjecieDetail({ r, tab, onTab, maxed, onMax, onClose, onHaccpSaved, onCancel }: { r: Row; tab: Tab; onTab: (t: Tab) => void; maxed: boolean; onMax: () => void; onClose: () => void; onHaccpSaved: () => void; onCancel: () => void }) {
   const app = useApp()
   const { p, h } = r
   const rk = roznicaKg(p)
@@ -442,18 +469,11 @@ function PrzyjecieDetail({ r, tab, onTab, maxed, onMax, onClose }: { r: Row; tab
             </tr>)}</tbody>
           </table></div>)}
 
-          {tab === 'haccp' && <>
-            {!c ? <div className="note warn"><FlagIcon level="warn" size={15} /><div>{h ? 'Brak wpisu kontroli HACCP (karta 1.1.1). Uzupełnienie — w starym MES; w PROTRIMA w fazie 3.' : `Dostawa starsza niż ${DNI_HACCP} dni — kontrola nie jest tu pobierana.`}</div></div> : <div className="box"><dl className="kv" style={{ padding: 14 }}>
-              <dt>Ocena wizualna, mycie pojazdu</dt><dd>{c.visual === 'bz' ? 'bez zastrzeżeń' : c.visual === 'N' ? <b className="crit-ink">niezgodność</b> : '—'}</dd>
-              <dt>Temperatura komory</dt><dd>{c.tempChamber ?? '—'} °C</dd>
-              <dt>Temperatura mięsa</dt><dd className={h?.ponadProg ? 'crit-ink strong' : ''}>{c.tempMeat ?? '—'} °C <span className="muted">(próg {progi.join(', ')})</span></dd>
-              <dt>Zgodność kg z dokumentami</dt><dd>{c.kgMatch === 'bz' ? 'zgodne' : c.kgMatch === 'N' ? <b className="crit-ink">niezgodne</b> : '—'}</dd>
-              <dt>Kwalifikacja</dt><dd>{c.verdict === 'K' ? 'dostawa przyjęta' : c.verdict === 'N' ? <b className="crit-ink">odmowa przyjęcia</b> : '—'}</dd>
-              {c.notes && <><dt>Uwagi</dt><dd>{c.notes}</dd></>}
-              {(c.ncDescription || c.ncAction) && <><dt>Niezgodność</dt><dd>{c.ncDescription}{c.ncAction && <> — działanie: {c.ncAction}</>}</dd></>}
-            </dl></div>}
-            <div className="row-wrap"><button className="btn" disabled={p.cancelled} onClick={() => app.toast({ kind: 'info', title: 'Kontrola HACCP', detail: FAZA_ZAPISU })}><ClipboardCheck size={15} />{c ? 'Popraw kontrolę' : 'Wypełnij kontrolę'}</button></div>
-          </>}
+          {tab === 'haccp' && (() => {
+            // Próg z NAJOSTRZEJSZEGO numeru dostawy (mrożony −12 °C, drób +4 °C, czerwone +7 °C).
+            const naj = [...p.numery].filter(x => x.stan !== 'cancelled').sort((a, b) => progPrzyjecia(a.category, a.storage).maxC - progPrzyjecia(b.category, b.storage).maxC)[0] ?? p.numery[0]
+            return <KontrolaHaccp receptionId={p.id} category={naj?.category} storageState={naj?.storage} cancelled={p.cancelled} onSaved={onHaccpSaved} onCancelReception={onCancel} />
+          })()}
         </div>
       </div>
     </>

@@ -17,6 +17,7 @@ import { WzZamowienia } from './modules/orders/wz/WzZamowienia'
 import { ListaKompletacjiDialog } from './modules/orders/druk/ListaKompletacji'
 import { CmrDialog, generujHdi } from './modules/orders/dokumenty/Cmr'
 import { PodzialWysylki } from './modules/orders/podzial/PodzialWysylki'
+import { PrzyjecieEditor } from './modules/przyjecia/formularz/PrzyjecieEditor'
 import { computeMetrics as metryki } from './data/model'
 import { Placeholder } from './modules/misc/Placeholder'
 import { DesignSystem } from './modules/misc/DesignSystem'
@@ -123,6 +124,7 @@ function Shell() {
   const [active, setActive] = useState('pulpit')
   const [ordersCmd, setOrdersCmd] = useState<OrdersCmd>({ n: 0 })
   const [stockCmd, setStockCmd] = useState<{ n: number; select?: string }>({ n: 0 })
+  const [recCmd, setRecCmd] = useState<{ n: number; select?: string }>({ n: 0 })
   const [ctx, setCtx] = useState<Record<string, React.ReactNode>>({})
   const [cmdMap, setCmdMap] = useState<Record<string, Cmd[]>>({})
   const toastRef = useRef<((t: Omit<Toast, 'id'>) => void) | null>(null)
@@ -180,6 +182,18 @@ function Shell() {
     openModule('zamowienia')
     setOrdersCmd({ ...cmd, n: Date.now() })
   }, [openModule])
+  const recSeq = useRef(0)
+  const newReception = useCallback(() => {
+    recSeq.current += 1
+    openTab({ id: `new-rec:${recSeq.current}`, kind: 'new-reception', key: '', title: 'Nowe przyjęcie', icon: PackageOpen })
+  }, [openTab])
+  const editReception = useCallback((id: string, no?: string) => {
+    openTab({ id: `edit-rec:${id}`, kind: 'edit-reception', key: id, title: `Edycja przyjęcia ${no ?? ''}`.trim(), icon: PackageOpen })
+  }, [openTab])
+  const gotoReceptions = useCallback((select?: string) => {
+    openModule('przyjecia')
+    setRecCmd({ n: Date.now(), select })
+  }, [openModule])
   const gotoStock = useCallback((select?: string) => {
     openModule('magazyn-wg')
     setStockCmd({ n: Date.now(), select })
@@ -222,7 +236,7 @@ function Shell() {
       const inField = /INPUT|TEXTAREA|SELECT/.test((e.target as HTMLElement)?.tagName ?? '')
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette(p => !p) }
       else if (mod && e.key.toLowerCase() === 'b') { e.preventDefault(); toggleNav() }
-      else if (mod && e.key.toLowerCase() === 'n' && !e.shiftKey) { e.preventDefault(); newOrder() }
+      else if (mod && e.key.toLowerCase() === 'n' && !e.shiftKey) { e.preventDefault(); if (/^(przyjecia|new-rec:|edit-rec:)/.test(active)) newReception(); else newOrder() }
       else if (mod && e.key.toLowerCase() === 'w') { e.preventDefault(); closeTab(active) }
       else if (mod && e.key.toLowerCase() === 'p') { e.preventDefault(); const pc = modCmds.find(c => c.id === 'print'); const first = pc?.menu?.find(m => m.onSelect && !m.disabled); if (first?.onSelect) first.onSelect(); else if (!runCmd('print')) demo('Drukowanie') }
       else if (mod && e.key.toLowerCase() === 'd' && !inField) { e.preventDefault(); runCmd('duplicate') }
@@ -232,7 +246,7 @@ function Shell() {
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  }, [active, tabs, toggleNav, newOrder, closeTab, runCmd, demo, reload, modCmds])
+  }, [active, tabs, toggleNav, newOrder, newReception, closeTab, runCmd, demo, reload, modCmds])
 
   const setStatusCtx = useCallback((tabId: string, node: React.ReactNode) => setCtx(c => ({ ...c, [tabId]: node })), [])
   const setTabCmds = useCallback((tabId: string, cmds: Cmd[]) => setCmdMap(m => ({ ...m, [tabId]: cmds })), [])
@@ -243,10 +257,10 @@ function Shell() {
   const cmdsFor = (id: string) => (cmdSetters.current[id] ??= (c: Cmd[]) => setTabCmds(id, c))
 
   const api = useMemo<AppApi>(() => ({
-    openOrder, gotoOrders, gotoStock, openModule, newOrder: () => newOrder(), editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, splitOrder, toast,
+    openOrder, gotoOrders, gotoStock, openModule, newOrder: () => newOrder(), editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, splitOrder, newReception, editReception, gotoReceptions, toast,
     setStatusCtx: () => undefined,
     appRef, scale: vp.scale, prosty, panel, panelWybor, setPanel,
-  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, splitOrder, toast, vp.scale, prosty, panel, panelWybor, setPanel])
+  }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, splitOrder, newReception, editReception, gotoReceptions, toast, vp.scale, prosty, panel, panelWybor, setPanel])
 
   const badges = useMemo(() => {
     const problem = orders.filter(o => { const m = computeMetrics(o); return m.level === 'crit' || m.level === 'warn' }).length
@@ -255,7 +269,7 @@ function Shell() {
 
   // ─── Menu główne ────────────────────────────────────────────────────────
   const activeTab = tabs.find(t => t.id === active)!
-  const modLabel = activeTab.kind !== 'module' ? 'Zamówienie' : activeTab.key === 'pulpit' ? 'Pulpit' : (moduleDef(activeTab.key)?.label ?? 'Moduł')
+  const modLabel = activeTab.kind === 'new-reception' || activeTab.kind === 'edit-reception' ? 'Przyjęcie' : activeTab.kind !== 'module' ? 'Zamówienie' : activeTab.key === 'pulpit' ? 'Pulpit' : (moduleDef(activeTab.key)?.label ?? 'Moduł')
   const fixed = ['p', 'e', 'w', 'r', 'n', 'o', 'c']
   const modAccess = [...modLabel.toLowerCase()].find(ch => /[a-z]/.test(ch) && !fixed.includes(ch)) ?? 'm'
   const findOnList = () => document.querySelector<HTMLInputElement>('.tabpane:not([hidden]) .toolbar .field')?.focus()
@@ -271,6 +285,7 @@ function Shell() {
   const menus: MenuDef[] = [
     { key: 'plik', label: 'Plik', access: 'p', items: [
       { label: 'Nowe zamówienie', icon: <FilePlus2 size={15} />, kbd: 'Ctrl+N', onSelect: newOrder },
+      { label: 'Nowe przyjęcie surowca', icon: <PackageOpen size={15} />, onSelect: newReception },
       { label: 'Importuj zamówienia z pliku…', icon: <Upload size={15} />, onSelect: () => demo('Import zamówień z CSV') },
       { sep: true },
       { label: 'Otwórz… (szukaj wszędzie)', icon: <Search size={15} />, kbd: 'Ctrl+K', onSelect: () => setPalette(true) },
@@ -339,7 +354,7 @@ function Shell() {
     { id: 'new', label: 'Nowe zamówienie', icon: <Plus size={16} />, kbd: 'Ctrl+N', primary: true, split: true, run: newOrder, menu: [
       { header: 'Nowy dokument' },
       { label: 'Zamówienie klienta', icon: <FilePlus2 size={15} />, kbd: 'Ctrl+N', onSelect: newOrder },
-      { label: 'Przyjęcie surowca', icon: <PackageOpen size={15} />, onSelect: () => openModule('przyjecia') },
+      { label: 'Przyjęcie surowca', icon: <PackageOpen size={15} />, onSelect: newReception },
       { label: 'Zlecenie masowania', icon: <Layers size={15} />, onSelect: () => openModule('plan-masowania') },
       { label: 'Plan produkcji', icon: <ClipboardList size={15} />, onSelect: () => openModule('plan-produkcji') },
       { sep: true },
@@ -373,7 +388,7 @@ function Shell() {
     ] },
   ]
 
-  const currentKey = activeTab.kind === 'module' ? activeTab.key : activeTab.kind === 'order' || activeTab.kind === 'new-order' || activeTab.kind === 'edit-order' || activeTab.kind === 'wz' || activeTab.kind === 'split' ? 'zamowienia' : ''
+  const currentKey = activeTab.kind === 'module' ? activeTab.key : activeTab.kind === 'order' || activeTab.kind === 'new-order' || activeTab.kind === 'edit-order' || activeTab.kind === 'wz' || activeTab.kind === 'split' ? 'zamowienia' : activeTab.kind === 'new-reception' || activeTab.kind === 'edit-reception' ? 'przyjecia' : ''
 
   const renderTab = (t: WTab) => {
     const setTabCtx = ctxFor(t.id)
@@ -386,10 +401,12 @@ function Shell() {
     if (t.kind === 'new-order' || t.kind === 'edit-order') return <OrderEditor tabId={t.id} active={isActive} setCmds={setCmds}
       orderId={t.kind === 'edit-order' ? t.key : undefined} copyFromId={t.kind === 'new-order' && t.key ? t.key : undefined}
       onDone={(id) => { closeTab(t.id); if (id) gotoOrders({ select: id, tab: 'lines', view: 'active' }) }} />
+    if (t.kind === 'new-reception' || t.kind === 'edit-reception') return <PrzyjecieEditor tabId={t.id} active={isActive} setCmds={setCmds}
+      receptionId={t.kind === 'edit-reception' ? t.key : undefined} onDone={(id) => { closeTab(t.id); if (id) gotoReceptions(id) }} />
     if (t.key === 'pulpit') return <Dashboard active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'zamowienia') return <OrdersModule cmd={ordersCmd} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'magazyn-wg') return <FinishedGoods cmd={stockCmd} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
-    if (t.key === 'przyjecia') return <PrzyjeciaModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
+    if (t.key === 'przyjecia') return <PrzyjeciaModule cmd={recCmd} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'system') return <DesignSystem />
     const def = moduleDef(t.key)
     return def ? <Placeholder def={def} /> : null
@@ -445,7 +462,7 @@ function ShortcutsDialog({ onClose }: { onClose: () => void }) {
     ['Ctrl+1 … 9', 'Przejdź do okna (karty)'],
     ['Ctrl+W', 'Zamknij okno (Pulpit zostaje)'],
     ['Ctrl+B', 'Zwiń / rozwiń nawigację'],
-    ['Ctrl+N', 'Nowe zamówienie'],
+    ['Ctrl+N', 'Nowe zamówienie (w Przyjęciach — nowe przyjęcie)'],
     ['Ctrl+F', 'Szukaj na liście'],
     ['Ctrl+P', 'Drukuj'],
     ['↑ ↓  Home  End', 'Wybór wiersza na liście'],

@@ -30,6 +30,12 @@ export interface AppApi {
   genHdi(orderId: string): void
   /** Podział wysyłki na fakturę i WZ (karta robocza). */
   splitOrder(orderId: string): void
+  /** Nowe przyjęcie surowca (karta robocza). */
+  newReception(): void
+  /** Edycja przyjęcia surowca (karta robocza). */
+  editReception(id: string, no?: string): void
+  /** Przejdź do Przyjęć surowca i zaznacz dostawę. */
+  gotoReceptions(select?: string): void
   toast(t: Omit<Toast, 'id'>): void
   setStatusCtx(node: React.ReactNode): void
   appRef: React.RefObject<HTMLDivElement>
