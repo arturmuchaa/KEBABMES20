@@ -14,6 +14,7 @@ import { PrzyjeciaModule } from './modules/przyjecia/PrzyjeciaModule'
 import { OrderEditor } from './modules/orders/edytor/OrderEditor'
 import { ZamowienieDrukDialog } from './modules/orders/druk/ZamowienieDruk'
 import { KartkiPaletDialog } from './modules/orders/druk/KartkiPalet'
+import { DrukarkaDialog } from './drukarka/PanelDrukarki'
 import { WzZamowienia } from './modules/orders/wz/WzZamowienia'
 import { ListaKompletacjiDialog } from './modules/orders/druk/ListaKompletacji'
 import { CmrDialog, generujHdi } from './modules/orders/dokumenty/Cmr'
@@ -126,7 +127,7 @@ function Shell() {
   const [active, setActive] = useState('pulpit')
   const [ordersCmd, setOrdersCmd] = useState<OrdersCmd>({ n: 0 })
   const [stockCmd, setStockCmd] = useState<{ n: number; select?: string }>({ n: 0 })
-  const [recCmd, setRecCmd] = useState<{ n: number; select?: string }>({ n: 0 })
+  const [recCmd, setRecCmd] = useState<{ n: number; select?: string; zawieszki?: boolean }>({ n: 0 })
   const [ctx, setCtx] = useState<Record<string, React.ReactNode>>({})
   const [cmdMap, setCmdMap] = useState<Record<string, Cmd[]>>({})
   const toastRef = useRef<((t: Omit<Toast, 'id'>) => void) | null>(null)
@@ -167,6 +168,7 @@ function Shell() {
   const copyOrder = useCallback((id: string) => newOrder(id), [newOrder])
   const [drukId, setDrukId] = useState<string | null>(null)
   const [kartki, setKartki] = useState<{ orderId: string; nos?: number[] } | null>(null)
+  const [drukarka, setDrukarka] = useState(false)
   const printPallets = useCallback((orderId: string, nos?: number[]) => setKartki({ orderId, nos }), [])
   const printOrder = useCallback((id: string) => setDrukId(id), [])
   const [kompIds, setKompIds] = useState<string[] | null>(null)
@@ -206,9 +208,9 @@ function Shell() {
   const editReception = useCallback((id: string, no?: string) => {
     openTab({ id: `edit-rec:${id}`, kind: 'edit-reception', key: id, title: `Edycja przyjęcia ${no ?? ''}`.trim(), icon: PackageOpen })
   }, [openTab])
-  const gotoReceptions = useCallback((select?: string) => {
+  const gotoReceptions = useCallback((select?: string, zawieszki?: boolean) => {
     openModule('przyjecia')
-    setRecCmd({ n: Date.now(), select })
+    setRecCmd({ n: Date.now(), select, zawieszki })
   }, [openModule])
   const gotoStock = useCallback((select?: string) => {
     openModule('magazyn-wg')
@@ -341,6 +343,8 @@ function Shell() {
       { header: 'Pozostałe moduły' },
       goMod('plan-masowania', 'Plan masowania', Layers), goMod('opakowania', 'Opakowania i dodatki', Archive), goMod('katalog', 'Katalog wyrobów i etykiety', Tags),
       goMod('rozrachunki', 'Rozrachunki', Wallet), goMod('temperatury', 'Rejestr temperatur', Thermometer), goMod('analityka', 'Analityka', BarChart3), goMod('koszty', 'Kalkulacja kosztów', Calculator),
+      { sep: true }, { header: 'To stanowisko' },
+      { label: 'Drukarka etykiet…', icon: <Printer size={15} />, onSelect: () => setDrukarka(true) },
       { sep: true }, { header: 'Administracja' },
       goMod('pracownicy', 'Pracownicy', Users), goMod('czas-pracy', 'Czas pracy i rozliczenia', Clock), goMod('pojazdy', 'Pojazdy i przewoźnicy', Car), goMod('uzytkownicy', 'Użytkownicy i uprawnienia', UserCog), goMod('ustawienia', 'Ustawienia zakładu', SlidersHorizontal),
     ] },
@@ -407,7 +411,7 @@ function Shell() {
       orderId={t.kind === 'edit-order' ? t.key : undefined} copyFromId={t.kind === 'new-order' && t.key ? t.key : undefined}
       onDone={(id) => { closeTab(t.id); if (id) gotoOrders({ select: id, tab: 'lines', view: 'active' }) }} />
     if (t.kind === 'new-reception' || t.kind === 'edit-reception') return <PrzyjecieEditor tabId={t.id} active={isActive} setCmds={setCmds}
-      receptionId={t.kind === 'edit-reception' ? t.key : undefined} onDone={(id) => { closeTab(t.id); if (id) gotoReceptions(id) }} />
+      receptionId={t.kind === 'edit-reception' ? t.key : undefined} onDone={(id) => { closeTab(t.id); if (id) gotoReceptions(id, t.kind === 'new-reception') }} />
     if (t.key === 'pulpit') return <Dashboard active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'zamowienia') return <OrdersModule cmd={ordersCmd} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'magazyn-wg') return <FinishedGoods cmd={stockCmd} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
@@ -439,6 +443,7 @@ function Shell() {
       {cmrId && <CmrDialog orderId={cmrId} orderNo={orders.find(o => o.id === cmrId)?.no ?? ''} onClose={() => setCmrId(null)} />}
       {kompIds && <ListaKompletacjiDialog orderIds={kompIds} onClose={() => setKompIds(null)} />}
       {kartki && <KartkiPaletDialog orderId={kartki.orderId} palletNos={kartki.nos} onClose={() => setKartki(null)} />}
+      {drukarka && <DrukarkaDialog onClose={() => setDrukarka(false)} />}
       {drukId && <ZamowienieDrukDialog orderId={drukId} onClose={() => setDrukId(null)} />}
       {shortcuts && <ShortcutsDialog onClose={() => setShortcuts(false)} />}
       {about && <Dialog title="O programie" onClose={() => setAbout(false)} footer={<button className="btn primary" onClick={() => setAbout(false)}>Zamknij</button>}>

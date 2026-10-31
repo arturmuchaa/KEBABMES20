@@ -41,7 +41,8 @@ export interface AppApi {
   /** Edycja przyjęcia surowca (karta robocza). */
   editReception(id: string, no?: string): void
   /** Przejdź do Przyjęć surowca i zaznacz dostawę. */
-  gotoReceptions(select?: string): void
+  /** `zawieszki` — po zapisie nowej dostawy od razu okno zawieszek palet (jak pytanie w starym MES). */
+  gotoReceptions(select?: string, zawieszki?: boolean): void
   toast(t: Omit<Toast, 'id'>): void
   setStatusCtx(node: React.ReactNode): void
   appRef: React.RefObject<HTMLDivElement>
@@ -135,8 +136,8 @@ export function useMenu() {
 }
 
 // ─── Okno dialogowe ───────────────────────────────────────────────────────
-export function Dialog({ title, icon, children, footer, onClose, wide, labelledBy }: {
-  title: React.ReactNode; icon?: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode; onClose: () => void; wide?: boolean; labelledBy?: string
+export function Dialog({ title, icon, children, footer, onClose, wide, xl, labelledBy }: {
+  title: React.ReactNode; icon?: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode; onClose: () => void; wide?: boolean; xl?: boolean; labelledBy?: string
 }) {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -159,7 +160,7 @@ export function Dialog({ title, icon, children, footer, onClose, wide, labelledB
   const id = labelledBy ?? 'dlg-title'
   return (
     <div className="dialog-wrap" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div ref={ref} className={`dialog${wide ? ' wide' : ''}`} role="dialog" aria-modal="true" aria-labelledby={id}>
+      <div ref={ref} className={`dialog${wide ? ' wide' : ''}${xl ? ' xl' : ''}`} role="dialog" aria-modal="true" aria-labelledby={id}>
         <div className="dialog-h">{icon}<h2 id={id}>{title}</h2><button className="btn ghost icon x" onClick={onClose} aria-label="Zamknij (Esc)"><X size={18} /></button></div>
         <div className="dialog-b">{children}</div>
         {footer && <div className="dialog-f">{footer}</div>}

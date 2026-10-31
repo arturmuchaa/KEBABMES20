@@ -479,3 +479,53 @@ button.pstage:hover .node { box-shadow: 0 0 0 3px var(--accent-tint-2); transfor
 .kurs-odb .ko-chk { display: inline-flex; align-items: center; gap: 7px; height: var(--ctl-h); font-size: var(--fs-sm); }
 .kurs-tr { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, .8fr) minmax(0, 1.4fr); gap: 10px 12px; }
 @media (max-width: 1100px) { .kurs-tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .kurs-tr-wide { grid-column: 1 / -1; } }
+
+/* Zawieszki palet przyjęcia — tabela z kalkulatorem i podgląd z ZPL obok */
+.tags-grid { display: grid; grid-template-columns: minmax(0, 1fr) 232px; gap: 20px; align-items: start; }
+.tags-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.tags-side { position: sticky; top: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.tags-nav { display: flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: var(--fs-sm); }
+.tag-preview { width: 100%; height: auto; border-radius: var(--r-sm); box-shadow: var(--e2); }
+.tag-preview .tp-paper { fill: #fff; }
+.tag-preview .tp-ink { fill: #15171a; }
+.tag-preview .tp-frame { fill: none; stroke: #15171a; stroke-width: .3; }
+.tag-preview .tp-text { fill: #15171a; font-family: var(--font-ui); font-weight: 600; }
+.tag-preview .tp-rev { fill: #fff; font-family: var(--font-ui); font-weight: 600; }
+.tag-preview .tp-logo { fill: #dcdfe4; }
+.tags-foot { display: flex; align-items: center; gap: 12px; min-height: 24px; }
+.tags-foot .link-quiet { margin-left: auto; }
+.print-line { display: inline-flex; align-items: center; gap: 7px; margin: 0; color: var(--ink-3); font-size: var(--fs-sm); }
+.print-line.ok { color: var(--ok-ink); }
+/* Cichy link do ustawień — ma być pod ręką, nie w oczach */
+.link-quiet { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: var(--r-xs); color: var(--ink-3); font-size: var(--fs-sm); }
+.link-quiet:hover, .link-quiet:focus-visible { color: var(--accent-ink); }
+.link-quiet.inline { display: inline; padding: 0; text-decoration: underline; text-underline-offset: 2px; color: inherit; font-size: inherit; }
+
+/* Drukarka etykiet — stan jednym spojrzeniem, reszta schowana */
+.prn { display: flex; flex-direction: column; gap: 12px; }
+.prn-card { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--r-md); background: var(--surface-alt); }
+.prn-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ink-4); }
+.prn-dot.ok { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 18%, transparent); }
+.prn-dot.warn { background: var(--warn); box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 18%, transparent); }
+.prn-dot.crit { background: var(--crit); box-shadow: 0 0 0 4px color-mix(in srgb, var(--crit) 16%, transparent); }
+.prn-main { flex: 1; min-width: 0; }
+.prn-name { font-weight: 600; }
+.prn-sub { color: var(--ink-3); font-size: var(--fs-sm); line-height: 1.4; }
+.prn-wybor { display: flex; flex-direction: column; gap: 4px; }
+.prn-acts { display: flex; flex-direction: column; }
+.prn-act { display: flex; align-items: center; gap: 16px; padding: 11px 2px; border-bottom: 1px solid var(--line-soft); }
+.prn-act:first-child { border-top: 1px solid var(--line-soft); }
+.prn-act > div { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.prn-act span { color: var(--ink-3); font-size: var(--fs-sm); line-height: 1.4; }
+.prn-more { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; padding: 2px 4px; border-radius: var(--r-xs); color: var(--ink-2); font-weight: 500; }
+.prn-more:hover, .prn-more:focus-visible { color: var(--accent-ink); }
+.prn-more svg { transition: transform .15s var(--ease); }
+.prn-more svg.rot { transform: rotate(180deg); }
+.prn-foot { margin: 0; color: var(--ink-4); font-size: var(--fs-xs); }
+.dosuwy { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; padding: 2px 4px; }
+.dosuw { display: flex; flex-direction: column; gap: 4px; }
+.dosuw-c { display: flex; align-items: center; gap: 6px; }
+.dosuw-v { min-width: 76px; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+.dosuw-h { color: var(--ink-4); font-size: var(--fs-xs); }
+.spin { animation: obrot 1s linear infinite; }
+@keyframes obrot { to { transform: rotate(360deg); } }

@@ -13,10 +13,10 @@ import {
   type Przyjecie, type StanHaccp,
 } from '../../data/przyjecia'
 import { FlagIcon } from '../../ui/Glyphs'
-import { DRUK_ETYKIET } from '../../proba'
 import { AnulujPrzyjecie } from './AnulujPrzyjecie'
 import { KartyHaccpDialog, kartaBiezaca, pobierzKarte } from './KartyHaccp'
 import { KontrolaHaccp } from './KontrolaHaccp'
+import { ZawieszkiDialog } from './zawieszki/ZawieszkiDialog'
 import { useApi } from '@/hooks/useApi'
 import { useLiveRefresh } from '@/hooks/useLiveRefresh'
 import { receptionChecksApi, suppliersApi, wzApi } from '@/lib/api'
@@ -49,7 +49,7 @@ interface Row { p: Przyjecie; h: StanHaccp | null; supplier: string; level: 'cri
  * anulowanie — AnulujPrzyjecie, kontrola HACCP z podpisami — zakładka panelu.
  * Zawieszki palet drukuje na razie stary MES.
  */
-export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: number; select?: string }; active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void }) {
+export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: number; select?: string; zawieszki?: boolean }; active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void }) {
   const app = useApp()
   const recRes = useApi(() => getSurowe<Array<Record<string, unknown>>>('/receptions?from=&to=&limit=2000'))
   const typesRes = useApi(() => getSurowe<unknown[]>('/raw-batches/material-types'))
@@ -99,6 +99,7 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
   const [maxed, setMaxed] = useState(false)
   const [ctxMenu, setCtxMenu] = useState<{ id: string; anchor: Element } | null>(null)
   const [anuluj, setAnuluj] = useState<string | null>(null)
+  const [zawieszki, setZawieszki] = useState<string | null>(null)
   const [karty, setKarty] = useState(false)
   const [doZaznaczenia, setDoZaznaczenia] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
@@ -158,6 +159,8 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
     if (!cmd?.n) return
     void recRes.refetch(); void stockRes.refetch(); void checksRes.refetch(); void pendingRes.refetch()
     if (cmd.select) { setDoZaznaczenia(cmd.select); setQ(''); setDostawca(''); setMats([]); setMiesiac(''); setTermin('') }
+    // Nowa dostawa: od razu zawieszki na palety — zamknięcie okna to „nie drukuję”.
+    if (cmd.select && cmd.zawieszki) setZawieszki(cmd.select)
   }, [cmd]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!doZaznaczenia) return
@@ -208,7 +211,7 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
       { sep: true },
       { label: 'Karty z poprzednich miesięcy…', icon: <ClipboardCheck size={15} />, onSelect: () => setKarty(true) },
     ] },
-    { id: 'tags', group: 3, label: 'Zawieszki palet', icon: <Tag size={17} />, opt: true, disabled: !sp, run: () => app.toast({ kind: 'warn', title: 'Zawieszki palet', detail: DRUK_ETYKIET }) },
+    { id: 'tags', group: 3, label: 'Zawieszki palet', icon: <Tag size={17} />, opt: true, disabled: !sp || sp.cancelled, run: () => sp && setZawieszki(sp.id) },
     { id: 'cancel', group: 9, label: 'Anuluj przyjęcie…', icon: <Ban size={15} />, menuOnly: true, danger: true, disabled: !sp || sp.cancelled, run: () => sp && setAnuluj(sp.id) },
   ], [sp, app])
   useEffect(() => { setCmds(cmds) }, [cmds, setCmds])
@@ -335,12 +338,13 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
           { sep: true },
           { label: `Pokaż dostawy: ${r.supplier}`, onSelect: () => setDostawca(r.supplier) },
           { label: 'Edytuj przyjęcie', kbd: 'F2', disabled: r.p.cancelled, onSelect: () => app.editReception(r.p.id, r.p.no) },
-          { label: 'Zawieszki palet', onSelect: () => app.toast({ kind: 'warn', title: 'Zawieszki palet', detail: DRUK_ETYKIET }) },
+          { label: 'Zawieszki palet…', disabled: r.p.cancelled, onSelect: () => setZawieszki(r.p.id) },
           { sep: true },
           { label: 'Anuluj przyjęcie…', danger: true, disabled: r.p.cancelled, onSelect: () => setAnuluj(r.p.id) },
         ]} />
       })()}
       {karty && <KartyHaccpDialog app={app} onClose={() => setKarty(false)} />}
+      {zawieszki && <ZawieszkiDialog receptionId={zawieszki} onClose={() => setZawieszki(null)} />}
       {anuluj && (() => {
         const r = rows.find(x => x.p.id === anuluj)
         return r ? <AnulujPrzyjecie p={r.p} supplier={r.supplier} onClose={() => setAnuluj(null)}
