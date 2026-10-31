@@ -310,7 +310,7 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
               </tbody>
               {visible.length > 0 && <tfoot><tr>
                 <td className="al" /><td colSpan={3}>Razem — {visible.length} {visible.length === 1 ? 'dostawa' : 'dostaw'}</td>
-                <td className="side-hide" /><td className="hide-m" />
+                <td className="side-hide" /><td className="hide-s" />
                 <td className="num">{kg(tot.kg)}</td><td className="hide-m opt-col" /><td className="num">{kg(tot.left)}</td><td /><td /><td className="side-hide" />
               </tr></tfoot>}
             </table>
