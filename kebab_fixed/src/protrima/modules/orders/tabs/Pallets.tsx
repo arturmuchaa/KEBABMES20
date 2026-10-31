@@ -70,8 +70,8 @@ export function PalletsTab({ order }: { order: Order }) {
               {order.lines.map(l => {
                 const on = onPal[l.id] ?? 0
                 return (
-                  <span key={l.id} className={`achip${on > l.qty ? ' over' : on < l.qty ? ' short' : ''}`} data-tip={`Poz. ${l.lp}: ${l.product}, ${l.recipe} ${l.kgPerUnit} kg\nNa paletach ${on} z ${l.qty} szt.${on > l.qty ? `\nROZPIS PONAD ZAMÓWIENIE o ${on - l.qty} szt.` : ''}`}>
-                    <span className="t"><span>{l.recipe} {l.kgPerUnit} kg</span><span className="num"><b>{on}</b>/{l.qty}</span></span>
+                  <span key={l.id} className={`achip${on > l.qty ? ' over' : on < l.qty ? ' short' : ''}`} data-tip={`Poz. ${l.lp}: ${l.product}, ${l.recipe} ${l.kgPerUnit} kg${l.packaging ? `, tuleja ${l.packaging}` : ''}\nNa paletach ${on} z ${l.qty} szt.${on > l.qty ? `\nROZPIS PONAD ZAMÓWIENIE o ${on - l.qty} szt.` : ''}`}>
+                    <span className="t"><span>{l.recipe} {l.kgPerUnit} kg<Tuleja n={l.packaging} /></span><span className="num"><b>{on}</b>/{l.qty}</span></span>
                     <span className="bar" aria-hidden="true"><i style={{ width: `${Math.min(100, on / l.qty * 100)}%` }} /></span>
                   </span>
                 )
@@ -152,6 +152,11 @@ export function PalletsTab({ order }: { order: Order }) {
   )
 }
 
+/** Tuleja przy pozycji — ten sam kebab z inną tuleją to inna pozycja na palecie (właściciel 31.10.2026). */
+function Tuleja({ n }: { n?: string }) {
+  return n ? <span className="tul" data-tip="Tuleja / opakowanie">{n}</span> : null
+}
+
 function PalletCard({ order, p, sel, marked, onSelect, onMark }: { order: Order; p: Pallet; sel: boolean; marked: boolean; onSelect: () => void; onMark: () => void }) {
   return (
     <div className={`pal${sel ? ' sel' : ''}`} role="button" tabIndex={0} aria-pressed={sel} onClick={onSelect}
@@ -163,7 +168,7 @@ function PalletCard({ order, p, sel, marked, onSelect, onMark }: { order: Order;
       </div>
       <ul>
         {p.items.map(it => { const l = order.lines.find(x => x.id === it.lineId); return (
-          <li key={it.lineId}><span>{l ? `${l.recipe} ${l.kgPerUnit} kg` : 'pozycja usunięta'} × {it.qty}</span><span>{l ? kg(it.qty * l.kgPerUnit) : '—'}</span></li>) })}
+          <li key={it.lineId}><span>{l ? <>{l.recipe} {l.kgPerUnit} kg<Tuleja n={l.packaging} /></> : 'pozycja usunięta'} × {it.qty}</span><span>{l ? kg(it.qty * l.kgPerUnit) : '—'}</span></li>) })}
       </ul>
       <div className="pf">
         <PalletStatusLabel status={p.status} />

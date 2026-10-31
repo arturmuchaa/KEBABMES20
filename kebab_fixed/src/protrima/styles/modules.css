@@ -563,3 +563,7 @@ button.pstage:hover .node { box-shadow: 0 0 0 3px var(--accent-tint-2); transfor
 .szukaj-sztuki { display: flex; flex-direction: column; gap: 10px; }
 .lok-karta { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
 .lok-gdzie { display: flex; align-items: center; gap: 8px; color: var(--accent-ink); font-size: var(--fs-lg); }
+
+/* Rozpiska palet: tuleja przy pozycji */
+.tul { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: var(--r-xs); background: var(--surface-sunk); font-size: var(--fs-xs); font-weight: 500; line-height: 1.5; vertical-align: 1px; }
+.tul, .pal li .tul { color: var(--ink-3); }

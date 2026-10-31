@@ -28,6 +28,21 @@ afterEach(cleanup)
 beforeEach(() => { api.list.mockReset().mockResolvedValue(FRESH); api.save.mockReset().mockImplementation((_id, p) => Promise.resolve(p.map((x: { palletNo: number }, i: number) => ({ ...x, palletNo: x.palletNo || 4 + i })))); refresh.mockClear() })
 
 describe('zakładka Palety', () => {
+  it('tuleja przy pozycji: ten sam kebab z różnymi tulejami rozróżniony na rozpisce i na karcie palety', () => {
+    const RAW2 = { id: 'o2', order_no: 'T/Z/2', client_name: 'T', status: 'confirmed', lines: [
+      { id: 'a', qty: 20, kg_per_unit: 15, recipe_id: 'b', recipe_name: 'BEYAZ', product_type_name: 'UDO', packaging_name: 'METAL 65CM' },
+      { id: 'c', qty: 20, kg_per_unit: 15, recipe_id: 'b', recipe_name: 'BEYAZ', product_type_name: 'UDO', packaging_name: 'METAL 80CM' },
+    ] }
+    const P = [{ id: 'p1', palletNo: 1, cartonNo: '000700', notes: '', status: 'created', items: [{ orderLineId: 'a', qty: 20 }, { orderLineId: 'c', qty: 10 }] }]
+    const o = mapujZamowienie(mapClientOrder(RAW2), { clients: [], pallets: { o2: P as never }, wz: [], planByLine: {} })
+    render(<AppCtx.Provider value={app}><PalletsTab order={o} /></AppCtx.Provider>)
+    const strip = screen.getByLabelText('Rozpisanie pozycji na palety')
+    expect(within(strip).getByText('METAL 65CM')).toBeTruthy()
+    expect(within(strip).getByText('METAL 80CM')).toBeTruthy()
+    const karta = screen.getByRole('button', { name: /Paleta 1, karton 000700/ })
+    expect(within(karta).getAllByText(/^METAL (65|80)CM$/).map(e => e.textContent)).toEqual(['METAL 65CM', 'METAL 80CM'])
+  })
+
   it('nowa paleta: limit „do rozpisania”, zapis = świeża lista + nowa z numerem 0', async () => {
     mount()
     fireEvent.click(screen.getByRole('button', { name: /^Nowa paleta/ }))
