@@ -7,7 +7,7 @@ import {
   LABEL_LENGTH_MAX_MM, LABEL_LENGTH_MIN_MM, OFFSET_MAX_MM, loadCalibration, saveCalibration, tearOffMaxMm,
   type TagPrinterCalibration,
 } from '@/features/raw-batches/tagPrinterCalibration'
-import { drukujTest, opisBledu, stanDrukarki, ustawOdrywanie, wybierzDrukarke, zmienRolke, type StanDrukarki } from './drukarka'
+import { drukujTest, opisBledu, stanDrukarki, trybSerii, ustawOdrywanie, ustawTrybSerii, wybierzDrukarke, zmienRolke, type StanDrukarki, type TrybSerii } from './drukarka'
 
 const mm = (v: number, znak = true) => `${znak && v > 0 ? '+' : ''}${String(v).replace('.', ',')} mm`
 
@@ -53,6 +53,7 @@ export function PanelDrukarki() {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
   const [cal, setCal] = useState<TagPrinterCalibration>(loadCalibration)
   const [precyzyjne, setPrecyzyjne] = useState(false)
+  const [seria, setSeria] = useState<TrybSerii>(trybSerii)
 
   const sprawdz = useCallback(async () => {
     if (PROBA) return
@@ -109,6 +110,14 @@ export function PanelDrukarki() {
       <button type="button" className="prn-more" aria-expanded={precyzyjne} onClick={() => setPrecyzyjne(p => !p)}>
         <ChevronDown size={15} className={precyzyjne ? 'rot' : undefined} />Precyzyjne ustawienia
       </button>
+      {precyzyjne && <div className="prn-seria">
+        <span className="label">Seria zawieszek</span>
+        <div className="seg" role="group" aria-label="Seria zawieszek">
+          <button type="button" aria-pressed={seria === 'ciagiem'} onClick={() => { ustawTrybSerii('ciagiem'); setSeria('ciagiem') }}>Ciągiem — szybko</button>
+          <button type="button" aria-pressed={seria === 'pojedynczo'} onClick={() => { ustawTrybSerii('pojedynczo'); setSeria('pojedynczo') }}>Po jednej</button>
+        </div>
+        <span className="dosuw-h">{seria === 'ciagiem' ? 'cała seria bez przerw, taśma staje do oderwania po ostatniej' : 'każda zawieszka staje do oderwania osobno — wolniej'}</span>
+      </div>}
       {precyzyjne && <div className="dosuwy">
         <Dosuw label="Przesunięcie w poziomie" hint="+ w prawo" value={cal.offsetXMm} step={0.5} min={-OFFSET_MAX_MM} max={OFFSET_MAX_MM} disabled={off} onChange={v => zmien({ offsetXMm: v })} />
         <Dosuw label="Przesunięcie w pionie" hint="+ w dół" value={cal.offsetYMm} step={0.5} min={-OFFSET_MAX_MM} max={OFFSET_MAX_MM} disabled={off} onChange={v => zmien({ offsetYMm: v })} />

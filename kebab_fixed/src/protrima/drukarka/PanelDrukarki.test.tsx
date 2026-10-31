@@ -4,7 +4,7 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 import React from 'react'
 
 /** Ustawienia drukarki: stan jednym spojrzeniem, rzadkie sprawy pod ręką, milimetry schowane. */
-const d = vi.hoisted(() => ({ stanDrukarki: vi.fn(), zmienRolke: vi.fn(), drukujTest: vi.fn(), ustawOdrywanie: vi.fn(), wybierzDrukarke: vi.fn(), opisBledu: vi.fn() }))
+const d = vi.hoisted(() => ({ stanDrukarki: vi.fn(), zmienRolke: vi.fn(), drukujTest: vi.fn(), ustawOdrywanie: vi.fn(), wybierzDrukarke: vi.fn(), opisBledu: vi.fn(), trybSerii: vi.fn(), ustawTrybSerii: vi.fn() }))
 vi.mock('./drukarka', () => d)
 import { PanelDrukarki } from './PanelDrukarki'
 
@@ -12,6 +12,7 @@ const GOTOWA = { nazwa: 'ZDesigner GC420t', uid: 'u1', model: 'GC420t', gotowa: 
 afterEach(cleanup)
 beforeEach(() => {
   Object.values(d).forEach(f => f.mockReset()); localStorage.clear()
+  d.trybSerii.mockReturnValue('ciagiem')
   d.stanDrukarki.mockResolvedValue(GOTOWA); d.zmienRolke.mockResolvedValue('Drukarka zmierzyła etykietę: 102,6 mm. Gotowa do druku.'); d.ustawOdrywanie.mockResolvedValue(undefined)
 })
 
@@ -40,6 +41,9 @@ describe('PanelDrukarki', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Zmieniam rolkę' }))
     expect(await screen.findByText(/zmierzyła etykietę: 102,6 mm/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /Precyzyjne ustawienia/ }))
+    expect(screen.getByRole('button', { name: 'Ciągiem — szybko' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'Po jednej' }))
+    expect(d.ustawTrybSerii).toHaveBeenCalledWith('pojedynczo')
     fireEvent.click(screen.getByRole('button', { name: 'Przesunięcie w poziomie: więcej' }))
     expect(d.ustawOdrywanie).not.toHaveBeenCalled()
     expect(screen.getByText('+0,5 mm')).toBeTruthy()

@@ -222,7 +222,8 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
   // ─── Pasek narzędzi: te same polecenia trafiają do menu „Zamówienia" ────
   const selOrder = selRow?.o ?? null
   const cmds = useMemo<Cmd[]>(() => [
-    { id: 'new', group: 1, label: 'Nowe zamówienie', icon: <Plus size={15} />, kbd: 'Ctrl+N', menuOnly: true, run: app.newOrder },
+    // Na pasku jako przycisk główny (zgłoszenie 31.10.2026: „nie widzę przycisku Nowe zamówienie” — był tylko w menu).
+    { id: 'new', group: 1, label: 'Nowe zamówienie', icon: <Plus size={17} />, kbd: 'Ctrl+N', primary: true, run: app.newOrder },
     ...orderCommands(selOrder, app, t => setTab(t), akcje.zapytaj),
     { id: 'req', group: 5, label: 'Zapotrzebowanie', icon: <Calculator size={17} />, opt: true, tip: 'Zapotrzebowanie na masowanie — dla zaznaczonych albo wybranego', disabled: !checked.size && !selOrder, run: () => setReqOpen(true) },
   ], [app, selOrder, checked.size, akcje.zapytaj])

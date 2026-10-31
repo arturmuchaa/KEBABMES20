@@ -178,6 +178,7 @@ export function PodpisDialog({ docId, role, juzPodpisal, onSigned, onClose }: {
   const [pin, setPin] = useState('')
   const [blad, setBlad] = useState<string | null>(null)
   const [wysyla, setWysyla] = useState(false)
+  const pinRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
     let zywe = true
     signaturesApi.eligible(role).then(d => { if (zywe) setOsoby((d ?? []) as Array<{ id: string; name: string; png: string }>) })
@@ -200,12 +201,12 @@ export function PodpisDialog({ docId, role, juzPodpisal, onSigned, onClose }: {
       {osoby !== null && osoby.length === 0 && <div className="note warn"><FlagIcon level="warn" size={15} /><div>Brak osób z wzorem podpisu i uprawnieniem do tej roli. Wzór rysuje się na HMI rozbioru: przytrzymaj tytuł ekranu 3 s, kod <b>0099</b>, „Wzory podpisów”. Uprawnienie nadaje się w kartotece pracowników.</div></div>}
       {osoby && osoby.length > 0 && <>
         <div className="sign-list" role="listbox" aria-label="Kto podpisuje">
-          {osoby.map(o => <button key={o.id} type="button" role="option" aria-selected={wybrany === o.id} className={`sign-opt${wybrany === o.id ? ' on' : ''}`} onClick={() => { setWybrany(o.id); setBlad(null) }}>
+          {osoby.map(o => <button key={o.id} type="button" role="option" aria-selected={wybrany === o.id} className={`sign-opt${wybrany === o.id ? ' on' : ''}`} onClick={() => { setWybrany(o.id); setBlad(null); requestAnimationFrame(() => pinRef.current?.focus()) }}>
             <b>{o.name}</b>{o.png && <img src={o.png} alt="" />}</button>)}
         </div>
         {wybrany && juzPodpisal && wybrany === juzPodpisal && <div className="note warn"><FlagIcon level="warn" size={15} /><div>Uwaga: ta sama osoba podpisze wykonanie i sprawdzenie.</div></div>}
         <label className="fld"><span className="label">PIN podpisującego</span>
-          <input className="field" type="password" inputMode="numeric" autoComplete="off" value={pin} placeholder="••••" onChange={e => { setPin(e.target.value); setBlad(null) }} onKeyDown={e => { if (e.key === 'Enter') podpisz() }} />
+          <input ref={pinRef} className="field" type="password" inputMode="numeric" autoComplete="off" aria-label="PIN podpisującego" value={pin} placeholder="••••" onChange={e => { setPin(e.target.value); setBlad(null) }} onKeyDown={e => { if (e.key === 'Enter') podpisz() }} />
           <span className="sub">PIN wpisuje osoba podpisująca, nie biuro.</span></label>
       </>}
       {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div>{blad}</div></div>}

@@ -538,3 +538,4 @@ button.pstage:hover .node { box-shadow: 0 0 0 3px var(--accent-tint-2); transfor
 .nk-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px 20px; align-items: start; }
 .nk-grid > label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .nk-grid .sub { color: var(--ink-3); font-size: var(--fs-sm); line-height: 1.4; }
+.prn-seria { display: flex; flex-direction: column; gap: 6px; padding: 2px 4px; }

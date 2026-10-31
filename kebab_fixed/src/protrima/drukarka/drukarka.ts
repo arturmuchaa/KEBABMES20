@@ -69,11 +69,35 @@ export function przyjmijSkok(mm: number | null, cal: TagPrinterCalibration = loa
   return skokWZakresie(mm) && Math.abs(mm - cal.labelLengthMm) >= 0.05 ? saveCalibration({ ...cal, labelLengthMm: mm }) : cal
 }
 
-/** Seria zawieszek: po zadaniu na zawieszkę, z przerwą — inaczej odrywanie wypada w poprzek (26.08.2026). */
+/**
+ * Seria zawieszek: ciągiem (domyślnie) albo po jednej.
+ * Ciągiem — jedno zadanie z całą serią: jedna kontrola gotowości i druk bez przerw
+ * (właściciel 31.10.2026: „ma drukować ciągle, szybko”). Każdy format niesie `^LL`
+ * i `^MNY`, więc etykiety trzymają się przerw na taśmie; do oderwania staje
+ * po ostatniej. Po jednej — zadanie na zawieszkę z przerwą, każda staje do
+ * oderwania osobno (tak drukował stary MES od 26.08.2026).
+ */
 export async function drukujZawieszki(tags: readonly ReceptionTagInput[], p: Postep = {}): Promise<void> {
   const dev = await drukarka()
   const cal = przyjmijSkok(await przygotuj(dev, ROLKA_ZAWIESZEK, p))
-  await sendZplJobs(dev, receptionTagsPrintJobs(tags, cal), { delayMs: tagPrintDelayMs(cal.labelLengthMm), onProgress: p.onProgress, onStatus: p.onStatus })
+  const zadania = receptionTagsPrintJobs(tags, cal)
+  if (trybSerii() === 'ciagiem') {
+    p.onStatus?.(`Drukuję ciągiem: ${tags.length} szt.…`)
+    await sendZplJobs(dev, [zadania.join('\n')], { onStatus: p.onStatus })
+    p.onProgress?.(tags.length, tags.length)
+    return
+  }
+  await sendZplJobs(dev, zadania, { delayMs: tagPrintDelayMs(cal.labelLengthMm), onProgress: p.onProgress, onStatus: p.onStatus })
+}
+
+export type TrybSerii = 'ciagiem' | 'pojedynczo'
+const KLUCZ_SERII = 'protrima.zawieszki.seria'
+/** Osobny klucz, nie nastawa ze starego MES: jego zapis kalibracji wyciąłby nieznane pole. */
+export function trybSerii(): TrybSerii {
+  try { return localStorage.getItem(KLUCZ_SERII) === 'pojedynczo' ? 'pojedynczo' : 'ciagiem' } catch { return 'ciagiem' }
+}
+export function ustawTrybSerii(t: TrybSerii) {
+  try { localStorage.setItem(KLUCZ_SERII, t) } catch { /* bez pamięci — zostaje domyślny */ }
 }
 
 /** „Zmieniam rolkę”: kalibracja na żądanie, skok z pomiaru. */

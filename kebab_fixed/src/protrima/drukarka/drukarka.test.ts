@@ -69,15 +69,23 @@ describe('przygotowanie drukarki przed serią', () => {
 })
 
 describe('druk zawieszek', () => {
-  it('zadanie na zawieszkę, skok z drukarki w ^LL, przesunięcia stanowiska zostają', async () => {
+  it('domyślnie ciągiem: cała seria jednym zadaniem, bez przerw; skok z drukarki w ^LL każdej etykiety, przesunięcia zostają', async () => {
     saveCalibration({ ...DEFAULT_CALIBRATION, offsetXMm: 1.5 })
     await drukujZawieszki([TAG, { ...TAG, palletIndex: 2, netKg: 300, containers: 20 }])
     const [d, jobs, opts] = z.sendZplJobs.mock.calls[0]
     expect(d).toBe(dev)
-    expect(jobs).toHaveLength(2)
-    expect(jobs[0]).toContain(`^LL${Math.round(102.4 * 203 / 25.4)}`)
-    expect(opts.delayMs).toBeGreaterThanOrEqual(600)
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].match(/\^XA/g)).toHaveLength(2)
+    expect(jobs[0].match(new RegExp(`\\^LL${Math.round(102.4 * 203 / 25.4)}`, 'g'))).toHaveLength(2)
+    expect(opts.delayMs).toBeUndefined()
     expect(loadCalibration()).toMatchObject({ labelLengthMm: 102.4, offsetXMm: 1.5 })
+  })
+  it('tryb „po jednej”: zadanie na zawieszkę z przerwą (każda staje do oderwania)', async () => {
+    localStorage.setItem('protrima.zawieszki.seria', 'pojedynczo')
+    await drukujZawieszki([TAG, { ...TAG, palletIndex: 2, netKg: 300, containers: 20 }])
+    const [, jobs, opts] = z.sendZplJobs.mock.calls[0]
+    expect(jobs).toHaveLength(2)
+    expect(opts.delayMs).toBeGreaterThanOrEqual(600)
   })
   it('brak drukarki: komunikat słowami — inny, gdy zapamiętana drukarka zniknęła', async () => {
     z.getDevices.mockResolvedValue({ default: null, list: [] })
