@@ -547,3 +547,19 @@ button.pstage:hover .node { box-shadow: 0 0 0 3px var(--accent-tint-2); transfor
 .nr-chip b { font-family: var(--font-code); font-weight: 600; color: var(--ink-1); }
 .nr-chip.off { opacity: .55; text-decoration: line-through; }
 .nr-more { color: var(--ink-3); font-size: var(--fs-sm); white-space: nowrap; }
+
+/* Wyrób gotowy: lokalizacja sztuk partii */
+.lok-box { padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
+.lok-box .sect-h h3 { display: inline-flex; align-items: center; gap: 7px; }
+.lok-etapy { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.lok-etap { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: var(--r-md); background: var(--surface-alt); color: var(--ink-3); }
+.lok-etap.on { background: var(--accent-tint); color: var(--ink-2); }
+.lok-n { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink-1); }
+.lok-n small { margin-left: 4px; font-size: var(--fs-sm); font-weight: 500; color: var(--ink-3); }
+.lok-etap:not(.on) .lok-n { color: var(--ink-4); }
+.lok-t { font-weight: 600; }
+.lok-d { font-size: var(--fs-xs); }
+.lok-kartony { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.szukaj-sztuki { display: flex; flex-direction: column; gap: 10px; }
+.lok-karta { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.lok-gdzie { display: flex; align-items: center; gap: 8px; color: var(--accent-ink); font-size: var(--fs-lg); }

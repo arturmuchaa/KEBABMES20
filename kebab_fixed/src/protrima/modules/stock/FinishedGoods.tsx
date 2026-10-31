@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link2, MoveRight, Truck, PackagePlus, ClipboardCheck, Search, ChevronDown, ChevronRight, X, Maximize2, Minimize2, ExternalLink, PanelRight, PanelBottom, Rows3, Lock, Snowflake, Layers, ArrowUp, ArrowDown, FileText, Package, PenLine } from 'lucide-react'
+import { Link2, MoveRight, Truck, PackagePlus, QrCode, ClipboardCheck, Search, ChevronDown, ChevronRight, X, Maximize2, Minimize2, ExternalLink, PanelRight, PanelBottom, Rows3, Lock, Snowflake, Layers, ArrowUp, ArrowDown, FileText, Package, PenLine } from 'lucide-react'
 import { useApp, Menu, useMenu, CommandBar, wierszMenu, type Cmd } from '../../shell/context'
 import { useOrders } from '../../data/store'
 import { computeMetrics, fmtDate, kg, num, relDay, isClosed, lineMissing, type Order } from '../../data/model'
@@ -17,6 +17,7 @@ import { KartonyMagazynowe } from './kartony/KartonyMagazynowe'
 import { NowyKartonDialog, type StartKartonu } from './kartony/NowyKartonDialog'
 import { KartkaKartonuDialog } from './kartony/KartkaKartonuDialog'
 import { nrKartonu, skladKartonu } from './kartony/model'
+import { LokalizacjaPartii, SzukajSztuki, SzukajSztukiDialog } from './LokalizacjaPartii'
 
 type View = 'all' | 'free' | 'allocated' | 'pallet' | 'blocked' | 'short'
 type Tab = 'details' | 'alloc' | 'cartons' | 'moves' | 'trace'
@@ -27,7 +28,7 @@ type SortCol = 'product' | 'batch' | 'prod' | 'bb' | 'qty' | 'kg'
 
 const SHORT_DAYS = 14
 const TABS: Array<{ key: Tab; label: string }> = [
-  { key: 'details', label: 'Szczegóły' }, { key: 'alloc', label: 'Zamówienia' }, { key: 'cartons', label: 'Kartony' },
+  { key: 'details', label: 'Szczegóły' }, { key: 'alloc', label: 'Zamówienia' }, { key: 'cartons', label: 'Lokalizacja' },
   { key: 'moves', label: 'Ruchy magazynowe' }, { key: 'trace', label: 'Śledzenie partii' },
 ]
 
@@ -57,6 +58,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const [wybranyKarton, setWybranyKarton] = useState<string | null>(null)
   const [nowyKarton, setNowyKarton] = useState<StartKartonu | null>(null)
   const [kartka, setKartka] = useState<StockCarton | null>(null)
+  const [szukajSztuki, setSzukajSztuki] = useState(false)
   // Stałe funkcje dla widoku kartonów: nowa funkcja przy każdym renderze przeliczała jego polecenia w kółko.
   const nowyPustyKarton = useCallback(() => setNowyKarton({}), [])
   const [q, setQ] = useState('')
@@ -166,6 +168,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
       { sep: true },
       { label: `Pokaż kartony magazynowe (${kartonyRes.data?.length ?? 0})`, onSelect: () => setWidok('kartony') },
     ] },
+    { id: 'unit', group: 4, label: 'Gdzie jest sztuka?', icon: <QrCode size={17} />, opt: true, tip: 'Znajdź sztukę po kodzie QR z etykiety', run: () => setSzukajSztuki(true) },
     { id: 'stan', group: 4, label: 'Stan dla klienta', icon: <ClipboardCheck size={17} />, tip: 'Wydruk: co klient ma na magazynie', run: () => setStanOpen(true) },
   ], [canAlloc, sp, app, zaznaczone.join(','), rows, kartonyRes.data?.length]) // eslint-disable-line react-hooks/exhaustive-deps
   // Widok kartonów ma własne polecenia i pasek stanu — ten widok ich nie nadpisuje.
@@ -380,6 +383,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
         { label: 'Bez grupowania', icon: <Rows3 size={15} />, checked: groupBy === 'none', onSelect: () => setGroupBy('none') },
       ]} />}
       {oknaKartonow}
+      {szukajSztuki && <SzukajSztukiDialog onClose={() => setSzukajSztuki(false)} />}
     </>
   )
 }
@@ -508,7 +512,11 @@ function StockDetail({ r, tab, onTab, maxed, onMax, onClose, candidates, onFix }
             </>)}
           </>}
 
-          {tab === 'cartons' && <div className="note info"><FlagIcon level="info" size={15} /><div>Kartony i sztuki tej partii (lokalizacja sztuk) — faza 4: <span className="code">finishedUnitsApi</span> jak w starym widoku „Lokalizacja partii”.</div></div>}
+          {tab === 'cartons' && <>
+            <LokalizacjaPartii batchNo={p.batch} />
+            <div className="sect-h" style={{ marginTop: 16 }}><h3>Znajdź sztukę po kodzie</h3><span className="sub">kod z etykiety sztuki — wklej albo zeskanuj czytnikiem</span></div>
+            <SzukajSztuki />
+          </>}
 
           {tab === 'moves' && <div className="note"><FlagIcon level="info" size={15} /><div>Ruchy magazynowe partii (<span className="code">traceApi</span>) — faza 4. Każda zmiana stanu ma swój ruch po stronie serwera.</div></div>}
 
