@@ -277,7 +277,7 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
                 {thSort('date', 'Data')}
                 {thSort('supplier', 'Dostawca')}
                 <th className="side-hide">Surowiec</th>
-                <th className="hide-m">Numery</th>
+                <th className="hide-s" data-tip="Numery porządkowe dostawy i ile kilogramów przyjęto na każdy">Numery porządkowe</th>
                 {thSort('kg', 'Przyjęto', 'num')}
                 <th className="num hide-m opt-col" data-tip="Przyjęto − masa netto z dokumentu HDI">Różnica HDI</th>
                 {thSort('left', 'Na stanie', 'num')}
@@ -371,6 +371,22 @@ function HaccpTag({ h }: { h: StanHaccp | null }) {
   return <span className="tag warn">{h.status === 'brak' ? 'Brak' : 'Niepełne'}</span>
 }
 
+/** Ile numerów porządkowych zmieści się w wierszu; resztę pokazuje dymek i zakładka „Numery porządkowe”. */
+const NUMERY_NA_LISCIE = 3
+
+/** Dymek: każdy numer z surowcem, przyjętymi i pozostałymi kilogramami. */
+export const opisNumerow = (p: Przyjecie) => p.numery
+  .map(x => `${x.no} · ${x.material} · przyjęto ${kg(x.kgReceived)}${x.status === 'cancelled' ? ' · anulowany' : ` · na stanie ${kg(x.kgAvailable)}`}`).join('\n')
+
+/** Numery porządkowe dostawy z kilogramami wprost na liście (właściciel 31.10.2026). */
+export function NumeryNaLiscie({ p }: { p: Przyjecie }) {
+  return (
+    <span className="nr-list">{p.numery.slice(0, NUMERY_NA_LISCIE).map(x => (
+      <span key={x.id} className={`nr-chip${x.status === 'cancelled' ? ' off' : ''}`}><b>{x.no}</b>{kg(x.kgReceived)}</span>
+    ))}{p.numery.length > NUMERY_NA_LISCIE && <span className="nr-more">+{p.numery.length - NUMERY_NA_LISCIE}</span>}</span>
+  )
+}
+
 const PrzyjecieRow = React.memo(function PrzyjecieRow({ r, zebra, sel, onClick }: { r: Row; zebra: boolean; sel: boolean; onClick: () => void }) {
   const { p } = r
   const dd = dniDo(p.nearestExpiry)
@@ -383,7 +399,7 @@ const PrzyjecieRow = React.memo(function PrzyjecieRow({ r, zebra, sel, onClick }
       <td className="num">{fmtDate(dataZApi(p.date))}</td>
       <td className="ell" style={{ maxWidth: 200 }} title={p.supplierName}>{r.supplier}</td>
       <td className="ell side-hide" style={{ maxWidth: 220 }}>{p.materials.join(', ')}</td>
-      <td className="code hide-m ell" style={{ maxWidth: 160 }}>{p.numery.map(x => x.no).join(', ')}</td>
+      <td className="hide-s nr-cell" data-tip={opisNumerow(p)}><NumeryNaLiscie p={p} /></td>
       <td className="num strong">{kg(p.kgReceived)}</td>
       <td className="num hide-m opt-col">{rk === null ? <span className="faint">—</span> : Math.abs(rk) < 1 ? <span className="ok-ink">zgodne</span> : <span className="warn-ink strong">{rk > 0 ? '+' : ''}{num(rk)}</span>}</td>
       <td className="num">{p.stan === 'w_obiegu'

@@ -153,15 +153,10 @@
 :root[data-w="l"] .cmd .lbl.opt { display: inline; }
 
 /* ─── Nawigacja: płaska, sekcje według przepływu zakładu ───────────────── */
-/* Grafit z ekranu logowania (#16202B, akcent #7FA3F3). Tokeny podmienione
-   lokalnie — pozycje, nagłówki, liczniki i karta serwera biorą je same. */
+/* Jasny pasek (właściciel 31.10.2026: grafitowy jak przy logowaniu — „nie podoba mi się”). */
 .nav {
   grid-row: 4; display: flex; flex-direction: column; min-height: 0;
-  --nav: #16202B; --nav-hover: rgba(255, 255, 255, .06);
-  --ink-1: #E9EDF2; --ink-2: #C3CDD9; --ink-3: #97A3B2; --ink-4: #6F7C8C;
-  --line: rgba(255, 255, 255, .08); --surface: rgba(255, 255, 255, .05); --surface-sunk: rgba(255, 255, 255, .1);
-  --accent: #7FA3F3; --accent-tint: rgba(127, 163, 243, .16); --accent-ink: #B9CCF9; --e1: none;
-  color-scheme: dark; background: var(--nav); color: var(--ink-1);
+  background: var(--nav); border-right: 1px solid var(--line);
 }
 .nav-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 8px 12px; }
 .nav-cap { padding: 16px 10px 5px; font-size: 11.5px; color: var(--ink-4); font-weight: 600; letter-spacing: .01em; }

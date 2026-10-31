@@ -539,3 +539,11 @@ button.pstage:hover .node { box-shadow: 0 0 0 3px var(--accent-tint-2); transfor
 .nk-grid > label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .nk-grid .sub { color: var(--ink-3); font-size: var(--fs-sm); line-height: 1.4; }
 .prn-seria { display: flex; flex-direction: column; gap: 6px; padding: 2px 4px; }
+
+/* Przyjęcia: numery porządkowe z kilogramami wprost na liście */
+.tbl td.nr-cell { max-width: 330px; overflow: hidden; }
+.nr-list { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; vertical-align: middle; }
+.nr-chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 1px 7px; border-radius: var(--r-xs); background: var(--surface-sunk); color: var(--ink-2); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.nr-chip b { font-family: var(--font-code); font-weight: 600; color: var(--ink-1); }
+.nr-chip.off { opacity: .55; text-decoration: line-through; }
+.nr-more { color: var(--ink-3); font-size: var(--fs-sm); white-space: nowrap; }

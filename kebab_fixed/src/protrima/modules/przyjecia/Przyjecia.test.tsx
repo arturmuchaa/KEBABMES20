@@ -22,6 +22,7 @@ vi.mock('@/lib/api', async (orig) => ({
 import { PrzyjecieEditor } from './formularz/PrzyjecieEditor'
 import { AnulujPrzyjecie } from './AnulujPrzyjecie'
 import { KontrolaHaccp } from './KontrolaHaccp'
+import { NumeryNaLiscie, opisNumerow } from './PrzyjeciaModule'
 import { mapujPrzyjecie, mapujRodzaje } from '../../data/przyjecia'
 import { dzisIso, plusDni } from './formularz/model'
 
@@ -148,6 +149,17 @@ const RAW_REC = (b2: Record<string, unknown> = {}) => ({
   ],
 })
 const przyjecie = (b2?: Record<string, unknown>) => mapujPrzyjecie(RAW_REC(b2), mapujRodzaje([]), {})
+
+describe('Lista przyjęć — numery porządkowe', () => {
+  it('każdy numer z kilogramami w wierszu; dymek z surowcem i tym, co zostało na stanie', () => {
+    const p = przyjecie()
+    render(<table><tbody><tr><td><NumeryNaLiscie p={p} /></td></tr></tbody></table>)
+    const zwykle = (t: string | null | undefined) => (t ?? '').replace(/\u00a0/g, ' ') // kg mają twardą spację w tysiącach
+    expect(zwykle(screen.getByText('679').parentElement!.textContent)).toBe('6796 000 kg')
+    expect(zwykle(screen.getByText('680').parentElement!.textContent)).toBe('6804 000 kg')
+    expect(zwykle(opisNumerow(p))).toBe('679 · Ćwiartka z kurczaka · przyjęto 6 000 kg · na stanie 6 000 kg\n680 · Ćwiartka z kurczaka · przyjęto 4 000 kg · na stanie 2 500 kg')
+  })
+})
 
 describe('Anulowanie przyjęcia', () => {
   it('pokazuje tożsamość dostawy; całej nie da się anulować, gdy numer poszedł na rozbiór — nietknięty numer tak', async () => {
