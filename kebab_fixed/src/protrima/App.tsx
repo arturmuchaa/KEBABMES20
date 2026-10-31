@@ -3,6 +3,7 @@ import { LayoutGrid, ShoppingCart, FilePlus2, Palette, Package, Printer, LogOut,
 import { AppCtx, type AppApi, type Cmd, type MenuItem, type OrdersCmd, type PanelWybor, type Toast, Toasts, TooltipLayer, Dialog } from './shell/context'
 import { TitleBar, MenuBar, MainToolbar, TabStrip, Nav, StatusBar, type MenuDef, type ToolItem, type WTab } from './shell/Chrome'
 import { CommandPalette } from './shell/CommandPalette'
+import { useStaleFunkcje } from './shell/staleFunkcje'
 import { moduleDef } from './shell/modules'
 import { useOrders } from './data/store'
 import { computeMetrics } from './data/model'
@@ -273,6 +274,8 @@ function Shell() {
   const cmdSetters = useRef<Record<string, (c: Cmd[]) => void>>({})
   const ctxFor = (id: string) => (ctxSetters.current[id] ??= (n: React.ReactNode) => setStatusCtx(id, n))
   const cmdsFor = (id: string) => (cmdSetters.current[id] ??= (c: Cmd[]) => setTabCmds(id, c))
+  // `onDone` kart roboczych — stały na okno; pisany w miejscu kręcił pętlę renderów (setCmds ↔ render powłoki).
+  const stala = useStaleFunkcje()
 
   const api = useMemo<AppApi>(() => ({
     openOrder, gotoOrders, gotoStock, openModule, newOrder: () => newOrder(), editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, splitOrder, printPallets, openKurs, issueWzFromStock, newReception, editReception, gotoReceptions, toast,
@@ -402,16 +405,17 @@ function Shell() {
     const setCmds = cmdsFor(t.id)
     const isActive = t.id === active
     if (t.kind === 'order') return <OrderTab orderId={t.key} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
+    const done = `done:${t.id}`
     if (t.kind === 'split') { const o = orders.find(x => x.id === t.key); return <PodzialWysylki orderId={t.key} orderNo={o?.no ?? ''} clientName={o?.client.name ?? ''} kgCalosc={o ? metryki(o).orderedKg : 0}
-      active={isActive} setCmds={setCmds} onDone={() => { closeTab(t.id); gotoOrders({ select: t.key, tab: 'documents' }) }} /> }
-    if (t.kind === 'kurs') return <PapieryKursu kursId={t.key} active={isActive} setCmds={setCmds} onDone={() => closeTab(t.id)} />
-    if (t.kind === 'wz-stock') return <WzZamowienia wybor={wzWybor.current[t.id] ?? []} active={isActive} setCmds={setCmds} onDone={() => { closeTab(t.id); delete wzWybor.current[t.id]; gotoStock() }} />
-    if (t.kind === 'wz') return <WzZamowienia orderId={t.key} active={isActive} setCmds={setCmds} onDone={() => { closeTab(t.id); gotoOrders({ select: t.key, tab: 'documents' }) }} />
+      active={isActive} setCmds={setCmds} onDone={stala(done, () => { closeTab(t.id); gotoOrders({ select: t.key, tab: 'documents' }) })} /> }
+    if (t.kind === 'kurs') return <PapieryKursu kursId={t.key} active={isActive} setCmds={setCmds} onDone={stala(done, () => closeTab(t.id))} />
+    if (t.kind === 'wz-stock') return <WzZamowienia wybor={wzWybor.current[t.id] ?? []} active={isActive} setCmds={setCmds} onDone={stala(done, () => { closeTab(t.id); delete wzWybor.current[t.id]; gotoStock() })} />
+    if (t.kind === 'wz') return <WzZamowienia orderId={t.key} active={isActive} setCmds={setCmds} onDone={stala(done, () => { closeTab(t.id); gotoOrders({ select: t.key, tab: 'documents' }) })} />
     if (t.kind === 'new-order' || t.kind === 'edit-order') return <OrderEditor tabId={t.id} active={isActive} setCmds={setCmds}
       orderId={t.kind === 'edit-order' ? t.key : undefined} copyFromId={t.kind === 'new-order' && t.key ? t.key : undefined}
-      onDone={(id) => { closeTab(t.id); if (id) gotoOrders({ select: id, tab: 'lines', view: 'active' }) }} />
+      onDone={stala(done, (id?: string) => { closeTab(t.id); if (id) gotoOrders({ select: id, tab: 'lines', view: 'active' }) })} />
     if (t.kind === 'new-reception' || t.kind === 'edit-reception') return <PrzyjecieEditor tabId={t.id} active={isActive} setCmds={setCmds}
-      receptionId={t.kind === 'edit-reception' ? t.key : undefined} onDone={(id) => { closeTab(t.id); if (id) gotoReceptions(id, t.kind === 'new-reception') }} />
+      receptionId={t.kind === 'edit-reception' ? t.key : undefined} onDone={stala(done, (id?: string) => { closeTab(t.id); if (id) gotoReceptions(id, t.kind === 'new-reception') })} />
     if (t.key === 'pulpit') return <Dashboard active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'zamowienia') return <OrdersModule cmd={ordersCmd} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'magazyn-wg') return <FinishedGoods cmd={stockCmd} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
