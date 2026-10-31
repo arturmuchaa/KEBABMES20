@@ -280,6 +280,23 @@ button.pstage:hover .node { box-shadow: 0 0 0 3px var(--accent-tint-2); transfor
 .tbl.editor-tbl tr.next-row td { background: var(--surface-alt); }
 .tbl.editor-tbl tr.next-row .field { border-style: dashed; }
 .tbl.editor-tbl tr.next-row:focus-within .field { border-style: solid; }
+/* Pasek masowania pod edytorem — zawsze widoczny, liczby na żywo z serwera */
+.mix-bar {
+  flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; min-height: 46px; padding: 7px 16px;
+  background: var(--surface); border-top: 1px solid var(--line-soft); transition: opacity .15s var(--ease);
+}
+.mix-bar.stale { opacity: .6; }
+.mix-bar .mb-h { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; color: var(--ink-2); white-space: nowrap; }
+.mix-bar .mb-h svg { color: var(--accent); }
+.mix-bar .mb-h b { color: var(--ink-1); font-variant-numeric: tabular-nums; }
+.mix-bar .mb-list { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+.mix-bar .mb-chip { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 9px; border-radius: var(--r-sm); background: var(--accent-tint); white-space: nowrap; }
+.mix-bar .mb-chip .n { color: var(--ink-2); }
+.mix-bar .mb-chip b { font-variant-numeric: tabular-nums; }
+.mix-bar .mb-chip.warn { background: var(--warn-tint); }
+.mix-bar .mb-chip.warn .n, .mix-bar .mb-chip.warn b { color: var(--warn-ink); }
+.mix-bar .mb-raw { display: flex; gap: 14px; padding-left: 14px; border-left: 1px solid var(--line-soft); color: var(--ink-2); white-space: nowrap; }
+.mix-bar .mb-raw b { color: var(--ink-1); font-variant-numeric: tabular-nums; }
 .tbl tr.editing td { background: var(--surface) !important; }
 .err-row td { height: auto !important; padding: 0 10px 8px !important; border-bottom: 1px solid var(--line-soft); background: var(--surface) !important; }
 

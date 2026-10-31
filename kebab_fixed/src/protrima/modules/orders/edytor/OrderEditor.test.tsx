@@ -17,6 +17,7 @@ vi.mock('@/lib/api', () => ({
   recipesApi: { list: () => Promise.resolve([{ id: 'r1', name: 'BEYAZ', productTypeId: 'pt' }, { id: 'r2', name: 'KIRMIZI', productTypeId: 'pt' }, { id: 'r3', name: 'MIX OSTRY', productTypeId: 'pm' }]) },
   packagingApi: { list: () => Promise.resolve([{ id: 'pk', name: 'METAL 65CM' }]) },
   clientOrdersApi: api,
+  materialRequirementsApi: { preview: () => Promise.resolve({ lines: [], totalsByRaw: [], yieldPct: 70 }) },
 }))
 const refresh = vi.fn(() => Promise.resolve())
 vi.mock('../../../data/store', () => ({ useOrders: () => ({ refresh }) }))

@@ -13,6 +13,7 @@ import { num } from '@/features/orders/order-entry/model'
 import { doDto, kolejnaPozycja, nowyFormularz, ostrzezenieUsuniecia, pierwszyBrak, pustyWiersz, sumy, walidacja, wierszNastepny, zZamowienia, type FormZam, type PoleWiersza } from './model'
 import { SzkieletBloku } from '../../../ui/Szkielet'
 import { Wybor } from '../../../ui/Wybor'
+import { PasekMasowania } from './PasekMasowania'
 import { PROBA } from '../../../proba'
 
 const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
@@ -249,6 +250,7 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
           {PROBA && <div className="note info"><FlagIcon level="info" size={15} /><div>Zapis idzie na serwer — do KOPII bazy w wersji próbnej. Nowe zamówienie powstaje jako szkic; „Zapisz i potwierdź” od razu je potwierdza.</div></div>}
         </div>
       </div>
+      {ready && !blokada && <PasekMasowania lines={f.lines} recipes={s.recipes} />}
 
       {usunIdx !== null && <Dialog title="Usunąć pozycję?" onClose={() => setUsunIdx(null)}
         footer={<><button className="btn" onClick={() => setUsunIdx(null)} data-autofocus>Wróć</button><button className="btn primary" style={{ background: 'var(--crit)', borderColor: 'var(--crit)' }} onClick={() => removeLine(usunIdx)}>Usuń pozycję</button></>}>
