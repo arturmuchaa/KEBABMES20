@@ -483,6 +483,8 @@ button.pstage:hover .node { box-shadow: 0 0 0 3px var(--accent-tint-2); transfor
 /* Zawieszki palet przyjęcia — tabela z kalkulatorem i podgląd z ZPL obok */
 .tags-grid { display: grid; grid-template-columns: minmax(0, 1fr) 232px; gap: 20px; align-items: start; }
 .tags-main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.tags-main > .box { overflow-x: auto; }
+.tbl.tags-tbl td .field { width: 62px; }
 .tags-side { position: sticky; top: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .tags-nav { display: flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: var(--fs-sm); }
 .tag-preview { width: 100%; height: auto; border-radius: var(--r-sm); box-shadow: var(--e2); }
