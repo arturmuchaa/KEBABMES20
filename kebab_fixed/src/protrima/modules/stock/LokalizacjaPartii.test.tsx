@@ -7,18 +7,25 @@ import React from 'react'
 const units = vi.hoisted(() => ({ locationSummary: vi.fn(), lookup: vi.fn() }))
 vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), finishedUnitsApi: units }))
 vi.mock('@/lib/clientNames', () => ({ useClientNames: () => (n: string) => (n === 'POLAT GMBH' ? 'POLAT' : n) }))
-import { LokalizacjaPartii, SzukajSztuki } from './LokalizacjaPartii'
+import { LokalizacjaPartii, SzukajSztuki, partieSztuk } from './LokalizacjaPartii'
 
 afterEach(cleanup)
 beforeEach(() => { units.locationSummary.mockReset(); units.lookup.mockReset() })
 
 describe('Lokalizacja partii', () => {
-  it('ile sztuk na każdym etapie i w których kartonach', async () => {
-    units.locationSummary.mockResolvedValue({ planned: 0, produced: 4, packed: 30, shipped: 6, cartons: ['000709', '000710'] })
-    render(<LokalizacjaPartii batchNo="P-12" />)
-    const box = await screen.findByLabelText('Lokalizacja sztuk partii P-12')
-    expect(units.locationSummary).toHaveBeenCalledWith('P-12')
-    expect(within(box).getByText('40 szt. z kodem QR')).toBeTruthy()
+  it('klucz: numer partii mięsa — z listy partii przyprawionych albo z końca partii wyrobu („131026 622” → 622)', () => {
+    expect(partieSztuk({ batch: '131026 622', seasonedBatches: [] })).toEqual(['622'])
+    expect(partieSztuk({ batch: '131026 622', seasonedBatches: ['622', '623', '622'] })).toEqual(['622', '623'])
+    expect(partieSztuk({ batch: '', seasonedBatches: [] })).toEqual([])
+  })
+  it('ile sztuk na każdym etapie i w których kartonach — suma po partiach mięsa', async () => {
+    units.locationSummary.mockImplementation((b: string) => Promise.resolve(b === '622'
+      ? { planned: 0, produced: 4, packed: 20, shipped: 6, cartons: ['000709'] }
+      : { planned: 0, produced: 0, packed: 10, shipped: 0, cartons: ['000710', '000709'] }))
+    render(<LokalizacjaPartii partie={['622', '623']} />)
+    const box = await screen.findByLabelText('Lokalizacja sztuk partii 622,623')
+    expect(units.locationSummary).toHaveBeenCalledWith('622')
+    expect(within(box).getByText(/^40 szt\. z kodem QR · wszystkie wyroby z tej partii/)).toBeTruthy()
     const etap = (t: string) => within(box).getByText(t).closest('.lok-etap')!
     expect(etap('Mroźnia szokowa').textContent).toMatch(/^4szt\./)
     expect(etap('Mroźnia składowa').textContent).toMatch(/^30szt\./)
@@ -27,7 +34,7 @@ describe('Lokalizacja partii', () => {
   })
   it('partia bez sztuk z kodem — komunikat zamiast pustych zer', async () => {
     units.locationSummary.mockResolvedValue({ planned: 0, produced: 0, packed: 0, shipped: 0, cartons: [] })
-    render(<LokalizacjaPartii batchNo="P-1" />)
+    render(<LokalizacjaPartii partie={['641']} />)
     expect(await screen.findByText(/nie ma sztuk z kodem QR/)).toBeTruthy()
   })
 })

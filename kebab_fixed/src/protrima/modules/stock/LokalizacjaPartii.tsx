@@ -18,19 +18,36 @@ const ETAPY = [
 ] as const
 
 /**
- * Gdzie są sztuki tej partii — ile na każdym etapie i w których kartonach
- * (stary MES: „Lokalizacja partii”). Liczy serwer ze statusów sztuk z kodem QR.
+ * Partie mięsa przyprawionego wiersza — pod nimi sztuki mają zapisany numer.
+ * Partia wyrobu to „data + numer” („131026 622”), sztuka nosi sam numer („622”).
  */
-export function LokalizacjaPartii({ batchNo }: { batchNo: string }) {
-  const res = useApi(() => (batchNo ? finishedUnitsApi.locationSummary(batchNo) : Promise.resolve(null)), [batchNo])
+export function partieSztuk(p: { batch: string; seasonedBatches: string[] }): string[] {
+  if (p.seasonedBatches.length) return [...new Set(p.seasonedBatches)]
+  const m = /(\S+)\s*$/.exec(p.batch.trim())
+  return m ? [m[1]] : []
+}
+
+/**
+ * Gdzie są sztuki z kodem QR z partii mięsa tego wyrobu — ile na każdym etapie
+ * i w których kartonach (stary MES: „Lokalizacja partii”). Serwer liczy po
+ * partii mięsa, więc licznik obejmuje wszystkie wyroby z tej partii.
+ */
+export function LokalizacjaPartii({ partie }: { partie: string[] }) {
+  const klucz = partie.join(',')
+  const res = useApi(async () => {
+    if (!partie.length) return null
+    const lista = await Promise.all(partie.map(b => finishedUnitsApi.locationSummary(b)))
+    return lista.reduce((a, d) => ({ planned: a.planned + d.planned, produced: a.produced + d.produced, packed: a.packed + d.packed, shipped: a.shipped + d.shipped,
+      cartons: [...new Set([...a.cartons, ...(d.cartons ?? [])])] }), { planned: 0, produced: 0, packed: 0, shipped: 0, cartons: [] as string[] })
+  }, [klucz])
   if (res.error) return <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div>Nie udało się pobrać lokalizacji: {res.error}</div></div>
   if (res.loading && !res.data) return <SzkieletBloku linie={2} opis="Pobieranie lokalizacji sztuk…" />
   const d = res.data
   const razem = d ? d.planned + d.produced + d.packed + d.shipped : 0
-  if (!d || razem === 0) return <div className="note info"><FlagIcon level="info" size={15} /><div>Ta partia nie ma sztuk z kodem QR — wyrób sprzed etykiet albo dodany ręcznie. Stan ilościowy pokazuje zakładka Szczegóły.</div></div>
+  if (!d || razem === 0) return <div className="note info"><FlagIcon level="info" size={15} /><div>Partia mięsa {partie.join(', ') || '—'} nie ma sztuk z kodem QR — wyrób sprzed etykiet albo bez skanu na produkcji. Stan ilościowy pokazuje zakładka Szczegóły.</div></div>
   return (
-    <div className="box lok-box" aria-label={`Lokalizacja sztuk partii ${batchNo}`}>
-      <div className="sect-h"><h3><MapPin size={15} />Gdzie są sztuki partii <span className="code">{batchNo}</span></h3><span className="sub">{num(razem)} szt. z kodem QR</span></div>
+    <div className="box lok-box" aria-label={`Lokalizacja sztuk partii ${klucz}`}>
+      <div className="sect-h"><h3><MapPin size={15} />Gdzie są sztuki z partii mięsa <span className="code">{partie.join(', ')}</span></h3><span className="sub">{num(razem)} szt. z kodem QR · wszystkie wyroby z tej partii (receptury i gramatury)</span></div>
       <div className="lok-etapy">
         {ETAPY.map(e => {
           const n = d[e.k]

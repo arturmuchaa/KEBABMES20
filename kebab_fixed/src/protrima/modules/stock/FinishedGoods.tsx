@@ -17,7 +17,7 @@ import { KartonyMagazynowe } from './kartony/KartonyMagazynowe'
 import { NowyKartonDialog, type StartKartonu } from './kartony/NowyKartonDialog'
 import { KartkaKartonuDialog } from './kartony/KartkaKartonuDialog'
 import { nrKartonu, skladKartonu } from './kartony/model'
-import { LokalizacjaPartii, SzukajSztuki, SzukajSztukiDialog } from './LokalizacjaPartii'
+import { LokalizacjaPartii, SzukajSztuki, SzukajSztukiDialog, partieSztuk } from './LokalizacjaPartii'
 
 type View = 'all' | 'free' | 'allocated' | 'pallet' | 'blocked' | 'short'
 type Tab = 'details' | 'alloc' | 'cartons' | 'moves' | 'trace'
@@ -513,7 +513,7 @@ function StockDetail({ r, tab, onTab, maxed, onMax, onClose, candidates, onFix }
           </>}
 
           {tab === 'cartons' && <>
-            <LokalizacjaPartii batchNo={p.batch} />
+            <LokalizacjaPartii partie={partieSztuk(p)} />
             <div className="sect-h" style={{ marginTop: 16 }}><h3>Znajdź sztukę po kodzie</h3><span className="sub">kod z etykiety sztuki — wklej albo zeskanuj czytnikiem</span></div>
             <SzukajSztuki />
           </>}
