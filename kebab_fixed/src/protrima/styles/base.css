@@ -90,6 +90,25 @@ input, select, textarea { font: inherit; color: inherit; }
 .field-wrap > .kbd { position: absolute; right: 7px; pointer-events: none; }
 .field-wrap > .field:placeholder-shown { padding-right: 56px; }
 
+/* Pole wyboru z wpisywaniem (ui/Wybor.tsx) — lista wygląda jak menu */
+.wybor { position: relative; display: flex; align-items: center; min-width: 0; }
+.wybor > .field { width: 100%; min-width: 0; padding-right: 28px; text-overflow: ellipsis; }
+.wybor-ch { position: absolute; right: 8px; color: var(--ink-3); pointer-events: none; }
+.wybor > .field:disabled + .wybor-ch { color: var(--ink-4); }
+.wybor-lista {
+  position: fixed; z-index: 55; overflow-y: auto; padding: 4px;
+  background: var(--surface); border-radius: var(--r-md); box-shadow: var(--e2); animation: menu-in .12s var(--ease);
+}
+.wybor-lista [role="option"] {
+  display: flex; align-items: baseline; gap: 10px; min-height: 30px; padding: 6px 9px;
+  border-radius: var(--r-xs); cursor: pointer; color: var(--ink-1);
+}
+.wybor-lista [role="option"][data-hi] { background: var(--accent-tint-2); }
+.wybor-lista [role="option"][aria-selected="true"] { font-weight: 600; }
+.wybor-lista .ws { margin-left: auto; color: var(--ink-3); font-size: var(--fs-sm); white-space: nowrap; }
+.wybor-lista mark { background: none; color: var(--accent-ink); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+.wybor-pusto { padding: 8px 10px; color: var(--ink-3); font-size: var(--fs-sm); }
+
 .label { font-size: var(--fs-sm); color: var(--ink-3); font-weight: 500; }
 
 /* ─── Segmentowany przełącznik (widoki zapisane) ───────────────────────── */

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mapClientOrder } from '@/lib/api'
-import { doDto, kolejnaPozycja, nowyFormularz, sumy, walidacja, zZamowienia, ostrzezenieUsuniecia } from './model'
+import { doDto, kolejnaPozycja, nowyFormularz, pierwszyBrak, sumy, walidacja, wierszNastepny, zZamowienia, ostrzezenieUsuniecia } from './model'
 
 const S = {
   productTypes: [{ id: 'pt', name: 'KEBAB UDO 100%' }],
@@ -34,9 +34,23 @@ describe('edytor zamówienia — model', () => {
     expect(doDto(f, S).lines[0].id).toBe('L9')
     expect(ostrzezenieUsuniecia(o, 'L9')).toContain('3 szt. w magazynie')
   })
-  it('kolejna pozycja dziedziczy wszystko poza ilością; sumy', () => {
+  it('kolejna pozycja dziedziczy rodzaj, recepturę i tuleję — gramaturę i ilość wpisuje biuro; sumy', () => {
     const k = kolejnaPozycja(line())
-    expect(k).toMatchObject({ productTypeId: 'pt', recipeId: 'r1', packagingId: 'pk', kgPerUnit: '25', qty: '', id: '' })
+    expect(k).toMatchObject({ productTypeId: 'pt', recipeId: 'r1', packagingId: 'pk', kgPerUnit: '', qty: '', id: '' })
     expect(sumy({ ...nowyFormularz(''), lines: [line(), line({ qty: '4', kgPerUnit: '10' }), k] })).toEqual({ n: 2, szt: 24, kg: 540 })
+  })
+  it('wpisana gramatura bez ilości to pozycja — walidacja jej nie gubi', () => {
+    const f = { ...nowyFormularz('2026-10-30'), clientId: 'c1', lines: [line(), { ...kolejnaPozycja(line()), kgPerUnit: '15' }] }
+    expect(walidacja(f)).toEqual({ q1: 'Ilość: liczba całkowita sztuk większa od zera.' })
+  })
+  it('przeskok kursora: pierwsze brakujące pole; następny wiersz tylko pod kompletną pozycją', () => {
+    expect(pierwszyBrak(kolejnaPozycja())).toBe('p')
+    expect(pierwszyBrak(line({ recipeId: '' }))).toBe('r')
+    expect(pierwszyBrak(line({ packagingId: '', kgPerUnit: '' }))).toBe('k')
+    expect(pierwszyBrak(line({ qty: '2,5' }))).toBe('q')
+    expect(pierwszyBrak(line({ packagingId: '' }))).toBeNull()
+    expect(wierszNastepny([line()])).toMatchObject({ productTypeId: 'pt', recipeId: 'r1', packagingId: 'pk', kgPerUnit: '', qty: '' })
+    expect(wierszNastepny([line(), line({ qty: '' })])).toBeNull()
+    expect(wierszNastepny([])).toBeNull()
   })
 })

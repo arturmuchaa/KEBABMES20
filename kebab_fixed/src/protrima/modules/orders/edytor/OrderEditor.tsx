@@ -10,8 +10,9 @@ import type { ClientOrder } from '@/lib/mockApi'
 import type { LineForm } from '@/features/orders/order-form/types'
 import { filterRecipesFor } from '@/features/orders/order-form/types'
 import { num } from '@/features/orders/order-entry/model'
-import { doDto, kolejnaPozycja, nowyFormularz, ostrzezenieUsuniecia, pustyWiersz, sumy, walidacja, zZamowienia, type FormZam } from './model'
+import { doDto, kolejnaPozycja, nowyFormularz, ostrzezenieUsuniecia, pierwszyBrak, pustyWiersz, sumy, walidacja, wierszNastepny, zZamowienia, type FormZam, type PoleWiersza } from './model'
 import { SzkieletBloku } from '../../../ui/Szkielet'
+import { Wybor } from '../../../ui/Wybor'
 import { PROBA } from '../../../proba'
 
 const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
@@ -19,8 +20,9 @@ const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${Strin
 /**
  * Nowe zamówienie / edycja zamówienia — karta robocza. Zapis przez
  * clientOrdersApi.create/update (ten sam DTO co stary MES), potem odświeżenie
- * listy z serwera. Enter w ilości ostatniej pozycji dodaje kolejną
- * (dziedziczy rodzaj, recepturę, tuleję i gramaturę), Ctrl+Enter zapisuje.
+ * listy z serwera. Ręka nie schodzi z klawiatury: wybór z listy przenosi kursor
+ * do następnego pola, Enter w ilości — do następnej pozycji, która ma już rodzaj,
+ * recepturę i tuleję z poprzedniej (czeka na gramaturę i ilość). Ctrl+Enter zapisuje.
  */
 export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDone }: {
   tabId: string; orderId?: string; copyFromId?: string; active: boolean; setCmds: (c: Cmd[]) => void; onDone: (savedId?: string) => void
@@ -71,12 +73,31 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
   const ready = !!clientsRes.data && !!typesRes.data && !!recipesRes.data && !!packRes.data && (!(orderId || copyFromId) || seeded.current)
 
   const upd = (patch: Partial<FormZam>) => { setF(x => ({ ...x, ...patch })); setDirty(true) }
-  const setLine = (i: number, patch: Partial<LineForm>) => { setF(x => ({ ...x, lines: x.lines.map((l, j) => j === i ? { ...l, ...patch } : l) })); setDirty(true) }
-  const addLine = useCallback(() => {
-    setF(x => ({ ...x, lines: [...x.lines, kolejnaPozycja([...x.lines].reverse().find(l => !pustyWiersz(l)))] }))
-    const idx = f.lines.length
-    requestAnimationFrame(() => document.getElementById(`${tabId}-q-${idx}`)?.focus())
-  }, [f.lines.length, tabId])
+  // Wpis w wierszu „następna pozycja” (indeks = liczba pozycji) dopisuje go do formularza.
+  const setLine = (i: number, patch: Partial<LineForm>) => {
+    setF(x => ({ ...x, lines: i < x.lines.length
+      ? x.lines.map((l, j) => j === i ? { ...l, ...patch } : l)
+      : [...x.lines, { ...kolejnaPozycja(x.lines[x.lines.length - 1]), ...patch }] }))
+    setDirty(true)
+  }
+  const nastepny = blokada ? null : wierszNastepny(f.lines)
+  const wiersze = nastepny ? [...f.lines, nastepny] : f.lines
+  const skocz = useCallback((i: number, pole: PoleWiersza) => requestAnimationFrame(() => {
+    const el = document.getElementById(`${tabId}-${pole}-${i}`) as HTMLInputElement | null
+    el?.focus(); el?.select()
+  }), [tabId])
+  // Enter w ilości (albo uwagach): brakuje czegoś — wracamy do tego pola; komplet — następna pozycja.
+  const poEnter = (i: number) => {
+    const brak = pierwszyBrak(wiersze[i])
+    if (brak) skocz(i, brak)
+    else skocz(i + 1, 'k')
+  }
+  const addLine = () => {
+    if (nastepny) { skocz(f.lines.length, 'k'); return }
+    const ost = f.lines.length - 1
+    skocz(ost, pierwszyBrak(f.lines[ost]) ?? 'k')
+  }
+  const addRef = useRef(addLine); addRef.current = addLine
   const [usunIdx, setUsunIdx] = useState<number | null>(null)
   const removeLine = (i: number) => { setF(x => ({ ...x, lines: x.lines.length > 1 ? x.lines.filter((_, j) => j !== i) : [kolejnaPozycja()] })); setDirty(true); setUsunIdx(null) }
 
@@ -110,9 +131,9 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
   const cmds = useMemo<Cmd[]>(() => [
     ...(!editing || existing?.status === 'draft' ? [{ id: 'save-confirm', group: 1, label: editing ? 'Zapisz i potwierdź' : 'Zapisz i potwierdź', icon: <CheckCheck size={17} />, primary: true, disabled: saving || !!blokada, run: () => saveRef.current(true) }] : []),
     { id: 'save', group: 1, label: editing ? 'Zapisz zmiany' : 'Zapisz szkic', icon: <Save size={17} />, kbd: 'Ctrl+Enter', primary: editing && existing?.status !== 'draft', disabled: saving || !!blokada, run: () => saveRef.current(false) },
-    { id: 'add-line', group: 2, label: 'Dodaj pozycję', icon: <Plus size={17} />, disabled: !!blokada, run: () => addLine() },
+    { id: 'add-line', group: 2, label: 'Dodaj pozycję', icon: <Plus size={17} />, disabled: !!blokada, run: () => addRef.current() },
     { id: 'discard', group: 3, label: editing ? 'Zamknij bez zapisu' : 'Odrzuć', icon: <X size={17} />, run: close },
-  ], [editing, existing?.status, saving, blokada, addLine, close])
+  ], [editing, existing?.status, saving, blokada, close])
   useEffect(() => { setCmds(cmds) }, [cmds, setCmds])
   useEffect(() => {
     if (!active) return
@@ -122,13 +143,16 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
   }, [active])
 
   const klient = clients.find(c => c.id === f.clientId)
+  const klienci = useMemo(() => clients.map(c => ({ id: c.id, label: c.displayName || c.name, sub: [c.displayName && c.displayName !== c.name ? c.name : '', c.city].filter(Boolean).join(' · ') || undefined })), [clients])
+  const rodzaje = useMemo(() => s.productTypes.map(p => ({ id: p.id, label: p.name })), [s.productTypes])
+  const tuleje = useMemo(() => s.packaging.map(p => ({ id: p.id, label: p.name })), [s.packaging])
   const title = editing ? `Edycja ${existing?.orderNo ?? ''}` : copyFromId ? `Nowe — kopia ${zrodlo?.orderNo ?? ''}` : 'Nowe zamówienie'
 
   return (
     <>
       <CommandBar title={title} count={editing ? (dirty ? 'niezapisane zmiany' : 'bez zmian') : 'numer nada serwer przy zapisie'} cmds={cmds} />
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-        <div className="dock-pad" style={{ maxWidth: 1320 }}>
+        <div className="dock-pad">
           {loadError && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div>Nie udało się pobrać danych: {loadError}</div></div>}
           {!ready && !loadError && <SzkieletBloku linie={6} opis="Pobieranie kartotek…" />}
           {blokada && <div className="note warn" role="alert"><FlagIcon level="warn" size={15} /><div>{blokada}</div></div>}
@@ -141,10 +165,9 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 12px' }}>
                 <label style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <span className="label">Klient</span>
-                  <select id={`${tabId}-client`} className={`field${errors.client ? ' invalid' : ''}`} value={f.clientId} onChange={e => upd({ clientId: e.target.value })} autoFocus={!editing} disabled={!!blokada} aria-invalid={!!errors.client}>
-                    <option value="">Wybierz klienta…</option>
-                    {clients.map(c => <option key={c.id} value={c.id}>{c.displayName || c.name}{c.city ? ` — ${c.city}` : ''}</option>)}
-                  </select>
+                  <Wybor id={`${tabId}-client`} label="Klient" items={klienci} value={f.clientId} invalid={!!errors.client} disabled={!!blokada}
+                    placeholder="Wpisz nazwę klienta…" autoFocus={!editing && !copyFromId}
+                    onChange={v => upd({ clientId: v })} onDalej={() => requestAnimationFrame(() => document.getElementById(`${tabId}-termin`)?.focus())} />
                   {errors.client && <span className="crit-ink" style={{ fontSize: 'var(--fs-sm)' }}>{errors.client}</span>}
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -153,7 +176,8 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <span className="label">Termin wyjazdu</span>
-                  <input type="date" className={`field${errors.deliveryDate ? ' invalid' : ''}`} value={f.deliveryDate} min={f.orderDate} onChange={e => upd({ deliveryDate: e.target.value })} disabled={!!blokada} />
+                  <input type="date" id={`${tabId}-termin`} className={`field${errors.deliveryDate ? ' invalid' : ''}`} value={f.deliveryDate} min={f.orderDate} onChange={e => upd({ deliveryDate: e.target.value })} disabled={!!blokada}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); skocz(0, pierwszyBrak(f.lines[0]) ?? 'p') } }} />
                 </label>
                 {errors.deliveryDate && <span className="crit-ink" style={{ gridColumn: '1 / -1', fontSize: 'var(--fs-sm)', marginTop: -4 }}>{errors.deliveryDate}</span>}
                 <label style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -174,34 +198,44 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
             </div>
           </div>
 
-          <div className="sect-h"><h3>Pozycje</h3><span className="sub">Tab — następne pole · Enter w ilości ostatniej pozycji — nowa pozycja · Ctrl+Enter — zapisz</span>
+          <div className="sect-h"><h3>Pozycje</h3><span className="sub">Wpisz kilka liter i Enter — wybór przenosi do następnego pola · Enter w ilości — następna pozycja z tym samym rodzajem, recepturą i tuleją · Ctrl+Enter — zapisz</span>
             <div className="tools"><button className="btn sm" onClick={addLine} disabled={!!blokada}><Plus size={15} />Dodaj pozycję</button></div></div>
           <div className="box">
             <table className="tbl editor-tbl">
-              <thead><tr><th className="num" style={{ width: 40 }}>Lp.</th><th>Rodzaj</th><th>Receptura</th><th>Tuleja / opakowanie</th><th className="num">Gramatura</th><th className="num">Ilość</th><th className="num">Masa</th><th className="hide-m">Uwagi</th><th style={{ width: 40 }} /></tr></thead>
+              <thead><tr>
+                <th className="num" style={{ width: 44 }}>Lp.</th><th style={{ width: '21%' }}>Rodzaj</th><th style={{ width: '21%' }}>Receptura</th><th style={{ width: '14%' }}>Tuleja / opakowanie</th>
+                <th className="num" style={{ width: 120 }}>Gramatura</th><th className="num" style={{ width: 128 }}>Ilość</th><th className="num" style={{ width: 108 }}>Masa</th><th className="hide-m">Uwagi</th><th style={{ width: 44 }} />
+              </tr></thead>
               <tbody>
-                {f.lines.map((l, i) => {
-                  const rec = filterRecipesFor(s.recipes, l)
-                  const errs = [errors[`p${i}`], errors[`r${i}`], errors[`k${i}`], errors[`q${i}`]].filter(Boolean)
+                {wiersze.map((l, i) => {
+                  const nowy = i === f.lines.length
+                  const rec = filterRecipesFor(s.recipes, l).map(r => ({ id: r.id, label: r.name }))
+                  const errs = nowy ? [] : [errors[`p${i}`], errors[`r${i}`], errors[`k${i}`], errors[`q${i}`]].filter(Boolean)
                   const pusty = pustyWiersz(l)
+                  const id = (pole: PoleWiersza | 'u') => `${tabId}-${pole}-${i}`
                   return (
                     <React.Fragment key={i}>
-                      <tr className={`row editing${pusty ? ' empty-row' : ''}`}>
-                        <td className="num muted">{pusty ? '' : f.lines.slice(0, i + 1).filter(x => !pustyWiersz(x)).length}</td>
-                        <td><select className={`field${errors[`p${i}`] ? ' invalid' : ''}`} value={l.productTypeId} disabled={!!blokada} aria-label={`Rodzaj, pozycja ${i + 1}`}
-                          onChange={e => { const v = e.target.value; const r = s.recipes.find(x => x.id === l.recipeId); setLine(i, { productTypeId: v, recipeId: r && (!r.productTypeId || r.productTypeId === v) ? l.recipeId : '' }) }}>
-                          <option value="">—</option>{s.productTypes.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
-                        <td><select className={`field${errors[`r${i}`] ? ' invalid' : ''}`} value={l.recipeId} disabled={!!blokada} aria-label={`Receptura, pozycja ${i + 1}`} onChange={e => setLine(i, { recipeId: e.target.value })}>
-                          <option value="">—</option>{rec.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}</select></td>
-                        <td><select className="field" value={l.packagingId} disabled={!!blokada} aria-label={`Tuleja, pozycja ${i + 1}`} onChange={e => setLine(i, { packagingId: e.target.value })}>
-                          <option value="">(bez)</option>{s.packaging.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>
-                        <td className="num"><input className={`field num w-num${errors[`k${i}`] ? ' invalid' : ''}`} inputMode="decimal" value={l.kgPerUnit} disabled={!!blokada} aria-label={`Gramatura kg, pozycja ${i + 1}`} onChange={e => setLine(i, { kgPerUnit: e.target.value })} /> <span className="sub">kg</span></td>
-                        <td className="num"><input id={`${tabId}-q-${i}`} className={`field num w-num${errors[`q${i}`] ? ' invalid' : ''}`} inputMode="numeric" placeholder="0" value={l.qty} disabled={!!blokada} aria-label={`Ilość sztuk, pozycja ${i + 1}`}
+                      <tr className={nowy ? 'row next-row' : 'row editing'}>
+                        <td className="num muted">{nowy ? <Plus size={14} aria-label="Następna pozycja" /> : pusty ? '' : f.lines.slice(0, i + 1).filter(x => !pustyWiersz(x)).length}</td>
+                        <td><Wybor id={id('p')} label={`Rodzaj, pozycja ${i + 1}`} items={rodzaje} value={l.productTypeId} invalid={!!errors[`p${i}`]} disabled={!!blokada} placeholder="Rodzaj…"
+                          onChange={v => { const r = s.recipes.find(x => x.id === l.recipeId); setLine(i, { productTypeId: v, recipeId: r && (!r.productTypeId || r.productTypeId === v) ? l.recipeId : '' }) }}
+                          onDalej={() => skocz(i, 'r')} /></td>
+                        <td><Wybor id={id('r')} label={`Receptura, pozycja ${i + 1}`} items={rec} value={l.recipeId} invalid={!!errors[`r${i}`]} disabled={!!blokada} placeholder="Receptura…"
+                          pusto={l.productTypeId ? 'Brak receptur dla tego rodzaju' : 'Najpierw wybierz rodzaj'}
+                          onChange={v => setLine(i, { recipeId: v })} onDalej={() => skocz(i, 't')} /></td>
+                        <td><Wybor id={id('t')} label={`Tuleja, pozycja ${i + 1}`} items={tuleje} value={l.packagingId} noneLabel="(bez tulei)" disabled={!!blokada}
+                          onChange={v => setLine(i, { packagingId: v })} onDalej={() => skocz(i, 'k')} /></td>
+                        <td className="num"><input id={id('k')} className={`field num w-num${errors[`k${i}`] ? ' invalid' : ''}`} inputMode="decimal" placeholder="0" value={l.kgPerUnit} disabled={!!blokada} aria-label={`Gramatura kg, pozycja ${i + 1}`}
+                          onChange={e => setLine(i, { kgPerUnit: e.target.value })}
+                          onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); skocz(i, 'q') } }} /> <span className="sub">kg</span></td>
+                        <td className="num"><input id={id('q')} className={`field num w-num${errors[`q${i}`] ? ' invalid' : ''}`} inputMode="numeric" placeholder="0" value={l.qty} disabled={!!blokada} aria-label={`Ilość sztuk, pozycja ${i + 1}`}
                           onChange={e => setLine(i, { qty: e.target.value })}
-                          onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && i === f.lines.length - 1) { e.preventDefault(); if (!pusty) addLine() } }} /> <span className="sub">szt.</span></td>
+                          onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); poEnter(i) } }} /> <span className="sub">szt.</span></td>
                         <td className="num">{num(l.qty) > 0 && num(l.kgPerUnit) > 0 ? kg(num(l.qty) * num(l.kgPerUnit)) : <span className="faint">—</span>}</td>
-                        <td className="hide-m"><input className="field" value={l.notes} disabled={!!blokada} aria-label={`Uwagi, pozycja ${i + 1}`} onChange={e => setLine(i, { notes: e.target.value })} /></td>
-                        <td><button className="btn ghost icon sm" style={{ width: 28 }} disabled={!!blokada} onClick={() => (l.id ? setUsunIdx(i) : removeLine(i))} aria-label={`Usuń pozycję ${i + 1}`}><Trash2 size={15} /></button></td>
+                        <td className="hide-m"><input id={id('u')} className="field" value={l.notes} disabled={!!blokada} aria-label={`Uwagi, pozycja ${i + 1}`}
+                          onChange={e => setLine(i, { notes: e.target.value })}
+                          onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); poEnter(i) } }} /></td>
+                        <td>{!nowy && <button className="btn ghost icon sm" style={{ width: 28 }} disabled={!!blokada} onClick={() => (l.id ? setUsunIdx(i) : removeLine(i))} aria-label={`Usuń pozycję ${i + 1}`}><Trash2 size={15} /></button>}</td>
                       </tr>
                       {errs.length > 0 && <tr className="err-row"><td /><td colSpan={8}><span className="crit-ink" style={{ fontSize: 'var(--fs-sm)' }}>{errs.join(' ')}</span></td></tr>}
                     </React.Fragment>

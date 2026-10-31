@@ -273,6 +273,13 @@ button.pstage:hover .node { box-shadow: 0 0 0 3px var(--accent-tint-2); transfor
 
 /* Edycja pozycji */
 .tbl td .field { height: calc(var(--row-h) - 6px); width: 90px; }
+/* Edytor zamówienia: tabela na całą szerokość, rodzaj/receptura/tuleja szeroko — widać, co wybrano */
+.tbl.editor-tbl { table-layout: fixed; width: 100%; }
+.tbl.editor-tbl td .field { width: 100%; }
+.tbl.editor-tbl td .field.w-num { width: 78px; }
+.tbl.editor-tbl tr.next-row td { background: var(--surface-alt); }
+.tbl.editor-tbl tr.next-row .field { border-style: dashed; }
+.tbl.editor-tbl tr.next-row:focus-within .field { border-style: solid; }
 .tbl tr.editing td { background: var(--surface) !important; }
 .err-row td { height: auto !important; padding: 0 10px 8px !important; border-bottom: 1px solid var(--line-soft); background: var(--surface) !important; }
 

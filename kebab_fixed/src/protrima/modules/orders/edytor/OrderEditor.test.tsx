@@ -13,8 +13,8 @@ const api = vi.hoisted(() => ({
 }))
 vi.mock('@/lib/api', () => ({
   clientsApi: { list: () => Promise.resolve([{ id: 'c1', name: 'TEST SP. Z O.O.', displayName: 'TEST', city: 'NYSA' }]) },
-  productTypesApi: { list: () => Promise.resolve([{ id: 'pt', name: 'KEBAB UDO 100%' }]) },
-  recipesApi: { list: () => Promise.resolve([{ id: 'r1', name: 'BEYAZ', productTypeId: 'pt' }, { id: 'r2', name: 'KIRMIZI', productTypeId: 'pt' }]) },
+  productTypesApi: { list: () => Promise.resolve([{ id: 'pt', name: 'KEBAB UDO 100%' }, { id: 'pm', name: 'KEBAB MIX 70/30' }]) },
+  recipesApi: { list: () => Promise.resolve([{ id: 'r1', name: 'BEYAZ', productTypeId: 'pt' }, { id: 'r2', name: 'KIRMIZI', productTypeId: 'pt' }, { id: 'r3', name: 'MIX OSTRY', productTypeId: 'pm' }]) },
   packagingApi: { list: () => Promise.resolve([{ id: 'pk', name: 'METAL 65CM' }]) },
   clientOrdersApi: api,
 }))
@@ -32,23 +32,43 @@ const mount = (p: Partial<React.ComponentProps<typeof OrderEditor>> = {}) => {
   return { onDone }
 }
 const run = (id: string) => cmds.find(c => c.id === id)!.run!()
-const sel = (label: string, v: string) => fireEvent.change(screen.getByLabelText(label), { target: { value: v } })
-const typ = sel
+const typ = (label: string, v: string) => fireEvent.change(screen.getByLabelText(label), { target: { value: v } })
+const pole = (label: string) => screen.getByLabelText(label) as HTMLInputElement
+/** Jak biuro: kilka liter w polu wyboru i Enter (czeka, aż kartoteki dojdą i pozycja się pokaże). */
+async function wybierz(label: string, tekst: string, pozycja: RegExp) {
+  await new Promise(r => requestAnimationFrame(r)) // poprzedni wybór przenosi kursor w następnej klatce
+  const el = pole(label)
+  el.focus()
+  fireEvent.change(el, { target: { value: tekst } })
+  await screen.findByRole('option', { name: pozycja })
+  fireEvent.keyDown(el, { key: 'Enter' })
+}
 
 describe('OrderEditor', () => {
-  it('nowe zamówienie: Enter w ilości dodaje pozycję z tą samą recepturą i gramaturą; zapis szkicu wysyła DTO', async () => {
+  it('nowe zamówienie: wybór przenosi kursor, Enter w ilości — następna pozycja z rodzajem, recepturą i tuleją; zapis szkicu wysyła DTO', async () => {
     api.create.mockResolvedValue({ id: 'new1', orderNo: 'TEST/Z/1/10/26', status: 'draft' })
     const { onDone } = mount()
-    await screen.findByRole('option', { name: 'TEST — NYSA' })
-    await screen.findAllByRole('option', { name: 'METAL 65CM' })
-    sel('Klient', 'c1')
-    sel('Rodzaj, pozycja 1', 'pt'); sel('Receptura, pozycja 1', 'r1'); sel('Tuleja, pozycja 1', 'pk')
+    await wybierz('Klient', 'tes', /TEST/)
+    await waitFor(() => expect(document.activeElement?.id).toBe('t-termin'))
+    await wybierz('Rodzaj, pozycja 1', 'udo', /KEBAB UDO/)
+    await waitFor(() => expect(document.activeElement).toBe(pole('Receptura, pozycja 1')))
+    await wybierz('Receptura, pozycja 1', 'bey', /BEYAZ/)
+    await wybierz('Tuleja, pozycja 1', 'met', /METAL 65CM/)
+    await waitFor(() => expect(document.activeElement).toBe(pole('Gramatura kg, pozycja 1')))
+    expect(screen.queryByLabelText('Rodzaj, pozycja 2')).toBeNull() // następna pozycja dopiero pod kompletną
     typ('Gramatura kg, pozycja 1', '7,5'); typ('Ilość sztuk, pozycja 1', '100')
-    fireEvent.keyDown(screen.getByLabelText('Ilość sztuk, pozycja 1'), { key: 'Enter' })
-    expect((screen.getByLabelText('Receptura, pozycja 2') as HTMLSelectElement).value).toBe('r1')
-    expect((screen.getByLabelText('Gramatura kg, pozycja 2') as HTMLInputElement).value).toBe('7,5')
-    typ('Gramatura kg, pozycja 2', '10'); typ('Ilość sztuk, pozycja 2', '40')
-    fireEvent.keyDown(screen.getByLabelText('Ilość sztuk, pozycja 2'), { key: 'Enter' }) // pusty trzeci wiersz nie jest pozycją
+    expect(pole('Rodzaj, pozycja 2').value).toBe('KEBAB UDO 100%')
+    expect(pole('Receptura, pozycja 2').value).toBe('BEYAZ')
+    expect(pole('Tuleja, pozycja 2').value).toBe('METAL 65CM')
+    expect(pole('Gramatura kg, pozycja 2').value).toBe('')
+    fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 'Enter' })
+    await waitFor(() => expect(document.activeElement).toBe(pole('Gramatura kg, pozycja 2')))
+    typ('Gramatura kg, pozycja 2', '10')
+    fireEvent.keyDown(pole('Gramatura kg, pozycja 2'), { key: 'Enter' })
+    await waitFor(() => expect(document.activeElement).toBe(pole('Ilość sztuk, pozycja 2')))
+    typ('Ilość sztuk, pozycja 2', '40')
+    fireEvent.keyDown(pole('Ilość sztuk, pozycja 2'), { key: 'Enter' }) // trzeci wiersz czeka pusty — nie jest pozycją
+    expect(pole('Receptura, pozycja 3').value).toBe('BEYAZ')
     run('save')
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1))
     const dto = api.create.mock.calls[0][0]
@@ -60,10 +80,26 @@ describe('OrderEditor', () => {
     expect(refresh).toHaveBeenCalled()
   })
 
+  it('Enter w ilości niekompletnej pozycji wraca do brakującego pola', async () => {
+    mount()
+    await wybierz('Rodzaj, pozycja 1', 'udo', /KEBAB UDO/)
+    typ('Gramatura kg, pozycja 1', '20'); typ('Ilość sztuk, pozycja 1', '5')
+    fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 'Enter' })
+    await waitFor(() => expect(document.activeElement).toBe(pole('Receptura, pozycja 1')))
+    expect(screen.queryByLabelText('Rodzaj, pozycja 2')).toBeNull()
+  })
+
+  it('zmiana rodzaju kasuje recepturę z innego rodzaju', async () => {
+    mount()
+    await wybierz('Rodzaj, pozycja 1', 'udo', /KEBAB UDO/)
+    await wybierz('Receptura, pozycja 1', 'kir', /KIRMIZI/)
+    await wybierz('Rodzaj, pozycja 1', 'mix', /KEBAB MIX/)
+    expect(pole('Receptura, pozycja 1').value).toBe('')
+  })
+
   it('błędna ilość blokuje zapis i jest pokazana przy pozycji', async () => {
     mount()
-    await screen.findAllByRole('option', { name: 'METAL 65CM' })
-    sel('Klient', 'c1'); sel('Rodzaj, pozycja 1', 'pt'); sel('Receptura, pozycja 1', 'r1')
+    await wybierz('Klient', 'tes', /TEST/); await wybierz('Rodzaj, pozycja 1', 'udo', /KEBAB UDO/); await wybierz('Receptura, pozycja 1', 'bey', /BEYAZ/)
     typ('Gramatura kg, pozycja 1', '20'); typ('Ilość sztuk, pozycja 1', '2,5')
     run('save')
     expect(await screen.findByText(/liczba całkowita sztuk/)).toBeTruthy()
@@ -73,8 +109,7 @@ describe('OrderEditor', () => {
   it('„Zapisz i potwierdź” — tworzy i potwierdza', async () => {
     api.create.mockResolvedValue({ id: 'n2', orderNo: 'X', status: 'draft' })
     mount()
-    await screen.findAllByRole('option', { name: 'METAL 65CM' })
-    sel('Klient', 'c1'); sel('Rodzaj, pozycja 1', 'pt'); sel('Receptura, pozycja 1', 'r2')
+    await wybierz('Klient', 'nysa', /TEST/); await wybierz('Rodzaj, pozycja 1', 'udo', /KEBAB UDO/); await wybierz('Receptura, pozycja 1', 'kir', /KIRMIZI/)
     typ('Gramatura kg, pozycja 1', '25'); typ('Ilość sztuk, pozycja 1', '8')
     run('save-confirm')
     await waitFor(() => expect(api.updateStatus).toHaveBeenCalledWith('n2', 'confirmed'))
@@ -86,7 +121,8 @@ describe('OrderEditor', () => {
     api.update.mockResolvedValue({ id: 'o1', orderNo: 'TEST/Z/2/10/26', status: 'confirmed' })
     mount({ orderId: 'o1' })
     await waitFor(() => expect((screen.getByLabelText('Ilość sztuk, pozycja 1') as HTMLInputElement).value).toBe('20'))
-    expect((screen.getByLabelText('Klient') as HTMLSelectElement).value).toBe('c1')
+    await waitFor(() => expect(pole('Klient').value).toBe('TEST'))
+    expect(pole('Receptura, pozycja 1').value).toBe('BEYAZ')
     typ('Ilość sztuk, pozycja 1', '24')
     run('save')
     await waitFor(() => expect(api.update).toHaveBeenCalledTimes(1))

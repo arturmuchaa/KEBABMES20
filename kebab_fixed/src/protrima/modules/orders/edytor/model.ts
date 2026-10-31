@@ -42,10 +42,26 @@ export function zZamowienia(o: ClientOrder, nazwaTulei?: (id: string) => string 
 }
 
 /**
- * Nowy wiersz bez ilości nie jest pozycją — dziedziczy rodzaj i gramaturę po poprzedniej,
- * więc samo to, że ma tożsamość, nic nie znaczy. Istniejąca pozycja (z id) bez ilości to błąd.
+ * Nowy wiersz bez gramatury i ilości nie jest pozycją — rodzaj, recepturę i tuleję
+ * dziedziczy po poprzedniej, więc samo to, że ma tożsamość, nic nie znaczy.
+ * Wpisana gramatura już jest zamiarem: bez ilości walidacja to pokaże, a nie zgubi.
+ * Istniejąca pozycja (z id) bez ilości to błąd.
  */
-export const pustyWiersz = (l: LineForm) => !l.id && !l.qty.trim()
+export const pustyWiersz = (l: LineForm) => !l.id && !l.qty.trim() && !l.kgPerUnit.trim()
+
+/** Pola wiersza, po których skacze kursor: rodzaj, receptura, tuleja, gramatura, ilość. */
+export type PoleWiersza = 'p' | 'r' | 't' | 'k' | 'q'
+
+const ilosc = (l: LineForm) => /^\d+$/.test(l.qty.trim()) && Number(l.qty) > 0
+
+/** Pierwsze pole do uzupełnienia (tuleja jest opcjonalna) — albo null, gdy pozycja kompletna. */
+export function pierwszyBrak(l: LineForm): Exclude<PoleWiersza, 't'> | null {
+  if (!l.productTypeId) return 'p'
+  if (!l.recipeId) return 'r'
+  if (!(num(l.kgPerUnit) > 0)) return 'k'
+  if (!ilosc(l)) return 'q'
+  return null
+}
 
 export type Bledy = Record<string, string>
 
@@ -60,7 +76,7 @@ export function walidacja(f: FormZam): Bledy {
     if (pustyWiersz(l)) return
     if (!l.productTypeId) e[`p${i}`] = 'Wybierz rodzaj.'
     else if (!l.recipeId) e[`r${i}`] = 'Wybierz recepturę.'
-    if (!/^\d+$/.test(l.qty.trim()) || Number(l.qty) <= 0) e[`q${i}`] = 'Ilość: liczba całkowita sztuk większa od zera.'
+    if (!ilosc(l)) e[`q${i}`] = 'Ilość: liczba całkowita sztuk większa od zera.'
     if (!(num(l.kgPerUnit) > 0)) e[`k${i}`] = 'Gramatura musi być większa od zera.'
   })
   return e
@@ -88,10 +104,23 @@ export function doDto(f: FormZam, s: Slowniki): CreateClientOrderDto {
   }
 }
 
-/** Nowa pozycja dziedziczy rodzaj, recepturę, tuleję i gramaturę po ostatniej — zmienia się zwykle tylko ilość. */
+/**
+ * Nowa pozycja dziedziczy rodzaj, recepturę i tuleję po ostatniej; gramaturę i ilość
+ * wpisuje biuro — w serii pozycje różnią się zwykle wagą i liczbą sztuk (jak w starym MES).
+ */
 export function kolejnaPozycja(last?: LineForm): LineForm {
   const e = emptyLine()
-  return last ? { ...e, productTypeId: last.productTypeId, recipeId: last.recipeId, packagingId: last.packagingId, kgPerUnit: last.kgPerUnit } : e
+  return last ? { ...e, productTypeId: last.productTypeId, recipeId: last.recipeId, packagingId: last.packagingId } : e
+}
+
+/**
+ * Wiersz „następna pozycja” pod ostatnią KOMPLETNĄ — gotowy z rodzajem, recepturą
+ * i tuleją, czeka na gramaturę i ilość. Nie jest w formularzu, dopóki biuro w nim
+ * czegoś nie wpisze; dzięki temu Enter, Tab i mysz prowadzą tak samo.
+ */
+export function wierszNastepny(lines: LineForm[]): LineForm | null {
+  const last = lines[lines.length - 1]
+  return last && pierwszyBrak(last) === null ? kolejnaPozycja(last) : null
 }
 
 /** Usunięcie pozycji, która ma już coś w magazynie lub na paletach, zrywa ich powiązanie — ostrzegamy. */
