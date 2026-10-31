@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Search, ChevronDown, ChevronRight, ArrowUp, ArrowDown, MoreHorizontal, X, Layers, Printer, ClipboardList, ExternalLink, Pencil, Boxes, FileText, Copy, Ban, Split, Rows3, Calculator, ShoppingCart } from 'lucide-react'
 import { useApp, Menu, useMenu, Dialog, CommandBar, wierszMenu, type Cmd, type ViewKey, type DetailTab, type OrdersCmd, type MenuItem } from '../../shell/context'
 import { useOrders } from '../../data/store'
-import { computeMetrics, isClosed, kg, num, relDay, fmtDay, BUCKET_LABEL, mixingByRecipe, weekday, DOC_NAME, type Bucket, type Metrics, type Order } from '../../data/model'
-import { FlagIcon, OrderStatusLabel } from '../../ui/Glyphs'
+import { computeMetrics, etapZamowienia, isClosed, kg, num, relDay, fmtDay, BUCKET_LABEL, mixingByRecipe, weekday, DOC_NAME, type Bucket, type Metrics, type Order } from '../../data/model'
+import { EtapLabel, FlagIcon } from '../../ui/Glyphs'
 import { CoverMeter, ProdMeter } from '../../ui/Meters'
 import { OrderDetail, orderCommands } from './OrderDetail'
 import { useOrderActions, dozwolone } from './akcje'
@@ -412,7 +412,7 @@ const OrderRow = React.memo(function OrderRow({ r, zebra, sel, checked, onClick,
           </span>
         ) : <span className="faint">bez terminu</span>}
       </td>
-      <td className="side-hide"><OrderStatusLabel status={o.status} /></td>
+      <td className="side-hide"><EtapLabel e={etapZamowienia(o, m)} /></td>
       <td className="ell hide-m" style={{ maxWidth: 230 }}>
         <span className="num">{o.lines.length} poz.</span><span className="sub hide-m">{m.recipes.slice(0, 2).join(', ')}{m.recipes.length > 2 ? ` +${m.recipes.length - 2}` : ''}</span>
       </td>

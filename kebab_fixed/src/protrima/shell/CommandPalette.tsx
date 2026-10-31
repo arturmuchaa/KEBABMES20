@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Search, ShoppingCart, Plus, Moon, PanelLeft, Keyboard, CornerDownLeft } from 'lucide-react'
 import { ALL_MODULES } from './modules'
 import type { Order } from '../data/model'
-import { ORDER_STATUS, relDay, computeMetrics, kg } from '../data/model'
+import { etapZamowienia, relDay, computeMetrics, kg } from '../data/model'
 
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ł/g, 'l')
 
@@ -23,7 +23,7 @@ export function CommandPalette({ orders, onClose, openOrder, openModule, newOrde
       return {
         id: o.id, group: 'Zamówienia', icon: <ShoppingCart size={16} />, run: () => openOrder(o.id),
         label: <span><b className="num">{o.no}</b> · {o.client.name}</span>,
-        hint: `${ORDER_STATUS[o.status]} · ${relDay(o.delivery)} · ${kg(m.orderedKg)}`,
+        hint: `${(e => (e.szczegol ? `${e.tekst} ${e.szczegol}` : e.tekst))(etapZamowienia(o, m))} · ${relDay(o.delivery)} · ${kg(m.orderedKg)}`,
         text: norm(`${o.no} ${o.no.slice(-4)} ${o.client.name} ${o.client.city} ${o.lines.map(l => l.recipe).join(' ')}`),
       }
     }),

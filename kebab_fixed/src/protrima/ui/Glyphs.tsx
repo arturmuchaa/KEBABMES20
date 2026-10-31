@@ -1,6 +1,6 @@
 import React from 'react'
-import { AlertOctagon, AlertTriangle, Info } from 'lucide-react'
-import type { Level, OrderStatus, PalletStatus } from '../data/model'
+import { AlertOctagon, AlertTriangle, Info, PackageCheck, Truck } from 'lucide-react'
+import type { Etap, EtapZamowienia, Level, OrderStatus, PalletStatus } from '../data/model'
 import { ORDER_STATUS, PALLET_FLOW, PALLET_STATUS } from '../data/model'
 
 /**
@@ -30,6 +30,18 @@ export function StatusGlyph({ status, size = 12 }: { status: OrderStatus; size?:
 
 export function OrderStatusLabel({ status }: { status: OrderStatus }) {
   return <span className="status"><StatusGlyph status={status} />{ORDER_STATUS[status]}</span>
+}
+
+const STATUS_ETAPU: Record<Etap, OrderStatus> = {
+  szkic: 'draft', potwierdzone: 'confirmed', realizacja: 'in_production', gotowe: 'confirmed',
+  zaladunek: 'confirmed', zaladowane: 'confirmed', zrealizowane: 'done', anulowane: 'cancelled',
+}
+
+/** Płynny status zamówienia (`etapZamowienia`): słowo etapu i krótki dopisek — palety, auto, procent. */
+export function EtapLabel({ e }: { e: EtapZamowienia }) {
+  const ikona = e.etap === 'zaladunek' || e.etap === 'zaladowane' ? <Truck size={13} aria-hidden="true" />
+    : e.etap === 'gotowe' ? <PackageCheck size={13} aria-hidden="true" /> : <StatusGlyph status={STATUS_ETAPU[e.etap]} />
+  return <span className={`status etap ${e.etap}`} data-tip={e.tip}>{ikona}{e.tekst}{e.szczegol && <span className="etap-sub">{e.szczegol}</span>}</span>
 }
 
 /** Węzeł linii procesu: ● w normie · ▲ uwaga · ◆ krytyczne · ○ brak aktywności. */

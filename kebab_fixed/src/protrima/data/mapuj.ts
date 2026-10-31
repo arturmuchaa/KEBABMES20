@@ -54,8 +54,9 @@ export function mapujKlienta(order: Pick<ClientOrder, 'clientId' | 'clientName'>
   }
 }
 
+/** `shipped` stawia serwer po zakończeniu kursu (finalize_loading) — bez niego paleta po wyjeździe wracała jako „Rozpisana”. */
 const STATUS_PALETY: Record<string, PalletStatus> = {
-  created: 'created', packing: 'packing', packed: 'packed', cold_storage: 'cold', loaded: 'loaded',
+  created: 'created', packing: 'packing', packed: 'packed', cold_storage: 'cold', loaded: 'loaded', shipped: 'shipped',
 }
 
 export function mapujPalete(p: OrderPallet): Pallet {
@@ -117,6 +118,15 @@ export interface KontekstZamowien {
   wz: WzDoc[]
   /** id pozycji zamówienia → numer planu produkcji */
   planByLine: Record<string, string>
+  /** id zamówienia → auto z zakończonego kursu, który czeka na papiery biura. */
+  zaladunki?: Record<string, { plate: string; at?: string }>
+}
+
+/** Auto z dokumentu wydania zamówienia — załadunek stempluje na nim numer rejestracyjny (`vehicle_plate`). */
+export function autoZDokumentow(orderId: string, wz: WzDoc[]): { plate: string; at?: string } | undefined {
+  const d = wz.filter(x => (x.source_type ?? x.sourceType) === 'order' && (x.source_id ?? x.sourceId) === orderId && x.status !== 'anulowany' && x.vehicle_plate)
+    .sort((a, b) => (b.loaded_at ?? '').localeCompare(a.loaded_at ?? ''))[0]
+  return d?.vehicle_plate ? { plate: d.vehicle_plate, at: d.loaded_at ?? undefined } : undefined
 }
 
 export function mapujZamowienie(o: ClientOrder, ctx: KontekstZamowien): Order {
@@ -137,6 +147,7 @@ export function mapujZamowienie(o: ClientOrder, ctx: KontekstZamowien): Order {
     retiredPalletNos: [],
     history: o.createdAt ? [{ at: godzina(o.createdAt) ?? '', who: '', text: 'Zamówienie utworzone', kind: 'create' }] : [],
     docs: dokumentyZamowienia(o.id, ctx.wz),
+    zaladunek: ctx.zaladunki?.[o.id] ?? autoZDokumentow(o.id, ctx.wz),
   }
   return order
 }

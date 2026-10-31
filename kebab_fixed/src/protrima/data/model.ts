@@ -118,6 +118,8 @@ export interface Order {
   history: HistoryEntry[]
   materialIssue?: string
   docs: OrderDoc[]
+  /** Auto, którym zamówienie wyjechało: kurs załadunku czekający na biuro albo dokument wydania z numerem rejestracyjnym. */
+  zaladunek?: { plate: string; at?: string }
 }
 
 export type Bucket = 'overdue' | 'today' | 'tomorrow' | 'week' | 'later' | 'nodate' | 'closed'
@@ -359,4 +361,40 @@ export function dueText(o: Pick<Order, 'delivery' | 'deliveryTime'>): string {
   if (n === 1) return `jutro, ${d}${t}`
   if (n < 0) return `${d}${t} — ${-n} ${-n === 1 ? 'dzień' : 'dni'} po terminie wyjazdu`
   return `${d}${t}`
+}
+
+// ─── Etap zamówienia: płynny status z tego, co się faktycznie dzieje ─────────
+export type Etap = 'szkic' | 'potwierdzone' | 'realizacja' | 'gotowe' | 'zaladunek' | 'zaladowane' | 'zrealizowane' | 'anulowane'
+export interface EtapZamowienia { etap: Etap; tekst: string; szczegol?: string; tip?: string }
+
+/**
+ * Status, który idzie za zakładem (właściciel 31.10.2026: „ładuję auto na YALCIN,
+ * a jest »potwierdzone« — powinno być »w załadunku«, po skanach widać; po
+ * zakończeniu »załadowane« i numer rejestracyjny”). Serwer trzyma zamówienie
+ * w „potwierdzone” aż do papierów; etap liczymy z palet (skan na auto =
+ * `loaded`, po zakończeniu kursu `shipped`), kursu i pokrycia — te same
+ * definicje co filtry listy („Gotowe do wysyłki” = brak 0 kg).
+ */
+export function etapZamowienia(o: Order, m: Pick<Metrics, 'missingKg' | 'coverPct' | 'palletsReady'>): EtapZamowienia {
+  if (o.status === 'cancelled') return { etap: 'anulowane', tekst: ORDER_STATUS.cancelled }
+  if (o.status === 'draft') return { etap: 'szkic', tekst: ORDER_STATUS.draft }
+  const tablica = o.zaladunek?.plate || undefined
+  if (o.status === 'done') return { etap: 'zrealizowane', tekst: ORDER_STATUS.done, szczegol: tablica, tip: tablica ? `Wyjechało autem ${tablica}` : undefined }
+  const razem = o.pallets.length
+  const naAucie = o.pallets.filter(p => p.status === 'loaded').length
+  const wyjechalo = o.pallets.filter(p => p.status === 'shipped').length
+  if (naAucie > 0) return { etap: 'zaladunek', tekst: 'W załadunku', szczegol: `${naAucie + wyjechalo}/${razem} palet`, tip: 'Palety skanowane na auto — stan ze skanów załadunku' }
+  if (o.zaladunek || wyjechalo > 0) {
+    // Częściowo: nie wszystkie palety wyjechały albo czegoś wciąż brakuje (wcześniejsza wysyłka części,
+    // reszta jeszcze w produkcji). Po kursie stan schodzi dopiero przy papierach, więc pełny załadunek ma brak 0 kg.
+    const czesc = (razem > 0 && wyjechalo < razem) || m.missingKg > 0
+    return {
+      etap: 'zaladowane', tekst: czesc ? 'Załadowane częściowo' : 'Załadowane',
+      szczegol: tablica ?? `${wyjechalo}/${razem} palet`,
+      tip: `${tablica ? `Auto ${tablica}. ` : ''}${czesc ? `Wyjechało ${wyjechalo} z ${razem} palet. ` : ''}Papiery wystawia biuro — Wysyłki i załadunki.`,
+    }
+  }
+  if (m.missingKg <= 0 && o.lines.length > 0) return { etap: 'gotowe', tekst: 'Gotowe do wysyłki', szczegol: razem ? `${m.palletsReady}/${razem} palet` : undefined, tip: 'Cały wyrób jest w magazynie lub wydany' }
+  if (m.coverPct > 0) return { etap: 'realizacja', tekst: ORDER_STATUS.in_production, szczegol: `${Math.min(99, Math.floor(m.coverPct))}%`, tip: 'Ile zamówionego wyrobu już jest (magazyn i wydane)' }
+  return { etap: 'potwierdzone', tekst: o.status === 'in_production' ? ORDER_STATUS.in_production : ORDER_STATUS.confirmed }
 }

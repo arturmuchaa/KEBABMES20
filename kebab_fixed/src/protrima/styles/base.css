@@ -238,3 +238,9 @@ input, select, textarea { font: inherit; color: inherit; }
 .meter.cov-none .val, .cov-txt-none { color: var(--crit-ink); font-weight: 600; }
 .meter.cov-none .track { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--cov-none) 35%, transparent); }
 .f-short { background: color-mix(in srgb, var(--cov-none) 18%, transparent) !important; box-shadow: none !important; }
+
+/* Płynny status zamówienia (etapZamowienia) */
+.status.etap .etap-sub { color: var(--ink-3); font-size: var(--fs-sm); font-weight: 500; font-variant-numeric: tabular-nums; }
+.status.etap.zaladunek { color: var(--accent-ink); font-weight: 600; }
+.status.etap.zaladowane, .status.etap.gotowe { color: var(--ok-ink); font-weight: 600; }
+.status.etap.zaladowane .etap-sub { color: var(--ok-ink); font-family: var(--font-code); letter-spacing: .02em; }

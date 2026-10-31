@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { clientOrdersApi, clientsApi, finishedGoodsApi, orderPalletsApi, productionPlansApi, wzApi, type OrderPallet, type WzDoc } from '@/lib/api'
+import { clientOrdersApi, clientsApi, finishedGoodsApi, orderPalletsApi, productionPlansApi, wzApi, zaladunkiApi, type OrderPallet, type WzDoc, type ZaladunekDoWydruku } from '@/lib/api'
 import type { Client as ApiClient, ClientOrder, FinishedGoodsItem } from '@/lib/mockApi'
 import { mapujWyrob, mapujZamowienie, planyPozycji } from './mapuj'
 import type { Order } from './model'
@@ -35,6 +35,7 @@ interface Surowe {
   plans: Array<{ planNo: string; status?: string; lines: Array<{ clientOrderLineId?: string | null }> }>
   fg: FinishedGoodsItem[]
   pallets: Record<string, OrderPallet[]>
+  zaladunki: Record<string, { plate: string; at?: string }>
 }
 
 /** Zapytanie pomocnicze: brak danych pobocznych (np. WZ) nie może zablokować listy zamówień. */
@@ -51,7 +52,21 @@ async function pobierz(): Promise<Surowe> {
   // Palety tylko dla zamówień w toku — zamknięte nie zmieniają już rozpisu.
   const otwarte = orders.filter(o => o.status !== 'done' && o.status !== 'cancelled')
   const pary = await Promise.all(otwarte.map(o => albo(orderPalletsApi.list(o.id), [] as OrderPallet[]).then(p => [o.id, p] as const)))
-  return { orders, clients, wz, plans, fg, pallets: Object.fromEntries(pary) }
+  return { orders, clients, wz, plans, fg, pallets: Object.fromEntries(pary), zaladunki: await autaKursow() }
+}
+
+/**
+ * Zamówienia z zakończonych kursów, które czekają na papiery biura → auto.
+ * Lista kursów nie niesie id zamówień — dociągamy szczegóły (kursów czeka zwykle kilka).
+ */
+async function autaKursow(): Promise<Record<string, { plate: string; at?: string }>> {
+  const kursy = await albo(zaladunkiApi.doWydruku(), [] as ZaladunekDoWydruku[])
+  const szczegoly = await Promise.all(kursy.map(k => albo(zaladunkiApi.get(k.id) as Promise<{ plate?: string; finished_at?: string; pozycje?: Array<{ order_id?: string }> } | null>, null)))
+  const out: Record<string, { plate: string; at?: string }> = {}
+  szczegoly.forEach((d, i) => (d?.pozycje ?? []).forEach(p => {
+    if (p.order_id) out[p.order_id] = { plate: d?.plate || kursy[i].plate, at: d?.finished_at || kursy[i].finishedAt || undefined }
+  }))
+  return out
 }
 
 export function OrdersProvider({ children }: { children: React.ReactNode }) {
@@ -86,7 +101,7 @@ export function OrdersProvider({ children }: { children: React.ReactNode }) {
 
   const orders = useMemo<Order[]>(() => {
     if (!raw) return []
-    const ctx = { clients: raw.clients, pallets: raw.pallets, wz: raw.wz, planByLine: planyPozycji(raw.plans) }
+    const ctx = { clients: raw.clients, pallets: raw.pallets, wz: raw.wz, planByLine: planyPozycji(raw.plans), zaladunki: raw.zaladunki }
     return raw.orders.map(o => mapujZamowienie(o, ctx))
   }, [raw])
   const stock = useMemo<StockPos[]>(() => raw ? raw.fg.map(f => mapujWyrob(f, orders)).filter((x): x is StockPos => !!x) : [], [raw, orders])

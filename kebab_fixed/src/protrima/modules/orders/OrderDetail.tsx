@@ -1,9 +1,9 @@
 import React from 'react'
 import { RotateCcw, Trash2, X, ExternalLink, Maximize2, Minimize2, PanelRight, PanelBottom, FileText, Printer, Truck, Split, Copy, Ban, Boxes, CheckCheck, Pencil, List, ClipboardList, PackageCheck } from 'lucide-react'
 import { useApp, type AppApi, type Cmd, type DetailTab } from '../../shell/context'
-import { computeMetrics, kg, num, pct, dueText, type Order } from '../../data/model'
+import { computeMetrics, etapZamowienia, kg, num, pct, dueText, type Order } from '../../data/model'
 import { dozwolone } from './akcje'
-import { OrderStatusLabel } from '../../ui/Glyphs'
+import { EtapLabel } from '../../ui/Glyphs'
 import { OverviewTab } from './tabs/Overview'
 import { LinesTab } from './tabs/Lines'
 import { ProductionTab } from './tabs/Production'
@@ -96,7 +96,7 @@ export function OrderDetail({ order, tab, onTab, mode, maxed, onMax, onClose, on
         <div className="dock-id">
           <div className="l1">
             <h2>{order.no}</h2>
-            <OrderStatusLabel status={order.status} />
+            <EtapLabel e={etapZamowienia(order, m)} />
             {m.flags.filter(f => f.level !== 'info').slice(0, 2).map(f => <span key={f.code} className={`tag ${f.level}`} data-tip={f.detail}>{f.label}</span>)}
           </div>
           <div className="l2">
