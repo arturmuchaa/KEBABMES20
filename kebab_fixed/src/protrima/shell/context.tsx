@@ -140,12 +140,20 @@ export function Dialog({ title, icon, children, footer, onClose, wide, xl, label
   title: React.ReactNode; icon?: React.ReactNode; children: React.ReactNode; footer?: React.ReactNode; onClose: () => void; wide?: boolean; xl?: boolean; labelledBy?: string
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  // onClose w ref: rodzic, który się przerysowuje (odświeżanie danych, nowa funkcja w propsach),
+  // nie może restartować efektu — każdy restart przestawiał fokus na przycisk w trakcie pisania.
+  const zamknij = useRef(onClose)
+  zamknij.current = onClose
+  // Element sprzed otwarcia okna — łapany przy pierwszym renderze, zanim fokus wejdzie do środka.
+  const [prev] = useState(() => (typeof document === 'undefined' ? null : document.activeElement as HTMLElement | null))
   useEffect(() => {
-    const prev = document.activeElement as HTMLElement | null
-    const first = ref.current?.querySelector<HTMLElement>('[data-autofocus]') ?? ref.current?.querySelector<HTMLElement>('.dialog-f .btn.primary, .dialog-f .btn')
-    first?.focus()
+    // Pole z autoFocus już ma fokus — nie zabieramy go przyciskowi głównemu.
+    if (!ref.current?.contains(document.activeElement)) {
+      const first = ref.current?.querySelector<HTMLElement>('[data-autofocus]') ?? ref.current?.querySelector<HTMLElement>('.dialog-f .btn.primary, .dialog-f .btn')
+      first?.focus()
+    }
     const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.stopPropagation(); onClose() }
+      if (e.key === 'Escape') { e.stopPropagation(); zamknij.current() }
       if (e.key === 'Tab' && ref.current) {
         const f = [...ref.current.querySelectorAll<HTMLElement>('button, input, select, textarea, [tabindex="0"]')].filter(x => !x.hasAttribute('disabled'))
         if (!f.length) return
@@ -156,7 +164,7 @@ export function Dialog({ title, icon, children, footer, onClose, wide, xl, label
     }
     document.addEventListener('keydown', key, true)
     return () => { document.removeEventListener('keydown', key, true); prev?.focus?.() }
-  }, [onClose])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const id = labelledBy ?? 'dlg-title'
   return (
     <div className="dialog-wrap" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>

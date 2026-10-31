@@ -57,6 +57,8 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const [wybranyKarton, setWybranyKarton] = useState<string | null>(null)
   const [nowyKarton, setNowyKarton] = useState<StartKartonu | null>(null)
   const [kartka, setKartka] = useState<StockCarton | null>(null)
+  // Stałe funkcje dla widoku kartonów: nowa funkcja przy każdym renderze przeliczała jego polecenia w kółko.
+  const nowyPustyKarton = useCallback(() => setNowyKarton({}), [])
   const [q, setQ] = useState('')
   const [recipes, setRecipes] = useState<string[]>([])
   // Filtry: klient (z listy), rodzaj, gramatura, opakowanie, okres produkcji.
@@ -239,8 +241,8 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   </>
   if (widok === 'kartony') return <>
     <KartonyMagazynowe widoki={widoki} active={active} setCmds={setCmds} setCtx={setCtx}
-      kartony={kartonyRes.data ?? []} ladowanie={kartonyRes.loading} blad={kartonyRes.error} odswiez={() => void kartonyRes.refetch()}
-      wybrany={wybranyKarton} setWybrany={setWybranyKarton} onNowy={() => setNowyKarton({})} onKartka={setKartka} />
+      kartony={kartonyRes.data ?? []} ladowanie={kartonyRes.loading} blad={kartonyRes.error} odswiez={kartonyRes.refetch}
+      wybrany={wybranyKarton} setWybrany={setWybranyKarton} onNowy={nowyPustyKarton} onKartka={setKartka} />
     {oknaKartonow}
   </>
 
