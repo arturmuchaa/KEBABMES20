@@ -4,6 +4,7 @@ import { useApp, Dialog } from '../../../shell/context'
 import { useOrders } from '../../../data/store'
 import { computeMetrics, kg, num, palletKg, palletQty, PALLET_STATUS, type Order, type Pallet } from '../../../data/model'
 import { PalletFlow, PalletStatusLabel, FlagIcon } from '../../../ui/Glyphs'
+import { WazeniePalety } from './WazeniePalety'
 import { orderPalletsApi, type OrderPallet } from '@/lib/api'
 import { bezPalety, bledyPalety, rozpisz, sztukNaPalete, wykryjSztuki, zDodanymi, zZmieniona, MAX_KG_RESZTKI, STANDARD_SZTUK, WARIANTY_SZTUK, type ItemLite } from '../palety/model'
 
@@ -117,10 +118,12 @@ export function PalletsTab({ order }: { order: Order }) {
                 <PalletFlow status={sel.status} />
                 <dl className="kv">
                   <dt>Zawartość</dt><dd className="num">{palletQty(sel)} szt. · {kg(palletKg(order, sel))}</dd>
+                  <dt>Spakowana</dt><dd>{sel.status === 'created' ? 'nie — rozpisana' : sel.status === 'packing' ? 'w pakowaniu' : 'tak'}</dd>
                   <dt>Mroźnia</dt><dd className="num">{sel.coldAt ?? '—'}</dd>
                   <dt>Załadowano</dt><dd className="num">{sel.loadedAt ?? '—'}</dd>
                   <dt>Rejestracja</dt><dd>{sel.by ? <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><ScanLine size={14} />{sel.by}</span> : '—'}</dd>
                 </dl>
+                <WazeniePalety p={sel} />
                 {!closed && (sel.status === 'created'
                   ? <div className="row-wrap">
                       <button className="btn sm" disabled={busy} onClick={() => setDlg({ t: 'edit', p: sel })}><Pencil size={14} />Zmień zawartość</button>

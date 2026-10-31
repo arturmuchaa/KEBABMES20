@@ -567,3 +567,10 @@ button.pstage:hover .node { box-shadow: 0 0 0 3px var(--accent-tint-2); transfor
 /* Rozpiska palet: tuleja przy pozycji */
 .tul { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: var(--r-xs); background: var(--surface-sunk); font-size: var(--fs-xs); font-weight: 500; line-height: 1.5; vertical-align: 1px; }
 .tul, .pal li .tul { color: var(--ink-3); }
+
+/* Szczegóły palety: ważenie przed mroźnią */
+.waz { display: flex; flex-direction: column; gap: 8px; }
+.waz-brak { flex-direction: row; align-items: center; gap: 8px; color: var(--ink-3); font-size: var(--fs-sm); }
+.waz-h { display: flex; align-items: center; gap: 8px; }
+.waz-h.ok { color: var(--ok-ink); }
+.waz-h.warn { color: var(--warn-ink); }
