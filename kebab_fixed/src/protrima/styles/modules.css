@@ -531,3 +531,10 @@ button.pstage:hover .node { box-shadow: 0 0 0 3px var(--accent-tint-2); transfor
 .dosuw-h { color: var(--ink-4); font-size: var(--fs-xs); }
 .spin { animation: obrot 1s linear infinite; }
 @keyframes obrot { to { transform: rotate(360deg); } }
+
+/* Kartony magazynowe (Wyrób gotowy) */
+.karton-meter { display: inline-block; vertical-align: middle; width: 54px; height: 6px; margin-right: 10px; border-radius: 3px; background: var(--surface-sunk); overflow: hidden; }
+.karton-meter i { display: block; height: 100%; border-radius: 3px; background: var(--accent); }
+.nk-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px 20px; align-items: start; }
+.nk-grid > label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.nk-grid .sub { color: var(--ink-3); font-size: var(--fs-sm); line-height: 1.4; }

@@ -1,16 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link2, MoveRight, Truck, Tag, ClipboardCheck, Search, ChevronDown, ChevronRight, X, Maximize2, Minimize2, ExternalLink, PanelRight, PanelBottom, Rows3, Lock, Snowflake, Layers, ArrowUp, ArrowDown, FileText, Package, PenLine } from 'lucide-react'
+import { Link2, MoveRight, Truck, PackagePlus, ClipboardCheck, Search, ChevronDown, ChevronRight, X, Maximize2, Minimize2, ExternalLink, PanelRight, PanelBottom, Rows3, Lock, Snowflake, Layers, ArrowUp, ArrowDown, FileText, Package, PenLine } from 'lucide-react'
 import { useApp, Menu, useMenu, CommandBar, wierszMenu, type Cmd } from '../../shell/context'
 import { useOrders } from '../../data/store'
 import { computeMetrics, fmtDate, kg, num, relDay, isClosed, lineMissing, type Order } from '../../data/model'
 import { posKg, daysLeft, STOCK_STATUS, type StockPos } from '../../data/stock'
 import { FlagIcon } from '../../ui/Glyphs'
-import { DRUK_ETYKIET, W_STARYM_MES } from '../../proba'
+import { W_STARYM_MES } from '../../proba'
 import { PoprawWyrobDialog, blokadaPoprawki } from './PoprawWyrob'
 import { useDock } from '../../shell/useDock'
 import { StanDlaKlientaDialog, klientPozycji, WOLNE } from './StanDlaKlienta'
 import { SzkieletWierszy } from '../../ui/Szkielet'
 import { Pusto } from '../../ui/Pusto'
+import { useApi } from '@/hooks/useApi'
+import { stockCartonsApi, type StockCarton } from '@/lib/api'
+import { KartonyMagazynowe } from './kartony/KartonyMagazynowe'
+import { NowyKartonDialog, type StartKartonu } from './kartony/NowyKartonDialog'
+import { KartkaKartonuDialog } from './kartony/KartkaKartonuDialog'
+import { nrKartonu, skladKartonu } from './kartony/model'
 
 type View = 'all' | 'free' | 'allocated' | 'pallet' | 'blocked' | 'short'
 type Tab = 'details' | 'alloc' | 'cartons' | 'moves' | 'trace'
@@ -45,6 +51,12 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const rows = useMemo<Row[]>(() => stock.map(p => ({ p, order: orders.find(o => o.id === p.orderId), cands: p.orderNo || p.status === 'blocked' ? 0 : candidatesFor(p).length })), [stock, orders, candidatesFor])
 
   const [view, setView] = useState<View>('all')
+  // Kartony magazynowe — drugi widok modułu (stary MES: sekcja pod listą wyrobu).
+  const [widok, setWidok] = useState<'wyrob' | 'kartony'>('wyrob')
+  const kartonyRes = useApi(() => stockCartonsApi.list())
+  const [wybranyKarton, setWybranyKarton] = useState<string | null>(null)
+  const [nowyKarton, setNowyKarton] = useState<StartKartonu | null>(null)
+  const [kartka, setKartka] = useState<StockCarton | null>(null)
   const [q, setQ] = useState('')
   const [recipes, setRecipes] = useState<string[]>([])
   // Filtry: klient (z listy), rodzaj, gramatura, opakowanie, okres produkcji.
@@ -146,20 +158,27 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
       { label: 'Rozchód wewnętrzny…', icon: <MoveRight size={15} />, onSelect: () => demo('Rozchód wewnętrzny') },
     ] },
     { id: 'fix', group: 3, label: 'Popraw rodzaj / recepturę…', icon: <PenLine size={17} />, opt: true, disabled: !sp || !!(sp && blokadaPoprawki(sp)), tip: sp && blokadaPoprawki(sp) ? 'po wyjeździe rodzaj i receptura stoją na dokumentach' : undefined, run: () => sp && setPopraw(sp.id) },
-    { id: 'print', group: 4, label: 'Etykieta', icon: <Tag size={17} />, kbd: 'Ctrl+P', disabled: !sp, run: () => app.toast({ kind: 'warn', title: 'Etykieta kartonu', detail: DRUK_ETYKIET }) },
+    { id: 'karton', group: 4, label: 'Karton magazynowy', icon: <PackagePlus size={17} />, menu: [
+      { label: 'Nowy karton magazynowy…', icon: <PackagePlus size={15} />, onSelect: () => setNowyKarton({}) },
+      { label: 'Karton z tej pozycji…', disabled: !wolnaDoKartonu(sp), onSelect: () => sp && setNowyKarton({ clientName: sp.clientName, z: sp }) },
+      { sep: true },
+      { label: `Pokaż kartony magazynowe (${kartonyRes.data?.length ?? 0})`, onSelect: () => setWidok('kartony') },
+    ] },
     { id: 'stan', group: 4, label: 'Stan dla klienta', icon: <ClipboardCheck size={17} />, tip: 'Wydruk: co klient ma na magazynie', run: () => setStanOpen(true) },
-  ], [canAlloc, sp, app, zaznaczone.join(','), rows]) // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { setCmds(cmds) }, [cmds, setCmds])
+  ], [canAlloc, sp, app, zaznaczone.join(','), rows, kartonyRes.data?.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Widok kartonów ma własne polecenia i pasek stanu — ten widok ich nie nadpisuje.
+  useEffect(() => { if (widok === 'wyrob') setCmds(cmds) }, [cmds, setCmds, widok])
+  useEffect(() => { if (widok === 'kartony') void kartonyRes.refetch() }, [widok]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Pasek stanu i skróty ──────────────────────────────────────────────
   const tot = visible.reduce((a, r) => ({ qty: a.qty + r.p.qty, kg: a.kg + posKg(r.p), free: a.free + (!r.p.orderNo && r.p.status !== 'blocked' ? posKg(r.p) : 0), alloc: a.alloc + (r.p.orderNo ? posKg(r.p) : 0), cart: a.cart + r.p.cartons.length }), { qty: 0, kg: 0, free: 0, alloc: 0, cart: 0 })
   useEffect(() => {
-    if (!active) return
+    if (!active || widok !== 'wyrob') return
     setCtx(<><span>Widoczne <b>{visible.length}</b> poz. · <b>{kg(tot.kg)}</b> · ze stemplem <b>{kg(tot.alloc)}</b> · bez stempla <b>{kg(tot.free)}</b></span>
       <span className="hint hide-m"><span className="kbd">↑</span><span className="kbd">↓</span> wybór <span className="kbd">Alt+1…5</span> zakładki</span></>)
-  }, [active, visible.length, tot.kg, tot.alloc, tot.free, setCtx])
+  }, [active, visible.length, tot.kg, tot.alloc, tot.free, setCtx, widok])
   useEffect(() => {
-    if (!active) return
+    if (!active || widok !== 'wyrob') return
     const key = (e: KeyboardEvent) => {
       if (document.querySelector('.dialog-wrap, .overlay')) return
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); searchRef.current?.focus() }
@@ -168,7 +187,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  }, [active, sel, checked.size])
+  }, [active, sel, checked.size, widok])
 
   const onListKey = (e: React.KeyboardEvent) => {
     const i = flat.findIndex(r => r.p.id === sel)
@@ -197,17 +216,39 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   }, [stock])
   const COLS = 12
 
+  const widoki = (
+    <div className="seg" role="group" aria-label="Widoki magazynu">
+      {VIEWS.map(v => (
+        <button key={v.key} aria-pressed={widok === 'wyrob' && view === v.key} data-tip={v.tip} onClick={() => { setWidok('wyrob'); setView(v.key) }}>
+          {v.label}<span className={`count${(v.key === 'blocked' || v.key === 'short') && counts[v.key] ? ' crit' : ''}`}>{counts[v.key]}</span>
+        </button>
+      ))}
+      <button aria-pressed={widok === 'kartony'} data-tip="Jednostki pakowe bez zamówienia — dla klienta albo na magazyn" onClick={() => setWidok('kartony')}>
+        Kartony magazynowe<span className="count">{kartonyRes.data?.length ?? 0}</span>
+      </button>
+    </div>
+  )
+  const oknaKartonow = <>
+    {nowyKarton && <NowyKartonDialog start={nowyKarton} wolne={stock.filter(p => wolnaDoKartonu(p))} onClose={() => setNowyKarton(null)}
+      onUtworzony={c => {
+        setNowyKarton(null)
+        app.toast({ kind: 'ok', title: `Karton ${nrKartonu(c)} utworzony`, detail: `${skladKartonu(c)} — wydrukuj kartkę i naklej na karton.` })
+        void kartonyRes.refetch(); setWidok('kartony'); setWybranyKarton(c.id); setKartka(c)
+      }} />}
+    {kartka && <KartkaKartonuDialog karton={kartka} onClose={() => setKartka(null)} />}
+  </>
+  if (widok === 'kartony') return <>
+    <KartonyMagazynowe widoki={widoki} active={active} setCmds={setCmds} setCtx={setCtx}
+      kartony={kartonyRes.data ?? []} ladowanie={kartonyRes.loading} blad={kartonyRes.error} odswiez={() => void kartonyRes.refetch()}
+      wybrany={wybranyKarton} setWybrany={setWybranyKarton} onNowy={() => setNowyKarton({})} onKartka={setKartka} />
+    {oknaKartonow}
+  </>
+
   return (
     <>
       <CommandBar title="Wyrób gotowy" count={`${rows.length} pozycji · ${kg(rows.reduce((a, r) => a + posKg(r.p), 0))}`} cmds={cmds} />
       <div className="toolbar" role="toolbar" aria-label="Widoki i filtry">
-        <div className="seg" role="group" aria-label="Widoki magazynu">
-          {VIEWS.map(v => (
-            <button key={v.key} aria-pressed={view === v.key} data-tip={v.tip} onClick={() => setView(v.key)}>
-              {v.label}<span className={`count${(v.key === 'blocked' || v.key === 'short') && counts[v.key] ? ' crit' : ''}`}>{counts[v.key]}</span>
-            </button>
-          ))}
-        </div>
+        {widoki}
         <span className="vsep" />
         <div className="field-wrap search">
           <Search size={15} />
@@ -326,7 +367,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
           checked.has(r.p.id) && checked.size > 1
             ? { label: `Wystaw WZ z zaznaczonych (${zaznaczone.length})…`, onSelect: () => doWz(zaznaczone) }
             : { label: 'Wystaw WZ z tej pozycji…', onSelect: () => doWz([r.p.id]) },
-          { label: 'Etykieta kartonu', onSelect: () => app.toast({ kind: 'warn', title: 'Etykieta kartonu', detail: DRUK_ETYKIET }) },
+          { label: 'Karton magazynowy z tej pozycji…', disabled: !wolnaDoKartonu(r.p), onSelect: () => setNowyKarton({ clientName: r.p.clientName, z: r.p }) },
         ]} />
       })()}
       {groupMenu.anchor && <Menu anchor={groupMenu.anchor} align="right" onClose={groupMenu.close} items={[
@@ -336,10 +377,13 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
         { label: 'Według zamówienia', icon: <Snowflake size={15} />, checked: groupBy === 'location', onSelect: () => setGroupBy('location') },
         { label: 'Bez grupowania', icon: <Rows3 size={15} />, checked: groupBy === 'none', onSelect: () => setGroupBy('none') },
       ]} />}
-
+      {oknaKartonow}
     </>
   )
 }
+
+/** Do kartonu magazynowego idzie wolny wyrób: bez numeru zamówienia, bez blokady, ze sztukami na stanie. */
+const wolnaDoKartonu = (p?: StockPos | null) => !!p && !p.orderNo && p.status !== 'blocked' && p.qty > 0
 
 const StockRow = React.memo(function StockRow({ r, zebra, sel, checked, onClick, onCheck, onOrder }: { r: Row; zebra: boolean; sel: boolean; checked: boolean; onClick: () => void; onCheck: () => void; onOrder: () => void }) {
   const { p, order } = r

@@ -4049,6 +4049,10 @@ export interface StockCarton {
   targetQty: number
   packedQty: number
   status: string
+  /** Zamówienie, do którego biuro przypięło karton (PROTRIMA pokazuje je na liście kartonów). */
+  linkedOrderId?: string
+  linkedOrderNo?: string
+  createdAt?: string
 }
 
 function mapStockCartonLine(l: any): StockCartonLine {
@@ -4082,6 +4086,9 @@ function mapStockCarton(r: any): StockCarton {
     targetQty: Number(r.target_qty ?? 0),
     packedQty: Number(r.packed_qty ?? 0),
     status: r.status ?? 'open',
+    linkedOrderId: r.linked_order_id ?? r.linkedOrderId ?? undefined,
+    linkedOrderNo: r.linked_order_no ?? r.linkedOrderNo ?? undefined,
+    createdAt: r.created_at ?? r.createdAt ?? undefined,
   }
 }
 

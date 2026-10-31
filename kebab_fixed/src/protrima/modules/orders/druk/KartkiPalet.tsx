@@ -30,6 +30,8 @@ export interface Kartka {
   mainLines: string[]
   totalKg: number
   orderNo: string
+  /** Lewy dół zamiast „ZAMÓWIENIE: …” — karton magazynowy ma tam „MAGAZYN” (jak stary MES). */
+  stopka?: string
 }
 
 /** Co stoi na kartce obok liczb: sama receptura (jak dotąd), sam rodzaj albo rodzaj z recepturą. */
@@ -83,7 +85,7 @@ export function zbudujKartki(order: Order, numery: number[], klientNa: (n: strin
 }
 
 /** Jedna kartka A4 poziomo (287 × 200 mm). `pt` = dobrany stopień; bez niego strona sama go dobiera. */
-function Strona({ k, qr, pt, onPt, proba }: { k: Kartka; qr: string; pt?: number; onPt?: (pt: number) => void; proba: boolean }) {
+export function Strona({ k, qr, pt, onPt, proba }: { k: Kartka; qr: string; pt?: number; onPt?: (pt: number) => void; proba: boolean }) {
   const boxRef = useRef<HTMLDivElement>(null)
   const txtRef = useRef<HTMLDivElement>(null)
   const [fit, setFit] = useState<number | null>(pt ?? null)
@@ -113,20 +115,81 @@ function Strona({ k, qr, pt, onPt, proba }: { k: Kartka; qr: string; pt?: number
       <div className="kp-corner">{k.cornerNo}</div>
       <div ref={boxRef} className="kp-box">
         <div ref={txtRef} className="kp-txt" style={{ fontSize: `${fit ?? MAX_PT}pt`, visibility: fit ? 'visible' : 'hidden' }}>
-          <div>{k.clientName}</div>
+          {k.clientName && <div>{k.clientName}</div>}
           {k.recipeHeader && <div>{k.recipeHeader}</div>}
           {k.mainLines.map((l, i) => <div key={i} className={i === 0 ? 'kp-first' : undefined}>{l}</div>)}
         </div>
       </div>
       <div className="kp-foot">
-        <div><div className="kp-wl">WAGA NETTO</div><div className="kp-wv">{formatKgCompact(k.totalKg)} KG</div><div className="kp-ord">ZAMÓWIENIE: {k.orderNo}</div></div>
+        <div><div className="kp-wl">WAGA NETTO</div><div className="kp-wv">{formatKgCompact(k.totalKg)} KG</div><div className="kp-ord">{k.stopka ?? `ZAMÓWIENIE: ${k.orderNo}`}</div></div>
         <div className="kp-qr">
           <div className="kp-qr-slot">{qr ? <img src={qr} alt="QR" /> : proba ? <span>QR wyłączony w próbie</span> : null}</div>
-          <div className="kp-qr-cap">{k.cornerNo} · {k.orderNo}</div>
+          <div className="kp-qr-cap">{k.cornerNo}{k.orderNo ? ` · ${k.orderNo}` : ''}</div>
         </div>
       </div>
     </div>
   )
+}
+
+/** Treść kartki ustawiana przy druku; ostatni wybór dla klienta pamięta ten komputer. */
+export function useTrescKartki(clientId: string) {
+  const klucz = `protrima.kartka.${clientId}`
+  const [tresc, setTresc] = useState<{ nazwa: string; tryb: TrybNazwy }>(() => {
+    try { const z = JSON.parse(localStorage.getItem(klucz) ?? 'null'); if (z && typeof z === 'object') return { nazwa: String(z.nazwa ?? ''), tryb: TRYBY_NAZWY.some(t => t.v === z.tryb) ? z.tryb : 'recipe' } } catch { /* brak pamięci — domyślne */ }
+    return { nazwa: '', tryb: 'recipe' }
+  })
+  const ustawTresc = (p: Partial<typeof tresc>) => setTresc(t => {
+    const n = { ...t, ...p }
+    try { localStorage.setItem(klucz, JSON.stringify(n)) } catch { /* bez zapamiętania */ }
+    return n
+  })
+  return [tresc, ustawTresc] as const
+}
+
+/** Rodzaj pod nazwą z dokumentów („KEBAB MIX” zamiast „KEBAB MIX 95/5”). */
+export function useRodzajNaDokumentach() {
+  const typyRes = useApi(() => productTypesApi.list())
+  return useMemo(() => {
+    const m = new Map((typyRes.data ?? []).map(t => [t.name, (t.documentName || t.name).trim()]))
+    return (n: string) => m.get(n) || n
+  }, [typyRes.data])
+}
+
+/**
+ * Druk kartek: kody QR (tylko brakujące), dobrany stopień pisma każdej kartki
+ * i okno drukowania. Druk dopiero, gdy KAŻDA kartka ma kod i stopień — kartka
+ * bez QR jest nie do zeskanowania. W próbie bez kodów (numery z kopii).
+ */
+export function useDrukKartek(kartki: Kartka[], proba: boolean, tytul: string) {
+  const [qr, setQr] = useState<Record<string, string>>({})
+  const [pt, setPt] = useState<Record<string, number>>({})
+  const [druk, setDruk] = useState(false)
+  // Klucz efektu to zestaw adresów, nie tożsamość tablicy (inaczej pętla przy każdym renderze).
+  const adresy = kartki.map(k => k.qr).join('\n')
+  useEffect(() => {
+    if (proba || !adresy) return
+    let zywe = true
+    const brak = adresy.split('\n').filter(a => !qr[a])
+    if (!brak.length) return
+    Promise.all(brak.map(async a => [a, await QRCode.toDataURL(a, CARTON_QR_OPTIONS).catch(() => '')] as const))
+      .then(p => { if (zywe) setQr(s => ({ ...s, ...Object.fromEntries(p) })) })
+    return () => { zywe = false }
+  }, [adresy, proba]) // eslint-disable-line react-hooks/exhaustive-deps
+  const gotowe = kartki.length > 0 && kartki.every(k => qr[k.qr] && pt[k.qr])
+  useEffect(() => {
+    if (!druk) return
+    const prev = document.title
+    document.title = tytul
+    const done = () => setDruk(false)
+    window.addEventListener('afterprint', done)
+    const t = window.setTimeout(() => window.print(), 80)
+    return () => { window.clearTimeout(t); window.removeEventListener('afterprint', done); document.title = prev }
+  }, [druk, tytul])
+  const ustawPt = (k: Kartka) => (v: number) => setPt(s => (s[k.qr] === v ? s : { ...s, [k.qr]: v }))
+  const arkusz = druk ? createPortal(<div className="print-sheet kartki-print">
+    {kartki.flatMap(k => Array.from({ length: KOPII_NA_PALETE }, (_, i) => <Strona key={`${k.qr}-${i}`} k={k} qr={qr[k.qr] ?? ''} pt={pt[k.qr]} proba={false} />))}
+  </div>, document.body) : null
+  return { qr, ustawPt, gotowe, druk, drukuj: () => setDruk(true), arkusz }
 }
 
 /**
@@ -144,52 +207,12 @@ export function KartkiPaletDialog({ orderId, palletNos, onClose, proba = import.
   const recepturaNa = useClientRecipeNames()
   const wszystkie = useMemo(() => (order?.pallets ?? []).map(p => p.no).sort((a, b) => a - b), [order])
   const [wybrane, setWybrane] = useState<number[]>(() => (palletNos?.length ? palletNos : wszystkie))
-  // Treść kartki ustawiana przy druku; ostatni wybór dla klienta pamięta ten komputer.
-  const klucz = `protrima.kartka.${order?.client.id ?? ''}`
-  const [tresc, setTresc] = useState<{ nazwa: string; tryb: TrybNazwy }>(() => {
-    try { const z = JSON.parse(localStorage.getItem(klucz) ?? 'null'); if (z && typeof z === 'object') return { nazwa: String(z.nazwa ?? ''), tryb: TRYBY_NAZWY.some(t => t.v === z.tryb) ? z.tryb : 'recipe' } } catch { /* brak pamięci — domyślne */ }
-    return { nazwa: '', tryb: 'recipe' }
-  })
-  const ustawTresc = (p: Partial<typeof tresc>) => setTresc(t => {
-    const n = { ...t, ...p }
-    try { localStorage.setItem(klucz, JSON.stringify(n)) } catch { /* bez zapamiętania */ }
-    return n
-  })
-  const typyRes = useApi(() => productTypesApi.list())
-  const rodzajNa = useMemo(() => {
-    const m = new Map((typyRes.data ?? []).map(t => [t.name, (t.documentName || t.name).trim()]))
-    return (n: string) => m.get(n) || n
-  }, [typyRes.data])
+  const [tresc, ustawTresc] = useTrescKartki(order?.client.id ?? '')
+  const rodzajNa = useRodzajNaDokumentach()
   const nazwaKartoteki = order ? klientNa(order.client.name) : ''
   const kartki = useMemo(() => (order ? zbudujKartki(order, wybrane, klientNa, recepturaNa, { nazwa: tresc.nazwa, tryb: tresc.tryb, rodzajNa }) : []),
     [order, wybrane, klientNa, recepturaNa, tresc.nazwa, tresc.tryb, rodzajNa])
-  const [qr, setQr] = useState<Record<string, string>>({})
-  const [pt, setPt] = useState<Record<string, number>>({})
-  const [druk, setDruk] = useState(false)
-
-  // Kody generujemy tylko dla palet, których jeszcze nie mają — klucz to zestaw adresów, nie tożsamość tablicy.
-  const adresy = kartki.map(k => k.qr).join('\n')
-  useEffect(() => {
-    if (proba || !adresy) return
-    let zywe = true
-    const brak = adresy.split('\n').filter(a => !qr[a])
-    if (!brak.length) return
-    Promise.all(brak.map(async a => [a, await QRCode.toDataURL(a, CARTON_QR_OPTIONS).catch(() => '')] as const))
-      .then(p => { if (zywe) setQr(s => ({ ...s, ...Object.fromEntries(p) })) })
-    return () => { zywe = false }
-  }, [adresy, proba]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Druk dopiero, gdy KAŻDA kartka ma kod i dobrany stopień — paleta bez QR jest nie do zeskanowania.
-  const gotowe = kartki.length > 0 && kartki.every(k => qr[k.qr] && pt[k.qr])
-  useEffect(() => {
-    if (!druk) return
-    const prev = document.title
-    document.title = `Kartki palet — ${order?.no ?? ''}`
-    const done = () => setDruk(false)
-    window.addEventListener('afterprint', done)
-    const t = window.setTimeout(() => window.print(), 80)
-    return () => { window.clearTimeout(t); window.removeEventListener('afterprint', done); document.title = prev }
-  }, [druk, order?.no])
+  const { qr, ustawPt, gotowe, druk, drukuj, arkusz } = useDrukKartek(kartki, proba, `Kartki palet — ${order?.no ?? ''}`)
 
   if (!order) return null
   const przelacz = (nr: number) => setWybrane(w => (w.includes(nr) ? w.filter(x => x !== nr) : [...w, nr].sort((a, b) => a - b)))
@@ -198,7 +221,7 @@ export function KartkiPaletDialog({ orderId, palletNos, onClose, proba = import.
     <Dialog title={`Kartki palet — ${order.no}`} icon={<Boxes size={20} />} wide onClose={onClose}
       footer={<>
         <button className="btn" onClick={onClose} data-autofocus>Zamknij</button>
-        <button className="btn primary" disabled={proba || !gotowe || druk} onClick={() => setDruk(true)} data-tip={proba ? BEZ_DRUKU_ETYKIET : undefined}>
+        <button className="btn primary" disabled={proba || !gotowe || druk} onClick={drukuj} data-tip={proba ? BEZ_DRUKU_ETYKIET : undefined}>
           <Printer size={15} />{proba ? 'Druk wyłączony w próbie' : `Drukuj ${kartek} ${kartek === 1 ? 'kartkę' : kartek < 5 ? 'kartki' : 'kartek'}`}</button>
       </>}>
       {proba && <div className="note warn"><FlagIcon level="warn" size={15} /><div>{BEZ_DRUKU_ETYKIET} Podgląd pokazuje układ kartki — bez kodu QR.</div></div>}
@@ -232,14 +255,12 @@ export function KartkiPaletDialog({ orderId, palletNos, onClose, proba = import.
           {kartki.length === 0 && <div className="empty">Zaznacz palety do wydruku.</div>}
           {kartki.map(k => (
             <div key={k.qr} className="kp-thumb" style={{ ['--kp-s' as string]: SKALA_PODGLADU }} data-testid={`kartka-${k.palletNo}`}>
-              <Strona k={k} qr={qr[k.qr] ?? ''} proba={proba} onPt={v => setPt(s => (s[k.qr] === v ? s : { ...s, [k.qr]: v }))} />
+              <Strona k={k} qr={qr[k.qr] ?? ''} proba={proba} onPt={ustawPt(k)} />
             </div>
           ))}
         </div>
       </div>
-      {druk && createPortal(<div className="print-sheet kartki-print">
-        {kartki.flatMap(k => Array.from({ length: KOPII_NA_PALETE }, (_, i) => <Strona key={`${k.qr}-${i}`} k={k} qr={qr[k.qr] ?? ''} pt={pt[k.qr]} proba={false} />))}
-      </div>, document.body)}
+      {arkusz}
     </Dialog>
   )
 }
