@@ -2,6 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { mapVehicleState } from './api'
 
 describe('skład kafelków załadunku', () => {
+  it('zachowuje adres i obrót oraz rozróżnia brak miejsca od braku danych', () => {
+    const location = { slot: 'C4', rotation: 90, revision: 'v1' }
+    const state = mapVehicleState({ orders: [{ pallets: [{ location }, { location: null }, {}] }] })
+    expect(state.orders[0].pallets.map(p => p.location)).toEqual([location, null, undefined])
+  })
   it('odróżnia brak ważenia od starego serwera i zachowuje niezgodną wagę', () => {
     const s = mapVehicleState({ orders: [{ pallets: [{}, { weighing: null }, {
       weighing: { id: 'w1', gross_kg: '655.5', diff_kg: '-12', ok: false, weighed_at: '2026-10-11T10:00:00Z' },

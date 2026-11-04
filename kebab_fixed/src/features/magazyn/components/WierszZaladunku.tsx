@@ -23,6 +23,10 @@ export function WierszZaladunku({ paleta: p, ostatni, cofana, blokada, onCofnij 
       <div className="min-w-0 self-start">
         <h3 className="hmi-v10-mono break-words text-[22px] font-extrabold leading-tight">{nazwaKartonu(p)}</h3>
         <div className="mt-1 text-sm font-semibold" style={{ color: 'var(--mut)' }}>{p.totalQty} szt.</div>
+        {p.status === 'cold_storage' ? <div className="mt-2 text-base font-extrabold" style={{ color: 'var(--accent)' }}>
+          {p.location ? `Mroźnia · ${p.location.slot}` : p.location === null ? 'Mroźnia · BEZ MIEJSCA' : 'Mroźnia · brak danych miejsca'}
+          {p.location ? <span className="block text-sm font-normal">{p.location.rotation === 90 ? 'krótszym bokiem' : 'dłuższym bokiem'}</span> : null}
+        </div> : null}
         {ostatni ? <span className="text-xs font-bold" style={{ color: 'var(--accent)' }}>Ostatni skan</span> : null}
       </div>
       <div className="col-span-2 row-start-2 min-w-0 lg:col-span-1 lg:row-start-auto">

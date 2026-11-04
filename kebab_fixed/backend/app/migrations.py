@@ -12,6 +12,7 @@ from app.db import (
     query_all, query_one, transaction,
 )
 from app.logging_config import get_logger
+from app.mroznia_schema import DDL as MROZNIA_DDL
 from app.utils.pallets import pallet_containers
 from app.services.product_catalog_service import (
     nadaj_kody_slownikowi_cx, odswiez_katalog_cx,
@@ -1977,6 +1978,11 @@ def _run_migrations_locked() -> None:
     from app.label_history_schema import DDL as label_history_ddl
     with transaction() as conn:
         for statement in label_history_ddl:
+            cx_execute(conn, statement)
+
+    # Locations and release triggers must be installed together.
+    with transaction() as conn:
+        for statement in MROZNIA_DDL:
             cx_execute(conn, statement)
 
     _seed_water()

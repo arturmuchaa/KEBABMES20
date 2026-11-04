@@ -3,6 +3,10 @@ from app.auth.permissions import permission_for_path
 
 
 def test_rbac_mroznia_wazenie():
+    assert permission_for_path('/api/magazyn/mroznia/plan', 'GET') == 'wydanie'
+    assert permission_for_path('/api/magazyn/mroznia/lokalizacja', 'PUT') == 'wydanie'
+    assert permission_for_path('/api/magazyn/mroznia/zajete', 'PUT') == 'wydanie'
+    assert permission_for_path('/api/magazyn/mroznia/zajete/zwolnij', 'POST') == 'wydanie'
     assert permission_for_path("/api/magazyn/mroznia/palety", "GET") == "wydanie"
     assert permission_for_path("/api/magazyn/mroznia/palety", "PUT") == "office"
     assert permission_for_path("/api/magazyn/mroznia/sprawdz", "POST") == "wydanie"
@@ -14,6 +18,7 @@ def test_trasy_zarejestrowane():
     from app.main import app
     paths = app.openapi()["paths"]
     for p in ("/api/magazyn/mroznia/palety", "/api/magazyn/mroznia/sprawdz",
+              '/api/magazyn/mroznia/plan', '/api/magazyn/mroznia/lokalizacja',
               "/api/magazyn/mroznia/wazenie", "/api/magazyn/mroznia/wazenie/{container_id}"):
         assert p in paths
 

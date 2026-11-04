@@ -3,15 +3,16 @@
 Zapis sztuki idzie przez istniejące ścieżki (`pack_unit_into_pallet`,
 `scan_unit_into_carton`) — tu żyje tylko decyzja, DO KTÓREGO kartonu.
 """
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from app.auth.audit import _subject_label
 from app.services.packing_correction_service import undo_pack
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.services import magazyn_pakowanie_service as svc
 from app.services import mroznia_wazenie_service, settings_service
+from app.services import mroznia_lokalizacje_service as lokalizacje
 
 router = APIRouter(prefix="/api/magazyn", tags=["magazyn"])
 
@@ -60,6 +61,46 @@ def mroznia_karton(body: SkanKodu):
 @router.get("/mroznia/kartony")
 def mroznia_kartony():
     return svc.kartony_w_mrozni()
+
+
+class Lokalizacja(BaseModel):
+    kind: Literal['order', 'stock']
+    container_id: str
+    slot: str
+    rotation: Literal[0, 90] = 0
+    expected_revision: Optional[str] = None
+
+
+@router.get('/mroznia/plan')
+def mroznia_plan():
+    return lokalizacje.plan()
+
+
+@router.put('/mroznia/lokalizacja')
+def mroznia_lokalizacja(body: Lokalizacja, request: Request):
+    return lokalizacje.save(body.kind, body.container_id, body.slot, body.rotation,
+                           body.expected_revision, _operator(request))
+
+
+class ZajeteMiejsce(BaseModel):
+    slot: str
+    description: str = Field(default='', max_length=160)
+    expected_revision: Optional[str] = None
+
+
+class ZwolnienieMiejsca(BaseModel):
+    slot: str
+    expected_revision: str
+
+
+@router.put('/mroznia/zajete')
+def mroznia_zajete(body: ZajeteMiejsce, request: Request):
+    return lokalizacje.block(body.slot, body.description, body.expected_revision, _operator(request))
+
+
+@router.post('/mroznia/zajete/zwolnij')
+def mroznia_zwolnij(body: ZwolnienieMiejsca):
+    return lokalizacje.unblock(body.slot, body.expected_revision)
 
 
 # ── Ważenie pełnego kartonu przy wjeździe do mroźni (29.09.2026) ───────────

@@ -11,6 +11,7 @@ async function start(page: Page) {
   const pallets = Array.from({ length: 17 }, (_, i) => ({
     id: `p${i + 1}`, pallet_no: i + 1, carton_no: 318 + i,
     status: i < 12 ? 'loaded' : 'cold_storage', on_this_vehicle: i < 12,
+    location: i < 12 ? null : { slot: `A${i - 11}`, rotation: 0, revision: 'v1' },
     total_qty: i === 1 ? 24 : 10, total_kg: i === 1 ? 860 : 300,
     scan_code: `PAL|${ORDER}|${i + 1}`,
     items: i === 1 ? [
@@ -61,6 +62,7 @@ async function start(page: Page) {
       const p = pallets[16]
       p.on_this_vehicle = body.action !== 'undo'
       p.status = p.on_this_vehicle ? 'loaded' : 'cold_storage'
+      p.location = null // cofnięcie wymaga fizycznego wskazania miejsca na nowo
       return respond(route, { ...p, result: 'SUCCESS', order: { id: ORDER, client_name: 'KLIENT TESTOWY' }, vehicle_state: snapshot() })
     }
     m.unexpected.push(`${req.method()} ${path}`)
@@ -87,6 +89,7 @@ for (const size of [{ width: 1024, height: 768 }, { width: 1366, height: 768 }, 
       await expect(rows.nth(1)).toContainText('✓ Na aucie')
       await expect(rows.nth(2)).toContainText('Waga niezgodna · +23 kg')
       await expect(rows.first()).toContainText('335,5 kg brutto')
+      await expect(rows.nth(12)).toContainText('Mroźnia · A1')
       await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '12')
       const widths = await rows.evaluateAll(es => es.map(e => e.scrollWidth - e.clientWidth))
       expect(Math.max(...widths)).toBeLessThanOrEqual(1)

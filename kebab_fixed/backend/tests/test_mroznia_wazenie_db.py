@@ -37,7 +37,7 @@ def test_pelny_karton_magazynowy_sprawdz(db):
     assert info["result"] == "OK" and info["kind"] == "stock"
     assert info["full"] is True and info["inColdStorage"] is False
     assert info["netKg"] == 45.0
-    assert info["lines"] == [{"qty": 3, "kgPerUnit": 15.0, "recipeName": "KIRMIZI", "productTypeName": ""}]
+    assert info["lines"] == [{"qty": 3, "kgPerUnit": 15.0, "recipeName": "KIRMIZI", "productTypeName": "", "packagingName": "METAL 80"}]
 
 
 def test_zwazenie_zgodne_wstawia_do_mrozni(db):

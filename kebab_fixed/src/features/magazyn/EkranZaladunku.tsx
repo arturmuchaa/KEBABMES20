@@ -33,6 +33,7 @@ import { ListaZaladunku } from './components/ListaZaladunku'
 import { ZALADUNEK_OK } from './components/WierszZaladunku'
 import { grajBlad, grajInny } from './dzwiek'
 import type { PokazAlarm } from './magazynTypes'
+import { PlanMrozni } from './PlanMrozni'
 
 export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   vehicleId: string
@@ -55,6 +56,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   }, [dostepneRes.data, zamowienia])
 
   const [pytanie, setPytanie] = useState(false)
+  const [mapa, setMapa] = useState(false)
   const [rejestracja, setRejestracja] = useState('')
   const [zamyka, setZamyka] = useState(false)
   const [cofana, setCofana] = useState<string | null>(null)
@@ -97,7 +99,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   }
 
   async function skanuj(kod: string) {
-    if (pytanie || zapisuje.current) return
+    if (pytanie || mapa || zapisuje.current) return
     setOstatniSkan(null) // nowy odczyt nie może wyglądać jak sukces poprzedniego
     let maMigawke = false
     try {
@@ -228,6 +230,10 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <StanPolaczenia blad={!online} aktualizacja={aktualizacja} ladowanie={ladowanie} />
+      <button type="button" disabled={skanuje || czekaNaStan || !!cofana} onClick={() => setMapa(true)} className="mx-6 my-2 min-h-12 self-start rounded-xl border px-5 font-bold disabled:opacity-50"
+        style={{ background: 'var(--panel)', borderColor: 'var(--accentLine)', color: 'var(--accent)' }}>
+        Rzut mroźni · znajdź karton do załadunku
+      </button>
       <ListaZaladunku stan={stan} ladowanie={ladowanie} online={online} skanuje={skanuje}
         czekaNaStan={czekaNaStan} cofana={cofana} otwarte={otwarteZamowienie} ostatni={ostatni}
         dostepne={dostepne} bladDostepnych={!!dostepneRes.error} ladujeDostepne={dostepneRes.loading}
@@ -236,9 +242,11 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
         onZakoncz={() => { setPotwierdzane(zamowienia); wyczyscProbe(); setRejestracja(pojazd?.plate ?? ''); setPytanie(true) }} />
 
       <PasSkanowania placeholder="Skanuj karton lub paletę…" onSkan={skanuj}
-        disabled={pytanie || zamyka || !!wynik || !!cofana} onPendingChange={setSkanuje}
+        disabled={pytanie || mapa || zamyka || !!wynik || !!cofana} onPendingChange={setSkanuje}
         podpis="Skanuj kolejne kartony. Zielony wiersz oznacza zapis na aucie." />
 
+      {mapa ? <PlanMrozni onZamknij={() => setMapa(false)} onZapisano={() => void odswiez()}
+        onZmieniono={() => void odswiez()} /> : null}
       <Dialog open={pytanie} onOpenChange={open => {
         if (!zamyka && !niepewny) { if (!open) wyczyscProbe(); setPytanie(open) }
       }}>

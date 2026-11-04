@@ -14,7 +14,8 @@
 import { useMemo } from 'react'
 import { usePakowanie } from './usePakowanie'
 import { pulaPoDniach, krotkaData, kgTxt } from './pula'
-import { brakuje, dokadKarton, skladKartonu } from './opisKartonu'
+import { brakuje, dokadKarton } from './opisKartonu'
+import { SkladKartonu } from './SkladKartonu'
 import { Karta, Znacznik } from './components/Karta'
 
 export function EkranKartonow({ onWybor }: { onWybor: (kartonId: string | null) => void }) {
@@ -57,8 +58,9 @@ export function EkranKartonow({ onWybor }: { onWybor: (kartonId: string | null) 
                       {k.kind === 'order' ? 'zamówienie' : 'magazyn'}
                     </Znacznik>
                   </span>
-                  <span className="mt-0.5 block truncate text-[13.5px]" style={{ color: 'var(--mut)' }}>
-                    {skladKartonu(k)} · {dokadKarton(k)}
+                  <SkladKartonu lines={k.lines} />
+                  <span className="mt-1 block text-[13.5px]" style={{ color: 'var(--mut)' }}>
+                    {dokadKarton(k)}
                   </span>
                   <span className="mt-2 block h-1.5 overflow-hidden rounded-full" style={{ background: 'var(--lineSoft)' }}>
                     <span className="block h-full rounded-full"
@@ -94,7 +96,8 @@ export function EkranKartonow({ onWybor }: { onWybor: (kartonId: string | null) 
                       <span className="truncate text-[19px] font-extrabold leading-tight">✓ {k.clientName || 'na magazyn'}</span>
                       <Znacznik ton="ok">pełny</Znacznik>
                     </span>
-                    <span className="block truncate text-[13px]" style={{ color: '#166534' }}>
+                    <SkladKartonu lines={k.lines} />
+                    <span className="mt-1 block text-[13px]" style={{ color: '#166534' }}>
                       ❄ otwórz i zeskanuj kartkę, żeby wjechać do mroźni
                     </span>
                   </span>

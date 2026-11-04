@@ -22,6 +22,12 @@ const W = {
 afterEach(cleanup)
 
 describe('karta kartonu — ważenie', () => {
+  it('pokazuje miejsce, orientację i tuleję', () => {
+    render(<KartaKartonu karton={{ ...K, location: { slot: 'C4', rotation: 90, revision: 'v1' },
+      lines: [{ ...K.lines[0], packagingName: 'METAL 80' }] }} onZamknij={() => {}} />)
+    expect(screen.getByText('Mroźnia: C4 · krótszym bokiem')).toBeTruthy()
+    expect(screen.getByText('Tuleja: METAL 80')).toBeTruthy()
+  })
   it('zważony: zgodna, kiedy, kto, brutto, paleta', () => {
     render(<KartaKartonu karton={{ ...K, lastWeighing: W }} onZamknij={() => {}} />)
     const t = screen.getByTestId('wazenie-kartonu').textContent!

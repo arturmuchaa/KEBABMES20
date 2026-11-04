@@ -2550,6 +2550,7 @@ export interface VehiclePalletWeighing {
 }
 
 export interface VehicleStatePallet {
+  location?: MiejsceMrozni | null
   cartonNo?: string
   scanCode?: string
   id: string
@@ -2617,6 +2618,7 @@ export function mapVehicleState(raw: any): VehicleState {
           packagingName: it.packaging_name ?? '',
         })),
         onThisVehicle: Boolean(p.on_this_vehicle),
+        location: p.location,
         weighing: p.weighing === undefined ? undefined : p.weighing === null ? null : {
           id: p.weighing.id,
           grossKg: Number(p.weighing.gross_kg),
@@ -4280,6 +4282,13 @@ export interface PodsumowanieMagazynu {
 }
 
 export const magazynApi = {
+  mrozniaPlan: () => get<PlanMrozniDane>('/magazyn/mroznia/plan'),
+  mrozniaZajete: (body: { slot: string; description: string; expected_revision: string | null }) =>
+    put<ZajeteMiejsceMrozni>('/magazyn/mroznia/zajete', body),
+  mrozniaZwolnij: (body: { slot: string; expected_revision: string }) =>
+    post<{ ok: boolean }>('/magazyn/mroznia/zajete/zwolnij', body),
+  mrozniaLokalizacja: (body: { kind: 'order' | 'stock'; container_id: string; slot: string; rotation: 0 | 90; expected_revision: string | null }) =>
+    put<MiejsceMrozni>('/magazyn/mroznia/lokalizacja', body),
   cofnij: (code: string, containerId: string) =>
     post<{ ok: boolean }>('/magazyn/pakowanie/cofnij', { code, container_id: containerId }),
   podsumowanie: () => get<PodsumowanieMagazynu>('/magazyn/podsumowanie'),
@@ -4385,12 +4394,24 @@ export interface PaletaMrozni {
   marginPct: number
 }
 
-export interface PozycjaSkladu { qty: number; kgPerUnit: number; recipeName: string; productTypeName: string }
+export interface PozycjaSkladu {
+  qty: number; kgPerUnit: number; recipeName: string; productTypeName: string
+  packagingName?: string; source?: 'plan' | 'scans'
+}
+
+export interface MiejsceMrozni { slot: string; rotation: 0 | 90; revision: string }
+export interface KartonNaPlanie {
+  kind: 'order' | 'stock'; id: string; code: string; cartonNo: string; clientName: string; orderNo: string
+  location: MiejsceMrozni | null; lines: PozycjaSkladu[]
+}
+export interface ZajeteMiejsceMrozni { slot: string; description: string; revision: string; operator: string; updatedAt: string }
+export interface PlanMrozniDane { columns: string[]; rows: number; cartons: KartonNaPlanie[]; blocked?: ZajeteMiejsceMrozni[] }
 
 /** Ile sztuk z której partii leży w kartonie („3 szt · 290926 591"). */
 export interface PartiaWKartonie { batchNo: string; qty: number }
 
 export interface KartonDoWazenia {
+  location?: MiejsceMrozni | null
   /** Ważenie według rozpisu, bez potwierdzenia skanami sztuk. */
   scannerless?: boolean
   result: 'OK' | 'INVALID' | 'GONE'

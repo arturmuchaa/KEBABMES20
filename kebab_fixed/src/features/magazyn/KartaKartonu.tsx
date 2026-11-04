@@ -12,11 +12,12 @@
  * kto, zgodna czy nie; a jak nie ważony, to wprost „NIE WAŻONY". Dalej skład
  * i partie, przyciski na dole.
  */
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { KartonDoWazenia } from '@/lib/api'
 import { dataGodzina } from './etykietaWagiZpl'
 import { kgPl, roznicaPl } from './wazenieMrozni'
 import { Karta, Znacznik } from './components/Karta'
+import { PlanMrozni } from './PlanMrozni'
 
 const STATUS: Record<NonNullable<KartonDoWazenia['status']>, { t: string; zielony: boolean }> = {
   planned: { t: 'ROZPISANY — sztuki nie skanowane', zielony: false },
@@ -55,6 +56,9 @@ export function KartaKartonu({ karton, onZamknij, onWyjazd, onDodruk, onPakuj }:
   const pozycje = karton.lines ?? []
   const partie = karton.batches ?? []
   const pelny = !!karton.full || st.zielony
+  const [mapa, setMapa] = useState(false)
+  const [location, setLocation] = useState(karton.location)
+  useEffect(() => { setLocation(karton.location) }, [karton.location])
 
   // Werdykt ważenia: zielony zgodna, czerwony niezgodna, bursztyn „nie ważony"
   // (w mroźni to zaległość do nadrobienia), szary — jeszcze nie ma czego ważyć.
@@ -112,6 +116,11 @@ export function KartaKartonu({ karton, onZamknij, onWyjazd, onDodruk, onPakuj }:
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 px-6">
+        {karton.status === 'cold_storage' ? <section className="flex items-center justify-between gap-3 rounded-xl border p-4">
+          <strong className="text-xl">Mroźnia: {location ? `${location.slot} · ${location.rotation === 90 ? 'krótszym bokiem' : 'dłuższym bokiem'}`
+            : location === null ? 'brak przypisanego miejsca' : 'brak danych lokalizacji'}</strong>
+          <button type="button" onClick={() => setMapa(true)} className="min-h-12 rounded-lg border px-4 font-bold">Mapa / zmień miejsce</button>
+        </section> : null}
         {/* ── Ważenie — pierwsze pytanie przy kartonie ──────────────────── */}
         <section data-testid="wazenie-kartonu" className="flex shrink-0 items-center gap-5 rounded-2xl px-5 py-4"
           style={{ background: wag.tlo, border: `2px solid ${wag.ramka}` }}>
@@ -158,6 +167,7 @@ export function KartaKartonu({ karton, onZamknij, onWyjazd, onDodruk, onPakuj }:
                     {p.productTypeName ? (
                       <span className="block break-words text-[14px]" style={{ color: 'var(--mut)' }}>{p.productTypeName}</span>
                     ) : null}
+                    <span className="block break-words text-[14px]" style={{ color: 'var(--mut)' }}>Tuleja: {p.packagingName || 'niepodana'}</span>
                   </span>
                 </div>
               )) : (
@@ -203,6 +213,8 @@ export function KartaKartonu({ karton, onZamknij, onWyjazd, onDodruk, onPakuj }:
         <button type="button" onClick={onZamknij} className="rounded-xl px-8 py-3.5 text-[17px] font-bold"
           style={{ background: 'var(--panel)', border: '1px solid var(--line)' }}>Zamknij</button>
       </div>
+      {mapa && karton.id && karton.kind ? <PlanMrozni cel={{ id: karton.id, kind: karton.kind, cartonNo: karton.cartonNo || '' }}
+        onZamknij={() => setMapa(false)} onZapisano={setLocation} /> : null}
     </div>
   )
 }

@@ -307,6 +307,11 @@ def vehicle_state(vehicle_id: str) -> Dict[str, Any]:
                 "ok": w["ok"], "weighed_at": w["weighed_at"],
             } for w in wazenia
         }
+        positions = cx_query_all(conn,
+            'SELECT * FROM cold_storage_positions WHERE pallet_id=ANY(%s) OR carton_id=ANY(%s)',
+            ([p['id'] for p in palety], [p['id'] for p in palety])) if palety else []
+        locations = {('order' if r['pallet_id'] else 'stock', r['pallet_id'] or r['carton_id']):
+                     {'slot': r['slot'], 'rotation': r['rotation'], 'revision': r['revision']} for r in positions}
 
     wg_palety: Dict[str, List[Dict[str, Any]]] = {}
     for poz in pozycje:
@@ -320,6 +325,7 @@ def vehicle_state(vehicle_id: str) -> Dict[str, Any]:
         p["items"] = wg_palety.get(p["id"], [])
         kind = "stock" if p.get("scan_code", "").startswith("SCARTON|") else "order"
         p["weighing"] = wg_wazenia.get((kind, p["id"]))
+        p['location'] = locations.get((kind, p['id'])) if p.get('status') == 'cold_storage' else None
         # `loaded` liczy się TYLKO na TYM aucie. Paleta tego samego zamówienia
         # stojąca na innym samochodzie nie jest postępem tego załadunku.
         p["on_this_vehicle"] = (
