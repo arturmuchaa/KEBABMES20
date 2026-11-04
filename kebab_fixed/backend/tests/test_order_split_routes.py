@@ -452,17 +452,29 @@ def test_trasa_cmr_bez_zakresu_dziala_jak_dotad(monkeypatch):
 def test_trasa_hdi_przekazuje_zakres(monkeypatch):
     seen = {}
     monkeypatch.setattr(hdi_route.svc, "generate_hdi",
-                        lambda oid, scope: seen.update(oid=oid, scope=scope) or {})
+                        lambda oid, scope, *, preliminary: seen.update(
+                            oid=oid, scope=scope, preliminary=preliminary) or {})
     hdi_route.generate(order_id="o1", scope="fv")
-    assert seen == {"oid": "o1", "scope": "fv"}
+    assert seen == {"oid": "o1", "scope": "fv", "preliminary": False}
 
 
 def test_trasa_hdi_bez_zakresu_dziala_jak_dotad(monkeypatch):
     seen = {}
     monkeypatch.setattr(hdi_route.svc, "generate_hdi",
-                        lambda oid, scope: seen.update(scope=scope) or {})
+                        lambda oid, scope, *, preliminary: seen.update(
+                            scope=scope, preliminary=preliminary) or {})
     hdi_route.generate(order_id="o1")
-    assert seen == {"scope": "calosc"}
+    assert seen == {"scope": "calosc", "preliminary": False}
+
+
+@pytest.mark.parametrize("preliminary", [True, False])
+def test_trasa_hdi_przekazuje_jawny_tryb_wstepny(monkeypatch, preliminary):
+    seen = {}
+    monkeypatch.setattr(hdi_route.svc, "generate_hdi",
+                        lambda oid, scope, *, preliminary: seen.update(
+                            oid=oid, scope=scope, preliminary=preliminary) or {})
+    hdi_route.generate(order_id="o1", preliminary=preliminary)
+    assert seen == {"oid": "o1", "scope": "calosc", "preliminary": preliminary}
 
 
 # ── Załadunek stempluje auto na obu dokumentach ───────────────────
