@@ -13,6 +13,7 @@ from app.db import (
 )
 from app.logging_config import get_logger
 from app.mroznia_schema import DDL as MROZNIA_DDL
+from app.vehicle_loading_colors_schema import SQL as VEHICLE_LOADING_COLORS_SQL
 from app.utils.pallets import pallet_containers
 from app.services.product_catalog_service import (
     nadaj_kody_slownikowi_cx, odswiez_katalog_cx,
@@ -1983,6 +1984,11 @@ def _run_migrations_locked() -> None:
     # Locations and release triggers must be installed together.
     with transaction() as conn:
         for statement in MROZNIA_DDL:
+            cx_execute(conn, statement)
+
+    # The new required colour and its insert trigger must become visible together.
+    with transaction() as conn:
+        for statement in VEHICLE_LOADING_COLORS_SQL:
             cx_execute(conn, statement)
 
     _seed_water()

@@ -1,9 +1,18 @@
 import { describe, it, expect } from 'vitest'
 import { mapVehicleState } from './api'
+import { koloryZamowien } from '@/features/magazyn/koloryZaladunku'
+
+it('keeps server colour identity when order position changes or another order disappears', () => {
+  const raw = { orders: Array.from({ length: 5 }, (_, i) => ({ id: `o${i}`, client_name: 'TEN SAM KLIENT', color_index: i, position: i })) }
+  const before = koloryZamowien(mapVehicleState(raw).orders)
+  const after = koloryZamowien(mapVehicleState({ orders: raw.orders.slice(1).reverse().map((o, i) => ({ ...o, position: i })) }).orders)
+  expect(new Set(before.map(o => o.color.fill)).size).toBe(5)
+  expect(after.map(o => o.color)).toEqual(before.slice(1).reverse().map(o => o.color))
+})
 
 describe('skład kafelków załadunku', () => {
   it('zachowuje adres i obrót oraz rozróżnia brak miejsca od braku danych', () => {
-    const location = { slot: 'C4', rotation: 90, revision: 'v1' }
+    const location = { slot: 'X160Y360', xCm: 160, yCm: 360, rotation: 90, revision: 'v1' }
     const state = mapVehicleState({ orders: [{ pallets: [{ location }, { location: null }, {}] }] })
     expect(state.orders[0].pallets.map(p => p.location)).toEqual([location, null, undefined])
   })

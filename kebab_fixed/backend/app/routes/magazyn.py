@@ -66,7 +66,9 @@ def mroznia_kartony():
 class Lokalizacja(BaseModel):
     kind: Literal['order', 'stock']
     container_id: str
-    slot: str
+    slot: str = ''
+    x_cm: Optional[int] = Field(default=None, strict=True)
+    y_cm: Optional[int] = Field(default=None, strict=True)
     rotation: Literal[0, 90] = 0
     expected_revision: Optional[str] = None
 
@@ -79,11 +81,31 @@ def mroznia_plan():
 @router.put('/mroznia/lokalizacja')
 def mroznia_lokalizacja(body: Lokalizacja, request: Request):
     return lokalizacje.save(body.kind, body.container_id, body.slot, body.rotation,
-                           body.expected_revision, _operator(request))
+                           body.expected_revision, _operator(request), x_cm=body.x_cm, y_cm=body.y_cm)
+
+
+class KartonDoZamiany(BaseModel):
+    kind: Literal['order', 'stock']
+    container_id: str = Field(min_length=1)
+    expected_revision: str = Field(min_length=1)
+
+
+class ZamianaMiejsc(BaseModel):
+    first: KartonDoZamiany
+    second: KartonDoZamiany
+
+
+@router.post('/mroznia/zamiana')
+def mroznia_zamiana(body: ZamianaMiejsc, request: Request):
+    return lokalizacje.swap(body.first.kind, body.first.container_id, body.first.expected_revision,
+                           body.second.kind, body.second.container_id, body.second.expected_revision, _operator(request))
 
 
 class ZajeteMiejsce(BaseModel):
     slot: str
+    x_cm: Optional[int] = Field(default=None, strict=True)
+    y_cm: Optional[int] = Field(default=None, strict=True)
+    rotation: Literal[0, 90] = 90
     description: str = Field(default='', max_length=160)
     expected_revision: Optional[str] = None
 
@@ -95,7 +117,8 @@ class ZwolnienieMiejsca(BaseModel):
 
 @router.put('/mroznia/zajete')
 def mroznia_zajete(body: ZajeteMiejsce, request: Request):
-    return lokalizacje.block(body.slot, body.description, body.expected_revision, _operator(request))
+    return lokalizacje.block(body.slot, body.description, body.expected_revision, _operator(request),
+                            x_cm=body.x_cm, y_cm=body.y_cm, rotation=body.rotation)
 
 
 @router.post('/mroznia/zajete/zwolnij')

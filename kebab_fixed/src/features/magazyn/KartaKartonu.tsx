@@ -18,6 +18,7 @@ import { dataGodzina } from './etykietaWagiZpl'
 import { kgPl, roznicaPl } from './wazenieMrozni'
 import { Karta, Znacznik } from './components/Karta'
 import { PlanMrozni } from './PlanMrozni'
+import { locationText } from './mrozniaGeometry'
 
 const STATUS: Record<NonNullable<KartonDoWazenia['status']>, { t: string; zielony: boolean }> = {
   planned: { t: 'ROZPISANY — sztuki nie skanowane', zielony: false },
@@ -117,7 +118,7 @@ export function KartaKartonu({ karton, onZamknij, onWyjazd, onDodruk, onPakuj }:
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 px-6">
         {karton.status === 'cold_storage' ? <section className="flex items-center justify-between gap-3 rounded-xl border p-4">
-          <strong className="text-xl">Mroźnia: {location ? `${location.slot} · ${location.rotation === 90 ? 'krótszym bokiem' : 'dłuższym bokiem'}`
+          <strong className="text-xl">Mroźnia: {location ? locationText(location)
             : location === null ? 'brak przypisanego miejsca' : 'brak danych lokalizacji'}</strong>
           <button type="button" onClick={() => setMapa(true)} className="min-h-12 rounded-lg border px-4 font-bold">Mapa / zmień miejsce</button>
         </section> : null}

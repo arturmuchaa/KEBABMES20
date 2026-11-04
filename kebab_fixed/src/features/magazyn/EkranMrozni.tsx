@@ -27,6 +27,7 @@ import { dataGodzina } from './etykietaWagiZpl'
 import { kgPl, roznicaPl } from './wazenieMrozni'
 import type { PokazAlarm } from './magazynTypes'
 import { PlanMrozni, type CelMrozni } from './PlanMrozni'
+import { locationText, positioned } from './mrozniaGeometry'
 import { ZawartoscMrozni } from './ZawartoscMrozni'
 import type { KartonNaPlanie, PlanMrozniDane } from '@/lib/api'
 
@@ -285,7 +286,7 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
             Rzut mroźni · znajdź karton
           </button>
           <p className="text-sm" style={{ color: 'var(--mut)' }}>
-            {plan ? `Bez przypisanego miejsca: ${plan.cartons.filter(c => !c.location).length}` : 'Brak aktualnych danych lokalizacji — otwórz mapę, aby ponowić.'}
+            {plan ? `Bez potwierdzonego położenia: ${plan.cartons.filter(c => !positioned(c.location)).length}` : 'Brak aktualnych danych lokalizacji — otwórz mapę, aby ponowić.'}
           </p>
           {ostatnia ? (
             <div className="rounded-xl px-4 py-3 text-[14px] font-bold"
@@ -402,7 +403,7 @@ function WierszMrozni({ klient, opis, kg, termin, pelnosc, w, naPlanie, planDost
         <ZawartoscMrozni lines={naPlanie?.lines ?? []} />
         <button type="button" disabled={blokada} onClick={onMiejsce} className="mt-2 min-h-12 rounded-lg border px-3 text-[15px] font-bold disabled:opacity-50"
           style={{ borderColor: 'var(--accentLine)', background: 'var(--panel)', color: 'var(--accent)' }}>
-          {naPlanie?.location ? `Miejsce ${naPlanie.location.slot} · ${naPlanie.location.rotation === 90 ? 'krótszym bokiem' : 'dłuższym bokiem'}`
+          {naPlanie?.location ? locationText(naPlanie.location)
             : planDostepny ? 'Bez miejsca · wskaż na mapie' : 'Lokalizacja niedostępna · otwórz mapę'}
         </button>
         <span className="mt-1 inline-block rounded-md px-2 py-0.5 text-[11.5px] font-extrabold uppercase"

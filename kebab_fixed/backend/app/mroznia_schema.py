@@ -1,4 +1,4 @@
-"""Additive DDL for the 7 × 9 logical pallet locations (not room dimensions).
+"""Freezer geometry in cm: 560 wide × 1080 deep; origin at left/door wall.
 
 Release is a database invariant: all loading/undo/correction paths, including
 mobile clients, must free the slot. Undo never invents a physical put-away.
@@ -23,6 +23,26 @@ DDL = [
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         CHECK ((pallet_id IS NULL) <> (carton_id IS NULL))
     )""",
+    # Old logical slots stay unpositioned until physically confirmed by an operator.
+    *[statement for table in ('cold_storage_positions', 'cold_storage_blocked_slots') for statement in (
+        f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS x_cm INTEGER',
+        f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS y_cm INTEGER',
+        f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS rotation INTEGER NOT NULL DEFAULT 0',
+        f'ALTER TABLE {table} DROP CONSTRAINT IF EXISTS {table}_slot_check',
+        f"""ALTER TABLE {table} ADD CONSTRAINT {table}_slot_check
+            CHECK (slot ~ '^([A-I][1-7]|X[0-9]+Y[0-9]+|M[a-zA-Z0-9-]{{1,64}})$')""",
+        f"""DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='{table}_geometry_check'
+                           AND conrelid='{table}'::regclass) THEN
+                ALTER TABLE {table} ADD CONSTRAINT {table}_geometry_check CHECK (
+                    rotation IN (0,90) AND ((x_cm IS NULL AND y_cm IS NULL) OR
+                    (x_cm IS NOT NULL AND y_cm IS NOT NULL AND x_cm >= 0 AND y_cm >= 0
+                     AND mod(x_cm, 10) = 0 AND mod(y_cm, 10) = 0
+                     AND x_cm + CASE WHEN rotation=0 THEN 120 ELSE 80 END <= 560
+                     AND y_cm + CASE WHEN rotation=0 THEN 80 ELSE 120 END <= 1080)));
+            END IF;
+        END $$""",
+    )],
     """CREATE OR REPLACE FUNCTION release_cold_storage_position() RETURNS trigger AS $$
     BEGIN
         IF TG_TABLE_NAME = 'order_pallets' THEN

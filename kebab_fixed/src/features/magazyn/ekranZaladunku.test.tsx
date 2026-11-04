@@ -346,7 +346,7 @@ describe('załadunek na kiosku', () => {
     render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
     await screen.findByText('SOLÓWKA')
     expect(document.getElementById('kartony-yalcin')!.hidden).toBe(true)
-    fireEvent.click(screen.getByRole('button', { name: 'YALCIN · 0/1' }))
+    fireEvent.click(screen.getByRole('button', { name: /YALCIN · .* · 0\/1/ }))
     expect(document.getElementById('kartony-yalcin')!.hidden).toBe(false)
     expect(document.getElementById('kartony-polat')!.hidden).toBe(true)
     // Skan nadal działa dla całego auta, nie tylko oglądanego zamówienia.

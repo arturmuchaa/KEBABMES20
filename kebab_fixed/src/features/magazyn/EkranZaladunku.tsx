@@ -34,6 +34,7 @@ import { ZALADUNEK_OK } from './components/WierszZaladunku'
 import { grajBlad, grajInny } from './dzwiek'
 import type { PokazAlarm } from './magazynTypes'
 import { PlanMrozni } from './PlanMrozni'
+import { koloryZamowien } from './koloryZaladunku'
 
 export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   vehicleId: string
@@ -43,6 +44,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   const { stan, ladowanie, online, aktualizacja, czekaNaStan, odswiez, odswiezPoZapisie, przyjmij } = useVehicleLoading(vehicleId)
   const zamowienia = stan?.orders ?? []
   const pojazd = stan?.vehicle
+  const koloroweZamowienia = useMemo(() => koloryZamowien(stan?.orders ?? []), [stan?.orders])
   const spedycja = !!pojazd?.kind && pojazd.kind !== 'own'
 
   const dostepneRes = useApi(() => palletScanApi.activeLoading(false), [])
@@ -230,11 +232,11 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <StanPolaczenia blad={!online} aktualizacja={aktualizacja} ladowanie={ladowanie} />
-      <button type="button" disabled={skanuje || czekaNaStan || !!cofana} onClick={() => setMapa(true)} className="mx-6 my-2 min-h-12 self-start rounded-xl border px-5 font-bold disabled:opacity-50"
+      <button type="button" disabled={!stan || !online || skanuje || czekaNaStan || !!cofana} onClick={() => setMapa(true)} className="mx-6 my-2 min-h-12 self-start rounded-xl border px-5 font-bold disabled:opacity-50"
         style={{ background: 'var(--panel)', borderColor: 'var(--accentLine)', color: 'var(--accent)' }}>
         Rzut mroźni · znajdź karton do załadunku
       </button>
-      <ListaZaladunku stan={stan} ladowanie={ladowanie} online={online} skanuje={skanuje}
+      <ListaZaladunku stan={stan} koloroweZamowienia={koloroweZamowienia} ladowanie={ladowanie} online={online} skanuje={skanuje}
         czekaNaStan={czekaNaStan} cofana={cofana} otwarte={otwarteZamowienie} ostatni={ostatni}
         dostepne={dostepne} bladDostepnych={!!dostepneRes.error} ladujeDostepne={dostepneRes.loading}
         onOtworz={setOtwarteZamowienie} onDodaj={dodaj} onZdejmij={zdejmij}
@@ -246,6 +248,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
         podpis="Skanuj kolejne kartony. Zielony wiersz oznacza zapis na aucie." />
 
       {mapa ? <PlanMrozni onZamknij={() => setMapa(false)} onZapisano={() => void odswiez()}
+        zaladunek={{ vehicleName: pojazd?.name ?? '', orders: koloroweZamowienia, online }}
         onZmieniono={() => void odswiez()} /> : null}
       <Dialog open={pytanie} onOpenChange={open => {
         if (!zamyka && !niepewny) { if (!open) wyczyscProbe(); setPytanie(open) }
