@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useOrders } from '../../data/store'
 import { computeMetrics, kg } from '../../data/model'
 import { useApp, CommandBar, type Cmd, type DetailTab } from '../../shell/context'
-import { OrderDetail, TAB_DEFS, orderCommands } from './OrderDetail'
+import { OrderDetail, orderCommands, widoczneZakladki } from './OrderDetail'
 import { useOrderActions } from './akcje'
 
 /** Zamówienie otwarte w osobnym oknie — ten sam panel co pod listą, na całą wysokość, z tym samym paskiem narzędzi. */
@@ -18,16 +18,19 @@ export function OrderTab({ orderId, active, setCtx, setCmds }: { orderId: string
   useEffect(() => {
     if (!active) return
     const key = (e: KeyboardEvent) => {
-      if (e.altKey && !e.ctrlKey && /^[1-8]$/.test(e.key) && !document.querySelector('.dialog-wrap')) { e.preventDefault(); setTab(TAB_DEFS[Number(e.key) - 1].key) }
+      if (e.altKey && !e.ctrlKey && /^[1-9]$/.test(e.key) && !document.querySelector('.dialog-wrap')) {
+        const t = widoczneZakladki(app.prosty, tab)[Number(e.key) - 1]
+        if (t) { e.preventDefault(); setTab(t.key) }
+      }
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  }, [active])
+  }, [active, app.prosty, tab])
   useEffect(() => {
     if (!active || !order) return
     const m = computeMetrics(order)
-    setCtx(<><span><b>{order.no}</b> · {order.client.name} · {kg(m.orderedKg)}</span><span className="hint hide-m"><span className="kbd">Alt+1…8</span> zakładki <span className="kbd">Ctrl+W</span> zamknij okno</span></>)
-  }, [active, order, setCtx])
+    setCtx(<><span><b>{order.no}</b> · {order.client.name} · {kg(m.orderedKg)}</span><span className="hint hide-m"><span className="kbd">Alt+1…{widoczneZakladki(app.prosty).length}</span> zakładki <span className="kbd">Ctrl+W</span> zamknij okno</span></>)
+  }, [active, order, setCtx, app.prosty])
 
   if (!order) return <div className="placeholder"><div className="ph-card"><h2>Nie znaleziono zamówienia</h2><p className="muted">Mogło zostać usunięte w starym MES. Lista odświeża się co 30 s.</p></div></div>
   return (

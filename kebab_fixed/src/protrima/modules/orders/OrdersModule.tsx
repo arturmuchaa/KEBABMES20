@@ -5,7 +5,7 @@ import { useOrders } from '../../data/store'
 import { computeMetrics, etapZamowienia, isClosed, kg, num, relDay, fmtDay, BUCKET_LABEL, mixingByRecipe, weekday, DOC_NAME, type Bucket, type Metrics, type Order } from '../../data/model'
 import { EtapLabel, FlagIcon, StageNode } from '../../ui/Glyphs'
 import { CoverMeter, ProdMeter } from '../../ui/Meters'
-import { OrderDetail, orderCommands } from './OrderDetail'
+import { OrderDetail, orderCommands, widoczneZakladki } from './OrderDetail'
 import { useOrderActions, dozwolone } from './akcje'
 import { W_STARYM_MES } from '../../proba'
 import { useDock } from '../../shell/useDock'
@@ -31,7 +31,6 @@ const VIEWS: Array<{ key: ViewKey; label: string; tip: string; test: (r: Row) =>
   { key: 'closed', label: 'Zamknięte', tip: 'Zrealizowane i anulowane', test: r => isClosed(r.o) },
 ]
 const BUCKET_ORDER: Bucket[] = ['overdue', 'today', 'tomorrow', 'week', 'later', 'nodate', 'closed']
-const ALL_TABS: DetailTab[] = ['overview', 'lines', 'production', 'coverage', 'pallets', 'shipping', 'documents', 'history']
 
 
 export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd; active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void }) {
@@ -124,9 +123,9 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
       {checkedRows.length > 0
         ? <span>Zaznaczono <b>{checkedRows.length}</b> · <b>{kg(sum(checkedRows, m => m.orderedKg))}</b> · brak <b className="crit-ink">{kg(sum(checkedRows, m => m.missingKg))}</b></span>
         : <span>Widoczne <b>{visible.length}</b> z {rows.length} · <b>{kg(sum(visible, m => m.orderedKg))}</b> · brak <b>{kg(sum(visible, m => m.missingKg))}</b></span>}
-      <span className="hint hide-m"><span className="kbd">↑</span><span className="kbd">↓</span> wybór <span className="kbd">Spacja</span> zaznacz <span className="kbd">Enter</span> otwórz w karcie <span className="kbd">Alt+1…8</span> zakładki</span>
+      <span className="hint hide-m"><span className="kbd">↑</span><span className="kbd">↓</span> wybór <span className="kbd">Spacja</span> zaznacz <span className="kbd">Enter</span> otwórz w karcie <span className="kbd">Alt+1…{widoczneZakladki(app.prosty).length}</span> zakładki</span>
     </>)
-  }, [active, checkedRows.length, visible, rows.length, setCtx]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active, checkedRows.length, visible, rows.length, setCtx, app.prosty]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Wybór i zaznaczanie ────────────────────────────────────────────────
   const select = useCallback((id: string | null) => {
@@ -165,7 +164,10 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
     const key = (e: KeyboardEvent) => {
       if (document.querySelector('.dialog-wrap, .overlay')) return
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); searchRef.current?.focus(); searchRef.current?.select() }
-      else if (e.altKey && /^[1-8]$/.test(e.key) && sel) { e.preventDefault(); setTab(ALL_TABS[Number(e.key) - 1]) }
+      else if (e.altKey && /^[1-9]$/.test(e.key) && sel) {
+        const t = widoczneZakladki(app.prosty, tab)[Number(e.key) - 1]
+        if (t) { e.preventDefault(); setTab(t.key) }
+      }
       else if (e.key === 'Escape') {
         if (document.activeElement === searchRef.current && q) { setQ(''); return }
         if (checked.size) setChecked(new Set())
@@ -174,7 +176,7 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  }, [active, sel, q, checked.size])
+  }, [active, sel, q, checked.size, app.prosty, tab])
 
   // ─── Rozdzielacz listy i panelu (na dole albo z boku) ───────────────────
   const dock = useDock(workRef, 'zamowienia')

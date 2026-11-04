@@ -17,6 +17,13 @@ import { HistoryTab } from './tabs/History'
 /** Zakładki chowane w widoku prostym — dostępne po przełączeniu Widok → Widok prosty. */
 const TABS_PELNE: DetailTab[] = ['production', 'history']
 
+/**
+ * Zakładki widoczne w panelu — ta sama lista dla przycisków, dymków „Alt+N” i obsługi klawiatury
+ * (w widoku prostym Alt+3 wskazywał ukrytą „Produkcję”, a dymek mówił „Alt+3 — Pokrycie”).
+ */
+export const widoczneZakladki = (prosty: boolean, biezaca?: DetailTab) =>
+  TAB_DEFS.filter(t => !prosty || !TABS_PELNE.includes(t.key) || t.key === biezaca)
+
 export const TAB_DEFS: Array<{ key: DetailTab; label: string }> = [
   { key: 'overview', label: 'Przegląd' },
   { key: 'lines', label: 'Pozycje' },
@@ -124,7 +131,7 @@ export function OrderDetail({ order, tab, onTab, mode, maxed, onMax, onClose, on
         </div>
       </div>
       <div className="dock-tabs" role="tablist" aria-label="Zakładki zamówienia">
-        {TAB_DEFS.filter(t => !app.prosty || !TABS_PELNE.includes(t.key) || t.key === tab).map((t, i) => (
+        {widoczneZakladki(app.prosty, tab).map((t, i) => (
           <button key={t.key} role="tab" aria-selected={tab === t.key} className="dock-tab" onClick={() => onTab(t.key)} data-tip={`Alt+${i + 1}`}>
             {t.label}{counts[t.key]}
           </button>
