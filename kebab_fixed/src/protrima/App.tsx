@@ -284,8 +284,9 @@ function Shell() {
   }), [openOrder, gotoOrders, gotoStock, openModule, newOrder, editOrder, copyOrder, printOrder, issueWz, printPicking, openCmr, genHdi, splitOrder, printPallets, openKurs, issueWzFromStock, newReception, editReception, gotoReceptions, toast, vp.scale, prosty, panel, panelWybor, setPanel])
 
   const badges = useMemo(() => {
-    const problem = orders.filter(o => { const m = computeMetrics(o); return m.level === 'crit' || m.level === 'warn' }).length
-    return { zamowienia: { n: problem, level: 'crit' as const } }
+    // Kolor licznika = najpoważniejsza sprawa: czerwony tylko, gdy jest coś krytycznego (UX-22).
+    const lv = orders.map(o => computeMetrics(o).level).filter(l => l === 'crit' || l === 'warn')
+    return lv.length ? { zamowienia: { n: lv.length, level: lv.includes('crit') ? 'crit' as const : 'warn' as const } } : {}
   }, [orders])
 
   // ─── Menu główne ────────────────────────────────────────────────────────

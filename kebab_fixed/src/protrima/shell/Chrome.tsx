@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { Search, X, LayoutGrid, Minus, Square, ChevronDown, PanelLeftClose, PanelLeftOpen, type LucideIcon } from 'lucide-react'
-import { NAV_SECTIONS, moduleDef } from './modules'
+import { Search, X, LayoutGrid, Minus, Square, ChevronDown, PanelLeftClose, PanelLeftOpen, ExternalLink, type LucideIcon } from 'lucide-react'
+import { NAV_SECTIONS, moduleDef, wProtrima } from './modules'
 import { Menu, useApp, type MenuItem } from './context'
 import { useAuth } from '@/features/auth/AuthContext'
 import { useOrders } from '../data/store'
@@ -24,7 +24,7 @@ export function TitleBar({ onPalette, onLogout }: { onPalette: () => void; onLog
   // data-tauri-drag-region: pas tytułu przesuwa okno bez ramki; przyciski i pola go nie dziedziczą.
   return (
     <header className="titlebar" data-tauri-drag-region onDoubleClick={e => { if (e.target === e.currentTarget) okno('toggleMaximize') }}>
-      <div className="tb-brand" data-tauri-drag-region data-tip={'PROTRIMA — Production under control\nZnak z paczki grafika (Koncepcja 02)'}>
+      <div className="tb-brand" data-tauri-drag-region data-tip="PROTRIMA — Production under control">
         <Logo height={26} />
         <span className="mes" data-tauri-drag-region>MES</span>
         <ProbaZnacznik compact />
@@ -185,10 +185,12 @@ export function Nav({ current, onOpen, badges, collapsed, onToggle }: {
     const m = moduleDef(k)!
     const Icon = m.icon
     const b = badges[k]
+    const jest = wProtrima(k)
+    const tip = jest ? (collapsed ? m.label : undefined) : `${collapsed ? `${m.label}\n` : ''}Na razie w starym MES — PROTRIMA przejmie później`
     return (
-      <button className="nav-item" aria-current={current === k ? 'page' : undefined} onClick={() => onOpen(k)} data-tip={collapsed ? m.label : undefined}>
+      <button className={`nav-item${jest ? '' : ' ext'}`} aria-current={current === k ? 'page' : undefined} onClick={() => onOpen(k)} data-tip={tip}>
         <Icon size={17} /><span className="t">{m.label}</span>
-        {b && <span className={`badge ${b.level}`}>{b.n}</span>}
+        {b ? <span className={`badge ${b.level}`}>{b.n}</span> : !jest && <ExternalLink className="ext-ico" size={12} aria-label="w starym MES" />}
       </button>
     )
   }

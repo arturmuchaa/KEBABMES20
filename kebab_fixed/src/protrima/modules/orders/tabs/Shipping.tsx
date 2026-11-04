@@ -43,7 +43,7 @@ export function ShippingTab({ order }: { order: Order }) {
 
   return (
     <div className="dock-pad">
-      <div className="ov-grid" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 2fr)' }}>
+      <div className="ov-grid" style={{ ['--ov-cols' as string]: 'minmax(0, 1fr) minmax(0, 2fr)' }}>
         <div className="box ov-card">
           <h4><Truck size={16} />Kurs</h4>
           <dl className="kv">

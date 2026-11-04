@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { X, CheckCircle2, Info, AlertTriangle } from 'lucide-react'
+import { X, CheckCircle2, Info, AlertTriangle, Check } from 'lucide-react'
 
 export type ViewKey = 'active' | 'urgent' | 'risk' | 'ready' | 'drafts' | 'closed'
 export type DetailTab = 'overview' | 'lines' | 'production' | 'coverage' | 'pallets' | 'shipping' | 'documents' | 'history'
@@ -110,7 +110,7 @@ export function Menu({ anchor, items, onClose, align = 'left', onLeft, onRight }
     <div ref={ref} className="menu" role="menu" style={{ left: pos?.left ?? -999, top: pos?.top ?? -999 }}>
       {items.map((it, i) => it.sep ? <hr key={i} /> : it.header ? <div key={i} className="mh">{it.header}</div> : (
         <button key={i} role={it.checked !== undefined ? 'menuitemcheckbox' : 'menuitem'} aria-checked={it.checked} disabled={it.disabled} className={it.danger ? 'danger' : ''} onClick={() => { onClose(); it.onSelect?.() }}>
-          {it.checked !== undefined && <span className="ck">{it.checked ? '✓' : ''}</span>}{it.icon}{it.label}{it.kbd && <span className="kbd">{it.kbd}</span>}
+          {it.checked !== undefined && <span className="ck">{it.checked ? <Check size={14} strokeWidth={2.4} /> : null}</span>}{it.icon}{it.label}{it.kbd && <span className="kbd">{it.kbd}</span>}
         </button>
       ))}
     </div>

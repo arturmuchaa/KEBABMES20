@@ -3,7 +3,7 @@ import { Building2, ClipboardList, StickyNote } from 'lucide-react'
 import type { DetailTab } from '../../../shell/context'
 import { computeMetrics, kg, num, pct, fmtDate, dueText, type Order } from '../../../data/model'
 import { StageNode, FlagIcon } from '../../../ui/Glyphs'
-import { poziomPokrycia } from '../../../ui/Meters'
+import { pctPokrycia } from '../../../ui/Meters'
 
 type Lvl = 'ok' | 'warn' | 'crit' | 'idle'
 
@@ -15,15 +15,22 @@ export function OverviewTab({ order, onTab }: { order: Order; onTab: (t: DetailT
   const planned = order.lines.filter(l => l.planNo).length
   const plans = [...new Set(order.lines.map(l => l.planNo).filter(Boolean))]
   const draft = order.status === 'draft'
+  // Cały wyrób już jest (magazyn lub wydany) — plan i produkcja nie są potrzebne; bez fałszywego bursztynu.
+  const zMagazynu = !draft && m.missingKg === 0 && order.lines.length > 0
 
+  // Jedno słownictwo w całym panelu: Zamówiono · Produkcja · Pokrycie · Wydano.
   const stages: Array<{ key: DetailTab; name: string; value: string; sub: string; level: Lvl }> = [
-    { key: 'history', name: 'Przyjęte', value: fmtDate(order.orderDate).slice(0, 5), sub: order.status === 'draft' ? 'szkic' : 'potwierdzone', level: draft ? 'warn' : 'ok' },
-    { key: 'production', name: 'Zaplanowane', value: `${planned}/${order.lines.length} poz.`, sub: plans.length ? plans.join(', ') : 'brak planu', level: draft ? 'idle' : planned === order.lines.length ? 'ok' : due <= 3 ? 'warn' : 'idle' },
-    { key: 'production', name: 'Produkcja', value: pct(m.prodPct), sub: `zgłoszono ${kg(m.producedKg)}`, level: draft ? 'idle' : m.prodPct >= 100 ? 'ok' : due <= 1 ? 'warn' : m.prodPct > 0 ? 'ok' : 'idle' },
-    { key: 'coverage', name: 'Magazyn', value: pct(m.coverPct), sub: m.missingKg > 0 ? `brak ${kg(m.missingKg)}` : 'wyrób kompletny', level: draft ? 'idle' : m.missingKg === 0 ? 'ok' : due < 0 || due === 0 ? 'crit' : due === 1 ? 'warn' : 'idle' },
-    { key: 'pallets', name: 'Palety', value: m.palletsTotal ? `${m.palletsReady}/${m.palletsTotal}` : '—', sub: m.palletsTotal ? (m.unassignedQty ? `${num(m.unassignedQty)} szt. bez palety` : 'spakowane / rozpisane') : 'nierozpisane', level: draft ? 'idle' : m.palletsTotal && m.palletsReady === m.palletsTotal ? 'ok' : (m.unassignedQty > 0 && due <= 1) ? 'warn' : m.palletsTotal ? 'ok' : 'idle' },
-    { key: 'shipping', name: 'Załadunek', value: m.palletsTotal ? `${m.palletsLoaded}/${m.palletsTotal}` : '—', sub: m.palletsLoaded ? 'skan QR przy załadunku' : 'nic nie załadowano', level: m.palletsTotal && m.palletsLoaded === m.palletsTotal ? 'ok' : 'idle' },
-    { key: 'documents', name: 'Wydane', value: pct(m.shipPct), sub: m.deliveredKg > 0 ? `WZ: ${kg(m.deliveredKg)}` : 'WZ nie wystawione', level: m.shipPct >= 100 ? 'ok' : 'idle' },
+    { key: 'history', name: 'Przyjęte', value: fmtDate(order.orderDate).slice(0, 5), sub: draft ? 'szkic — do potwierdzenia' : 'potwierdzone', level: draft ? 'warn' : 'ok' },
+    zMagazynu && planned < order.lines.length
+      ? { key: 'production', name: 'Zaplanowane', value: 'nie trzeba', sub: 'cały wyrób z magazynu', level: 'ok' }
+      : { key: 'production', name: 'Zaplanowane', value: `${planned}/${order.lines.length} poz.`, sub: plans.length ? plans.join(', ') : 'brak planu', level: draft ? 'idle' : planned === order.lines.length ? 'ok' : due <= 3 ? 'warn' : 'idle' },
+    zMagazynu && m.prodPct < 100
+      ? { key: 'production', name: 'Produkcja', value: 'nie trzeba', sub: 'cały wyrób z magazynu', level: 'ok' }
+      : { key: 'production', name: 'Produkcja', value: pct(m.prodPct), sub: `zgłoszono ${kg(m.producedKg)}`, level: draft ? 'idle' : m.prodPct >= 100 ? 'ok' : due <= 1 ? 'warn' : m.prodPct > 0 ? 'ok' : 'idle' },
+    { key: 'coverage', name: 'Pokrycie', value: `${pctPokrycia(m.coverPct)}%`, sub: m.missingKg > 0 ? `brak ${kg(m.missingKg)}` : 'komplet wyrobu', level: draft ? 'idle' : m.missingKg === 0 ? 'ok' : due < 0 || due === 0 ? 'crit' : due === 1 ? 'warn' : 'idle' },
+    { key: 'pallets', name: 'Palety', value: m.palletsTotal ? `${m.palletsReady}/${m.palletsTotal}` : '—', sub: m.palletsTotal ? (m.unassignedQty ? `${num(m.unassignedQty)} szt. bez palety` : 'gotowe z rozpisanych') : 'nierozpisane', level: draft ? 'idle' : m.palletsTotal && m.palletsReady === m.palletsTotal ? 'ok' : (m.unassignedQty > 0 && due <= 1) ? 'warn' : m.palletsTotal ? 'ok' : 'idle' },
+    { key: 'shipping', name: 'Załadunek', value: m.palletsTotal ? `${m.palletsLoaded}/${m.palletsTotal}` : '—', sub: m.palletsLoaded ? 'palet na aucie (skan QR)' : 'nic nie załadowano', level: m.palletsTotal && m.palletsLoaded === m.palletsTotal ? 'ok' : 'idle' },
+    { key: 'documents', name: 'Wydano', value: pct(m.shipPct), sub: m.deliveredKg > 0 ? `na WZ ${kg(m.deliveredKg)}` : 'WZ nie wystawione', level: m.shipPct >= 100 ? 'ok' : 'idle' },
   ]
 
   return (
@@ -41,31 +48,7 @@ export function OverviewTab({ order, onTab }: { order: Order; onTab: (t: DetailT
         </div>
       </div>
 
-      <div className="box measures" aria-label="Trzy osobne miary realizacji">
-        <div className="measure">
-          <span className="mk"><i className="f-prod" />Produkcja</span>
-          <span className="mv num">{pct(m.prodPct)}<small>{kg(m.producedKg)} z {kg(m.orderedKg)}</small></span>
-          <span className="track"><i className="f-prod" style={{ width: `${Math.min(100, m.prodPct)}%` }} /></span>
-          <span className="md">Zgłoszenia z tabletów produkcyjnych. Źródło diagnostyczne — nie zwiększa pokrycia, dopóki wyrób nie zostanie przyjęty na magazyn.</span>
-        </div>
-        <div className="measure">
-          <span className="mk"><i className="f-stock" />Pokrycie</span>
-          <span className="mv num">{pct(m.coverPct)}<small>{m.missingKg > 0 && !closed ? <span className="crit-ink">brak {kg(m.missingKg)}</span> : 'komplet'}</small></span>
-          <span className={`track cov-${poziomPokrycia(m.coverPct)}`}>
-            {m.shipPct > 0 && <i className="f-ship" style={{ width: `${m.shipPct}%` }} />}
-            {m.stockPct > 0 && <i className="f-stock" style={{ width: `${m.stockPct}%` }} />}
-            {m.missingKg > 0 && <i className="f-short" style={{ flex: 1 }} />}
-          </span>
-          <span className="md">W magazynie {kg(m.stockKg)} + wydano {kg(m.deliveredKg)}. Liczy się tylko wyrób fizycznie przydzielony temu zamówieniu.</span>
-        </div>
-        <div className="measure">
-          <span className="mk"><i className="f-ship" />Wysyłka</span>
-          <span className="mv num">{pct(m.shipPct)}<small>{kg(m.deliveredKg)} na WZ</small></span>
-          <span className="track"><i className="f-ship" style={{ width: `${Math.min(100, m.shipPct)}%` }} /></span>
-          <span className="md">Do wysłania: {kg(m.orderedKg - m.deliveredKg)}. </span>
-        </div>
-      </div>
-
+      {/* Trzy miary (produkcja · pokrycie · wydano) są liczbami w nagłówku panelu, z opisem w dymku — bez trzeciego powtórzenia tutaj. */}
       <div className="ov-grid">
         <div className="box ov-card">
           <h4><Building2 size={16} />Klient</h4>

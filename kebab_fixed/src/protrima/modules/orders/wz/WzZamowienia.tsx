@@ -155,7 +155,7 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
           {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Nie wystawiono:</b> {blad}</div></div>}
           {f && <>
             {meta && meta.brakuje > 0 && <div className="note warn"><FlagIcon level="warn" size={15} /><div>Na magazynie brakuje <b>{num(meta.brakuje)} szt.</b> do pełnego zamówienia — WZ będzie częściowy (na stan faktyczny).</div></div>}
-            <div className="ov-grid" style={{ gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)' }}>
+            <div className="ov-grid" style={{ ['--ov-cols' as string]: 'minmax(0, 1.2fr) minmax(0, 1fr)' }}>
               <div className="box ov-card"><h4>Odbiorca</h4>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 180px', gap: '8px 12px' }}>
                   {zMag && <label className="fld" style={{ gridColumn: '1 / -1' }}><span className="label">Z kartoteki odbiorców</span>

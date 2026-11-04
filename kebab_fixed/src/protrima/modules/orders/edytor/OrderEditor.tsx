@@ -160,7 +160,7 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
           {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Serwer odmówił zapisu:</b> {blad}</div></div>}
           {errCount > 0 && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Popraw {errCount} {errCount === 1 ? 'pole' : errCount < 5 ? 'pola' : 'pól'}.</b> Błędne pola są oznaczone na czerwono.</div></div>}
 
-          <div className="ov-grid" style={{ gridTemplateColumns: 'minmax(0, 1.3fr) minmax(0, 1fr)' }}>
+          <div className="ov-grid" style={{ ['--ov-cols' as string]: 'minmax(0, 1.3fr) minmax(0, 1fr)' }}>
             <div className="box ov-card">
               <h4>Klient i termin</h4>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 12px' }}>

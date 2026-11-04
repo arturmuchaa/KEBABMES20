@@ -22,7 +22,7 @@
 .tbl tbody tr.zebra td { background: color-mix(in srgb, var(--surface-alt) 55%, var(--surface)); }
 .tbl tbody tr.row { cursor: default; }
 .tbl tbody tr.row td { transition: background-color .08s; }
-.tbl tbody tr.row:hover td { background: var(--accent-tint-2); }
+.tbl tbody tr.row:hover td { background: var(--row-hover); }
 .tbl tbody tr.row.sel td { background: var(--accent-tint); }
 .tbl tbody tr.row.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .tbl tbody tr.row.checked:not(.sel) td { background: color-mix(in srgb, var(--accent-tint) 45%, var(--surface)); }
@@ -31,6 +31,9 @@
 .tbl td .sub { color: var(--ink-3); font-size: var(--fs-sm); margin-left: 6px; }
 .tbl td.ell { max-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .tbl .no { font-weight: 600; font-variant-numeric: tabular-nums; }
+/* Identyfikator w tabeli (numer zamówienia, data, rejestracja): do lewej jak nagłówek, cyfry równe, ≥ 13,5 px. */
+.tbl td.tnum { font-variant-numeric: tabular-nums; text-align: left; font-size: max(var(--fs-md), var(--fs-id)); }
+.tbl td.code, .tbl td .code.id { font-size: var(--fs-id); letter-spacing: 0; color: var(--ink-1); }
 .tbl tfoot td { position: sticky; bottom: 0; background: var(--surface-alt); border-top: 1px solid var(--line); border-bottom: 0; font-weight: 600; z-index: 1; }
 
 /* pole wyboru */
@@ -61,7 +64,7 @@
 .due.over .rel { color: var(--crit-ink); font-weight: 600; }
 .due.today .rel { color: var(--ink-1); font-weight: 600; }
 
-.cc { display: inline-flex; align-items: center; justify-content: center; height: 18px; padding: 0 4px; border-radius: 3px; font-size: 10.5px; font-weight: 600; color: var(--ink-3); box-shadow: inset 0 0 0 1px var(--line); margin-left: 6px; letter-spacing: .03em; vertical-align: 1px; }
+.cc { display: inline-flex; align-items: center; justify-content: center; height: 18px; padding: 0 4px; border-radius: var(--r-xs); font-size: 11px; font-weight: 600; color: var(--ink-3); box-shadow: inset 0 0 0 1px var(--line); margin-left: 6px; letter-spacing: .03em; vertical-align: 1px; }
 
 .empty { padding: 48px 24px; text-align: center; color: var(--ink-3); }
 .empty h3 { color: var(--ink-1); font-size: var(--fs-lg); margin-bottom: 6px; }

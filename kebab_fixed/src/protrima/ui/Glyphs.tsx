@@ -10,7 +10,8 @@ import { ORDER_STATUS, PALLET_FLOW, PALLET_STATUS } from '../data/model'
 export function StatusGlyph({ status, size = 12 }: { status: OrderStatus; size?: number }) {
   const r = size / 2 - 1.25
   const c = size / 2
-  const stroke = status === 'done' ? 'var(--ok)' : status === 'draft' || status === 'cancelled' ? 'var(--ink-4)' : 'var(--accent)'
+  // Grafit, nie kobalt: kobalt to akcja/zaznaczenie. Etap koduje KSZTAŁT (pusty → połowa → pełny).
+  const stroke = status === 'done' ? 'var(--ok)' : status === 'draft' || status === 'cancelled' ? 'var(--ink-4)' : 'var(--ink-2)'
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
       {status === 'draft' && <circle cx={c} cy={c} r={r} fill="none" stroke={stroke} strokeWidth="1.5" strokeDasharray="2.2 1.8" />}

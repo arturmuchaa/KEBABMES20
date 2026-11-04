@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo } from 'react'
-import { ArrowRight, SlidersHorizontal, Clock3 } from 'lucide-react'
+import { ArrowRight, CheckCircle2 } from 'lucide-react'
 import { useApp, CommandBar, type Cmd, type DetailTab } from '../../shell/context'
 import { useOrders } from '../../data/store'
 import { computeMetrics, isClosed, kg, num, pct, longDate, TODAY, BUCKET_LABEL, fmtDay, fmtDate, weekday, addDays, mixingByRecipe, type Bucket, type Order, type Level } from '../../data/model'
@@ -13,6 +13,17 @@ import { filterDeboningBatches } from '@/features/dashboard/dashboardLists'
 import { computeDisplayStatus } from '@/components/ui/badge'
 import type { RawBatch } from '@/types'
 import { fig } from '../../ui/Fig'
+import { wProtrima } from '../../shell/modules'
+
+/** Polska odmiana liczebnika: 1 sprawa, 2–4 sprawy, 5+ spraw (12–14 zawsze „spraw”). */
+export const odm = (n: number, f1: string, f2: string, f5: string) => {
+  const a = Math.abs(n), d = a % 10, s = a % 100
+  return a === 1 ? f1 : d >= 2 && d <= 4 && (s < 12 || s > 14) ? f2 : f5
+}
+/** Krótka nazwa kontrahenta na gęste panele: bez formy prawnej („SPÓŁKA Z O.O.”, „SP. J.”…). */
+export const krotkaNazwa = (n: string) => n
+  .replace(/\s+(SPÓŁKA\s+Z\s+OGRANICZONĄ\s+ODPOWIEDZIALNOŚCIĄ|SPÓŁKA\s+AKCYJNA|SPÓŁKA\s+JAWNA|SPÓŁKA\s+KOMANDYTOWA|SP\.?\s*Z\s*O\.?\s*O\.?|S\.\s*A\.|SP\.\s*J\.|SP\.\s*K\.)\s*$/i, '')
+  .replace(/\s+(SPÓŁKA|SP\.)\s*$/i, '').trim() || n
 
 type Open = Array<{ o: Order; m: ReturnType<typeof computeMetrics> }>
 interface PlanLite { id: string; planNo: string; planDate: string; status: string; lines: Array<{ qty: number; kgPerUnit: number; qtyDone: number; recipeName: string }> }
@@ -61,13 +72,14 @@ export function Dashboard({ active, setCtx, setCmds }: { active: boolean; setCtx
   return (
     <>
       <CommandBar title="Pulpit zakładu" count={`${longDate(TODAY)}${stamp ? ` · stan na ${stamp.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}` : ''}`} cmds={cmds} />
+      {/* Kolejność = pytania biura rano: co się dzieje → co się pali i na kiedy → co wyjeżdża i co się robi → surowiec. */}
       <div className="dash">
         <ProcessPanel open={open} ext={ext} />
-        <RawPanel raw={raw} />
         <AttentionPanel open={open} ext={ext} />
-        <ProductionPanel plans={ext.plans} />
         <DuePanel open={open} />
         <ShipmentsPanel kursy={ext.kursy} />
+        <ProductionPanel plans={ext.plans} />
+        <RawPanel raw={raw} />
         <MaterialsPanel open={open} seasoned={ext.seasoned} />
       </div>
     </>
@@ -143,7 +155,7 @@ function RawPanel({ raw }: { raw: Surowiec }) {
                 return (
                   <tr key={b.id} className="row">
                     <td className="code strong">{b.internalBatchNo || '—'}</td>
-                    <td className="ell" style={{ maxWidth: 200 }}>{b.supplierDisplayName || b.supplierName || '—'}</td>
+                    <td className="ell" style={{ maxWidth: 200 }} title={b.supplierName || undefined}>{krotkaNazwa(b.supplierDisplayName || b.supplierName || '—')}</td>
                     <td className="num">{kg(rec)}</td>
                     <td className="num strong">{kg(av)}</td>
                     <td><span className="reach ok"><span className="rt" aria-hidden="true"><i style={{ width: `${used}%` }} /></span><span className="rv">{pct(used)}</span></span></td>
@@ -173,14 +185,23 @@ function ProcessPanel({ open, ext }: { open: Open; ext: Ext }) {
   const toMix = mixingByRecipe(open.filter(x => x.o.status !== 'draft').flatMap(x => x.o.lines.map(line => ({ line, orderNo: x.o.no }))))
   const meat = toMix.reduce((a, r) => a + (r.meatKg ?? 0), 0)
   const missing = open.filter(x => x.o.status !== 'draft').reduce((a, x) => a + x.m.missingKg, 0)
-  const stages: Array<{ key: string; name: string; value: string; unit?: string; sub: string; level: 'ok' | 'warn' | 'crit' | 'idle'; progress?: number }> = [
-    { key: 'przyjecia', name: 'Przyjęcie surowca', value: String(ext.haccp), unit: ext.haccp === 1 ? 'dostawa' : 'dostaw', sub: ext.haccp ? 'bez kompletu HACCP (14 dni)' : 'kontrole HACCP kompletne', level: ext.haccp ? 'warn' : 'ok' },
-    { key: 'masowanie', name: 'Masowanie', value: num(meat), unit: 'kg', sub: `mięsa do zmasowania · przyprawione wolne ${num(seasonedFree)} z ${num(seasonedAll)} kg`, level: meat > 0 ? 'warn' : 'ok' },
-    { key: 'realizacja', name: 'Produkcja', value: num(pd), unit: 'kg', sub: plans.length ? `z planów w toku ${num(pk)} kg · ${ext.pending} sesji do potwierdzenia` : 'brak planów w toku', level: ext.pending ? 'warn' : plans.length ? 'ok' : 'idle', progress: pk ? pd / pk : undefined },
-    { key: 'magazyn-wg', name: 'Magazyn wyrobu', value: num(ext.stockKg), unit: 'kg', sub: `z zamówieniem ${num(ext.allocKg)} kg · wolne ${num(ext.stockKg - ext.allocKg)} kg`, level: 'ok' },
-    { key: 'zamowienia', name: 'Zamówienia', value: num(missing), unit: 'kg', sub: `brak wyrobu w ${open.filter(x => x.m.missingKg > 0 && x.o.status !== 'draft').length} otwartych zamówieniach`, level: missing > 0 ? 'warn' : 'ok' },
-    { key: 'wysylki', name: 'Wysyłka', value: String(ext.kursy.length), unit: ext.kursy.length === 1 ? 'kurs' : 'kursy', sub: ext.kursy.length ? `po załadunku · ${ext.kursy.filter(k => k.doWystawienia).length} do wystawienia dokumentów` : 'brak kursów do wydruku', level: ext.kursy.some(k => k.rozjazd) ? 'crit' : ext.kursy.some(k => k.doWystawienia) ? 'warn' : 'ok' },
+  const zBrakiem = open.filter(x => x.m.missingKg > 0 && x.o.status !== 'draft').length
+  const doWyst = ext.kursy.filter(k => k.doWystawienia).length
+  // Każdy etap: liczba + DWA fakty w dwóch liniach (pierwszy mówi, co znaczy liczba; przy uwadze — powód).
+  // `zero` = licznik zaległości: zero to dobra wiadomość, więc przygaszone (nie dotyczy postępu produkcji).
+  const stages: Array<{ key: string; name: string; value: string; unit?: string; sub: [string, string?]; level: 'ok' | 'warn' | 'crit' | 'idle'; progress?: number; zero?: boolean; tip?: string }> = [
+    { key: 'przyjecia', name: 'Przyjęcie surowca', value: String(ext.haccp), unit: odm(ext.haccp, 'dostawa', 'dostawy', 'dostaw'), sub: ext.haccp ? ['bez kompletu kontroli HACCP', 'z ostatnich 14 dni'] : ['kontrole HACCP kompletne', 'ostatnie 14 dni'], level: ext.haccp ? 'warn' : 'ok', zero: ext.haccp === 0 },
+    { key: 'masowanie', name: 'Masowanie', value: num(meat), unit: 'kg', sub: ['mięsa do zmasowania', `wolne przyprawione ${num(seasonedFree)} kg`], tip: `Mięso przyprawione: wolne ${num(seasonedFree)} z ${num(seasonedAll)} kg w magazynie`, level: meat > 0 ? 'warn' : 'ok', zero: meat === 0 },
+    { key: 'realizacja', name: 'Produkcja', value: num(pd), unit: 'kg', sub: plans.length ? [`z ${num(pk)} kg w planach w toku`, ext.pending ? `${ext.pending} ${odm(ext.pending, 'sesja', 'sesje', 'sesji')} do potwierdzenia` : 'sesje potwierdzone'] : ['brak planów w toku'], level: ext.pending ? 'warn' : plans.length ? 'ok' : 'idle', progress: pk ? pd / pk : undefined },
+    { key: 'magazyn-wg', name: 'Magazyn wyrobu', value: num(ext.stockKg), unit: 'kg', sub: [`z zamówieniem ${num(ext.allocKg)} kg`, `wolne ${num(ext.stockKg - ext.allocKg)} kg`], level: 'ok' },
+    { key: 'zamowienia', name: 'Zamówienia', value: num(missing), unit: 'kg', sub: missing > 0 ? ['wyrobu brakuje', `w ${zBrakiem} ${odm(zBrakiem, 'zamówieniu', 'zamówieniach', 'zamówieniach')}`] : ['zamówienia mają komplet wyrobu'], tip: 'Liczone z otwartych zamówień, bez szkiców', level: missing > 0 ? 'warn' : 'ok', zero: missing === 0 },
+    { key: 'wysylki', name: 'Wysyłka', value: String(ext.kursy.length), unit: odm(ext.kursy.length, 'kurs', 'kursy', 'kursów'), sub: ext.kursy.length ? ['po załadunku', doWyst ? `${doWyst} do wystawienia papierów` : 'papiery wystawione'] : ['brak kursów do wydruku'], level: ext.kursy.some(k => k.rozjazd) ? 'crit' : doWyst ? 'warn' : 'ok', zero: ext.kursy.length === 0 },
   ]
+  // Dokąd prowadzi etap: własny ekran PROTRIMA, a Wysyłka — panel kursów niżej na Pulpicie.
+  // Etap bez ekranu w PROTRIMA nie udaje przycisku (bez najechania, dymek mówi, gdzie to jest).
+  const cel = (key: string): (() => void) | null => key === 'zamowienia' ? () => app.gotoOrders({ view: 'active' })
+    : key === 'wysylki' ? () => document.querySelector('.dash .p-ship')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    : wProtrima(key) ? () => app.openModule(key) : null
   return (
     <section className="panel p-line" aria-label="Przebieg dnia">
       <div className="panel-h">
@@ -193,23 +214,29 @@ function ProcessPanel({ open, ext }: { open: Open; ext: Ext }) {
         </span>
       </div>
       <div className="pline">
-        {stages.map(s => (
-          <button key={s.key} className={`pstage ${s.level}`} onClick={() => s.key === 'zamowienia' ? app.gotoOrders({ view: 'active' }) : app.openModule(s.key)}
-            aria-label={`${s.name}: ${s.value} ${s.unit ?? ''}, ${LEVEL_WORD[s.level]}. ${s.sub}`}>
+        {stages.map(s => {
+          const go = cel(s.key)
+          const label = `${s.name}: ${s.value} ${s.unit ?? ''}, ${LEVEL_WORD[s.level]}. ${s.sub.filter(Boolean).join(', ')}`
+          const dymek = `${s.sub.filter(Boolean).join(' · ')}${s.tip ? `\n${s.tip}` : ''}`
+          const tresc = <>
             <span className="rail" />
             <span className="ph"><span className="node"><StageNode level={s.level} /></span><span className="pn">{s.name}</span></span>
-            <span className="pv num">{s.value}<small>{s.unit}</small></span>
-            <span className="ps" title={s.sub}>{s.sub}</span>
+            <span className={`pv num${s.zero ? ' zero' : ''}`}>{s.value}<small>{s.unit}</small></span>
+            <span className="ps"><span>{s.sub[0]}</span>{s.sub[1] && <span>{s.sub[1]}</span>}</span>
             {s.progress !== undefined && <span className="pb"><i style={{ width: `${Math.min(100, s.progress * 100)}%` }} /></span>}
-          </button>
-        ))}
+          </>
+          return go
+            ? <button key={s.key} className={`pstage ${s.level}`} onClick={go} aria-label={label} data-tip={dymek}>{tresc}</button>
+            : <div key={s.key} className={`pstage ${s.level}`} aria-label={label} data-tip={`${dymek}\n${s.name} — na razie w starym MES`}>{tresc}</div>
+        })}
       </div>
     </section>
   )
 }
 
 // ─── Wymaga uwagi ─────────────────────────────────────────────────────────
-interface AttnItem { key: string; level: Level; title: React.ReactNode; detail: string; tags: React.ReactNode[]; action: string; run: () => void }
+interface AttnAct { label: string; run: () => void }
+interface AttnItem { key: string; level: Level; title: React.ReactNode; detail: string; tags: React.ReactNode[]; acts: AttnAct[] }
 
 function AttentionPanel({ open, ext }: { open: Open; ext: Ext }) {
   const app = useApp()
@@ -219,43 +246,51 @@ function AttentionPanel({ open, ext }: { open: Open; ext: Ext }) {
   for (const { o, m } of open) {
     const serious = m.flags.filter(f => f.level !== 'info')
     if (!serious.length) continue
-    const top = serious[0]
-    const tab: DetailTab = top.code === 'pallets' ? 'pallets' : top.code === 'material' ? 'production' : 'coverage'
+    // Każdy problem ma własne działanie; najpierw to, które biuro zrobi od ręki w PROTRIMA (palety).
+    const dzialania: AttnAct[] = []
+    const idz = (tab: DetailTab) => () => app.gotoOrders({ select: o.id, tab, view: 'active' })
+    if (serious.some(f => f.code === 'pallets')) dzialania.push({ label: 'Rozpisz palety', run: idz('pallets') })
+    if (m.missingKg > 0) dzialania.push({ label: 'Pokaż braki', run: idz('coverage') })
+    if (serious.some(f => f.code === 'material')) dzialania.push({ label: 'Sprawdź produkcję', run: idz('production') })
+    if (!dzialania.length) dzialania.push({ label: 'Otwórz zamówienie', run: idz('overview') })
     items.push({
       key: o.id, level: serious.some(f => f.level === 'crit') ? 'crit' : 'warn',
       title: <><span className="num">{o.no}</span> · {o.client.name}</>,
       detail: serious.map(f => f.detail).join(' '),
       tags: serious.map(f => <span key={f.code} className={`tag ${f.level}`}>{f.label}</span>),
-      action: tab === 'pallets' ? 'Rozpisz palety' : tab === 'production' ? 'Sprawdź produkcję' : 'Pokaż pokrycie',
-      run: () => app.gotoOrders({ select: o.id, tab, view: 'active' }),
+      acts: dzialania.slice(0, 2),
     })
   }
-  if (ext.pending > 0) items.push({ key: 'sesje', level: 'warn', title: `${ext.pending} ${ext.pending === 1 ? 'sesja produkcyjna czeka' : 'sesje produkcyjne czekają'} na potwierdzenie`, detail: 'Bez potwierdzenia biura raport dzienny jest niepełny. Potwierdzenie — w starym MES (faza 5 próby).', tags: [], action: 'Realizacja', run: () => app.openModule('realizacja') })
-  if (ext.haccp > 0) items.push({ key: 'haccp', level: 'warn', title: `${ext.haccp} ${ext.haccp === 1 ? 'dostawa' : 'dostaw'} bez kompletu kontroli HACCP`, detail: 'Ostatnie 14 dni. Uzupełnij w Przyjęciach surowca — widok „Bez HACCP”, zakładka Kontrola HACCP.', tags: [], action: 'Przyjęcia', run: () => app.openModule('przyjecia') })
+  if (ext.pending > 0) items.push({ key: 'sesje', level: 'warn', title: `${ext.pending} ${odm(ext.pending, 'sesja produkcyjna czeka', 'sesje produkcyjne czekają', 'sesji produkcyjnych czeka')} na potwierdzenie`, detail: 'Bez potwierdzenia biura raport dzienny jest niepełny. Potwierdź je w starym MES (Realizacja produkcji).', tags: [], acts: [{ label: 'Realizacja produkcji', run: () => app.openModule('realizacja') }] })
+  if (ext.haccp > 0) items.push({ key: 'haccp', level: 'warn', title: `${ext.haccp} ${odm(ext.haccp, 'dostawa', 'dostawy', 'dostaw')} bez kompletu kontroli HACCP`, detail: 'Ostatnie 14 dni. Uzupełnij w Przyjęciach surowca — widok „Bez HACCP”, zakładka Kontrola HACCP.', tags: [], acts: [{ label: 'Uzupełnij kontrolę', run: () => app.openModule('przyjecia') }] })
   for (const k of ext.kursy.filter(k => k.rozjazd || k.doWystawienia)) {
-    items.push({ key: `kurs-${k.id}`, level: k.rozjazd ? 'crit' : 'info', title: `Kurs ${k.plate || '—'} · ${k.klienci.join(', ')}`, detail: k.rozjazd ? 'Rozjazd między dokumentem a załadunkiem — sprawdź przed wydrukiem.' : 'Załadunek zakończony, dokumenty do wystawienia.', tags: [], action: 'Papiery kursu', run: () => app.openKurs(k.id, k.plate) })
+    items.push({ key: `kurs-${k.id}`, level: k.rozjazd ? 'crit' : 'info', title: `Kurs ${k.plate || '—'} · ${k.klienci.join(', ')}`, detail: k.rozjazd ? 'Rozjazd między dokumentem a załadunkiem — sprawdź przed wydrukiem.' : 'Załadunek zakończony, papiery do wystawienia.', tags: [], acts: [{ label: 'Papiery kursu', run: () => app.openKurs(k.id, k.plate) }] })
   }
   items.sort((a, b) => rank[a.level] - rank[b.level])
   const crit = items.filter(i => i.level === 'crit').length
 
   return (
-    <section className="panel" aria-label="Wymaga uwagi">
+    <section className="panel p-attn" aria-label="Wymaga uwagi">
       <div className="panel-h">
         <h2>Wymaga uwagi</h2>
-        <span className="sub">{items.length} spraw · {crit} krytyczne</span>
+        <span className="sub">{items.length ? `${items.length} ${odm(items.length, 'sprawa', 'sprawy', 'spraw')} · ${crit} ${odm(crit, 'krytyczna', 'krytyczne', 'krytycznych')}` : 'nic pilnego'}</span>
       </div>
       <div className="panel-b">
-        <ul className="attn">
-          {items.map(it => (
-            <li key={it.key} className={it.level}>
-              <span className={`ai alert-ico ${it.level}`}><FlagIcon level={it.level} size={17} /></span>
-              <span className="at">{it.title}</span>
-              <span className="ad">{it.detail}</span>
-              {it.tags.length > 0 && <span className="am">{it.tags}</span>}
-              <button className="btn sm act" onClick={it.run}>{it.action}<ArrowRight size={14} /></button>
-            </li>
-          ))}
-        </ul>
+        {items.length === 0 ? (
+          <div className="attn-ok"><CheckCircle2 size={22} /><div><b>Nic pilnego.</b><span>Zamówienia na dziś i jutro mają komplet wyrobu i rozpisane palety, kontrole HACCP są kompletne.</span></div></div>
+        ) : (
+          <ul className="attn">
+            {items.map(it => (
+              <li key={it.key} className={it.level}>
+                <span className={`ai alert-ico ${it.level}`}><FlagIcon level={it.level} size={17} /></span>
+                <span className="at">{it.title}</span>
+                <span className="ad">{it.detail}</span>
+                {it.tags.length > 0 && <span className="am">{it.tags}</span>}
+                <span className="act">{it.acts.map(a => <button key={a.label} className="btn sm" onClick={a.run}>{a.label}<ArrowRight size={14} /></button>)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </section>
   )
@@ -285,13 +320,13 @@ function ProductionPanel({ plans }: { plans: PlanLite[] }) {
         {rows.length === 0 ? <div className="empty">Brak aktywnych planów produkcji.</div> : <>
           <div style={{ padding: '12px 14px 2px', display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap' }}>
             <div className="hero-fig"><span className="v">{num(rep)}</span><span className="of">z {kg(plan)}</span></div>
-            <span className="tag info">{pct(plan ? (rep / plan) * 100 : 0)} planów</span>
-            <span className="tag outline" data-tip={act.map(p => `${p.planNo} (${fmtDate(dataZApi(p.planDate))})`).join('\n')}>{act.length} {act.length === 1 ? 'plan' : 'planów'} · najnowszy {newest ? fmtDay(dataZApi(newest.planDate)) : '—'}</span>
+            <span className="tag neutral">{pct(plan ? (rep / plan) * 100 : 0)} zgłoszono</span>
+            <span className="tag outline" data-tip={act.map(p => `${p.planNo} (${fmtDate(dataZApi(p.planDate))})`).join('\n')}>{act.length} {odm(act.length, 'plan', 'plany', 'planów')} · najnowszy {newest ? fmtDay(dataZApi(newest.planDate)) : '—'}</span>
           </div>
           <div className="bullets">
             {rows.map(r => (
               <div key={r.recipe} className={`bullet${r.reportedKg === 0 ? ' idle' : ''}`}>
-                <span className="bn">{r.recipe}<small>{[...r.plans].join(', ')}</small></span>
+                <span className="bn" data-tip={[...r.plans].join('\n')}>{r.recipe}<small>{r.plans.size} {odm(r.plans.size, 'plan', 'plany', 'planów')}</small></span>
                 <span className="bt" data-tip={`${r.recipe}: zgłoszono ${kg(r.reportedKg)} z ${kg(r.plannedKg)} (${pct(r.plannedKg ? r.reportedKg / r.plannedKg * 100 : 0)})`}>
                   <i className="plan" style={{ width: `${(r.plannedKg / max) * 100}%` }} />
                   {r.reportedKg > 0 && <i className="rep" style={{ width: `${(r.reportedKg / max) * 100}%` }} />}
@@ -324,13 +359,13 @@ function DuePanel({ open }: { open: Open }) {
       <div className="panel-h"><h2>Terminy zamówień</h2><span className="sub">otwarte, wg terminu wyjazdu</span></div>
       <div className="panel-b">
         <table className="ladder">
-          <thead><tr><th>Termin</th><th className="num" style={{ textAlign: 'right' }}>Zam.</th><th style={{ textAlign: 'right' }}>Zamówiono</th><th style={{ textAlign: 'right' }}>Brak wyrobu</th></tr></thead>
+          <thead><tr><th>Termin</th><th className="num" style={{ textAlign: 'right' }} data-tip="Liczba zamówień">Zam.</th><th className="num" style={{ textAlign: 'right' }}>Zamówiono</th><th className="num" style={{ textAlign: 'right' }} data-tip="Brak wyrobu (kg)">Brak</th></tr></thead>
           <tbody>
             {rows.map(r => (
               <tr key={r.b} className={`click ${r.b}`} tabIndex={0} onClick={() => app.gotoOrders({ view: 'active', bucket: r.b })}
                 onKeyDown={e => { if (e.key === 'Enter') app.gotoOrders({ view: 'active', bucket: r.b }) }}
                 data-tip={`Pokaż zamówienia: ${BUCKET_LABEL[r.b].toLowerCase()}`}>
-                <td><span className="lb">{BUCKET_LABEL[r.b]}<small>{sub[r.b]}</small></span></td>
+                <td><span className="lb">{r.b === 'nodate' ? 'Bez terminu' : BUCKET_LABEL[r.b]}<small>{sub[r.b]}</small></span></td>
                 <td className="num strong">{r.n}</td>
                 <td className="num">{kg(r.ordered)}</td>
                 <td className="num">{r.missing > 0
@@ -363,8 +398,8 @@ function ShipmentsPanel({ kursy }: { kursy: ZaladunekDoWydruku[] }) {
               const d = k.finishedAt ? new Date(k.finishedAt) : null
               return (
                 <tr key={k.id} className="row click" onClick={() => app.openKurs(k.id, k.plate)} data-tip="Otwórz papiery kursu">
-                  <td className="num strong">{d && !Number.isNaN(d.getTime()) ? d.toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                  <td className="num">{k.plate || '—'}</td>
+                  <td className="tnum strong">{d && !Number.isNaN(d.getTime()) ? d.toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                  <td className="tnum">{k.plate || '—'}</td>
                   <td className="ell" style={{ maxWidth: 320 }}>{k.klienci.join(', ') || '—'}</td>
                   <td className="num">{k.dokumentow}</td>
                   <td>{k.rozjazd ? <span className="tag crit">Rozjazd</span> : k.doWystawienia ? <span className="tag warn">Do wystawienia</span> : <span className="tag ok">Wystawione</span>}</td>
@@ -396,7 +431,7 @@ function MaterialsPanel({ open, seasoned }: { open: Open; seasoned: SeasonedLite
     const free = s?.free ?? 0
     const level = req > 0 && free < req ? (free <= 0 ? 'crit' : 'warn') : 'ok'
     return { name, req, free, all: s?.all ?? 0, level, known: n?.known ?? true }
-  }).sort((a, b) => (b.req - b.free) - (a.req - a.free))
+  }).filter(r => r.req > 0 || r.free > 0).sort((a, b) => (b.req - b.free) - (a.req - a.free))
   return (
     <section className="panel" aria-label="Mięso przyprawione">
       <div className="panel-h"><h2>Mięso przyprawione</h2><span className="sub">wolne w magazynie a wyrób do zrobienia z zamówień</span></div>

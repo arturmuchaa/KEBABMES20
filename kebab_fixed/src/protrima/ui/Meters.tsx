@@ -13,6 +13,12 @@ export function ProdMeter({ value, w = 64 }: { value: number; w?: number }) {
   )
 }
 
+/**
+ * Procent pokrycia słowami jednej zasady w całym programie: w dół, a dopóki czegoś brakuje —
+ * najwyżej 99% (zwykłe zaokrąglenie pokazywało „100%” przy braku kilku kilogramów).
+ */
+export const pctPokrycia = (v: number) => v >= 99.95 ? 100 : Math.max(0, Math.min(99, Math.floor(v)))
+
 /** Poziom pokrycia do koloru: komplet — zielony, częściowe — pomarańczowy, nic — czerwony. */
 export type PoziomPokrycia = 'ok' | 'part' | 'none'
 export const poziomPokrycia = (pokrycie: number): PoziomPokrycia => pokrycie >= 99.95 ? 'ok' : pokrycie > 0 ? 'part' : 'none'
@@ -26,7 +32,7 @@ export function CoverMeter({ ship, stock, w = 64 }: { ship: number; stock: numbe
         {s > 0 && <i className="fill f-ship" style={{ width: `${s}%` }} />}
         {k > 0 && <i className="fill f-stock" style={{ width: `${k}%` }} />}
       </span>
-      <span className="val">{pct(s + k)}</span>
+      <span className="val">{pctPokrycia(s + k)}%</span>
     </span>
   )
 }

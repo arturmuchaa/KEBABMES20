@@ -26,25 +26,25 @@ export function LinesTab({ order }: { order: Order }) {
       <div className="box">
         <table className="tbl">
           <thead><tr>
-            <th className="num" style={{ width: 44 }}>Lp.</th><th>Wyrób</th><th>Receptura</th><th className="num">Gramatura</th><th className="hide-s">Opakowanie</th>
-            <th className="num">Ilość</th><th className="num">Masa</th><th className="hide-m">Plan</th><th>Uwagi</th>
+            <th className="num sd" style={{ width: 44 }}>Lp.</th><th>Wyrób</th><th>Receptura</th><th className="num">Gramatura</th><th className="hide-s sd">Opakowanie</th>
+            <th className="num">Ilość</th><th className="num">Masa</th><th className="hide-m">Plan</th><th className="sd">Uwagi</th>
           </tr></thead>
           <tbody>
             {order.lines.map((l, i) => (
               <tr key={l.id} className={`row${i % 2 ? ' zebra' : ''}`}>
-                <td className="num muted">{l.lp}</td>
-                <td>{l.product}</td>
+                <td className="num muted sd">{l.lp}</td>
+                <td>{l.product}<span className="sub so">{l.packaging}</span></td>
                 <td className="strong">{l.recipe}</td>
                 <td className="num">{l.kgPerUnit} kg</td>
-                <td className="hide-s">{l.packaging}</td>
+                <td className="hide-s sd">{l.packaging}</td>
                 <td className="num"><b>{num(l.qty)}</b><span className="sub">szt.</span></td>
                 <td className="num">{kg(l.qty * l.kgPerUnit)}</td>
                 <td className="hide-m muted">{l.planNo ?? '—'}</td>
-                <td className="ell muted" style={{ maxWidth: 260 }} title={l.note}>{l.note ?? ''}</td>
+                <td className="ell muted sd" style={{ maxWidth: 260 }} title={l.note}>{l.note ?? ''}</td>
               </tr>
             ))}
           </tbody>
-          <tfoot><tr><td /><td colSpan={4}>Razem</td><td className="num">{num(totalQty)} <span className="sub">szt.</span></td><td className="num">{kg(totalKg)}</td><td className="hide-m" /><td /></tr></tfoot>
+          <tfoot><tr><td className="sd" /><td colSpan={3}>Razem</td><td className="hide-s sd" /><td className="num">{num(totalQty)} <span className="sub">szt.</span></td><td className="num">{kg(totalKg)}</td><td className="hide-m" /><td className="sd" /></tr></tfoot>
         </table>
       </div>
     </div>

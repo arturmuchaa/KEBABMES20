@@ -4,6 +4,7 @@ import { useApp, type AppApi, type Cmd, type DetailTab } from '../../shell/conte
 import { computeMetrics, etapZamowienia, kg, num, pct, dueText, type Order } from '../../data/model'
 import { dozwolone } from './akcje'
 import { EtapLabel } from '../../ui/Glyphs'
+import { pctPokrycia } from '../../ui/Meters'
 import { OverviewTab } from './tabs/Overview'
 import { LinesTab } from './tabs/Lines'
 import { ProductionTab } from './tabs/Production'
@@ -76,12 +77,13 @@ export function OrderDetail({ order, tab, onTab, mode, maxed, onMax, onClose, on
   const m = computeMetrics(order)
   const closed = order.status === 'done' || order.status === 'cancelled'
 
-  // Następny krok zależy od etapu zamówienia
+  // Następny krok zależy od etapu zamówienia. Na zakładce, do której prowadzi, przycisk znika —
+  // tam działa już przycisk tej zakładki (bez dwóch kobaltowych przycisków robiących to samo).
   let primary: React.ReactNode = null
   if (order.status === 'draft') primary = <button className="btn primary" onClick={() => onConfirm(order)}><CheckCheck size={16} />Potwierdź zamówienie</button>
-  else if (!closed && m.unassignedQty > 0) primary = <button className="btn primary" onClick={() => onTab('pallets')}><Boxes size={16} />Rozpisz palety</button>
-  else if (!closed && m.missingKg === 0 && m.shipPct < 100) primary = <button className="btn primary" onClick={() => onTab('shipping')}><Truck size={16} />Przygotuj wysyłkę</button>
-  else if (!closed && m.missingKg > 0) primary = <button className="btn" onClick={() => onTab('coverage')}><PackageCheck size={16} />Uzupełnij braki</button>
+  else if (!closed && m.unassignedQty > 0) primary = tab === 'pallets' ? null : <button className="btn primary" onClick={() => onTab('pallets')}><Boxes size={16} />Rozpisz palety</button>
+  else if (!closed && m.missingKg === 0 && m.shipPct < 100) primary = tab === 'shipping' ? null : <button className="btn primary" onClick={() => onTab('shipping')}><Truck size={16} />Przygotuj wysyłkę</button>
+  else if (!closed && m.missingKg > 0) primary = tab === 'coverage' ? null : <button className="btn" onClick={() => onTab('coverage')}><PackageCheck size={16} />Pokaż braki</button>
 
   const counts: Partial<Record<DetailTab, React.ReactNode>> = {
     lines: <span className="badge">{order.lines.length}</span>,
@@ -106,9 +108,9 @@ export function OrderDetail({ order, tab, onTab, mode, maxed, onMax, onClose, on
         </div>
         <div className="dock-figs" aria-label="Kluczowe liczby">
           <div className="f"><span className="k">Zamówiono</span><span className="v">{kg(m.orderedKg)}<small className="hide-m">{num(m.orderedQty)} szt.</small></span></div>
-          <div className="f" data-tip={'Zgłoszono z tabletów produkcyjnych.\nNie zwiększa pokrycia, dopóki wyrób nie trafi na magazyn.'}><span className="k"><i className="f-prod" />Produkcja</span><span className="v">{pct(m.prodPct)}<small className="hide-s">{kg(m.producedKg)}</small></span></div>
-          <div className="f" data-tip="W magazynie (przydzielone) + wydano do klienta"><span className="k"><i className="f-stock" />Pokrycie</span><span className="v">{pct(m.coverPct)}{m.missingKg > 0 && !closed ? <small className="crit-ink" style={{ fontWeight: 600 }}>brak {kg(m.missingKg)}</small> : <small className="ok-ink">komplet</small>}</span></div>
-          <div className="f"><span className="k"><i className="f-ship" />Wydano</span><span className="v">{pct(m.shipPct)}<small className="hide-s">{kg(m.deliveredKg)}</small></span></div>
+          <div className="f" data-tip={`Informacja z hali: zgłoszono z tabletów ${kg(m.producedKg)} z ${kg(m.orderedKg)}.\nTo jeszcze nie zwiększa pokrycia — liczy się dopiero wyrób przyjęty na magazyn.`}><span className="k"><i className="mk-prod" />Produkcja</span><span className="v">{pct(m.prodPct)}<small className="hide-s">{kg(m.producedKg)}</small></span></div>
+          <div className="f" data-tip={`W magazynie ${kg(m.stockKg)} + wydano ${kg(m.deliveredKg)}.\nLiczy się tylko wyrób przydzielony temu zamówieniu.`}><span className="k"><i className={`mk-cov cov-${m.coverPct >= 99.95 ? 'ok' : m.coverPct > 0 ? 'part' : 'none'}`} />Pokrycie</span><span className="v">{pctPokrycia(m.coverPct)}%{m.missingKg > 0 && !closed ? <small className="crit-ink" style={{ fontWeight: 600 }}>brak {kg(m.missingKg)}</small> : <small className="ok-ink">komplet</small>}</span></div>
+          <div className="f" data-tip={`Wydano do klienta (WZ) ${kg(m.deliveredKg)}. Do wysłania ${kg(Math.max(0, m.orderedKg - m.deliveredKg))}.`}><span className="k"><i className="mk-ship" />Wydano</span><span className="v">{pct(m.shipPct)}<small className="hide-s">{kg(m.deliveredKg)}</small></span></div>
         </div>
         <div className="dock-actions">
           {primary}

@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Plus, Search, ChevronDown, ChevronRight, ArrowUp, ArrowDown, MoreHorizontal, X, Layers, Printer, ClipboardList, ExternalLink, Pencil, Boxes, FileText, Copy, Ban, Split, Rows3, Calculator, ShoppingCart } from 'lucide-react'
+import { Plus, Search, ChevronDown, ChevronRight, ArrowUp, ArrowDown, MoreHorizontal, X, Printer, ClipboardList, ExternalLink, Pencil, Boxes, FileText, Copy, Ban, Split, Rows3, Calculator, ShoppingCart } from 'lucide-react'
 import { useApp, Menu, useMenu, Dialog, CommandBar, wierszMenu, type Cmd, type ViewKey, type DetailTab, type OrdersCmd, type MenuItem } from '../../shell/context'
 import { useOrders } from '../../data/store'
 import { computeMetrics, etapZamowienia, isClosed, kg, num, relDay, fmtDay, BUCKET_LABEL, mixingByRecipe, weekday, DOC_NAME, type Bucket, type Metrics, type Order } from '../../data/model'
-import { EtapLabel, FlagIcon } from '../../ui/Glyphs'
+import { EtapLabel, FlagIcon, StageNode } from '../../ui/Glyphs'
 import { CoverMeter, ProdMeter } from '../../ui/Meters'
 import { OrderDetail, orderCommands } from './OrderDetail'
 import { useOrderActions, dozwolone } from './akcje'
@@ -270,11 +270,11 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
           {bucket && <span className="chip on">Termin: {BUCKET_LABEL[bucket]}<span className="x" role="button" aria-label="Wyczyść filtr terminu" onClick={() => setBucket(null)}><X size={13} /></span></span>}
           {anyFilter && <button className="btn sm ghost" onClick={() => { setQ(''); setClients([]); setRecipes([]); setBucket(null) }}>Wyczyść filtry</button>}
           <span className="grow" />
-          <button className="btn sm ghost" onClick={groupMenu.open} disabled={view === 'closed'}><Rows3 size={15} />Grupuj: {groupBy === 'due' ? 'termin' : groupBy === 'client' ? 'klient' : 'brak'}<ChevronDown size={14} /></button>
+          <button className="btn sm ghost" onClick={groupMenu.open} disabled={view === 'closed'}><Rows3 size={15} />{groupBy === 'due' ? 'Grupuj: termin' : groupBy === 'client' ? 'Grupuj: klient' : 'Grupuj'}<ChevronDown size={14} /></button>
         </div>
       )}
 
-      <div className={`workarea${dock.side ? ' side' : ''}`} ref={workRef}>
+      <div className={`workarea${dock.side && hasDock ? ' side' : ''}`} ref={workRef}>
         <div className="list-pane" style={dock.listStyle(hasDock, maxed)}>
           <div className="tbl-wrap" ref={listRef} tabIndex={0} onKeyDown={onListKey} aria-label="Lista zamówień"
             onContextMenu={e => { const w = wierszMenu(e); if (w) { select(w.id); setRowMenuId(w.id); rowMenu.open({ currentTarget: w.anchor }) } }}>
@@ -287,13 +287,13 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
                   {thSort('client', 'Klient')}
                   {thSort('no', 'Numer')}
                   {thSort('due', 'Wyjazd', '', 'Termin wyjazdu z zakładu')}
-                  {thSort('status', 'Status', 'side-hide')}
+                  {thSort('status', 'Status')}
                   <th className="hide-m">Pozycje</th>
-                  {thSort('kg', 'Zamówiono', 'num')}
+                  {thSort('kg', 'Zamówiono', 'num side-hide')}
                   {thSort('prod', 'Produkcja', 'opt-col', 'Zgłoszono z tabletów produkcyjnych ÷ zamówiono (kg).\nŹródło diagnostyczne — nie zmienia pokrycia.')}
                   {thSort('cover', 'Pokrycie', '', 'Wydano (ciemny) + w magazynie (jasny) ÷ zamówiono (kg).\nTylko wyrób fizycznie przydzielony temu zamówieniu.')}
-                  {thSort('missing', 'Brak', 'num', 'Zamówiono − wydano − w magazynie (kg)')}
-                  {thSort('pallets', 'Palety', 'r', 'Gotowe (spakowane lub dalej) / rozpisane')}
+                  {thSort('missing', 'Brak, kg', 'num', 'Zamówiono − wydano − w magazynie (kg).\nCzerwony — wyjazd dziś, jutro lub po terminie; bursztynowy — za 2 dni.')}
+                  {thSort('pallets', 'Palety', 'r side-hide', 'Gotowe (spakowane lub dalej) z rozpisanych')}
                   <th className="hide-m" data-tip={'Wystawione (pełne) i gotowe do wystawienia (obrys).\nDokumenty jeszcze niedostępne nie są pokazywane.'}>Dokumenty</th>
                   <th className="side-hide" style={{ width: 40 }}><span className="sr">Działania</span></th>
                 </tr>
@@ -337,13 +337,13 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
                 <tfoot><tr>
                   <td className="cb" /><td className="al" />
                   <td colSpan={2}>Razem — {visible.length} {visible.length === 1 ? 'zamówienie' : visible.length < 5 ? 'zamówienia' : 'zamówień'}</td>
-                  <td /><td className="side-hide" />
+                  <td /><td />
                   <td className="num hide-m" style={{ textAlign: 'left' }}>{tot.lines} poz.</td>
-                  <td className="num">{kg(tot.kg)}</td>
+                  <td className="num side-hide">{kg(tot.kg)}</td>
                   <td className="opt-col">{view !== 'closed' && <ProdMeter value={tot.kg ? tot.prod / tot.kg * 100 : 0} />}</td>
                   <td>{view !== 'closed' && <CoverMeter ship={tot.kg ? tot.ship / tot.kg * 100 : 0} stock={tot.kg ? (tot.cov - tot.ship) / tot.kg * 100 : 0} />}</td>
-                  <td className="num crit-ink">{tot.miss ? num(tot.miss) : '0'}</td>
-                  <td className="num">{tot.pr}<span className="faint"> / {tot.pt}</span></td>
+                  <td className="num">{tot.miss ? num(tot.miss) : '0'}</td>
+                  <td className="num side-hide">{tot.pr}<span className="faint"> z {tot.pt}</span></td>
                   <td className="hide-m" /><td className="side-hide" />
                 </tr></tfoot>
               )}
@@ -363,17 +363,17 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
 
       {clientMenu.anchor && <Menu anchor={clientMenu.anchor} onClose={clientMenu.close} items={[
         { header: 'Klient' },
-        ...clientOpts.map(c => ({ label: `${clients.includes(c.id) ? '✓  ' : '    '}${c.name}`, onSelect: () => setClients(a => toggleIn(a, c.id)) })),
+        ...clientOpts.map(c => ({ label: c.name, checked: clients.includes(c.id), onSelect: () => setClients(a => toggleIn(a, c.id)) })),
       ]} />}
       {recipeMenu.anchor && <Menu anchor={recipeMenu.anchor} onClose={recipeMenu.close} items={[
         { header: 'Receptura w pozycjach' },
-        ...recipeOpts.map(r => ({ label: `${recipes.includes(r) ? '✓  ' : '    '}${r}`, onSelect: () => setRecipes(a => toggleIn(a, r)) })),
+        ...recipeOpts.map(r => ({ label: r, checked: recipes.includes(r), onSelect: () => setRecipes(a => toggleIn(a, r)) })),
       ]} />}
       {groupMenu.anchor && <Menu anchor={groupMenu.anchor} align="right" onClose={groupMenu.close} items={[
         { header: 'Grupowanie listy' },
-        { label: 'Według terminu wyjazdu', icon: <Layers size={15} />, onSelect: () => setGroupBy('due') },
-        { label: 'Według klienta', icon: <Layers size={15} />, onSelect: () => setGroupBy('client') },
-        { label: 'Bez grupowania', icon: <Rows3 size={15} />, onSelect: () => setGroupBy('none') },
+        { label: 'Według terminu wyjazdu', checked: groupBy === 'due', onSelect: () => setGroupBy('due') },
+        { label: 'Według klienta', checked: groupBy === 'client', onSelect: () => setGroupBy('client') },
+        { label: 'Bez grupowania', checked: groupBy === 'none', onSelect: () => setGroupBy('none') },
       ]} />}
       {rowMenu.anchor && rowMenuId && <Menu anchor={rowMenu.anchor} align="right" onClose={rowMenu.close} items={rowActions(rowMenuId)} />}
 
@@ -392,6 +392,11 @@ const OrderRow = React.memo(function OrderRow({ r, zebra, sel, checked, onClick,
   const closed = isClosed(o)
   const due = m.dueDays
   const flagTip = m.flags.map(f => `${f.label}: ${f.detail}`).join('\n')
+  // Norma cicha, wyjątek głośny: brak wyrobu krzyczy dopiero, gdy auto wyjeżdża (≤ 1 dzień) albo termin minął.
+  const brakCls = due !== null && due <= 1 ? 'crit-ink strong' : due !== null && due <= 2 ? 'warn-ink' : ''
+  // Procent „w realizacji” stoi w kolumnie Pokrycie — w statusie byłby drugi raz, inaczej zaokrąglony.
+  const etapPelny = etapZamowienia(o, m)
+  const etapListy = etapPelny.etap === 'realizacja' ? { ...etapPelny, szczegol: undefined } : etapPelny
   // Tylko dokumenty wystawione albo te, które można wystawić teraz — reszta to szum.
   const docs = o.docs.filter(d => (d.kind === 'WZ' || d.kind === 'CMR' || d.kind === 'HDI') && (d.state === 'issued' || d.state === 'partial' || d.state === 'frozen' || d.state === 'todo'))
   const docCls = (s: string) => s === 'issued' || s === 'frozen' ? 'issued' : s === 'partial' ? 'partial' : 'todo'
@@ -402,7 +407,7 @@ const OrderRow = React.memo(function OrderRow({ r, zebra, sel, checked, onClick,
       <td className="cb" onClick={e => e.stopPropagation()}><input type="checkbox" className="cbx" checked={checked} onChange={onCheck} aria-label={`Zaznacz ${o.no}`} /></td>
       <td className="al">{m.level && <span className={`alert-ico ${m.level}`} data-tip={flagTip}><FlagIcon level={m.level} /></span>}</td>
       <td className="ell" style={{ maxWidth: 250 }} title={o.client.name}><b>{o.client.name}</b>{o.client.country && o.client.country !== 'PL' && <span className="cc">{o.client.country}</span>}</td>
-      <td className="num" style={{ fontWeight: 400 }}>{o.no}</td>
+      <td className="tnum">{o.no}</td>
       <td>
         {o.delivery ? (
           <span className={`due${!closed && due !== null && due < 0 ? ' over' : !closed && due === 0 ? ' today' : ''}`}>
@@ -412,18 +417,21 @@ const OrderRow = React.memo(function OrderRow({ r, zebra, sel, checked, onClick,
           </span>
         ) : <span className="faint">bez terminu</span>}
       </td>
-      <td className="side-hide"><EtapLabel e={etapZamowienia(o, m)} /></td>
+      <td><EtapLabel e={etapListy} /></td>
       <td className="ell hide-m" style={{ maxWidth: 230 }}>
         <span className="num">{o.lines.length} poz.</span><span className="sub hide-m">{m.recipes.slice(0, 2).join(', ')}{m.recipes.length > 2 ? ` +${m.recipes.length - 2}` : ''}</span>
       </td>
-      <td className="num">{kg(m.orderedKg)}</td>
+      <td className="num side-hide">{kg(m.orderedKg)}</td>
       <td className="opt-col">{o.status === 'draft' || o.status === 'cancelled' ? <span className="faint">—</span> : <ProdMeter value={m.prodPct} />}</td>
       <td>{o.status === 'draft' || o.status === 'cancelled' ? <span className="faint">—</span> : <CoverMeter ship={m.shipPct} stock={m.stockPct} />}</td>
-      <td className="num">{closed ? <span className="faint">—</span> : m.missingKg > 0 ? <span className={`crit-ink${due !== null && due <= 1 ? ' strong' : ''}`}>{num(m.missingKg)}</span> : <span className="ok-ink">0</span>}</td>
-      <td className="num">
-        {m.palletsTotal > 0 ? <span><b>{m.palletsReady}</b><span className="faint"> / {m.palletsTotal}</span>{m.unassignedQty > 0 && <span className="warn-ink" data-tip={`${m.unassignedQty} szt. bez palety`}> +</span>}</span>
+      <td className="num">{closed ? <span className="faint">—</span> : m.missingKg > 0 ? <span className={brakCls}>{num(m.missingKg)}</span> : <span className="muted">0</span>}</td>
+      <td className="num side-hide">
+        {m.palletsTotal > 0 ? <span data-tip={`Gotowe ${m.palletsReady} z ${m.palletsTotal} rozpisanych palet${m.unassignedQty > 0 ? `\n${num(m.unassignedQty)} szt. jeszcze bez palety` : ''}`}>
+            {m.unassignedQty > 0 && <span className="pal-warn" aria-label={`${m.unassignedQty} szt. bez palety`}><StageNode level="warn" size={10} /></span>}
+            <b>{m.palletsReady}</b><span className="faint"> z {m.palletsTotal}</span></span>
           : o.status === 'draft' || closed ? <span className="faint">—</span>
-          : <span className={m.dueDays !== null && m.dueDays <= 1 ? 'warn-ink strong' : 'faint'} data-tip="Palety nierozpisane">0</span>}
+          : m.dueDays !== null && m.dueDays <= 1 ? <span className="warn-ink strong" data-tip="Palety nierozpisane, a wyjazd dziś lub jutro"><StageNode level="warn" size={10} /> nierozpisane</span>
+          : <span className="faint" data-tip="Palety jeszcze nierozpisane">—</span>}
       </td>
       <td className="hide-m">{docs.length ? <span className="docs">{docs.map(d => <span key={d.kind} className={`doc ${docCls(d.state)}`} data-tip={`${DOC_NAME[d.kind]} — ${docWord(d.state)}${d.number ? `\n${d.number}` : ''}${d.note ? `\n${d.note}` : ''}`}>{d.kind}</span>)}</span> : <span className="faint">—</span>}</td>
       <td className="side-hide" onClick={e => e.stopPropagation()}><button className="btn ghost icon sm" style={{ width: 28, height: 26 }} aria-label={`Działania dla ${o.no}`} onClick={onMenu}><MoreHorizontal size={16} /></button></td>

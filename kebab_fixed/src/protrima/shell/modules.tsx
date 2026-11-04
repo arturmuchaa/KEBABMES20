@@ -63,6 +63,22 @@ export const AREAS: AreaDef[] = [
 
 export const PINNED = ['zamowienia', 'plan-produkcji', 'magazyn-wg', 'wysylki']
 
+/** Moduły z własnym ekranem w PROTRIMA. Pozostałe działają na razie w starym MES (zaślepka z drogowskazem). */
+export const W_PROTRIMA = new Set(['pulpit', 'zamowienia', 'przyjecia', 'magazyn-wg'])
+export const wProtrima = (key: string) => W_PROTRIMA.has(key)
+
+/** Gdzie część pracy danego modułu da się już zrobić w PROTRIMA — drogowskaz na zaślepce. */
+export const JUZ_W_PROTRIMA: Record<string, Array<{ co: string; gdzie: string; idz: { modul: string; widok?: string } }>> = {
+  haccp: [{ co: 'Kontrola HACCP przyjęcia z podpisami', gdzie: 'Przyjęcia surowca → zakładka Kontrola HACCP', idz: { modul: 'przyjecia' } },
+    { co: 'Karty 1.1.1 i 1.1.1/2 (PDF)', gdzie: 'Przyjęcia surowca → Karty HACCP', idz: { modul: 'przyjecia' } }],
+  dokumenty: [{ co: 'WZ, CMR i HDI do zamówienia', gdzie: 'Zamówienia → panel zamówienia → Dokumenty', idz: { modul: 'zamowienia', widok: 'ready' } },
+    { co: 'WZ z zaznaczonego wyrobu', gdzie: 'Wyrób gotowy → Wydaj (WZ)', idz: { modul: 'magazyn-wg' } }],
+  wysylki: [{ co: 'Papiery kursu po załadunku', gdzie: 'Pulpit → Kursy po załadunku', idz: { modul: 'pulpit' } }],
+  palety: [{ co: 'Palety zamówienia, rozpis i kartki', gdzie: 'Zamówienia → panel zamówienia → Palety', idz: { modul: 'zamowienia' } },
+    { co: 'Kartony magazynowe', gdzie: 'Wyrób gotowy → Kartony magazynowe', idz: { modul: 'magazyn-wg' } }],
+  surowce: [{ co: 'Dostawy i partie surowca', gdzie: 'Przyjęcia surowca', idz: { modul: 'przyjecia' } }],
+}
+
 export const ALL_MODULES: ModuleDef[] = [
   { key: 'pulpit', label: 'Pulpit', icon: LayoutGrid },
   ...AREAS.flatMap(a => a.modules),

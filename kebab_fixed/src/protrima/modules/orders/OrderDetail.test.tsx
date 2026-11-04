@@ -50,11 +50,13 @@ describe('OrderDetail — trzy miary osobno', () => {
     expect(within(figs).getByText('Wydano').parentElement!.textContent).toContain(pct(10))
   })
 
-  it('przegląd: osobne opisy, pokrycie = magazyn + wydano', () => {
+  it('trzy osobne miary: opisy w nagłówku, pokrycie = magazyn + wydano', () => {
     mount()
-    const box = screen.getByLabelText('Trzy osobne miary realizacji')
-    expect(box.textContent).toContain(`W magazynie ${kg(300)} + wydano ${kg(100)}`)
-    expect(box.textContent).toContain('nie zwiększa pokrycia')
+    const figs = screen.getByLabelText('Kluczowe liczby')
+    const tip = (k: string) => within(figs).getByText(k).closest('[data-tip]')!.getAttribute('data-tip')!
+    expect(tip('Pokrycie')).toContain(`W magazynie ${kg(300)} + wydano ${kg(100)}`)
+    expect(tip('Produkcja')).toContain('nie zwiększa pokrycia')
+    expect(tip('Wydano')).toContain(kg(100))
   })
 
   it('następny krok: bez palet — „Rozpisz palety” (nie zapis, tylko przejście do zakładki)', () => {
