@@ -14,16 +14,7 @@ import { computeDisplayStatus } from '@/components/ui/badge'
 import type { RawBatch } from '@/types'
 import { fig } from '../../ui/Fig'
 import { wProtrima } from '../../shell/modules'
-
-/** Polska odmiana liczebnika: 1 sprawa, 2–4 sprawy, 5+ spraw (12–14 zawsze „spraw”). */
-export const odm = (n: number, f1: string, f2: string, f5: string) => {
-  const a = Math.abs(n), d = a % 10, s = a % 100
-  return a === 1 ? f1 : d >= 2 && d <= 4 && (s < 12 || s > 14) ? f2 : f5
-}
-/** Krótka nazwa kontrahenta na gęste panele: bez formy prawnej („SPÓŁKA Z O.O.”, „SP. J.”…). */
-export const krotkaNazwa = (n: string) => n
-  .replace(/\s+(SPÓŁKA\s+Z\s+OGRANICZONĄ\s+ODPOWIEDZIALNOŚCIĄ|SPÓŁKA\s+AKCYJNA|SPÓŁKA\s+JAWNA|SPÓŁKA\s+KOMANDYTOWA|SP\.?\s*Z\s*O\.?\s*O\.?|S\.\s*A\.|SP\.\s*J\.|SP\.\s*K\.)\s*$/i, '')
-  .replace(/\s+(SPÓŁKA|SP\.)\s*$/i, '').trim() || n
+import { odm, krotkaNazwa } from '../../data/tekst'
 
 type Open = Array<{ o: Order; m: ReturnType<typeof computeMetrics> }>
 interface PlanLite { id: string; planNo: string; planDate: string; status: string; lines: Array<{ qty: number; kgPerUnit: number; qtyDone: number; recipeName: string }> }
