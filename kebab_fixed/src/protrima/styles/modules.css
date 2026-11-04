@@ -300,6 +300,41 @@ div.pstage { cursor: default; }
 .tbl.editor-tbl tr.next-row td { background: var(--surface-alt); }
 .tbl.editor-tbl tr.next-row .field { border-style: dashed; }
 .tbl.editor-tbl tr.next-row:focus-within .field { border-style: solid; }
+/* Nagłówek edytora w jednym niskim wierszu: klient · termin wyjazdu z szybkim wyborem · uwagi · data.
+   Linia pomocy pod polem jest stała (opis terminu albo błąd), więc pozycje nie podskakują. */
+.ed-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--sp-2) var(--sp-3); padding: 10px 14px 6px; }
+.ed-head .fld { gap: var(--sp-1); }
+.ed-klient { flex: 1 1 220px; max-width: 440px; }
+.ed-termin, .ed-data { flex: none; }
+.ed-termin-c { display: flex; align-items: center; gap: var(--sp-2); }
+.ed-head input[type="date"] { width: 140px; }
+.ed-uwagi { flex: 1 1 200px; }
+.ed-pomoc { min-height: 18px; font-size: var(--fs-sm); line-height: 18px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-pomoc.crit { color: var(--crit-ink); white-space: normal; }
+/* Szybki wybór terminu stoi obok pola daty — ten sam promień kontrolki (--r-sm). */
+.ed-szybko { border-radius: var(--r-sm); }
+.ed-szybko button { font-size: var(--fs-sm); border-radius: var(--r-xs); }
+.ed-szybko button svg { margin-right: -3px; color: var(--ink-3); }
+.ed-szybko button:disabled { color: var(--ink-dis); cursor: not-allowed; }
+.ed-szybko button:disabled svg { color: var(--ink-dis); }
+/* Uwagi: jedna linia; po kliknięciu rozwijają się NAD tabelą (miejsce w układzie zostaje to samo). */
+.ed-uwagi-w { position: relative; height: var(--ctl-h); }
+/* Zwinięte: wysokość linii = wnętrze pola, więc drugi wiersz uwag nie wystaje spod pierwszego. */
+.ed-uwagi-w > .field {
+  position: absolute; inset: 0 0 auto 0; width: 100%; height: var(--ctl-h);
+  padding: 0 10px; line-height: calc(var(--ctl-h) - 2px); resize: none; overflow: hidden; white-space: pre;
+}
+.ed-uwagi-w > .field:focus {
+  z-index: 6; height: calc(var(--ctl-h) + 72px); padding: 6px 10px; line-height: 20px; overflow: auto; white-space: pre-wrap; resize: vertical;
+  box-shadow: var(--e2), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.ed-lbl { display: flex; align-items: baseline; gap: 4px; }
+/* Skrót na przycisku paska (CommandBar showKbd — formularze pisane z klawiatury) */
+.cmd .kbd { margin-left: 2px; }
+.cmd.primary .kbd { color: var(--on-accent); border-color: color-mix(in srgb, var(--on-accent) 45%, transparent); background: transparent; }
+.cmd[aria-disabled="true"] .kbd { color: var(--ink-dis); border-color: var(--line); background: transparent; }
+/* Laptop z rozwiniętą nawigacją: pasek by się nie zmieścił — skróty zostają w podpowiedzi nad pozycjami i w menu. */
+:root[data-w="m"][data-nav="expanded"] .cmd .kbd, :root[data-w="s"] .cmd .kbd { display: none; }
 /* Pasek masowania pod edytorem — zawsze widoczny, liczby na żywo z serwera */
 .mix-bar {
   flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; min-height: 46px; padding: 7px 16px;

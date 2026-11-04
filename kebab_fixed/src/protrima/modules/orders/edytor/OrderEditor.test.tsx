@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import React from 'react'
-import { AppCtx, type AppApi } from '../../../shell/context'
+import { AppCtx, type AppApi, type Cmd } from '../../../shell/context'
 
 /**
  * Edytor zamówienia: ilości, które operator wpisuje, idą do ewidencji —
@@ -22,17 +22,22 @@ vi.mock('@/lib/api', () => ({
 const refresh = vi.fn(() => Promise.resolve())
 vi.mock('../../../data/store', () => ({ useOrders: () => ({ refresh }) }))
 import { OrderEditor } from './OrderEditor'
+import { dzisIso, najblizszeDni, poDniach } from './model'
 
 afterEach(cleanup)
-beforeEach(() => { Object.values(api).forEach(f => f.mockReset()); refresh.mockClear() })
-const app = { toast: vi.fn(), setPanel: vi.fn(), prosty: true, panel: 'dol', appRef: { current: null }, scale: 1 } as unknown as AppApi
-let cmds: Array<{ id: string; run?: () => void; disabled?: boolean }> = []
+const toast = vi.fn()
+beforeEach(() => { Object.values(api).forEach(f => f.mockReset()); refresh.mockClear(); toast.mockClear() })
+const app = { toast, setPanel: vi.fn(), prosty: true, panel: 'dol', appRef: { current: null }, scale: 1 } as unknown as AppApi
+let cmds: Cmd[] = []
 const mount = (p: Partial<React.ComponentProps<typeof OrderEditor>> = {}) => {
   const onDone = vi.fn()
   render(<AppCtx.Provider value={app}><OrderEditor tabId="t" active setCmds={c => { cmds = c }} onDone={onDone} {...p} /></AppCtx.Provider>)
   return { onDone }
 }
 const run = (id: string) => cmds.find(c => c.id === id)!.run!()
+const cmd = (id: string) => cmds.find(c => c.id === id)
+/** Przycisk na pasku poleceń edytora (CommandBar renderuje się w karcie). */
+const naPasku = (name: string) => within(screen.getByRole('toolbar')).getByRole('button', { name })
 const typ = (label: string, v: string) => fireEvent.change(screen.getByLabelText(label), { target: { value: v } })
 const pole = (label: string) => screen.getByLabelText(label) as HTMLInputElement
 /** Jak biuro: kilka liter w polu wyboru i Enter (czeka, aż kartoteki dojdą i pozycja się pokaże). */
@@ -79,6 +84,9 @@ describe('OrderEditor', () => {
     expect(api.updateStatus).not.toHaveBeenCalled()
     await waitFor(() => expect(onDone).toHaveBeenCalledWith('new1'))
     expect(refresh).toHaveBeenCalled()
+    // Szkic nie trafia do planowania — ostrzeżenie, nie zwykłe „zapisano”.
+    expect(toast).toHaveBeenCalledWith({ kind: 'warn', title: 'Zapisano jako szkic — nie trafi do planowania',
+      detail: 'TEST/Z/1/10/26 · 2 poz. · 140 szt. · 1\u00a0150 kg. Potwierdź je w panelu zamówienia.' })
   })
 
   it('Enter w ilości niekompletnej pozycji wraca do brakującego pola', async () => {
@@ -146,5 +154,116 @@ describe('OrderEditor', () => {
     mount({ orderId: 'o1' })
     expect(await screen.findByText(/tylko zamówienie w statusie Szkic lub Potwierdzone/)).toBeTruthy()
     expect((screen.getByLabelText('Ilość sztuk, pozycja 1') as HTMLInputElement).disabled).toBe(true)
+  })
+  /** Klient + jedna kompletna pozycja (jak biuro z klawiatury). */
+  const wypelnij = async () => {
+    await wybierz('Klient', 'tes', /TEST/); await wybierz('Rodzaj, pozycja 1', 'udo', /KEBAB UDO/); await wybierz('Receptura, pozycja 1', 'bey', /BEYAZ/)
+    typ('Gramatura kg, pozycja 1', '25'); typ('Ilość sztuk, pozycja 1', '8')
+  }
+
+  it('Ctrl+Enter = „Zapisz i potwierdź” (jak „Przyjmij dostawę” w przyjęciu); skróty widać na przyciskach paska', async () => {
+    api.create.mockResolvedValue({ id: 'n3', orderNo: 'X/3', status: 'draft' })
+    mount()
+    await wypelnij()
+    expect(naPasku('Zapisz i potwierdź').textContent).toContain('Ctrl+Enter')
+    expect(naPasku('Zapisz szkic').textContent).toContain('Ctrl+S')
+    expect(screen.getByText(/Ctrl\+Enter — zapisz i potwierdź · Ctrl\+S — zapisz szkic/)).toBeTruthy()
+    fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(api.updateStatus).toHaveBeenCalledWith('n3', 'confirmed'))
+    expect(api.create).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ kind: 'ok', title: 'Utworzono X/3' })))
+  })
+
+  it('Ctrl+S = „Zapisz szkic” — bez potwierdzenia, z ostrzeżeniem', async () => {
+    api.create.mockResolvedValue({ id: 'n4', orderNo: 'X/4', status: 'draft' })
+    mount()
+    await wypelnij()
+    fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 's', ctrlKey: true })
+    await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ kind: 'warn', title: 'Zapisano jako szkic — nie trafi do planowania' })))
+    expect(api.updateStatus).not.toHaveBeenCalled()
+  })
+
+  it('AltGr (Ctrl+Alt) to polska litera, nie skrót — nic się nie zapisuje', async () => {
+    mount()
+    await wypelnij()
+    fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 's', ctrlKey: true, altKey: true })
+    fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 'Enter', ctrlKey: true, altKey: true })
+    await new Promise(r => setTimeout(r, 30))
+    expect(api.create).not.toHaveBeenCalled()
+  })
+
+  it('potwierdzone: Ctrl+Enter = „Zapisz zmiany”, Ctrl+S nic nie robi (nie ma „Zapisz szkic”)', async () => {
+    api.byId.mockResolvedValue({ id: 'o1', orderNo: 'TEST/Z/2/10/26', clientId: 'c1', orderDate: '2026-10-28', deliveryDate: '2026-11-02', status: 'confirmed', notes: '',
+      lines: [{ id: 'L1', qty: 20, kgPerUnit: 25, productTypeId: 'pt', recipeId: 'r1', packagingId: 'pk', notes: '' }] })
+    api.update.mockResolvedValue({ id: 'o1', orderNo: 'TEST/Z/2/10/26', status: 'confirmed' })
+    mount({ orderId: 'o1' })
+    await waitFor(() => expect(pole('Ilość sztuk, pozycja 1').value).toBe('20'))
+    expect(cmd('save')).toMatchObject({ label: 'Zapisz zmiany', kbd: 'Ctrl+Enter', primary: true })
+    expect(screen.getByText(/Ctrl\+Enter — zapisz zmiany/)).toBeTruthy()
+    typ('Ilość sztuk, pozycja 1', '24')
+    fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 's', ctrlKey: true })
+    await new Promise(r => setTimeout(r, 30))
+    expect(api.update).not.toHaveBeenCalled()
+    fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(api.update).toHaveBeenCalledTimes(1))
+    expect(api.updateStatus).not.toHaveBeenCalled()
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ kind: 'ok', title: 'Zapisano TEST/Z/2/10/26' })))
+  })
+
+  it('zapis zablokowany, dopóki czegoś brakuje: powód w dymku tym tonem co w przyjęciu, klik w przycisk przenosi kursor do braku', async () => {
+    mount()
+    await waitFor(() => expect(cmd('save-confirm')?.tip).toBe('wybierz klienta (i jeszcze 1 brak)'))
+    expect(cmd('save-confirm')?.disabled).toBe(true)
+    expect(cmd('save')?.disabled).toBe(true)
+    const b = naPasku('Zapisz i potwierdź')
+    expect(b.getAttribute('aria-disabled')).toBe('true')
+    expect(b.getAttribute('data-tip')).toBe('Zapisz i potwierdź: wybierz klienta (i jeszcze 1 brak)')
+    pole('Rodzaj, pozycja 1').focus()
+    fireEvent.click(b)
+    await waitFor(() => expect(document.activeElement).toBe(pole('Klient')))
+    expect(screen.getByText('Wybierz klienta.')).toBeTruthy()
+    expect(api.create).not.toHaveBeenCalled()
+    await wybierz('Klient', 'tes', /TEST/)
+    await waitFor(() => expect(cmd('save-confirm')?.tip).toBe('wpisz pierwszą pozycję'))
+    // Skrót przy brakach też prowadzi do braku (w przyjęciu milczał).
+    fireEvent.keyDown(pole('Termin wyjazdu'), { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(document.activeElement).toBe(pole('Rodzaj, pozycja 1')))
+    await wybierz('Rodzaj, pozycja 1', 'udo', /KEBAB UDO/); await wybierz('Receptura, pozycja 1', 'bey', /BEYAZ/)
+    typ('Gramatura kg, pozycja 1', '25')
+    await waitFor(() => expect(cmd('save-confirm')?.tip).toBe('poz. 1 — wpisz ilość'))
+    typ('Ilość sztuk, pozycja 1', '8')
+    await waitFor(() => expect(cmd('save-confirm')?.disabled).toBe(false))
+    expect(naPasku('Zapisz i potwierdź').getAttribute('data-tip')).toBeNull()
+  })
+
+  it('termin wyjazdu: Dziś / Jutro / Pojutrze, litera w polu daty i najbliższy dzień tygodnia z listy', async () => {
+    mount()
+    await screen.findByRole('group', { name: 'Szybki wybór terminu wyjazdu' })
+    const termin = pole('Termin wyjazdu')
+    expect(screen.getByText(/Bez terminu zamówienie trafi na Pulpicie/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Jutro' }))
+    expect(termin.value).toBe(poDniach(dzisIso(), 1))
+    expect(screen.getByRole('button', { name: 'Jutro' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByText(/^jutro · /)).toBeTruthy()
+    await waitFor(() => expect(document.activeElement).toBe(pole('Rodzaj, pozycja 1'))) // wybrany termin — dalej do pozycji
+    fireEvent.keyDown(termin, { key: 'p' })
+    expect(termin.value).toBe(poDniach(dzisIso(), 2))
+    expect(screen.getByRole('button', { name: 'Pojutrze' }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'Dzień tygodnia' }))
+    const dzien = najblizszeDni(dzisIso())[4]
+    fireEvent.click(await screen.findByRole('menuitemcheckbox', { name: new RegExp(`${dzien.dzien} ${dzien.dzienMies}`) }))
+    expect(termin.value).toBe(dzien.iso)
+    expect(screen.getByRole('button', { name: `Dzień tygodnia: ${dzien.dzien} ${dzien.dzienMies}` }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('„Zamknij bez zapisu” (nie „Odrzuć”) — przy zmianach okno pyta tym samym słowem', async () => {
+    const { onDone } = mount()
+    await wybierz('Klient', 'tes', /TEST/)
+    expect(screen.queryByRole('button', { name: /Odrzuć/ })).toBeNull()
+    fireEvent.click(naPasku('Zamknij bez zapisu'))
+    const okno = await screen.findByRole('dialog', { name: 'Zamknąć bez zapisu?' })
+    fireEvent.click(within(okno).getByRole('button', { name: 'Zamknij bez zapisu' }))
+    expect(onDone).toHaveBeenCalledWith()
   })
 })

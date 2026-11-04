@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Plus, Trash2, Save, CheckCheck, X } from 'lucide-react'
-import { useApp, CommandBar, Dialog, type Cmd } from '../../../shell/context'
+import { Plus, Trash2, Save, CheckCheck, X, ChevronDown } from 'lucide-react'
+import { useApp, useMenu, Menu, CommandBar, Dialog, type Cmd, type MenuItem } from '../../../shell/context'
 import { useOrders } from '../../../data/store'
-import { kg, num as fmtNum } from '../../../data/model'
+import { kg, num as fmtNum, weekday, fmtDay, ORDER_STATUS, type OrderStatus } from '../../../data/model'
+import { ile } from '../../../data/tekst'
 import { FlagIcon } from '../../../ui/Glyphs'
 import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, clientsApi, packagingApi, productTypesApi, recipesApi } from '@/lib/api'
@@ -10,20 +11,26 @@ import type { ClientOrder } from '@/lib/mockApi'
 import type { LineForm } from '@/features/orders/order-form/types'
 import { filterRecipesFor } from '@/features/orders/order-form/types'
 import { num } from '@/features/orders/order-entry/model'
-import { doDto, kolejnaPozycja, nowyFormularz, ostrzezenieUsuniecia, pierwszyBrak, pustyWiersz, sumy, walidacja, wierszNastepny, zZamowienia, type FormZam, type PoleWiersza } from './model'
+import { braki, doDto, dzisIso, kolejnaPozycja, najblizszeDni, nowyFormularz, opisTerminu, ostrzezenieUsuniecia, pierwszyBrak, poDniach, pustyWiersz, sumy, walidacja, wierszNastepny, zZamowienia, type FormZam, type PoleWiersza } from './model'
 import { SzkieletBloku } from '../../../ui/Szkielet'
 import { Wybor } from '../../../ui/Wybor'
 import { PasekMasowania } from './PasekMasowania'
 import { PROBA } from '../../../proba'
 
-const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+/** Okno dialogowe otwarte w bieżącej karcie albo nad aplikacją — skróty formularza wtedy milczą. */
+const oknoOtwarte = () => [...document.querySelectorAll('.dialog-wrap')].some(d => d.getClientRects().length > 0)
+/** Szybki wybór terminu: litera w polu daty (D, J, P) = przycisk obok. */
+const SZYBKIE: Array<[string, number]> = [['Dziś', 0], ['Jutro', 1], ['Pojutrze', 2]]
+const dzienZIso = (iso: string) => new Date(`${iso}T00:00:00`)
 
 /**
  * Nowe zamówienie / edycja zamówienia — karta robocza. Zapis przez
  * clientOrdersApi.create/update (ten sam DTO co stary MES), potem odświeżenie
  * listy z serwera. Ręka nie schodzi z klawiatury: wybór z listy przenosi kursor
  * do następnego pola, Enter w ilości — do następnej pozycji, która ma już rodzaj,
- * recepturę i tuleję z poprzedniej (czeka na gramaturę i ilość). Ctrl+Enter zapisuje.
+ * recepturę i tuleję z poprzedniej (czeka na gramaturę i ilość).
+ * Ctrl+Enter = główne polecenie (jak „Przyjmij dostawę” w przyjęciu): nowe i szkic —
+ * „Zapisz i potwierdź”, potwierdzone — „Zapisz zmiany”. Ctrl+S = „Zapisz szkic”.
  */
 export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDone }: {
   tabId: string; orderId?: string; copyFromId?: string; active: boolean; setCmds: (c: Cmd[]) => void; onDone: (savedId?: string) => void
@@ -68,6 +75,9 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
   }, [orderId, copyFromId, zrodlo, packRes.data, s.packaging])
 
   const editing = !!orderId
+  // Nowe i szkic: „Zapisz i potwierdź” (Ctrl+Enter) + „Zapisz szkic” (Ctrl+S).
+  // Potwierdzone: samo „Zapisz zmiany” (Ctrl+Enter) — nie ma czego potwierdzać.
+  const doPotwierdzenia = !editing || existing?.status === 'draft'
   const blokada = editing && existing && existing.status !== 'draft' && existing.status !== 'confirmed'
     ? 'Edytować można tylko zamówienie w statusie Szkic lub Potwierdzone.' : null
   const loadError = clientsRes.error || typesRes.error || recipesRes.error || packRes.error || orderRes.error
@@ -83,10 +93,11 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
   }
   const nastepny = blokada ? null : wierszNastepny(f.lines)
   const wiersze = nastepny ? [...f.lines, nastepny] : f.lines
-  const skocz = useCallback((i: number, pole: PoleWiersza) => requestAnimationFrame(() => {
-    const el = document.getElementById(`${tabId}-${pole}-${i}`) as HTMLInputElement | null
-    el?.focus(); el?.select()
-  }), [tabId])
+  const fokus = useCallback((id: string) => requestAnimationFrame(() => {
+    const el = document.getElementById(id) as HTMLInputElement | null
+    el?.focus(); el?.select?.()
+  }), [])
+  const skocz = useCallback((i: number, pole: PoleWiersza) => fokus(`${tabId}-${pole}-${i}`), [tabId, fokus])
   // Enter w ilości (albo uwagach): brakuje czegoś — wracamy do tego pola; komplet — następna pozycja.
   const poEnter = (i: number) => {
     const brak = pierwszyBrak(wiersze[i])
@@ -105,40 +116,81 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
   const errors = tried ? walidacja(f) : {}
   const errCount = Object.keys(errors).length
   const t = sumy(f)
+  const listaBrakow = useMemo(() => braki(f), [f])
+  const czegoBrak = listaBrakow.length
+    ? listaBrakow[0].opis + (listaBrakow.length > 1 ? ` (i jeszcze ${ile(listaBrakow.length - 1, 'brak', 'braki', 'braków')})` : '')
+    : null
+  // Dlaczego zapis jest zablokowany — słowami operatora, w dymku przycisku (jak w przyjęciu surowca).
+  const powod = blokada ? 'edytować można tylko szkic albo potwierdzone zamówienie'
+    : loadError ? 'nie udało się pobrać kartotek'
+    : !ready ? 'wczytywanie kartotek'
+    : saving ? 'trwa zapisywanie'
+    : czegoBrak
+
+  // Zablokowany „Zapisz” kliknięty (albo skrót przy brakach): pokazujemy błędy i kursor idzie do pierwszego braku.
+  const pokazBraki = () => {
+    if (blokada || !ready || saving) return
+    setTried(true)
+    const c = braki(f)[0]?.cel
+    if (!c) return
+    if ('i' in c) skocz(c.i, c.pole)
+    else fokus(`${tabId}-${c.pole === 'client' ? 'client' : c.pole === 'orderDate' ? 'data' : 'termin'}`)
+  }
+  const pokazRef = useRef(pokazBraki); pokazRef.current = pokazBraki
 
   const save = useCallback(async (potwierdz: boolean) => {
     if (lock.current || !ready || blokada) return
-    setTried(true)
-    if (Object.keys(walidacja(f)).length) return
+    if (braki(f).length) { pokazRef.current(); return }
     lock.current = true; setSaving(true); setBlad(null)
     try {
       const dto = doDto(f, s)
       const zapisane = editing && orderId ? await clientOrdersApi.update(orderId, dto) : await clientOrdersApi.create(dto)
       if (potwierdz && zapisane.status === 'draft') await clientOrdersApi.updateStatus(zapisane.id, 'confirmed')
       await refresh()
-      app.toast({ kind: 'ok', title: `${editing ? 'Zapisano' : 'Utworzono'} ${zapisane.orderNo}`, detail: `${t.n} poz. · ${fmtNum(t.szt)} szt. · ${kg(t.kg)}${potwierdz ? ' · potwierdzone' : !editing ? ' · szkic' : ''}` })
+      const miary = [zapisane.orderNo, `${t.n} poz. · ${fmtNum(t.szt)} szt. · ${kg(t.kg)}`].filter(Boolean).join(' · ')
+      // Szkic nie trafia do planowania — ostrzegamy, żeby nie został niepotwierdzony przez przeoczenie.
+      const szkic = !potwierdz && (zapisane.status ? zapisane.status === 'draft' : doPotwierdzenia)
+      app.toast(szkic
+        ? { kind: 'warn', title: 'Zapisano jako szkic — nie trafi do planowania', detail: `${miary}. Potwierdź je w panelu zamówienia.` }
+        : { kind: 'ok', title: `${editing ? 'Zapisano' : 'Utworzono'} ${zapisane.orderNo ?? ''}`.trim(), detail: `${t.n} poz. · ${fmtNum(t.szt)} szt. · ${kg(t.kg)}${potwierdz ? ' · potwierdzone' : ''}` })
       setDirty(false)
       onDone(zapisane.id)
     } catch (e) {
-      // Odmowa serwera jego słowami (np. zamówienie z wystawionym WM, pozycja ruszona).
+      // Odmowa jej własnymi słowami (np. zamówienie z wystawionym WM, pozycja ruszona).
       setBlad(e instanceof Error ? e.message : 'Nie udało się zapisać zamówienia')
     } finally {
       lock.current = false; setSaving(false)
     }
-  }, [ready, blokada, f, s, editing, orderId, refresh, app, t.n, t.szt, t.kg, onDone])
+  }, [ready, blokada, f, s, editing, orderId, refresh, app, t.n, t.szt, t.kg, onDone, doPotwierdzenia])
 
   const saveRef = useRef(save); saveRef.current = save
   const close = useCallback(() => { if (dirty) setDiscardAsk(true); else onDone() }, [dirty, onDone])
+  const zablokowane = !!powod
   const cmds = useMemo<Cmd[]>(() => [
-    ...(!editing || existing?.status === 'draft' ? [{ id: 'save-confirm', group: 1, label: editing ? 'Zapisz i potwierdź' : 'Zapisz i potwierdź', icon: <CheckCheck size={17} />, primary: true, disabled: saving || !!blokada, run: () => saveRef.current(true) }] : []),
-    { id: 'save', group: 1, label: editing ? 'Zapisz zmiany' : 'Zapisz szkic', icon: <Save size={17} />, kbd: 'Ctrl+Enter', primary: editing && existing?.status !== 'draft', disabled: saving || !!blokada, run: () => saveRef.current(false) },
-    { id: 'add-line', group: 2, label: 'Dodaj pozycję', icon: <Plus size={17} />, disabled: !!blokada, run: () => addRef.current() },
-    { id: 'discard', group: 3, label: editing ? 'Zamknij bez zapisu' : 'Odrzuć', icon: <X size={17} />, run: close },
-  ], [editing, existing?.status, saving, blokada, close])
+    ...(doPotwierdzenia ? [{ id: 'save-confirm', group: 1, label: 'Zapisz i potwierdź', icon: <CheckCheck size={17} />, kbd: 'Ctrl+Enter', primary: true,
+      disabled: zablokowane, tip: powod ?? undefined, onDisabledClick: () => pokazRef.current(), run: () => saveRef.current(true) }] : []),
+    { id: 'save', group: 1, label: doPotwierdzenia ? 'Zapisz szkic' : 'Zapisz zmiany', icon: <Save size={17} />, kbd: doPotwierdzenia ? 'Ctrl+S' : 'Ctrl+Enter', primary: !doPotwierdzenia,
+      disabled: zablokowane, tip: powod ?? undefined, onDisabledClick: () => pokazRef.current(), run: () => saveRef.current(false) },
+    { id: 'add-line', group: 2, label: 'Dodaj pozycję', icon: <Plus size={17} />, disabled: !!blokada, tip: blokada ? 'edytować można tylko szkic albo potwierdzone zamówienie' : undefined, run: () => addRef.current() },
+    // „Odrzuć” brzmiało jak odmowa klientowi — to tylko zamknięcie karty bez zapisu.
+    { id: 'discard', group: 3, label: 'Zamknij bez zapisu', icon: <X size={17} />, run: close },
+  ], [doPotwierdzenia, zablokowane, powod, blokada, close])
   useEffect(() => { setCmds(cmds) }, [cmds, setCmds])
+  // Skróty: ref, żeby nasłuch nie zależał od formularza (bez przepinania przy każdym znaku).
+  const skrotRef = useRef({ glowne: () => {}, szkic: null as null | (() => void) })
+  skrotRef.current = { glowne: () => void saveRef.current(doPotwierdzenia), szkic: doPotwierdzenia ? () => void saveRef.current(false) : null }
   useEffect(() => {
     if (!active) return
-    const key = (e: KeyboardEvent) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); void saveRef.current(false) } }
+    const key = (e: KeyboardEvent) => {
+      // Alt odpada: Ctrl+Alt to AltGr (ś, ą…) w polskim układzie — pisanie nie może zapisywać.
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return
+      const enter = e.key === 'Enter', szkic = !e.shiftKey && e.key.toLowerCase() === 's'
+      if (!enter && !szkic) return
+      e.preventDefault() // Ctrl+S nie otwiera „Zapisz stronę” przeglądarki
+      if (oknoOtwarte()) return
+      if (enter) skrotRef.current.glowne()
+      else skrotRef.current.szkic?.()
+    }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
   }, [active])
@@ -148,58 +200,88 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
   const rodzaje = useMemo(() => s.productTypes.map(p => ({ id: p.id, label: p.name })), [s.productTypes])
   const tuleje = useMemo(() => s.packaging.map(p => ({ id: p.id, label: p.name })), [s.packaging])
   const title = editing ? `Edycja ${existing?.orderNo ?? ''}` : copyFromId ? `Nowe — kopia ${zrodlo?.orderNo ?? ''}` : 'Nowe zamówienie'
+  const stan = existing ? `${(ORDER_STATUS[existing.status as OrderStatus] ?? existing.status).toLowerCase()} · ${dirty ? 'niezapisane zmiany' : 'bez zmian'}` : null
+
+  // Termin wyjazdu: trzy najczęstsze jednym kliknięciem, reszta tygodnia z listy dni.
+  const dzis = dzisIso()
+  const dni = useMemo(() => najblizszeDni(dzis), [dzis])
+  const zListy = dni.slice(2).find(d => d.iso === f.deliveryDate)
+  const menuDni = useMenu()
+  const ustawTermin = (iso: string) => { upd({ deliveryDate: iso }); skocz(0, pierwszyBrak(f.lines[0]) ?? 'p') }
+  const dniMenu: MenuItem[] = [{ header: 'Najbliższy dzień tygodnia' },
+    ...dni.map(d => ({ label: `${d.dzien} ${d.dzienMies}${d.rel ? ` — ${d.rel}` : ''}`, checked: f.deliveryDate === d.iso, onSelect: () => ustawTermin(d.iso) }))]
+  const opisDaty = opisTerminu(f.deliveryDate, dzis)
+  const wierszeUwag = f.notes ? f.notes.split('\n').length : 0
+  const podpowiedz = blokada ? null : doPotwierdzenia ? 'Ctrl+Enter — zapisz i potwierdź · Ctrl+S — zapisz szkic' : 'Ctrl+Enter — zapisz zmiany'
 
   return (
     <>
-      <CommandBar title={title} count={editing ? (dirty ? 'niezapisane zmiany' : 'bez zmian') : 'numer nada serwer przy zapisie'} cmds={cmds} />
+      <CommandBar title={title} showKbd cmds={cmds}
+        count={stan ? <span data-tip="Zmienione pozycje zachowują swoje miejsce w rozpisie palet.">{stan}</span> : 'numer zostanie nadany przy zapisie'} />
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         <div className="dock-pad">
           {loadError && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div>Nie udało się pobrać danych: {loadError}</div></div>}
           {!ready && !loadError && <SzkieletBloku linie={6} opis="Pobieranie kartotek…" />}
           {blokada && <div className="note warn" role="alert"><FlagIcon level="warn" size={15} /><div>{blokada}</div></div>}
-          {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Serwer odmówił zapisu:</b> {blad}</div></div>}
-          {errCount > 0 && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Popraw {errCount} {errCount === 1 ? 'pole' : errCount < 5 ? 'pola' : 'pól'}.</b> Błędne pola są oznaczone na czerwono.</div></div>}
+          {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Nie zapisano zamówienia:</b> {blad}</div></div>}
+          {errCount > 0 && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Popraw {ile(errCount, 'pole', 'pola', 'pól')}.</b> Błędne pola są oznaczone na czerwono.</div></div>}
 
-          <div className="ov-grid" style={{ ['--ov-cols' as string]: 'minmax(0, 1.3fr) minmax(0, 1fr)' }}>
-            <div className="box ov-card">
-              <h4>Klient i termin</h4>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 12px' }}>
-                <label style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span className="label">Klient</span>
-                  <Wybor id={`${tabId}-client`} label="Klient" items={klienci} value={f.clientId} invalid={!!errors.client} disabled={!!blokada}
-                    placeholder="Wpisz nazwę klienta…" autoFocus={!editing && !copyFromId}
-                    onChange={v => upd({ clientId: v })} onDalej={() => requestAnimationFrame(() => document.getElementById(`${tabId}-termin`)?.focus())} />
-                  {errors.client && <span className="crit-ink" style={{ fontSize: 'var(--fs-sm)' }}>{errors.client}</span>}
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span className="label">Data zamówienia</span>
-                  <input type="date" className={`field${errors.orderDate ? ' invalid' : ''}`} value={f.orderDate} onChange={e => upd({ orderDate: e.target.value })} disabled={!!blokada} />
-                </label>
-                <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span className="label">Termin wyjazdu</span>
-                  <input type="date" id={`${tabId}-termin`} className={`field${errors.deliveryDate ? ' invalid' : ''}`} value={f.deliveryDate} min={f.orderDate} onChange={e => upd({ deliveryDate: e.target.value })} disabled={!!blokada}
-                    onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); skocz(0, pierwszyBrak(f.lines[0]) ?? 'p') } }} />
-                </label>
-                {errors.deliveryDate && <span className="crit-ink" style={{ gridColumn: '1 / -1', fontSize: 'var(--fs-sm)', marginTop: -4 }}>{errors.deliveryDate}</span>}
-                <label style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span className="label">Uwagi</span>
-                  <textarea className="field" style={{ height: 56, padding: '7px 10px', resize: 'vertical' }} value={f.notes} onChange={e => upd({ notes: e.target.value })} disabled={!!blokada} placeholder="np. awizacja, etykiety w języku klienta" />
-                </label>
+          {/* Klient i termin w jednym niskim wierszu — pozycje zaczynają się wysoko (laptop 1366 × 768). */}
+          <div className="box ed-head">
+            <div className="fld ed-klient">
+              <label className="label" htmlFor={`${tabId}-client`}>Klient</label>
+              <Wybor id={`${tabId}-client`} label="Klient" items={klienci} value={f.clientId} invalid={!!errors.client} disabled={!!blokada}
+                placeholder="Wpisz nazwę klienta…" autoFocus={!editing && !copyFromId}
+                onChange={v => upd({ clientId: v })} onDalej={() => fokus(`${tabId}-termin`)} />
+              {errors.client ? <span className="ed-pomoc crit">{errors.client}</span>
+                : klient && <span className="ed-pomoc" data-tip={klient.name}>{[klient.displayName && klient.displayName !== klient.name ? klient.name : '', klient.city].filter(Boolean).join(' · ')}</span>}
+            </div>
+            <div className="fld ed-termin">
+              <label className="label" htmlFor={`${tabId}-termin`}>Termin wyjazdu</label>
+              <div className="ed-termin-c">
+                <input type="date" id={`${tabId}-termin`} className={`field${errors.deliveryDate ? ' invalid' : ''}`} value={f.deliveryDate} min={f.orderDate} disabled={!!blokada}
+                  aria-describedby={`${tabId}-termin-opis`} data-tip="D — dziś · J — jutro · P — pojutrze · Enter — do pozycji"
+                  onChange={e => upd({ deliveryDate: e.target.value })}
+                  onKeyDown={e => {
+                    if (e.ctrlKey || e.metaKey || e.altKey) return
+                    if (e.key === 'Enter') { e.preventDefault(); skocz(0, pierwszyBrak(f.lines[0]) ?? 'p'); return }
+                    const n = e.key.length === 1 ? 'djp'.indexOf(e.key.toLowerCase()) : -1
+                    if (n >= 0) { e.preventDefault(); upd({ deliveryDate: poDniach(dzis, n) }) }
+                  }} />
+                <div className="seg ed-szybko" role="group" aria-label="Szybki wybór terminu wyjazdu">
+                  {SZYBKIE.map(([nazwa, n]) => {
+                    const iso = poDniach(dzis, n)
+                    return <button key={nazwa} type="button" aria-pressed={f.deliveryDate === iso} disabled={!!blokada}
+                      data-tip={`${opisTerminu(iso, dzis)} ${iso.slice(8, 10)}.${iso.slice(5, 7)} · w polu daty klawisz ${nazwa[0]}`}
+                      onClick={() => ustawTermin(iso)}>{nazwa}</button>
+                  })}
+                  <button type="button" aria-haspopup="menu" aria-expanded={!!menuDni.anchor} aria-pressed={!!zListy} disabled={!!blokada}
+                    aria-label={zListy ? `Dzień tygodnia: ${zListy.dzien} ${zListy.dzienMies}` : 'Dzień tygodnia'} onClick={menuDni.open}>
+                    {zListy ? `${weekday(dzienZIso(zListy.iso))} ${fmtDay(dzienZIso(zListy.iso))}` : 'Dzień tygodnia'}<ChevronDown size={14} aria-hidden />
+                  </button>
+                </div>
+              </div>
+              <span id={`${tabId}-termin-opis`} className={`ed-pomoc${errors.deliveryDate ? ' crit' : ''}`}>
+                {errors.deliveryDate ?? (opisDaty || 'Bez terminu zamówienie trafi na Pulpicie do grupy „Bez terminu”.')}
+              </span>
+            </div>
+            <div className="fld ed-uwagi">
+              <span className="ed-lbl"><label className="label" htmlFor={`${tabId}-uwagi`}>Uwagi</label>{wierszeUwag > 1 && <span className="label faint">· {ile(wierszeUwag, 'wiersz', 'wiersze', 'wierszy')}</span>}</span>
+              {/* Jedna linia; po kliknięciu rozwija się nad tabelą, nie przesuwając pozycji. */}
+              <div className="ed-uwagi-w">
+                <textarea id={`${tabId}-uwagi`} className="field" rows={1} value={f.notes} onChange={e => upd({ notes: e.target.value })} disabled={!!blokada}
+                  placeholder="np. awizacja, język etykiet" />
               </div>
             </div>
-            <div className="box ov-card">
-              <h4>Podsumowanie</h4>
-              <p className="muted" style={{ margin: 0 }}>{klient ? <><b style={{ color: 'var(--ink-1)' }}>{klient.displayName || klient.name}</b>{klient.displayName && klient.displayName !== klient.name ? ` · ${klient.name}` : ''}</> : 'Wybierz klienta.'}</p>
-              <div className="req-sum" style={{ borderTop: '1px solid var(--line-soft)', paddingTop: 10 }}>
-                <div className="f"><span className="k">Pozycje</span><span className="v">{t.n}</span></div>
-                <div className="f"><span className="k">Sztuki</span><span className="v">{fmtNum(t.szt)}</span></div>
-                <div className="f"><span className="k">Masa</span><span className="v">{kg(t.kg)}</span></div>
-              </div>
-              {existing && <p className="muted" style={{ fontSize: 'var(--fs-sm)', margin: 0 }}>Status: {existing.status === 'draft' ? 'szkic' : existing.status === 'confirmed' ? 'potwierdzone' : existing.status}. Pozycje zachowują swoje id — rozpis palet zostaje.</p>}
+            <div className="fld ed-data">
+              <label className="label" htmlFor={`${tabId}-data`}>Data zamówienia</label>
+              <input type="date" id={`${tabId}-data`} className={`field${errors.orderDate ? ' invalid' : ''}`} value={f.orderDate} onChange={e => upd({ orderDate: e.target.value })} disabled={!!blokada} />
+              {errors.orderDate && <span className="ed-pomoc crit">{errors.orderDate}</span>}
             </div>
           </div>
+          {menuDni.anchor && <Menu anchor={menuDni.anchor} items={dniMenu} onClose={menuDni.close} />}
 
-          <div className="sect-h"><h3>Pozycje</h3><span className="sub">Wpisz kilka liter i Enter — wybór przenosi do następnego pola · Enter w ilości — następna pozycja z tym samym rodzajem, recepturą i tuleją · Ctrl+Enter — zapisz</span>
+          <div className="sect-h"><h3>Pozycje</h3><span className="sub"><span className="hide-m">Kilka liter i Enter — wybór i następne pole · </span>Enter w ilości — następna pozycja z tym samym rodzajem, recepturą i tuleją{podpowiedz && ` · ${podpowiedz}`}</span>
             <div className="tools"><button className="btn sm" onClick={addLine} disabled={!!blokada}><Plus size={15} />Dodaj pozycję</button></div></div>
           <div className="box">
             <table className="tbl editor-tbl">
@@ -238,16 +320,18 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
                           onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); poEnter(i) } }} /></td>
                         <td>{!nowy && <button className="btn ghost icon sm" style={{ width: 28 }} disabled={!!blokada} onClick={() => (l.id ? setUsunIdx(i) : removeLine(i))} aria-label={`Usuń pozycję ${i + 1}`}><Trash2 size={15} /></button>}</td>
                       </tr>
-                      {errs.length > 0 && <tr className="err-row"><td /><td colSpan={8}><span className="crit-ink" style={{ fontSize: 'var(--fs-sm)' }}>{errs.join(' ')}</span></td></tr>}
+                      {/* Kolumna Uwagi znika na laptopie (hide-m) — wiersz błędu musi mieć tyle samo kolumn, inaczej tabela dostaje pustą kolumnę z prawej. */}
+                      {errs.length > 0 && <tr className="err-row"><td /><td colSpan={6}><span className="crit-ink" style={{ fontSize: 'var(--fs-sm)' }}>{errs.join(' ')}</span></td><td className="hide-m" /><td /></tr>}
                     </React.Fragment>
                   )
                 })}
               </tbody>
+              {/* Suma przyklejona do dołu przewijanego obszaru — widać ją przy każdej długości zamówienia. */}
               <tfoot><tr><td /><td colSpan={4}>Razem — {t.n} poz.</td><td className="num">{fmtNum(t.szt)} <span className="sub">szt.</span></td><td className="num">{kg(t.kg)}</td><td className="hide-m" /><td /></tr></tfoot>
             </table>
           </div>
           {errors.lines && <div className="note crit"><FlagIcon level="crit" size={15} /><div>{errors.lines}</div></div>}
-          {PROBA && <div className="note info"><FlagIcon level="info" size={15} /><div>Zapis idzie na serwer — do KOPII bazy w wersji próbnej. Nowe zamówienie powstaje jako szkic; „Zapisz i potwierdź” od razu je potwierdza.</div></div>}
+          {PROBA && <div className="note info"><FlagIcon level="info" size={15} /><div>W wersji próbnej zapis trafia do KOPII bazy. „Zapisz szkic” zostawia zamówienie poza planowaniem, „Zapisz i potwierdź” od razu je potwierdza.</div></div>}
         </div>
       </div>
       {ready && !blokada && <PasekMasowania lines={f.lines} recipes={s.recipes} />}
@@ -258,7 +342,7 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
         {ostrzezenieUsuniecia(existing, f.lines[usunIdx]?.id) && <div className="note warn"><FlagIcon level="warn" size={15} /><div>{ostrzezenieUsuniecia(existing, f.lines[usunIdx]?.id)}</div></div>}
       </Dialog>}
       {discardAsk && <Dialog title="Zamknąć bez zapisu?" onClose={() => setDiscardAsk(false)}
-        footer={<><button className="btn" onClick={() => setDiscardAsk(false)} data-autofocus>Wróć do edycji</button><button className="btn primary" style={{ background: 'var(--crit)', borderColor: 'var(--crit)' }} onClick={() => { setDiscardAsk(false); onDone() }}>Odrzuć zmiany</button></>}>
+        footer={<><button className="btn" onClick={() => setDiscardAsk(false)} data-autofocus>Wróć do edycji</button><button className="btn primary" style={{ background: 'var(--crit)', borderColor: 'var(--crit)' }} onClick={() => { setDiscardAsk(false); onDone() }}>Zamknij bez zapisu</button></>}>
         <p>Niezapisane zmiany przepadną.</p>
       </Dialog>}
     </>

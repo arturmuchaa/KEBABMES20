@@ -11,6 +11,7 @@ import type { ClientOrder, CreateClientOrderDto } from '@/lib/mockApi'
 import { emptyLine, type LineForm } from '@/features/orders/order-form/types'
 import { num } from '@/features/orders/order-entry/model'
 import { sortOrderLines } from '@/features/orders/orderLineSort'
+import { ile } from '../../../data/tekst'
 
 export interface FormZam {
   clientId: string
@@ -82,6 +83,66 @@ export function walidacja(f: FormZam): Bledy {
   return e
 }
 
+/** Miejsce, które blokuje zapis — tam idzie kursor po kliknięciu zablokowanego „Zapisz”. */
+export type CelBraku = { pole: 'client' | 'orderDate' | 'deliveryDate' } | { pole: Exclude<PoleWiersza, 't'>; i: number }
+export interface Brak { cel: CelBraku; opis: string }
+
+const opisPola = (p: Exclude<PoleWiersza, 't'>, l: LineForm) =>
+  p === 'p' ? 'wybierz rodzaj'
+  : p === 'r' ? 'wybierz recepturę'
+  : p === 'k' ? (l.kgPerUnit.trim() ? 'gramatura musi być większa od zera' : 'wpisz gramaturę')
+  : !l.qty.trim() ? 'wpisz ilość' : /^\d+$/.test(l.qty.trim()) ? 'ilość musi być większa od zera' : 'ilość w pełnych sztukach'
+
+/**
+ * Braki formularza w kolejności z ekranu (klient, daty, pozycje od góry), słowami
+ * operatora — tym samym tonem co przyjęcie surowca („wybierz dostawcę”). Numer
+ * pozycji jak w kolumnie Lp. Pusta lista ⇔ walidacja() bez błędów.
+ */
+export function braki(f: FormZam): Brak[] {
+  const b: Brak[] = []
+  if (!f.clientId) b.push({ cel: { pole: 'client' }, opis: 'wybierz klienta' })
+  if (!f.orderDate) b.push({ cel: { pole: 'orderDate' }, opis: 'podaj datę zamówienia' })
+  if (f.deliveryDate && f.orderDate && f.deliveryDate < f.orderDate) b.push({ cel: { pole: 'deliveryDate' }, opis: 'popraw termin wyjazdu — jest przed datą zamówienia' })
+  if (!f.lines.some(l => !pustyWiersz(l))) b.push({ cel: { pole: (f.lines[0] && pierwszyBrak(f.lines[0])) || 'p', i: 0 }, opis: 'wpisz pierwszą pozycję' })
+  let lp = 0
+  f.lines.forEach((l, i) => {
+    if (pustyWiersz(l)) return
+    lp += 1
+    const p = pierwszyBrak(l)
+    if (p) b.push({ cel: { pole: p, i }, opis: `poz. ${lp} — ${opisPola(p, l)}` })
+  })
+  return b
+}
+
+// ─── Termin wyjazdu: szybki wybór i opis słowami ─────────────────────────
+const DNI = ['niedziela', 'poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota']
+const dd = (n: number) => String(n).padStart(2, '0')
+const isoDnia = (d: Date) => `${d.getFullYear()}-${dd(d.getMonth() + 1)}-${dd(d.getDate())}`
+const zIso = (s: string) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, (m || 1) - 1, d || 1) }
+/** Dzisiejsza data (czas lokalny) jako yyyy-mm-dd — tak trzyma ją pole daty. */
+export const dzisIso = () => isoDnia(new Date())
+/** Data `n` dni po `od` (yyyy-mm-dd, czas lokalny — zmiana czasu nie przesuwa dnia). */
+export const poDniach = (od: string, n: number) => { const d = zIso(od); return isoDnia(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n)) }
+const roznica = (a: string, b: string) => Math.round((zIso(a).getTime() - zIso(b).getTime()) / 86_400_000)
+
+/** Termin słowami pod polem daty — natywne pole nie pokazuje dnia tygodnia. */
+export function opisTerminu(termin: string, dzis: string): string {
+  if (!termin) return ''
+  const n = roznica(termin, dzis)
+  const dzien = DNI[zIso(termin).getDay()]
+  if (n === 0) return `dziś · ${dzien}`
+  if (n === 1) return `jutro · ${dzien}`
+  if (n === 2) return `pojutrze · ${dzien}`
+  if (n === -1) return `wczoraj · ${dzien}`
+  return n > 0 ? `${dzien} · za ${ile(n, 'dzień', 'dni', 'dni')}` : `${dzien} · ${ile(-n, 'dzień', 'dni', 'dni')} temu`
+}
+
+/** Najbliższy każdy dzień tygodnia, od jutra — „na wtorek” to jedno kliknięcie. */
+export const najblizszeDni = (dzis: string) => Array.from({ length: 7 }, (_, k) => {
+  const iso = poDniach(dzis, k + 1)
+  return { iso, dzien: DNI[zIso(iso).getDay()], dzienMies: `${iso.slice(8, 10)}.${iso.slice(5, 7)}`, rel: k === 0 ? 'jutro' : k === 1 ? 'pojutrze' : '' }
+})
+
 /** Formularz → DTO, nazwy z kartotek (jak w starym edytorze). */
 export function doDto(f: FormZam, s: Slowniki): CreateClientOrderDto {
   return {
@@ -129,7 +190,7 @@ export function ostrzezenieUsuniecia(o: ClientOrder | null, lineId?: string): st
   const l = o.lines.find(x => x.id === lineId)
   if (!l) return null
   const czesci = [(l.qtyStock ?? 0) > 0 ? `${l.qtyStock} szt. w magazynie` : '', (l.qtyDelivered ?? 0) > 0 ? `${l.qtyDelivered} szt. wydane` : ''].filter(Boolean)
-  return czesci.length ? `Ta pozycja ma już ${czesci.join(' i ')}. Serwer może odmówić usunięcia.` : null
+  return czesci.length ? `Ta pozycja ma już ${czesci.join(' i ')}. Zapis z jej usunięciem może zostać odrzucony.` : null
 }
 
 export const sumy = (f: FormZam) => f.lines.filter(l => !pustyWiersz(l)).reduce((a, l) => ({ n: a.n + 1, szt: a.szt + num(l.qty), kg: a.kg + num(l.qty) * num(l.kgPerUnit) }), { n: 0, szt: 0, kg: 0 })

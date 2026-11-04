@@ -250,9 +250,15 @@ export interface Cmd {
   /** Tylko w menu, nie na pasku. */
   menuOnly?: boolean
   danger?: boolean
+  /** Klik w zablokowane polecenie — np. formularz przenosi kursor do pierwszego brakującego pola. */
+  onDisabledClick?: () => void
 }
 
-export function CommandBar({ title, count, icon, cmds, right }: { title: string; count?: React.ReactNode; icon?: React.ReactNode; cmds: Cmd[]; right?: React.ReactNode }) {
+/**
+ * `showKbd` — skróty widoczne na przyciskach (formularze pisane z klawiatury);
+ * pozostałe paski pokazują skrót tylko w dymku.
+ */
+export function CommandBar({ title, count, icon, cmds, right, showKbd }: { title: string; count?: React.ReactNode; icon?: React.ReactNode; cmds: Cmd[]; right?: React.ReactNode; showKbd?: boolean }) {
   const [open, setOpen] = useState<{ id: string; el: Element } | null>(null)
   const { prosty } = useApp()
   // Widok prosty: na pasku tylko główne polecenia; reszta zostaje w menu modułu i pod skrótami.
@@ -264,10 +270,11 @@ export function CommandBar({ title, count, icon, cmds, right }: { title: string;
         <React.Fragment key={c.id}>
           {i > 0 && visible[i - 1].group !== c.group && <span className="cmd-sep" />}
           <button className={`cmd${c.primary ? ' primary' : ''}`} aria-disabled={c.disabled || undefined}
-            data-tip={c.disabled ? `${c.label}: ${c.tip ?? 'wybierz pozycję na liście'}` : [c.opt ? c.label : null, c.tip, c.kbd].filter(Boolean).join(' · ') || undefined}
+            data-tip={c.disabled ? `${c.label}: ${c.tip ?? 'wybierz pozycję na liście'}` : [c.opt ? c.label : null, c.tip, showKbd ? null : c.kbd].filter(Boolean).join(' · ') || undefined}
             aria-haspopup={c.menu ? 'menu' : undefined} aria-label={c.label}
-            onClick={e => { if (c.disabled) return; if (c.menu) { const el = e.currentTarget; setOpen(o => o?.id === c.id ? null : { id: c.id, el }) } else c.run?.() }}>
-            {c.icon}<span className={`lbl${c.opt ? ' opt' : ''}`}>{c.label}</span>{c.menu && <ChevronDownSmall />}
+            aria-keyshortcuts={showKbd && c.kbd ? c.kbd.replace(/Ctrl/g, 'Control') : undefined}
+            onClick={e => { if (c.disabled) { c.onDisabledClick?.(); return } if (c.menu) { const el = e.currentTarget; setOpen(o => o?.id === c.id ? null : { id: c.id, el }) } else c.run?.() }}>
+            {c.icon}<span className={`lbl${c.opt ? ' opt' : ''}`}>{c.label}</span>{showKbd && c.kbd && <span className="kbd" aria-hidden="true">{c.kbd}</span>}{c.menu && <ChevronDownSmall />}
           </button>
         </React.Fragment>
       ))}
