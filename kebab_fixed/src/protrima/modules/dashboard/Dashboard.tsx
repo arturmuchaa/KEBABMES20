@@ -15,6 +15,11 @@ import type { RawBatch } from '@/types'
 import { fig } from '../../ui/Fig'
 import { wProtrima } from '../../shell/modules'
 import { odm, krotkaNazwa } from '../../data/tekst'
+import { wariant } from '../../warianty'
+import { DoZrobieniaPanel } from './warianty/DoZrobienia'
+
+/** Wariant Pulpitu do porównania: A — „Wymaga uwagi”, B — „Do zrobienia teraz” (te same słowa co kolumna „Dalej”). */
+const W = wariant('pulpit')
 
 type Open = Array<{ o: Order; m: ReturnType<typeof computeMetrics> }>
 interface PlanLite { id: string; planNo: string; planDate: string; status: string; lines: Array<{ qty: number; kgPerUnit: number; qtyDone: number; recipeName: string }> }
@@ -66,7 +71,7 @@ export function Dashboard({ active, setCtx, setCmds }: { active: boolean; setCtx
       {/* Kolejność = pytania biura rano: co się dzieje → co się pali i na kiedy → co wyjeżdża i co się robi → surowiec. */}
       <div className="dash">
         <ProcessPanel open={open} ext={ext} />
-        <AttentionPanel open={open} ext={ext} />
+        {W === 'B' ? <DoZrobieniaPanel open={open} pending={ext.pending} haccp={ext.haccp} kursy={ext.kursy} /> : <AttentionPanel open={open} ext={ext} />}
         <DuePanel open={open} />
         <ShipmentsPanel kursy={ext.kursy} />
         <ProductionPanel plans={ext.plans} />

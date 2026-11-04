@@ -11,6 +11,12 @@ import { W_STARYM_MES } from '../../proba'
 import { useDock } from '../../shell/useDock'
 import { SzkieletWierszy } from '../../ui/Szkielet'
 import { Pusto } from '../../ui/Pusto'
+import { wariant } from '../../warianty'
+import { etapyZamowienia, nastepnyKrok } from '../../data/krok'
+import { KrokCell, MikroSzyna } from './warianty/kolumny'
+
+/** Wariant układu listy do porównania (A — obecny, B — kolumna „Dalej”, C — szyna w wierszu). */
+const W = wariant('zamowienia')
 
 type Row = { o: Order; m: Metrics }
 type SortCol = 'no' | 'client' | 'due' | 'status' | 'kg' | 'prod' | 'cover' | 'missing' | 'pallets'
@@ -216,7 +222,7 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
     )
   }
 
-  const COLS = 14
+  const COLS = W === 'A' ? 14 : W === 'B' ? 13 : 12
   const hasDock = !!selRow
 
   // ─── Pasek narzędzi: te same polecenia trafiają do menu „Zamówienia" ────
@@ -287,14 +293,17 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
                   {thSort('client', 'Klient')}
                   {thSort('no', 'Numer')}
                   {thSort('due', 'Wyjazd', '', 'Termin wyjazdu z zakładu')}
-                  {thSort('status', 'Status')}
+                  {W === 'C'
+                    ? <th data-tip={'Etapy zamówienia: przyjęte · plan · produkcja · pokrycie · palety · załadunek · wydano.\n● zrobione · ▲ uwaga · ◆ krytyczne · ○ przed nami'}>Przebieg</th>
+                    : thSort('status', 'Status', W === 'B' ? 'side-hide' : '')}
                   <th className="hide-m">Pozycje</th>
                   {thSort('kg', 'Zamówiono', 'num side-hide')}
                   {thSort('prod', 'Produkcja', 'opt-col', 'Zgłoszono z tabletów produkcyjnych ÷ zamówiono (kg).\nŹródło diagnostyczne — nie zmienia pokrycia.')}
                   {thSort('cover', 'Pokrycie', '', 'Wydano (ciemny) + w magazynie (jasny) ÷ zamówiono (kg).\nTylko wyrób fizycznie przydzielony temu zamówieniu.')}
                   {thSort('missing', 'Brak, kg', 'num', 'Zamówiono − wydano − w magazynie (kg).\nCzerwony — wyjazd dziś, jutro lub po terminie; bursztynowy — za 2 dni.')}
-                  {thSort('pallets', 'Palety', 'r side-hide', 'Gotowe (spakowane lub dalej) z rozpisanych')}
-                  <th className="hide-m" data-tip={'Wystawione (pełne) i gotowe do wystawienia (obrys).\nDokumenty jeszcze niedostępne nie są pokazywane.'}>Dokumenty</th>
+                  {W === 'A' && thSort('pallets', 'Palety', 'r side-hide', 'Gotowe (spakowane lub dalej) z rozpisanych')}
+                  {W === 'A' && <th className="hide-m" data-tip={'Wystawione (pełne) i gotowe do wystawienia (obrys).\nDokumenty jeszcze niedostępne nie są pokazywane.'}>Dokumenty</th>}
+                  {W === 'B' && <th className="dalej" data-tip={'Następny krok: czynność biura (pogrubiona — kliknij, by przejść)\nalbo to, na co czekamy (szare).'}>Dalej</th>}
                   <th className="side-hide" style={{ width: 40 }}><span className="sr">Działania</span></th>
                 </tr>
               </thead>
@@ -328,7 +337,7 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
                       )}
                       {!isCol && g.rows.map((r, i) => <OrderRow key={r.o.id} r={r} zebra={i % 2 === 1} sel={sel === r.o.id} checked={checked.has(r.o.id)}
                         onClick={e => onRowClick(e, r.o.id)} onDouble={() => app.openOrder(r.o.id)} onCheck={() => toggleCheck(r.o.id)}
-                        onMenu={(e) => { setRowMenuId(r.o.id); rowMenu.open(e) }} />)}
+                        onMenu={(e) => { setRowMenuId(r.o.id); rowMenu.open(e) }} onKrok={t => { select(r.o.id); setTab(t) }} />)}
                     </React.Fragment>
                   )
                 })}
@@ -337,14 +346,16 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
                 <tfoot><tr>
                   <td className="cb" /><td className="al" />
                   <td colSpan={2}>Razem — {visible.length} {visible.length === 1 ? 'zamówienie' : visible.length < 5 ? 'zamówienia' : 'zamówień'}</td>
-                  <td /><td />
+                  <td /><td className={W === 'B' ? 'side-hide' : undefined} />
                   <td className="num hide-m" style={{ textAlign: 'left' }}>{tot.lines} poz.</td>
                   <td className="num side-hide">{kg(tot.kg)}</td>
                   <td className="opt-col">{view !== 'closed' && <ProdMeter value={tot.kg ? tot.prod / tot.kg * 100 : 0} />}</td>
                   <td>{view !== 'closed' && <CoverMeter ship={tot.kg ? tot.ship / tot.kg * 100 : 0} stock={tot.kg ? (tot.cov - tot.ship) / tot.kg * 100 : 0} />}</td>
                   <td className="num">{tot.miss ? num(tot.miss) : '0'}</td>
-                  <td className="num side-hide">{tot.pr}<span className="faint"> z {tot.pt}</span></td>
-                  <td className="hide-m" /><td className="side-hide" />
+                  {W === 'A' && <td className="num side-hide">{tot.pr}<span className="faint"> z {tot.pt}</span></td>}
+                  {W === 'A' && <td className="hide-m" />}
+                  {W === 'B' && <td className="dalej" />}
+                  <td className="side-hide" />
                 </tr></tfoot>
               )}
             </table>
@@ -384,9 +395,10 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
 }
 
 // ─── Wiersz ───────────────────────────────────────────────────────────────
-const OrderRow = React.memo(function OrderRow({ r, zebra, sel, checked, onClick, onDouble, onCheck, onMenu }: {
+const OrderRow = React.memo(function OrderRow({ r, zebra, sel, checked, onClick, onDouble, onCheck, onMenu, onKrok }: {
   r: Row; zebra: boolean; sel: boolean; checked: boolean
   onClick: (e: React.MouseEvent) => void; onDouble: () => void; onCheck: () => void; onMenu: (e: React.MouseEvent) => void
+  onKrok: (t: DetailTab) => void
 }) {
   const { o, m } = r
   const closed = isClosed(o)
@@ -417,7 +429,9 @@ const OrderRow = React.memo(function OrderRow({ r, zebra, sel, checked, onClick,
           </span>
         ) : <span className="faint">bez terminu</span>}
       </td>
-      <td><EtapLabel e={etapListy} /></td>
+      {W === 'C'
+        ? <td><MikroSzyna etapy={etapyZamowienia(o, m)} e={etapListy} /></td>
+        : <td className={W === 'B' ? 'side-hide' : undefined}><EtapLabel e={etapListy} /></td>}
       <td className="ell hide-m" style={{ maxWidth: 230 }}>
         <span className="num">{o.lines.length} poz.</span><span className="sub hide-m">{m.recipes.slice(0, 2).join(', ')}{m.recipes.length > 2 ? ` +${m.recipes.length - 2}` : ''}</span>
       </td>
@@ -425,15 +439,16 @@ const OrderRow = React.memo(function OrderRow({ r, zebra, sel, checked, onClick,
       <td className="opt-col">{o.status === 'draft' || o.status === 'cancelled' ? <span className="faint">—</span> : <ProdMeter value={m.prodPct} />}</td>
       <td>{o.status === 'draft' || o.status === 'cancelled' ? <span className="faint">—</span> : <CoverMeter ship={m.shipPct} stock={m.stockPct} />}</td>
       <td className="num">{closed ? <span className="faint">—</span> : m.missingKg > 0 ? <span className={brakCls}>{num(m.missingKg)}</span> : <span className="muted">0</span>}</td>
-      <td className="num side-hide">
+      {W === 'A' && <td className="num side-hide">
         {m.palletsTotal > 0 ? <span data-tip={`Gotowe ${m.palletsReady} z ${m.palletsTotal} rozpisanych palet${m.unassignedQty > 0 ? `\n${num(m.unassignedQty)} szt. jeszcze bez palety` : ''}`}>
             {m.unassignedQty > 0 && <span className="pal-warn" aria-label={`${m.unassignedQty} szt. bez palety`}><StageNode level="warn" size={10} /></span>}
             <b>{m.palletsReady}</b><span className="faint"> z {m.palletsTotal}</span></span>
           : o.status === 'draft' || closed ? <span className="faint">—</span>
           : m.dueDays !== null && m.dueDays <= 1 ? <span className="warn-ink strong" data-tip="Palety nierozpisane, a wyjazd dziś lub jutro"><StageNode level="warn" size={10} /> nierozpisane</span>
           : <span className="faint" data-tip="Palety jeszcze nierozpisane">—</span>}
-      </td>
-      <td className="hide-m">{docs.length ? <span className="docs">{docs.map(d => <span key={d.kind} className={`doc ${docCls(d.state)}`} data-tip={`${DOC_NAME[d.kind]} — ${docWord(d.state)}${d.number ? `\n${d.number}` : ''}${d.note ? `\n${d.note}` : ''}`}>{d.kind}</span>)}</span> : <span className="faint">—</span>}</td>
+      </td>}
+      {W === 'A' && <td className="hide-m">{docs.length ? <span className="docs">{docs.map(d => <span key={d.kind} className={`doc ${docCls(d.state)}`} data-tip={`${DOC_NAME[d.kind]} — ${docWord(d.state)}${d.number ? `\n${d.number}` : ''}${d.note ? `\n${d.note}` : ''}`}>{d.kind}</span>)}</span> : <span className="faint">—</span>}</td>}
+      {W === 'B' && (() => { const k = nastepnyKrok(o, m); return <td className="dalej"><KrokCell k={k} onGo={() => onKrok(k.tab)} /></td> })()}
       <td className="side-hide" onClick={e => e.stopPropagation()}><button className="btn ghost icon sm" style={{ width: 28, height: 26 }} aria-label={`Działania dla ${o.no}`} onClick={onMenu}><MoreHorizontal size={16} /></button></td>
     </tr>
   )

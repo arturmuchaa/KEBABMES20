@@ -1,0 +1,50 @@
+/* ==========================================================================
+   Warianty do porównania w Figmie (listopad 2026) — po decyzji właściciela
+   zostaje jeden, a ten plik znika albo trafia do modules.css.
+   ========================================================================== */
+
+/* ─── Lista zamówień B: kolumna „Dalej” ─────────────────────────────────── */
+.krok { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.krok .kd { color: var(--ink-3); font-size: var(--fs-sm); font-weight: 400; font-variant-numeric: tabular-nums; }
+.krok.akcja { height: 26px; margin-left: -6px; padding: 0 4px 0 6px; border-radius: var(--r-sm); color: var(--ink-1); font-weight: 600; }
+.krok.akcja .kc { color: var(--ink-4); flex: none; transition: transform .12s var(--ease), color .12s; }
+.krok.akcja:hover { background: var(--surface-sunk); }
+.krok.akcja:hover .kc, tr.row:hover .krok.akcja .kc { color: var(--accent-ink); }
+.krok.akcja:hover .kc { transform: translateX(2px); }
+.krok.czeka { color: var(--ink-3); }
+.krok.warn .kt { color: var(--warn-ink); }
+.krok.crit .kt { color: var(--crit-ink); font-weight: 600; }
+.tbl th.dalej, .tbl td.dalej { padding-right: 14px; }
+/* Obok panelu (laptop) dopisek kroku chowa się — zostaje czasownik. */
+.workarea.side .krok .kd { display: none; }
+
+/* ─── Lista zamówień C: szyna w wierszu ─────────────────────────────────── */
+.mszyna { gap: 10px; }
+.ms-rail { position: relative; display: inline-flex; align-items: center; gap: 5px; flex: none; padding: 0 1px; }
+.ms-rail::before { content: ""; position: absolute; left: 4px; right: 4px; top: 50%; height: 1px; background: var(--line-strong); }
+.ms-rail i { position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--surface); box-shadow: inset 0 0 0 1.5px var(--ink-4); }
+.ms-rail i.ok { background: var(--ink-2); box-shadow: none; }
+.ms-rail i.warn { width: 9px; border-radius: 0; background: var(--warn); box-shadow: none; clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.ms-rail i.crit { width: 7px; height: 7px; margin: 0 1px; border-radius: 1px; background: var(--crit); box-shadow: none; transform: rotate(45deg); }
+tr.row.sel .ms-rail i.idle, tr.row:hover .ms-rail i.idle { background: transparent; }
+.ms-t { display: inline-flex; align-items: baseline; gap: 7px; }
+
+/* ─── Pulpit B: Do zrobienia teraz ──────────────────────────────────────── */
+.todo-lanes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); min-height: 0; }
+.todo-lane { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 12px 10px 14px; }
+.todo-lane + .todo-lane { border-left: 1px solid var(--line-soft); }
+.todo-lane h3 { display: flex; align-items: center; gap: 8px; padding: 0 8px 6px; font-size: var(--fs-md); font-weight: 600; white-space: nowrap; }
+.todo-lane h3 .badge { margin-left: auto; }
+.todo-lane.pusty h3 { color: var(--ink-3); }
+.todo-it { display: flex; flex-direction: column; gap: 1px; width: 100%; min-width: 0; padding: 7px 8px; border-radius: var(--r-sm); text-align: left; transition: background-color .1s; }
+.todo-it:hover { background: var(--row-hover); }
+.todo-it .ti-1 { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.todo-it .ti-no { font-size: var(--fs-id); font-weight: 600; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-it .ti-2 { color: var(--ink-3); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-it.pilne .ti-2 b { color: var(--warn-ink); font-weight: 600; }
+.todo-more { align-self: flex-start; margin: 2px 8px 0; color: var(--ink-3); font-size: var(--fs-sm); }
+.todo-more:hover { color: var(--accent-ink); }
+.todo-none { padding: 7px 8px; color: var(--ink-3); font-size: var(--fs-sm); }
+.todo-wait { display: flex; align-items: center; gap: 6px 18px; flex-wrap: wrap; }
+.todo-wait b { color: var(--ink-1); font-weight: 600; font-variant-numeric: tabular-nums; }
+.todo-wait .tw-h { color: var(--ink-2); font-weight: 600; }
