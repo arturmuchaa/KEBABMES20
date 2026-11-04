@@ -247,3 +247,6 @@ input, select, textarea { font: inherit; color: inherit; }
 .status.etap.zaladunek { color: var(--ink-1); font-weight: 600; }
 .status.etap.zaladowane, .status.etap.gotowe { color: var(--ok-ink); font-weight: 600; }
 .status.etap.zaladowane .etap-sub { color: var(--ok-ink); font-family: var(--font-code); letter-spacing: .02em; }
+
+/* Ikona w linii tekstu (np. ✓ przy „komplet”) — wyrównana optycznie do tekstu. */
+.ico-inl { display: inline-block; vertical-align: -2px; }

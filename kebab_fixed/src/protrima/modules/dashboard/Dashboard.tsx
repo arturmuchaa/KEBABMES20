@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo } from 'react'
-import { ArrowRight, CheckCircle2 } from 'lucide-react'
+import { ArrowRight, CheckCircle2, Check } from 'lucide-react'
 import { useApp, CommandBar, type Cmd, type DetailTab } from '../../shell/context'
 import { useOrders } from '../../data/store'
 import { computeMetrics, isClosed, kg, num, pct, longDate, TODAY, BUCKET_LABEL, fmtDay, fmtDate, weekday, addDays, mixingByRecipe, type Bucket, type Order, type Level } from '../../data/model'
@@ -134,9 +134,11 @@ function RawPanel({ raw }: { raw: Surowiec }) {
         <div className="raw-kpis">
           <div className="kpi"><span className="k">Ćwiartka na stanie</span><span className="v fig">{fig(kg(raw.kgCwiartki))}</span><span className="s">≈ {num(raw.pojemniki)} pojemników · {raw.partie.length} {raw.partie.length === 1 ? 'partia' : 'partii'}</span></div>
           <div className="kpi"><span className="k">Pobrano dziś do rozbioru</span><span className="v fig">{fig(kg(raw.dzisPobrano))}</span><span className="s">{raw.dzisWpisow} {raw.dzisWpisow === 1 ? 'pobranie' : 'pobrań'}{raw.dzisOtwarte > 0 ? ` · ${raw.dzisOtwarte} w toku` : ''}</span></div>
-          <div className="kpi"><span className="k">Mięso z/s dziś</span><span className="v fig">{fig(kg(raw.dzisMieso))}</span><span className="s">{raw.wydajnosc === null ? 'brak domkniętych wpisów' : <>wydajność <b className={raw.wydajnosc < 60 || raw.wydajnosc > 71 ? 'warn-ink' : ''}>{raw.wydajnosc.toFixed(1).replace('.', ',')}%</b></>}</span></div>
+          <div className="kpi"><span className="k">Mięso z/s dziś</span><span className="v fig">{fig(kg(raw.dzisMieso))}</span><span className="s">{raw.wydajnosc === null ? 'brak domkniętych wpisów' : (raw.wydajnosc < 60 || raw.wydajnosc > 71)
+            ? <span className="warn-ink" data-tip="Wydajność poza zwykłym zakresem 60–71% — sprawdź wpisy rozbioru"><StageNode level="warn" size={10} /> wydajność <b>{raw.wydajnosc.toFixed(1).replace('.', ',')}%</b> — poza normą</span>
+            : <>wydajność <b>{raw.wydajnosc.toFixed(1).replace('.', ',')}%</b></>}</span></div>
           <div className="kpi"><span className="k">Mięso z/s w terminie</span><span className="v fig">{fig(kg(raw.kgMiesa))}</span><span className="s">{raw.partiiPoTerminie > 0
-            ? <span className="warn-ink" data-tip="Partie z datą przydatności w przeszłości, które w ewidencji nadal są dostępne — do wyjaśnienia w magazynie (korekta stanu w starym MES)">+ {kg(raw.kgMiesaPoTerminie)} po terminie ({raw.partiiPoTerminie} partii)</span>
+            ? <span className="warn-ink" data-tip="Partie z datą przydatności w przeszłości, które w ewidencji nadal są dostępne — do wyjaśnienia w magazynie (korekta stanu w starym MES)"><StageNode level="warn" size={10} /> + {kg(raw.kgMiesaPoTerminie)} po terminie ({raw.partiiPoTerminie} {odm(raw.partiiPoTerminie, 'partia', 'partie', 'partii')})</span>
             : 'gotowe do masowania'}</span></div>
         </div>
         <div className="raw-tbl">
@@ -365,8 +367,10 @@ function DuePanel({ open }: { open: Open }) {
                 <td className="num strong">{r.n}</td>
                 <td className="num">{kg(r.ordered)}</td>
                 <td className="num">{r.missing > 0
-                  ? <span className={r.b === 'overdue' || r.b === 'today' ? 'crit-ink strong' : r.b === 'tomorrow' ? 'warn-ink strong' : ''}>{kg(r.missing)}</span>
-                  : <span className="ok-ink">komplet</span>}</td>
+                  ? r.b === 'overdue' || r.b === 'today' ? <span className="crit-ink strong"><StageNode level="crit" size={10} /> {kg(r.missing)}</span>
+                    : r.b === 'tomorrow' ? <span className="warn-ink strong"><StageNode level="warn" size={10} /> {kg(r.missing)}</span>
+                    : <span>{kg(r.missing)}</span>
+                  : r.n > 0 ? <span className="ok-ink"><Check size={13} strokeWidth={2.4} className="ico-inl" /> komplet</span> : <span className="muted">—</span>}</td>
               </tr>
             ))}
           </tbody>
