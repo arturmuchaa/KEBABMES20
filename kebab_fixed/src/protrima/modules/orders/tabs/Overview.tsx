@@ -1,37 +1,16 @@
 import React from 'react'
 import { Building2, ClipboardList, StickyNote } from 'lucide-react'
 import type { DetailTab } from '../../../shell/context'
-import { computeMetrics, kg, num, pct, fmtDate, dueText, type Order } from '../../../data/model'
+import { computeMetrics, kg, num, fmtDate, dueText, type Order } from '../../../data/model'
+import { etapyZamowienia } from '../../../data/krok'
 import { StageNode, FlagIcon } from '../../../ui/Glyphs'
-import { pctPokrycia } from '../../../ui/Meters'
-
-type Lvl = 'ok' | 'warn' | 'crit' | 'idle'
 
 /** Ta sama linia procesu co na Pulpicie — tylko w skali jednego zamówienia. */
 export function OverviewTab({ order, onTab }: { order: Order; onTab: (t: DetailTab) => void }) {
   const m = computeMetrics(order)
   const closed = order.status === 'done' || order.status === 'cancelled'
-  const due = m.dueDays ?? 99
-  const planned = order.lines.filter(l => l.planNo).length
-  const plans = [...new Set(order.lines.map(l => l.planNo).filter(Boolean))]
-  const draft = order.status === 'draft'
-  // Cały wyrób już jest (magazyn lub wydany) — plan i produkcja nie są potrzebne; bez fałszywego bursztynu.
-  const zMagazynu = !draft && m.missingKg === 0 && order.lines.length > 0
-
-  // Jedno słownictwo w całym panelu: Zamówiono · Produkcja · Pokrycie · Wydano.
-  const stages: Array<{ key: DetailTab; name: string; value: string; sub: string; level: Lvl }> = [
-    { key: 'history', name: 'Przyjęte', value: fmtDate(order.orderDate).slice(0, 5), sub: draft ? 'szkic — do potwierdzenia' : 'potwierdzone', level: draft ? 'warn' : 'ok' },
-    zMagazynu && planned < order.lines.length
-      ? { key: 'production', name: 'Zaplanowane', value: 'nie trzeba', sub: 'cały wyrób z magazynu', level: 'ok' }
-      : { key: 'production', name: 'Zaplanowane', value: `${planned}/${order.lines.length} poz.`, sub: plans.length ? plans.join(', ') : 'brak planu', level: draft ? 'idle' : planned === order.lines.length ? 'ok' : due <= 3 ? 'warn' : 'idle' },
-    zMagazynu && m.prodPct < 100
-      ? { key: 'production', name: 'Produkcja', value: 'nie trzeba', sub: 'cały wyrób z magazynu', level: 'ok' }
-      : { key: 'production', name: 'Produkcja', value: pct(m.prodPct), sub: `zgłoszono ${kg(m.producedKg)}`, level: draft ? 'idle' : m.prodPct >= 100 ? 'ok' : due <= 1 ? 'warn' : m.prodPct > 0 ? 'ok' : 'idle' },
-    { key: 'coverage', name: 'Pokrycie', value: `${pctPokrycia(m.coverPct)}%`, sub: m.missingKg > 0 ? `brak ${kg(m.missingKg)}` : 'komplet wyrobu', level: draft ? 'idle' : m.missingKg === 0 ? 'ok' : due < 0 || due === 0 ? 'crit' : due === 1 ? 'warn' : 'idle' },
-    { key: 'pallets', name: 'Palety', value: m.palletsTotal ? `${m.palletsReady}/${m.palletsTotal}` : '—', sub: m.palletsTotal ? (m.unassignedQty ? `${num(m.unassignedQty)} szt. bez palety` : 'gotowe z rozpisanych') : 'nierozpisane', level: draft ? 'idle' : m.palletsTotal && m.palletsReady === m.palletsTotal ? 'ok' : (m.unassignedQty > 0 && due <= 1) ? 'warn' : m.palletsTotal ? 'ok' : 'idle' },
-    { key: 'shipping', name: 'Załadunek', value: m.palletsTotal ? `${m.palletsLoaded}/${m.palletsTotal}` : '—', sub: m.palletsLoaded ? 'palet na aucie (skan QR)' : 'nic nie załadowano', level: m.palletsTotal && m.palletsLoaded === m.palletsTotal ? 'ok' : 'idle' },
-    { key: 'documents', name: 'Wydano', value: pct(m.shipPct), sub: m.deliveredKg > 0 ? `na WZ ${kg(m.deliveredKg)}` : 'WZ nie wystawione', level: m.shipPct >= 100 ? 'ok' : 'idle' },
-  ]
+  // Te same etapy co mini-szyna na liście (data/krok.ts) — jedno słownictwo: Zamówiono · Produkcja · Pokrycie · Wydano.
+  const stages = etapyZamowienia(order, m)
 
   return (
     <div className="dock-pad">
