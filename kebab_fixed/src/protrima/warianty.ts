@@ -1,12 +1,15 @@
 /**
  * Warianty wyglądu do porównania przez właściciela (Figma, listopad 2026).
- * Wybór na tym komputerze: localStorage `protrima.wariant.<ekran>` = A | B | C (domyślnie A).
- * Po decyzji właściciela zostaje jeden wariant, a ten plik i przełącznik znikają.
+ * Pilot 0.6.0 (5.11.2026, decyzja właściciela: „daj opcję B, zobaczę, jak to wygląda w produkcji”):
+ * domyślnie B — lista zamówień z kolumną „Dalej”, Pulpit „Do zrobienia teraz”.
+ * Na tym komputerze można przełączyć: localStorage `protrima.wariant.<ekran>` = A | B | C.
+ * Po ostatecznej decyzji zostaje jeden wariant, a ten plik i przełącznik znikają.
  */
 export type Wariant = 'A' | 'B' | 'C'
 export function wariant(ekran: 'zamowienia' | 'pulpit'): Wariant {
   try {
     const v = window.localStorage.getItem(`protrima.wariant.${ekran}`)
-    return v === 'B' || v === 'C' ? v : 'A'
-  } catch { return 'A' }
+    if (v === 'A' || v === 'C') return v
+  } catch { /* bez pamięci przeglądarki — domyślny */ }
+  return 'B'
 }
