@@ -1,7 +1,6 @@
-"""Physical layout in cm, origin at left/door wall. Pallet 120 × 80 cm.
+"""Fixed freezer places A–I / 1–7. One carton or manual mark per place.
 
-0° = 120 wide × 80 deep; 90° = 80 wide × 120 deep (legacy rotation convention).
-Never invent coordinates for legacy inventory or returned pallets.
+Rotation records orientation in that place, never moves neighbouring goods.
 """
 import re
 
@@ -10,36 +9,11 @@ from fastapi import HTTPException
 from app.db import transaction, cx_execute, cx_query_all, cx_query_one, query_one
 from app.utils.ids import cuid, format_carton_no
 
-ROOM = {'widthCm': 560, 'depthCm': 1080, 'stepCm': 10}
-
-
-def _geometry(x, y, rotation):
-    if type(x) is not int or type(y) is not int or rotation not in (0, 90):
-        raise HTTPException(400, 'Wskaż położenie na nowym planie mroźni (w cm). Odśwież aplikację.')
-    w, h = (120, 80) if rotation == 0 else (80, 120)
-    if x < 0 or y < 0 or x % 10 or y % 10 or x + w > 560 or y + h > 1080:
-        raise HTTPException(400, 'Paleta wychodzi poza mroźnię 560 × 1080 cm lub poza siatkę 10 cm.')
-    return x, y, w, h
-
-
-def _check_overlap(conn, rect, column=None, container_id=None, manual_slot=None):
-    # Must hold the shared transaction lock: different anchors can overlap too.
-    rows = cx_query_all(conn, 'SELECT * FROM cold_storage_positions WHERE x_cm IS NOT NULL')
-    manual = cx_query_all(conn, 'SELECT * FROM cold_storage_blocked_slots WHERE x_cm IS NOT NULL')
-    x, y, w, h = rect
-    others = [r for r in rows if not column or r.get(column) != container_id]
-    others += [r for r in manual if r['slot'] != manual_slot]
-    for row in others:
-        a, b, c, d = _geometry(row['x_cm'], row['y_cm'], row['rotation'])
-        if x < a + c and x + w > a and y < b + d and y + h > b:
-            raise HTTPException(409, 'Paleta nachodzi na inny karton lub towar. Wybierz inne położenie albo obrót.')
-
 
 def _position(row):
     if not row or not row.get('slot'):
         return None
-    return {"slot": row['slot'], "rotation": row['rotation'], "revision": row['revision'],
-            "xCm": row.get('x_cm'), "yCm": row.get('y_cm')}
+    return {"slot": row['slot'], "rotation": row['rotation'], "revision": row['revision']}
 
 
 def location(kind, container_id):
@@ -54,13 +28,13 @@ def plan():
         rows = cx_query_all(conn, """
             SELECT 'order' AS kind, p.id, p.carton_no, o.client_name, o.order_no, p.order_id,
                    'PAL|' || p.order_id || '|' || p.pallet_no AS code,
-                   pos.slot, pos.rotation, pos.revision, pos.x_cm, pos.y_cm
+                   pos.slot, pos.rotation, pos.revision
             FROM order_pallets p JOIN client_orders o ON o.id=p.order_id
             LEFT JOIN cold_storage_positions pos ON pos.pallet_id=p.id
             WHERE p.status='cold_storage'
             UNION ALL
             SELECT 'stock', c.id, c.carton_no, c.client_name, c.linked_order_no, c.linked_order_id,
-                   'SCARTON|' || c.id, pos.slot, pos.rotation, pos.revision, pos.x_cm, pos.y_cm
+                   'SCARTON|' || c.id, pos.slot, pos.rotation, pos.revision
             FROM stock_cartons c LEFT JOIN cold_storage_positions pos ON pos.carton_id=c.id
             WHERE c.cold_storage_at IS NOT NULL AND c.loaded_vehicle_id IS NULL AND c.shipped_at IS NULL
             ORDER BY carton_no, id
@@ -101,7 +75,7 @@ def plan():
                 'productTypeName': line['product'] or '', 'packagingName': line['packaging'] or '', 'source': source,
             })
     return {
-        'columns': list('ABCDEFGHI'), 'rows': 7, 'room': ROOM,
+        'columns': list('ABCDEFGHI'), 'rows': 7,
         'blocked': [_blocked(r) for r in blocked],
         'cartons': [{
             'kind': r['kind'], 'id': r['id'], 'code': r['code'],
@@ -112,11 +86,9 @@ def plan():
     }
 
 
-def save(kind, container_id, slot, rotation, expected_revision, operator='', *, x_cm=None, y_cm=None):
-    if kind not in ('order', 'stock'):
+def save(kind, container_id, slot, rotation, expected_revision, operator=''):
+    if kind not in ('order', 'stock') or not re.fullmatch(r'[A-I][1-7]', slot or '') or rotation not in (0, 90):
         raise HTTPException(400, 'Nieprawidłowe miejsce lub obrót palety')
-    rect = _geometry(x_cm, y_cm, rotation)
-    slot = f'X{x_cm}Y{y_cm}'
     table, column = ('order_pallets', 'pallet_id') if kind == 'order' else ('stock_cartons', 'carton_id')
     with transaction() as conn:
         # Serializes competing put-aways; row lock also protects against loading/exit.
@@ -128,20 +100,24 @@ def save(kind, container_id, slot, rotation, expected_revision, operator='', *, 
         if not in_cold:
             raise HTTPException(409, 'Karton nie stoi już w mroźni. Odśwież listę.')
         current = cx_query_one(conn, f'SELECT * FROM cold_storage_positions WHERE {column}=%s', (container_id,))
-        if current and current['x_cm'] == x_cm and current['y_cm'] == y_cm and current['rotation'] == rotation:
+        if current and current['slot'] == slot and current['rotation'] == rotation:
             return _position(current)  # lost response: safe retry of the same placement
         if (current['revision'] if current else None) != expected_revision:
             raise HTTPException(409, 'Lokalizacja zmieniła się na innym stanowisku. Wybierz miejsce ponownie.')
-        _check_overlap(conn, rect, column, container_id)
+        if cx_query_one(conn, 'SELECT slot FROM cold_storage_blocked_slots WHERE slot=%s', (slot,)):
+            raise HTTPException(409, f'Miejsce {slot} jest oznaczone jako zajęte przez inny towar. Wybierz inne.')
+        if (cx_query_one(conn, 'SELECT slot FROM cold_storage_positions WHERE slot=%s', (slot,))
+                and (not current or current['slot'] != slot)):
+            raise HTTPException(409, f'Miejsce {slot} jest już zajęte. Wybierz inne lub zamień kartony miejscami.')
         cx_execute(conn, f'DELETE FROM cold_storage_positions WHERE {column}=%s', (container_id,))
         revision = cuid()
-        cx_execute(conn, f'''INSERT INTO cold_storage_positions (slot, {column}, rotation, revision, operator, x_cm, y_cm)
-                            VALUES (%s,%s,%s,%s,%s,%s,%s)''', (slot, container_id, rotation, revision, operator, x_cm, y_cm))
-        return {'slot': slot, 'rotation': rotation, 'revision': revision, 'xCm': x_cm, 'yCm': y_cm}
+        cx_execute(conn, f'''INSERT INTO cold_storage_positions (slot, {column}, rotation, revision, operator)
+                            VALUES (%s,%s,%s,%s,%s)''', (slot, container_id, rotation, revision, operator))
+        return {'slot': slot, 'rotation': rotation, 'revision': revision}
 
 
 def swap(first_kind, first_id, first_revision, second_kind, second_id, second_revision, operator=''):
-    """Swap two occupied footprints atomically, including the destination's rotation.
+    """Swap two occupied places atomically, including the destination's rotation.
 
     No free staging slot needed. Reusing old revisions must NOT swap them back.
     Both parent locks also serialize this with loading/exit from cold storage.
@@ -164,8 +140,8 @@ def swap(first_kind, first_id, first_revision, second_kind, second_id, second_re
             row = cx_query_one(conn, f'SELECT * FROM cold_storage_positions WHERE {column}=%s', (cid,))
             if not row or row['revision'] != revision:
                 raise HTTPException(409, 'Położenie jednego z kartonów zmieniło się. Wybierz parę ponownie.')
-            if row['x_cm'] is None or row['y_cm'] is None:
-                raise HTTPException(409, 'Najpierw wskaż rzeczywiste położenie obu kartonów na mapie.')
+            if not re.fullmatch(r'[A-I][1-7]', row['slot']):
+                raise HTTPException(409, 'Najpierw przypisz oba kartony do stałych miejsc.')
             positions[(kind, cid)] = row
         a, b = positions[(first_kind, first_id)], positions[(second_kind, second_id)]
         # Delete and reinsert under one transaction; nobody can observe half a swap.
@@ -174,47 +150,44 @@ def swap(first_kind, first_id, first_revision, second_kind, second_id, second_re
         result = {}
         for name, kind, cid, destination in [('first', first_kind, first_id, b), ('second', second_kind, second_id, a)]:
             column = 'pallet_id' if kind == 'order' else 'carton_id'
-            _check_overlap(conn, _geometry(destination['x_cm'], destination['y_cm'], destination['rotation']))
             row = cx_query_one(conn, f'''
-                INSERT INTO cold_storage_positions(slot, {column}, rotation, revision, operator, x_cm, y_cm)
-                VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING *''',
-                (destination['slot'], cid, destination['rotation'], cuid(), operator, destination['x_cm'], destination['y_cm']))
+                INSERT INTO cold_storage_positions(slot, {column}, rotation, revision, operator)
+                VALUES (%s,%s,%s,%s,%s) RETURNING *''',
+                (destination['slot'], cid, destination['rotation'], cuid(), operator))
             result[name] = _position(row)
         return result
 
 
 def _blocked(row):
-    return {**_position(row), 'description': row['description'],
+    return {'slot': row['slot'], 'revision': row['revision'], 'description': row['description'],
             'operator': row['operator'], 'updatedAt': row['updated_at'].isoformat()}
 
 
-def block(slot: str, description: str, expected_revision: str | None, operator: str = '', *, x_cm=None, y_cm=None, rotation=90):
+def block(slot: str, description: str, expected_revision: str | None, operator: str = ''):
     description = description.strip() or 'Miejsce zajęte'
-    if not re.fullmatch(r'(?:[A-I][1-7]|M[a-zA-Z0-9-]{1,64})', slot or '') or len(description) > 160:
+    if not re.fullmatch(r'[A-I][1-7]', slot or '') or len(description) > 160:
         raise HTTPException(400, 'Nieprawidłowe miejsce lub opis (maks. 160 znaków)')
-    rect = _geometry(x_cm, y_cm, rotation)
     with transaction() as conn:
         # Same lock as put-away: neither operation can race past the other.
         cx_execute(conn, 'SELECT pg_advisory_xact_lock(202611040001)')
         current = cx_query_one(conn, 'SELECT * FROM cold_storage_blocked_slots WHERE slot=%s', (slot,))
-        if (current and current['description'] == description and current['x_cm'] == x_cm
-                and current['y_cm'] == y_cm and current['rotation'] == rotation):
+        if current and current['description'] == description:
             return _blocked(current)  # safe retry after losing the response
         if (current['revision'] if current else None) != expected_revision:
             raise HTTPException(409, 'Oznaczenie miejsca zmieniło się na innym stanowisku. Odczytaj je ponownie.')
-        _check_overlap(conn, rect, manual_slot=slot)
+        if cx_query_one(conn, 'SELECT slot FROM cold_storage_positions WHERE slot=%s', (slot,)):
+            raise HTTPException(409, f'Miejsce {slot} jest zajęte przez karton. Nie można go zablokować ręcznie.')
         row = cx_query_one(conn, '''
-            INSERT INTO cold_storage_blocked_slots (slot, description, revision, operator, x_cm, y_cm, rotation)
-            VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (slot) DO UPDATE
+            INSERT INTO cold_storage_blocked_slots (slot, description, revision, operator)
+            VALUES (%s,%s,%s,%s) ON CONFLICT (slot) DO UPDATE
             SET description=EXCLUDED.description, revision=EXCLUDED.revision,
-                operator=EXCLUDED.operator, updated_at=now(), x_cm=EXCLUDED.x_cm, y_cm=EXCLUDED.y_cm,
-                rotation=EXCLUDED.rotation
-            RETURNING *''', (slot, description, cuid(), operator, x_cm, y_cm, rotation))
+                operator=EXCLUDED.operator, updated_at=now()
+            RETURNING *''', (slot, description, cuid(), operator))
         return _blocked(row)
 
 
 def unblock(slot: str, expected_revision: str):
-    if not re.fullmatch(r'(?:[A-I][1-7]|M[a-zA-Z0-9-]{1,64})', slot or '') or not expected_revision:
+    if not re.fullmatch(r'[A-I][1-7]', slot or '') or not expected_revision:
         raise HTTPException(400, 'Wskaż miejsce i aktualną wersję oznaczenia')
     with transaction() as conn:
         cx_execute(conn, 'SELECT pg_advisory_xact_lock(202611040001)')

@@ -4288,11 +4288,11 @@ export const magazynApi = {
   mrozniaPlan: () => get<PlanMrozniDane>('/magazyn/mroznia/plan'),
   mrozniaZamiana: (body: { first: KartonDoZamiany; second: KartonDoZamiany }) =>
     post<{ first: MiejsceMrozni; second: MiejsceMrozni }>('/magazyn/mroznia/zamiana', body),
-  mrozniaZajete: (body: { slot: string; description: string; expected_revision: string | null; x_cm: number; y_cm: number; rotation: 0 | 90 }) =>
+  mrozniaZajete: (body: { slot: string; description: string; expected_revision: string | null }) =>
     put<ZajeteMiejsceMrozni>('/magazyn/mroznia/zajete', body),
   mrozniaZwolnij: (body: { slot: string; expected_revision: string }) =>
     post<{ ok: boolean }>('/magazyn/mroznia/zajete/zwolnij', body),
-  mrozniaLokalizacja: (body: { kind: 'order' | 'stock'; container_id: string; rotation: 0 | 90; expected_revision: string | null; x_cm: number; y_cm: number }) =>
+  mrozniaLokalizacja: (body: { kind: 'order' | 'stock'; container_id: string; slot: string; rotation: 0 | 90; expected_revision: string | null }) =>
     put<MiejsceMrozni>('/magazyn/mroznia/lokalizacja', body),
   cofnij: (code: string, containerId: string) =>
     post<{ ok: boolean }>('/magazyn/pakowanie/cofnij', { code, container_id: containerId }),
@@ -4404,15 +4404,15 @@ export interface PozycjaSkladu {
   packagingName?: string; source?: 'plan' | 'scans'
 }
 
-export interface MiejsceMrozni { slot: string; rotation: 0 | 90; revision: string; xCm?: number | null; yCm?: number | null }
+export interface MiejsceMrozni { slot: string; rotation: 0 | 90; revision: string }
 export interface KartonDoZamiany { kind: 'order' | 'stock'; container_id: string; expected_revision: string }
 export interface KartonNaPlanie {
   kind: 'order' | 'stock'; id: string; code: string; cartonNo: string; clientName: string; orderNo: string
   orderId?: string | null
   location: MiejsceMrozni | null; lines: PozycjaSkladu[]
 }
-export interface ZajeteMiejsceMrozni { slot: string; description: string; revision: string; operator: string; updatedAt: string; xCm?: number | null; yCm?: number | null; rotation?: 0 | 90 }
-export interface PlanMrozniDane { columns: string[]; rows: number; cartons: KartonNaPlanie[]; blocked?: ZajeteMiejsceMrozni[]; room?: { widthCm: number; depthCm: number; stepCm: number } }
+export interface ZajeteMiejsceMrozni { slot: string; description: string; revision: string; operator: string; updatedAt: string }
+export interface PlanMrozniDane { columns: string[]; rows: number; cartons: KartonNaPlanie[]; blocked?: ZajeteMiejsceMrozni[] }
 
 /** Ile sztuk z której partii leży w kartonie („3 szt · 290926 591"). */
 export interface PartiaWKartonie { batchNo: string; qty: number }

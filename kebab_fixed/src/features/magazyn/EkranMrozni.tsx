@@ -27,7 +27,7 @@ import { dataGodzina } from './etykietaWagiZpl'
 import { kgPl, roznicaPl } from './wazenieMrozni'
 import type { PokazAlarm } from './magazynTypes'
 import { PlanMrozni, type CelMrozni } from './PlanMrozni'
-import { locationText, positioned } from './mrozniaGeometry'
+import { locationText, positioned } from './mrozniaSlots'
 import { ZawartoscMrozni } from './ZawartoscMrozni'
 import type { KartonNaPlanie, PlanMrozniDane } from '@/lib/api'
 
@@ -286,7 +286,7 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
             Rzut mroźni · znajdź karton
           </button>
           <p className="text-sm" style={{ color: 'var(--mut)' }}>
-            {plan ? `Bez potwierdzonego położenia: ${plan.cartons.filter(c => !positioned(c.location)).length}` : 'Brak aktualnych danych lokalizacji — otwórz mapę, aby ponowić.'}
+            {plan ? `Bez przypisanego miejsca: ${plan.cartons.filter(c => !positioned(c.location)).length}` : 'Brak aktualnych danych lokalizacji — otwórz mapę, aby ponowić.'}
           </p>
           {ostatnia ? (
             <div className="rounded-xl px-4 py-3 text-[14px] font-bold"

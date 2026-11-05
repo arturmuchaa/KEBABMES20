@@ -18,7 +18,7 @@ import { dataGodzina } from './etykietaWagiZpl'
 import { kgPl, roznicaPl } from './wazenieMrozni'
 import { Karta, Znacznik } from './components/Karta'
 import { PlanMrozni } from './PlanMrozni'
-import { locationText } from './mrozniaGeometry'
+import { locationText } from './mrozniaSlots'
 
 const STATUS: Record<NonNullable<KartonDoWazenia['status']>, { t: string; zielony: boolean }> = {
   planned: { t: 'ROZPISANY — sztuki nie skanowane', zielony: false },

@@ -23,9 +23,9 @@ afterEach(cleanup)
 
 describe('karta kartonu — ważenie', () => {
   it('pokazuje miejsce, orientację i tuleję', () => {
-    render(<KartaKartonu karton={{ ...K, location: { slot: 'X160Y360', xCm: 160, yCm: 360, rotation: 90, revision: 'v1' },
+    render(<KartaKartonu karton={{ ...K, location: { slot: 'C4', rotation: 90, revision: 'v1' },
       lines: [{ ...K.lines[0], packagingName: 'METAL 80' }] }} onZamknij={() => {}} />)
-    expect(screen.getByText('Mroźnia: X 160 · Y 360 cm · bok 80 cm od drzwi')).toBeTruthy()
+    expect(screen.getByText('Mroźnia: Miejsce C4 · krótszym bokiem od drzwi')).toBeTruthy()
     expect(screen.getByText('Tuleja: METAL 80')).toBeTruthy()
   })
   it('zważony: zgodna, kiedy, kto, brutto, paleta', () => {

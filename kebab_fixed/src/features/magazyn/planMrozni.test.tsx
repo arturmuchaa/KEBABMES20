@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { PlanMrozniDane } from '@/lib/api'
 import { PlanMrozni } from './PlanMrozni'
-import { ROOM, firstFree, placementProblem, type Footprint } from './mrozniaGeometry'
 import { findFreezerCartons, freezerTileSummary, freezerTube } from './mrozniaContents'
 import { kolorZaladunku } from './koloryZaladunku'
 
@@ -16,25 +15,25 @@ let plan: PlanMrozniDane
 const click = (name: string | RegExp) => fireEvent.click(screen.getByRole('button', { name }))
 beforeEach(() => {
   vi.resetAllMocks()
-  plan = { columns: [...'ABCDEFGHI'], rows: 7, room: ROOM, cartons: [empty, { ...empty, id: 'c2', cartonNo: '000002',
-    location: { slot: 'X80Y0', xCm: 80, yCm: 0, rotation: 90, revision: 'v1' } }] }
+  plan = { columns: [...'ABCDEFGHI'], rows: 7, cartons: [empty, { ...empty, id: 'c2', cartonNo: '000002',
+    location: { slot: 'B1', rotation: 90, revision: 'v1' } }] }
   api.read.mockImplementation(async () => plan)
-  api.save.mockResolvedValue({ slot: 'X0Y0', xCm: 0, yCm: 0, rotation: 90, revision: 'v2' })
+  api.save.mockResolvedValue({ slot: 'A1', rotation: 0, revision: 'v2' })
 })
 afterEach(cleanup)
 
-describe('plan mroźni w rzeczywistych wymiarach', () => {
+describe('pełnoekranowy rzut mroźni ze stałymi kafelkami', () => {
   it('pięć zamówień jednego auta ma odrębne kolory, również przy tym samym kliencie; legenda filtruje po ID', async () => {
     const orders = Array.from({ length: 5 }, (_, i) => ({ id: `o${i}`, clientName: 'YALCIN', orderNo: `Z/${i + 1}`,
       pallets: [], color: kolorZaladunku(i) }))
     plan.cartons = orders.flatMap((o, i) => [0, 1].map(j => ({ ...empty, id: `c${i}-${j}`, kind: j ? 'stock' as const : 'order' as const,
       cartonNo: String(100 + 2 * i + j), orderId: o.id, orderNo: o.orderNo,
-      location: i === 4 && j === 1 ? null : { slot: `X${i * 80}Y${j * 120}`, xCm: i * 80, yCm: j * 120, rotation: 90 as const, revision: 'v1' } })))
-    plan.cartons.push({ ...plan.cartons[0], id: 'foreign', cartonNo: '999', orderId: 'not-on-truck' })
+      location: i === 4 && j === 1 ? null : { slot: `${'ABCDE'[i]}${j + 1}`, rotation: 90 as const, revision: 'v1' } })))
+    plan.cartons.push({ ...plan.cartons[0], id: 'foreign', cartonNo: '999', orderId: 'not-on-truck', location: { slot: 'I7', rotation: 0, revision: 'v1' } })
     const props = { onZamknij: vi.fn(), zaladunek: { vehicleName: 'SOLÓWKA', orders, online: true } }
     const { rerender } = render(<PlanMrozni {...props} />)
-    await screen.findByRole('region', { name: 'Kolory zamówień do załadunku' })
-    const floor = within(screen.getByRole('group', { name: 'Podłoga mroźni' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Kolory zamówień (5)' }))
+    const floor = within(screen.getByRole('group', { name: 'Stałe miejsca mroźni' }))
     for (let i = 0; i < 5; i++) {
       expect(floor.getByRole('button', { name: new RegExp(`Karton ${100 + 2 * i} ·`) }).dataset.loadingColor).toBe(String(i))
     }
@@ -53,7 +52,7 @@ describe('plan mroźni w rzeczywistych wymiarach', () => {
 
   it('zamiana dwóch kartonów pokazuje obie orientacje i wysyła jeden zapis obu wersji', async () => {
     plan.cartons.push({ ...empty, id: 'c3', kind: 'order', cartonNo: '000003',
-      location: { slot: 'X240Y160', xCm: 240, yCm: 160, rotation: 0, revision: 'v2' } })
+      location: { slot: 'D2', rotation: 0, revision: 'v2' } })
     let done!: () => void
     api.swap.mockImplementation(() => new Promise<void>(resolve => { done = resolve }))
     render(<PlanMrozni onZamknij={vi.fn()} />)
@@ -62,8 +61,8 @@ describe('plan mroźni w rzeczywistych wymiarach', () => {
     expect((screen.getByRole('button', { name: 'Zapisz zamianę' }) as HTMLButtonElement).disabled).toBe(true)
     click(/Karton 000003 ·/)
     const preview = screen.getByRole('region', { name: 'Podgląd zamiany' })
-    expect(preview.textContent).toContain('000002 · YALCIN → X 240 · Y 160 cm · bok 120 cm od drzwi')
-    expect(preview.textContent).toContain('000003 · YALCIN → X 80 · Y 0 cm · bok 80 cm od drzwi')
+    expect(preview.textContent).toContain('000002 · YALCIN → Miejsce D2 · dłuższym bokiem od drzwi')
+    expect(preview.textContent).toContain('000003 · YALCIN → Miejsce B1 · krótszym bokiem od drzwi')
     click(/Szukaj kartonu/)
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'BRAK-KARTONU' } })
     click('Gotowe')
@@ -82,7 +81,7 @@ describe('plan mroźni w rzeczywistych wymiarach', () => {
   })
 
   it('anulowanie zamiany i konflikt serwera nie wykonują pojedynczych przeniesień ani ponowień', async () => {
-    plan.cartons.push({ ...empty, id: 'c3', cartonNo: '000003', location: { slot: 'X160Y0', xCm: 160, yCm: 0, rotation: 90, revision: 'v2' } })
+    plan.cartons.push({ ...empty, id: 'c3', cartonNo: '000003', location: { slot: 'C1', rotation: 90, revision: 'v2' } })
     api.swap.mockRejectedValue(new Error('Położenie jednego z kartonów zmieniło się'))
     render(<PlanMrozni onZamknij={vi.fn()} />)
     fireEvent.click(await screen.findByRole('button', { name: /Karton 000002 ·/ }))
@@ -95,13 +94,14 @@ describe('plan mroźni w rzeczywistych wymiarach', () => {
     expect(api.save).not.toHaveBeenCalled()
   })
 
-  it('od wejścia pokazuje pełny skład każdego kartonu, oddzielne receptury i tylko niestandardową tuleję na skróconych kartach', async () => {
+  it('kafelki pokazują skrót, a panel zawartości pełny skład, oddzielne receptury i niestandardowe tuleje', async () => {
     plan.cartons[1].lines = [
       { qty: 12, kgPerUnit: 15, recipeName: 'BEYAZ', productTypeName: 'UDO', packagingName: 'METAL 65CM' },
       { qty: 6, kgPerUnit: 15, recipeName: 'KIRMIZI', productTypeName: 'INDYK', packagingName: 'METAL 80', source: 'plan' },
       { qty: 2, kgPerUnit: 25, recipeName: 'YAPRAK', productTypeName: 'WOŁOWINA', packagingName: 'PAPIER 100CM' },
     ]
     render(<PlanMrozni onZamknij={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Zawartość kartonów (2)' }))
     const cards = await screen.findAllByTestId('karton-zawartosc')
     expect(cards).toHaveLength(2)
     const card = within(screen.getByRole('region', { name: 'Zawartość kartonu 000002' }))
@@ -116,7 +116,7 @@ describe('plan mroźni w rzeczywistych wymiarach', () => {
   })
 
   it('wyszukanie numeru wyróżnia tylko właściwy karton; czyszczenie i brak wyników wyłączają pulsowanie', async () => {
-    plan.cartons.push({ ...plan.cartons[1], id: 'c3', cartonNo: '000020', location: { slot: 'X160Y0', xCm: 160, yCm: 0, rotation: 90, revision: 'v1' } })
+    plan.cartons.push({ ...plan.cartons[1], id: 'c3', cartonNo: '000020', location: { slot: 'C1', rotation: 90, revision: 'v1' } })
     render(<PlanMrozni onZamknij={vi.fn()} />)
     fireEvent.click(await screen.findByRole('button', { name: /Szukaj kartonu/ }))
     fireEvent.change(screen.getByRole('textbox'), { target: { value: '2' } })
@@ -138,31 +138,44 @@ describe('plan mroźni w rzeczywistych wymiarach', () => {
     expect(api.save).not.toHaveBeenCalled()
   })
 
-  it('obrót zmienia szerokość, blokuje kolizję i nie przesuwa sąsiada', async () => {
+  it('gotowe kafelki zachowują adresy; zapis wybiera wolne miejsce i orientację bez przesuwania sąsiada', async () => {
     render(<PlanMrozni cel={empty} onZamknij={vi.fn()} />)
-    await screen.findByText(/Bok od drzwi: 80 cm/)
-    click('Pokaż pierwsze wolne położenie')
-    const preview = screen.getByLabelText('Podgląd palety')
-    expect(preview.style.width).toBe(`${80 / 560 * 100}%`)
+    const floor = within(await screen.findByRole('group', { name: 'Stałe miejsca mroźni' }))
+    expect(floor.getAllByRole('button')).toHaveLength(63)
+    expect(floor.getAllByRole('button')[0].dataset.slot).toBe('A7')
+    expect(floor.getAllByRole('button')[62].dataset.slot).toBe('I1')
+    expect((floor.getByRole('button', { name: /B1 · Karton/ }) as HTMLButtonElement).disabled).toBe(true)
+    click('A1 · wolne')
     click('Obróć o 90°')
-    expect(preview.style.width).toBe(`${120 / 560 * 100}%`)
-    expect(screen.getByRole('alert').textContent).toContain('nachodzi')
-    expect((screen.getByRole('button', { name: 'Zapisz miejsce' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByText(/Na szerokość: 4 palety tym bokiem; zostaje 80 cm/)).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Karton 000002/ }).style.left).toBe(`${80 / 560 * 100}%`)
-    click('Pokaż pierwsze wolne położenie')
-    expect(screen.getByText(/Od lewej ściany: 160 cm/)).toBeTruthy()
+    expect(screen.getByText('Krótszym bokiem od drzwi')).toBeTruthy()
+    expect(floor.getByRole('button', { name: /B1 · Karton/ }).dataset.slot).toBe('B1')
+    expect(floor.getByRole('button', { name: 'A1 · wolne' }).getAttribute('aria-pressed')).toBe('true')
     click('Zapisz miejsce')
-    await waitFor(() => expect(api.save).toHaveBeenCalledWith({ kind: 'stock', container_id: 'c1', x_cm: 160, y_cm: 0, rotation: 0, expected_revision: null }))
+    await waitFor(() => expect(api.save).toHaveBeenCalledWith({ kind: 'stock', container_id: 'c1', slot: 'A1', rotation: 90, expected_revision: null }))
+  })
+
+  it('pozostałość po wycofanej mapie 1.0.23 (X…Y…) jest „bez miejsca” i nie podsuwa niezapisywalnego adresu', async () => {
+    const legacy = { ...empty, id: 'c9', cartonNo: '000009', location: { slot: 'X160Y360', rotation: 90 as const, revision: 'old' } }
+    plan.cartons = [legacy]
+    render(<PlanMrozni cel={legacy} onZamknij={vi.fn()} />)
+    const floor = within(await screen.findByRole('group', { name: 'Stałe miejsca mroźni' }))
+    expect(floor.queryByRole('button', { name: /Karton 000009/ })).toBeNull()
+    expect(await screen.findByText(/Wybrane miejsce: dotknij wolnego kafelka/)).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Zapisz miejsce' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.queryByRole('button', { name: 'Zamień miejscami' })).toBeNull()
+    click('C4 · wolne')
+    click('Zapisz miejsce')
+    // The stale coordinate row is replaced by a fixed place, using its revision.
+    await waitFor(() => expect(api.save).toHaveBeenCalledWith({ kind: 'stock', container_id: 'c9', slot: 'C4', rotation: 90, expected_revision: 'old' }))
   })
 
   it('towar bez skanowania: klawiatura dotykowa, polskie znaki, położenie i zapis', async () => {
     api.block.mockImplementation(async b => {
-      const mark = { ...b, xCm: b.x_cm, yCm: b.y_cm, revision: 'manual1', operator: 'Jan', updatedAt: '' }
+      const mark = { ...b, revision: 'manual1', operator: 'Jan', updatedAt: '' }
       plan = { ...plan, blocked: [mark] }; return mark
     })
     render(<PlanMrozni onZamknij={vi.fn()} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Dodaj towar ręcznie' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'A1 · wolne' }))
     click(/Wpisz produkt/)
     const keyboard = screen.getByRole('dialog', { name: /Klawiatura/ })
     for (const name of ['ł', 'ó', 'j']) {
@@ -170,12 +183,11 @@ describe('plan mroźni w rzeczywistych wymiarach', () => {
     }
     expect((within(keyboard).getByRole('textbox') as HTMLInputElement).value).toBe('łój')
     click('Gotowe')
-    click('Pokaż pierwsze wolne położenie')
-    click('Zapisz towar i położenie')
-    await screen.findByRole('button', { name: 'Towar ręczny · łój' })
-    expect(api.block).toHaveBeenCalledWith(expect.objectContaining({ description: 'łój', x_cm: 0, y_cm: 0, rotation: 90, expected_revision: null }))
+    click('Zapisz towar')
+    await screen.findByRole('button', { name: 'A1 · zajęte · łój' })
+    expect(api.block).toHaveBeenCalledWith({ slot: 'A1', description: 'łój', expected_revision: null })
     expect(api.save).not.toHaveBeenCalled()
-    click('Towar ręczny · łój')
+    click('A1 · zajęte · łój')
     click('Zwolnij miejsce')
     expect(api.unblock).not.toHaveBeenCalled()
     click('Tak, zwolnij miejsce')
@@ -190,16 +202,16 @@ describe('plan mroźni w rzeczywistych wymiarach', () => {
     click(/Karton 000002 ·/)
     expect(screen.getByText(/12 szt × 15 kg · KIRMIZI/)).toBeTruthy()
     click('Przenieś / obróć')
-    click('Pokaż pierwsze wolne położenie')
+    click('A1 · wolne')
     click('Zapisz miejsce')
-    await waitFor(() => expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ container_id: 'c2', x_cm: 0, y_cm: 0, expected_revision: 'v1' })))
+    await waitFor(() => expect(api.save).toHaveBeenCalledWith(expect.objectContaining({ container_id: 'c2', slot: 'A1', expected_revision: 'v1' })))
   })
 
   it('konflikt nie zamyka mapy i wymaga świadomego ponownego wyboru', async () => {
     api.save.mockRejectedValue(new Error('Położenie zajęte na innym stanowisku'))
     const close = vi.fn()
     render(<PlanMrozni cel={empty} onZamknij={close} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Pokaż pierwsze wolne położenie' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'A1 · wolne' }))
     click('Zapisz miejsce')
     await screen.findByText('Położenie zajęte na innym stanowisku')
     expect(close).not.toHaveBeenCalled()
@@ -211,16 +223,16 @@ describe('plan mroźni w rzeczywistych wymiarach', () => {
     api.read.mockRejectedValue(new Error('offline'))
     render(<PlanMrozni cel={empty} onZamknij={vi.fn()} />)
     await screen.findByText(/Brak aktualnego planu/)
-    expect(screen.queryByLabelText('Podłoga mroźni')).toBeNull()
+    expect(screen.queryByLabelText('Stałe miejsca mroźni')).toBeNull()
     expect(api.save).not.toHaveBeenCalled()
   })
 
-  it('stare miejsca nie otrzymują wymyślonych współrzędnych', async () => {
+  it('dotychczasowe miejsca są od razu widoczne bez przepisywania lub zapisywania planu', async () => {
     plan.cartons[1].location = { slot: 'B2', rotation: 90, revision: 'old' }
     render(<PlanMrozni onZamknij={vi.fn()} />)
-    await screen.findByText(/Stare adresy pól wymagają/)
-    expect(screen.queryByRole('button', { name: /Karton 000002 ·/ })).toBeNull()
-    expect(screen.getByText(/B2 · położenie do potwierdzenia/)).toBeTruthy()
+    await screen.findByRole('button', { name: 'B2 · Karton 000002 · YALCIN' })
+    expect(screen.getByRole('group', { name: 'Stałe miejsca mroźni' }).querySelectorAll('button')).toHaveLength(63)
+    expect(screen.queryByText(/do potwierdzenia/)).toBeNull()
     click('Zamknij mapę')
     expect(api.save).not.toHaveBeenCalled()
   })
@@ -235,14 +247,4 @@ it('skrót mieszanego kartonu nie przypisuje pierwszej receptury lub tulei do ca
   expect(findFreezerCartons([{ ...empty, lines }], 'wolowina 100')).toHaveLength(1)
   expect(freezerTube('METAL 65')).toEqual({ cm: 65, nonstandard: false })
   expect(freezerTube('Folia stretch')).toEqual({ cm: null, nonstandard: false })
-})
-
-it('560 cm mieści 7 × 80 lub 4 × 120; mieszane orientacje wykorzystują pozostałe 80 cm', () => {
-  const narrow: Footprint[] = Array.from({ length: 7 }, (_, i) => ({ xCm: i * 80, yCm: 0, rotation: 90 }))
-  expect(firstFree(90, narrow)?.yCm).toBe(120)
-  const wide: Footprint[] = Array.from({ length: 4 }, (_, i) => ({ xCm: i * 120, yCm: 0, rotation: 0 }))
-  expect(firstFree(0, wide)).toEqual({ xCm: 0, yCm: 80, rotation: 0 })
-  expect(firstFree(90, wide)).toEqual({ xCm: 480, yCm: 0, rotation: 90 })
-  expect(placementProblem({ xCm: 480, yCm: 960, rotation: 90 }, [])).toBe('')
-  expect(placementProblem({ xCm: 480, yCm: 960, rotation: 0 }, [])).toContain('ścianę')
 })

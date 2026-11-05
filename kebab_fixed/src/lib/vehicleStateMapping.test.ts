@@ -12,7 +12,7 @@ it('keeps server colour identity when order position changes or another order di
 
 describe('skład kafelków załadunku', () => {
   it('zachowuje adres i obrót oraz rozróżnia brak miejsca od braku danych', () => {
-    const location = { slot: 'X160Y360', xCm: 160, yCm: 360, rotation: 90, revision: 'v1' }
+    const location = { slot: 'C4', rotation: 90, revision: 'v1' }
     const state = mapVehicleState({ orders: [{ pallets: [{ location }, { location: null }, {}] }] })
     expect(state.orders[0].pallets.map(p => p.location)).toEqual([location, null, undefined])
   })

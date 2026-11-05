@@ -62,6 +62,7 @@ Frontend = React + TypeScript + Vite + Tailwind (font Fira). Desktop = Tauri.
 - **Smallest change that fixes the root cause** — don't bundle drive-by refactors; but for non-trivial changes, pause and pick the sound design, not the quick hack.
 - **Solve bugs autonomously** from available diagnostics; don't bounce trivial questions back to the user.
 - **Encode lessons** — after a correction, add a rule (here or in memory) so it can't recur.
+- **HMI magazynu / mroźnia (user correction 2026-11-05):** preserve the fixed named places A–I / 1–7 and the layout/style of HMI 1.0.22. The scaled coordinate map and style in 1.0.23 were explicitly rejected and rolled back; do not reintroduce them when adding carton swaps, contents or loading colours. Manual product entry and search must support the in-app touch keyboard (including Polish letters). The physical room is 560 × 1080 cm and pallets are 80 × 120 cm, but these dimensions must not replace the required fixed-slot UI. Never silently move neighbouring goods or invent physical positions from logical slot names. Keep the whole 7-row plan (door row included) visible at 1024 × 768, also with the details panel open.
 
 ## ⚠️ AI GUARDRAILS
 

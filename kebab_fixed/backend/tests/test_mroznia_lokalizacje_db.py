@@ -36,30 +36,31 @@ def test_plan_exposes_order_identity_for_order_and_linked_stock_cartons(db):
 def test_assign_rotate_move_and_retry(db, kind):
     cid, code = seed(kind)
     assert svc.plan()['cartons'][0]['location'] is None
-    first = svc.save(kind, cid, '', 0, None, 'Jan', x_cm=0, y_cm=0)
+    first = svc.save(kind, cid, 'A1', 0, None, 'Jan')
     assert sprawdz(code)['location'] == first
-    assert svc.save(kind, cid, '', 0, None, x_cm=0, y_cm=0) == first
-    rotated = svc.save(kind, cid, '', 90, first['revision'], x_cm=0, y_cm=0)
+    assert svc.save(kind, cid, 'A1', 0, None) == first
+    rotated = svc.save(kind, cid, 'A1', 90, first['revision'])
     assert rotated['rotation'] == 90
-    moved = svc.save(kind, cid, '', 90, rotated['revision'], x_cm=480, y_cm=960)
+    moved = svc.save(kind, cid, 'I7', 90, rotated['revision'])
     assert query_one('SELECT count(*) AS n FROM cold_storage_positions')['n'] == 1
     assert svc.plan()['cartons'][0]['location'] == moved
-    assert svc.plan()['room'] == {'widthCm': 560, 'depthCm': 1080, 'stepCm': 10}
+    assert svc.plan()['columns'] == list('ABCDEFGHI') and svc.plan()['rows'] == 7
 
 
 def test_occupied_and_stale_leave_original_placement(db):
     a, _ = seed('order', '1')
     b, _ = seed('stock', '2')
-    first = svc.save('order', a, '', 0, None, x_cm=0, y_cm=0)
-    other = svc.save('stock', b, '', 0, None, x_cm=160, y_cm=160)
+    first = svc.save('order', a, 'A1', 0, None)
+    other = svc.save('stock', b, 'B2', 0, None)
     with pytest.raises(HTTPException) as exc:
-        svc.save('stock', b, '', 90, other['revision'], x_cm=100, y_cm=0)
+        svc.save('stock', b, 'A1', 90, other['revision'])
     assert exc.value.status_code == 409
+    assert 'Miejsce A1 jest już zajęte' in exc.value.detail  # operator sees which place
     assert svc.location('stock', b) == other
-    svc.save('order', a, '', 0, first['revision'], x_cm=0, y_cm=160)
+    svc.save('order', a, 'A2', 0, first['revision'])
     with pytest.raises(HTTPException):
-        svc.save('order', a, '', 90, first['revision'], x_cm=0, y_cm=320)
-    assert svc.location('order', a)['yCm'] == 160
+        svc.save('order', a, 'A3', 90, first['revision'])
+    assert svc.location('order', a)['slot'] == 'A2'
 
 
 def test_two_stations_cannot_take_same_slot(db):
@@ -69,7 +70,7 @@ def test_two_stations_cannot_take_same_slot(db):
     def put(kind, cid):
         start.wait(timeout=5)
         try:
-            svc.save(kind, cid, '', 0, None, x_cm=0 if kind == 'order' else 100, y_cm=0)
+            svc.save(kind, cid, 'A1', 0, None)
             return 200
         except HTTPException as e:
             return e.status_code
@@ -82,11 +83,11 @@ def test_two_stations_cannot_take_same_slot(db):
 @pytest.mark.parametrize('kind', ['order', 'stock'])
 def test_exit_and_reentry_do_not_reuse_location(db, kind):
     cid, code = seed(kind)
-    svc.save(kind, cid, '', 0, None, x_cm=360, y_cm=480)
+    svc.save(kind, cid, 'D4', 0, None)
     assert wyjedz_z_mrozni(code)['result'] == 'SUCCESS'
     assert svc.location(kind, cid) is None
     with pytest.raises(HTTPException):
-        svc.save(kind, cid, '', 0, None, x_cm=360, y_cm=480)
+        svc.save(kind, cid, 'D4', 0, None)
     zwaz_i_wstaw(code, 'euro', 80, 'manual')
     assert svc.plan()['cartons'][0]['location'] is None
 
@@ -94,7 +95,7 @@ def test_exit_and_reentry_do_not_reuse_location(db, kind):
 @pytest.mark.parametrize('kind', ['order', 'stock'])
 def test_loading_frees_slot_and_undo_never_resurrects_it(db, kind):
     cid, _ = seed(kind)
-    svc.save(kind, cid, '', 0, None, x_cm=0, y_cm=0)
+    svc.save(kind, cid, 'A1', 0, None)
     if kind == 'order':
         execute("UPDATE order_pallets SET status='loaded' WHERE id=%s", (cid,))
     else:
@@ -102,18 +103,18 @@ def test_loading_frees_slot_and_undo_never_resurrects_it(db, kind):
         execute('UPDATE stock_cartons SET loaded_vehicle_id=%s WHERE id=%s', (vehicle, cid))
     assert svc.location(kind, cid) is None
     other, _ = seed('stock', '2')
-    svc.save('stock', other, '', 0, None, x_cm=0, y_cm=0)
+    svc.save('stock', other, 'A1', 0, None)
     if kind == 'order':
         execute("UPDATE order_pallets SET status='cold_storage' WHERE id=%s", (cid,))
     else:
         execute('UPDATE stock_cartons SET loaded_vehicle_id=NULL WHERE id=%s', (cid,))
     assert svc.location(kind, cid) is None
-    assert svc.location('stock', other)['slot'] == 'X0Y0'
+    assert svc.location('stock', other)['slot'] == 'A1'
 
 
 def test_reweigh_keeps_location_and_plan_contains_tube(db):
     cid, code = seed()
-    pos = svc.save('stock', cid, '', 90, None, x_cm=160, y_cm=320)
+    pos = svc.save('stock', cid, 'C3', 90, None)
     zwaz_i_wstaw(code, 'euro', 80, 'manual')
     assert svc.location('stock', cid) == pos
     line = svc.plan()['cartons'][0]['lines'][0]
@@ -139,7 +140,7 @@ def test_loading_api_exposes_location_and_releases_it_on_scan(db):
     _baza_jednego_auta()
     vehicle_loading_service.add_order('v1', 'o1')
     pallets_service.scan('PAL|o1|1', 'cold_storage')
-    pos = svc.save('order', 'p1', '', 90, None, x_cm=240, y_cm=480)
+    pos = svc.save('order', 'p1', 'D4', 90, None)
     state = vehicle_loading_service.vehicle_state('v1')
     assert next(p for p in state['orders'][0]['pallets'] if p['id'] == 'p1')['location'] == pos
     result = pallets_service.scan('PAL|o1|1', 'loaded', vehicle_id='v1')
@@ -155,7 +156,7 @@ def test_schema_is_idempotent_and_preserves_positions(db):
     from app.mroznia_schema import DDL
     from app.db import transaction, cx_execute
     cid, _ = seed()
-    pos = svc.save('stock', cid, '', 0, None, x_cm=0, y_cm=0)
+    pos = svc.save('stock', cid, 'A1', 0, None)
     with transaction() as conn:
         for statement in DDL:
             cx_execute(conn, statement)
@@ -163,37 +164,39 @@ def test_schema_is_idempotent_and_preserves_positions(db):
 
 
 def test_manual_occupancy_without_carton_and_release(db):
-    first = svc.block('Mtest', '  Łój wołowy  ', None, 'Jan', x_cm=0, y_cm=0)
+    first = svc.block('A1', '  Łój wołowy  ', None, 'Jan')
     assert first['description'] == 'Łój wołowy' and first['operator'] == 'Jan'
-    assert svc.block('Mtest', 'Łój wołowy', None, x_cm=0, y_cm=0) == first
+    assert svc.block('A1', 'Łój wołowy', None) == first
     assert svc.plan()['blocked'] == [first]
     assert svc.plan()['cartons'] == []
     assert query_one('SELECT count(*) AS n FROM stock_cartons')['n'] == 0
     assert query_one('SELECT count(*) AS n FROM stock_movements')['n'] == 0
-    changed = svc.block('Mtest', 'Inny towar', first['revision'], 'Ola', x_cm=80, y_cm=0, rotation=0)
+    changed = svc.block('A1', 'Inny towar', first['revision'], 'Ola')
     with pytest.raises(HTTPException):
-        svc.unblock('Mtest', first['revision'])
-    assert svc.unblock('Mtest', changed['revision']) == {'ok': True}
-    assert svc.unblock('Mtest', changed['revision']) == {'ok': True}
+        svc.unblock('A1', first['revision'])
+    assert svc.unblock('A1', changed['revision']) == {'ok': True}
+    assert svc.unblock('A1', changed['revision']) == {'ok': True}
     assert svc.plan()['blocked'] == []
 
 
 def test_manual_and_carton_cannot_overlap(db):
     cid, _ = seed()
-    blocked = svc.block('Mtest', '', None, x_cm=0, y_cm=0)
+    blocked = svc.block('A1', '', None)
     assert blocked['description'] == 'Miejsce zajęte'
     with pytest.raises(HTTPException) as e:
-        svc.save('stock', cid, '', 0, None, x_cm=60, y_cm=0)
+        svc.save('stock', cid, 'A1', 0, None)
     assert e.value.status_code == 409
-    svc.save('stock', cid, '', 0, None, x_cm=0, y_cm=160)
-    with pytest.raises(HTTPException):
-        svc.block('Msecond', 'Łój', None, x_cm=100, y_cm=160)
-    assert svc.location('stock', cid)['yCm'] == 160
+    assert 'Miejsce A1 jest oznaczone jako zajęte' in e.value.detail
+    svc.save('stock', cid, 'A2', 0, None)
+    with pytest.raises(HTTPException) as e:
+        svc.block('A2', 'Łój', None)
+    assert e.value.status_code == 409 and 'Miejsce A2 jest zajęte przez karton' in e.value.detail
+    assert svc.location('stock', cid)['slot'] == 'A2'
     # Releasing an old manual mark must never remove the newly placed carton.
-    svc.unblock('Mtest', blocked['revision'])
-    svc.save('stock', cid, '', 0, svc.location('stock', cid)['revision'], x_cm=0, y_cm=0)
-    svc.unblock('Mtest', blocked['revision'])
-    assert svc.location('stock', cid)['slot'] == 'X0Y0'
+    svc.unblock('A1', blocked['revision'])
+    svc.save('stock', cid, 'A1', 0, svc.location('stock', cid)['revision'])
+    svc.unblock('A1', blocked['revision'])
+    assert svc.location('stock', cid)['slot'] == 'A1'
 
 
 @pytest.mark.parametrize('second_manual', [True, False])
@@ -204,9 +207,9 @@ def test_manual_putaway_races_are_serialized(db, second_manual):
         start.wait(timeout=5)
         try:
             if manual:
-                svc.block('M' + ('1' if manual == 'Łój' else '2'), manual, None, x_cm=0 if manual == 'Łój' else 60, y_cm=0)
+                svc.block('A1', manual, None)
             else:
-                svc.save('stock', cid, '', 0, None, x_cm=60, y_cm=0)
+                svc.save('stock', cid, 'A1', 0, None)
             return 200
         except HTTPException as e:
             return e.status_code
@@ -217,14 +220,14 @@ def test_manual_putaway_races_are_serialized(db, second_manual):
                      '(SELECT count(*) FROM cold_storage_blocked_slots) AS n')['n'] == 1
 
 
-@pytest.mark.parametrize('slot,description', [('J1', 'Łój'), ('A1\n', 'Łój'), ('A1', 'x' * 161)])
+@pytest.mark.parametrize('slot,description', [('J1', 'Łój'), ('X0Y0', 'Łój'), ('Mtest', 'Łój'), ('A1\n', 'Łój'), ('A1', 'x' * 161)])
 def test_invalid_manual_mark_rejected(db, slot, description):
     with pytest.raises(HTTPException) as e:
         svc.block(slot, description, None)
     assert e.value.status_code == 400
 
 
-@pytest.mark.parametrize('slot,rotation', [('J1', 0), ('A8', 0), ('A0', 0), ('A1', 45), ('A1\n', 0)])
+@pytest.mark.parametrize('slot,rotation', [('J1', 0), ('X0Y0', 0), ('A8', 0), ('A0', 0), ('A1', 45), ('A1\n', 0)])
 def test_invalid_place_rejected_before_write(db, slot, rotation):
     with pytest.raises(HTTPException) as exc:
         svc.save('stock', 'unknown', slot, rotation, None)
@@ -232,37 +235,7 @@ def test_invalid_place_rejected_before_write(db, slot, rotation):
     assert query_all('SELECT * FROM cold_storage_positions') == []
 
 
-@pytest.mark.parametrize('rotation,width,count', [(90, 80, 7), (0, 120, 4)])
-def test_actual_room_width_allows_seven_or_four(db, rotation, width, count):
-    for i in range(count):
-        svc.block(f'M{i}', str(i), None, x_cm=i * width, y_cm=0, rotation=rotation)
-    with pytest.raises(HTTPException) as e:
-        svc.block('Moverflow', 'Nie zmieści się', None, x_cm=count * width, y_cm=0, rotation=rotation)
-    assert e.value.status_code == 400
-    assert len(svc.plan()['blocked']) == count
-
-
-def test_rotation_changes_footprint_and_cannot_shift_neighbors(db):
-    a = svc.block('Ma', 'Łój', None, x_cm=0, y_cm=0, rotation=90)
-    b = svc.block('Mb', 'Inny towar', None, x_cm=80, y_cm=0, rotation=90)
-    with pytest.raises(HTTPException) as e:
-        svc.block('Ma', 'Łój', a['revision'], x_cm=0, y_cm=0, rotation=0)
-    assert e.value.status_code == 409
-    assert svc.plan()['blocked'] == [a, b]
-    # A touching edge is fine, and rotating into a free area is fine.
-    moved = svc.block('Ma', 'Łój', a['revision'], x_cm=160, y_cm=0, rotation=0)
-    assert moved['rotation'] == 0 and moved['xCm'] == 160
-
-
-@pytest.mark.parametrize('x,y,rotation', [(-10, 0, 90), (0, -10, 90), (490, 0, 90), (0, 970, 90),
-                                         (450, 0, 0), (0, 1010, 0), (1, 0, 90), (0, 0, 45)])
-def test_walls_and_snap_enforced_by_server(db, x, y, rotation):
-    with pytest.raises(HTTPException) as e:
-        svc.block('Mtest', 'Towar', None, x_cm=x, y_cm=y, rotation=rotation)
-    assert e.value.status_code == 400
-
-
-def test_old_slots_are_preserved_without_inventing_coordinates(db):
+def test_existing_slots_are_preserved_and_work_without_coordinates(db):
     from app.mroznia_schema import DDL
     from app.db import transaction, cx_execute
     cid, _ = seed()
@@ -273,12 +246,12 @@ def test_old_slots_are_preserved_without_inventing_coordinates(db):
             cx_execute(conn, statement)
     old = svc.plan()
     assert old['cartons'][0]['location']['slot'] == 'I7'
-    assert old['cartons'][0]['location']['xCm'] is None
-    assert old['blocked'][0]['xCm'] is None
-    fixed = svc.save('stock', cid, '', 90, 'old', x_cm=480, y_cm=960)
-    assert fixed['xCm'] == 480 and fixed['yCm'] == 960
-    svc.block('A1', 'Łój', 'old', x_cm=0, y_cm=0)
-    assert svc.plan()['blocked'][0]['xCm'] == 0
+    assert 'xCm' not in old['cartons'][0]['location']
+    assert old['blocked'][0]['slot'] == 'A1'
+    fixed = svc.save('stock', cid, 'I7', 90, 'old')
+    assert fixed['slot'] == 'I7' and fixed['rotation'] == 90
+    svc.block('A1', 'Łój wołowy', 'old')
+    assert svc.plan()['blocked'][0]['description'] == 'Łój wołowy'
 
 
 def test_swap_via_route_in_a_completely_full_freezer(db):
@@ -286,14 +259,14 @@ def test_swap_via_route_in_a_completely_full_freezer(db):
     from app.routes.magazyn import ZamianaMiejsc, mroznia_zamiana
     a, _ = seed('order', '1')
     b, _ = seed('stock', '2')
-    first = svc.save('order', a, '', 90, None, x_cm=0, y_cm=0)
-    second = svc.save('stock', b, '', 90, None, x_cm=80, y_cm=0)
+    first = svc.save('order', a, 'A1', 90, None)
+    second = svc.save('stock', b, 'B1', 90, None)
     for i in range(2, 63):
-        svc.block(f'M{i}', 'Towar', None, x_cm=(i % 7) * 80, y_cm=(i // 7) * 120)
+        svc.block(f'{"ABCDEFGHI"[i % 9]}{i // 9 + 1}', 'Towar', None)
     body = ZamianaMiejsc(first={'kind': 'order', 'container_id': a, 'expected_revision': first['revision']},
                         second={'kind': 'stock', 'container_id': b, 'expected_revision': second['revision']})
     result = mroznia_zamiana(body, Request({'type': 'http', 'state': {'subject': {'name': 'Jan'}}}))
-    assert result['first']['xCm'] == 80 and result['second']['xCm'] == 0
+    assert result['first']['slot'] == 'B1' and result['second']['slot'] == 'A1'
     assert len(svc.plan()['blocked']) == 61
     assert query_one('SELECT count(*) AS n FROM cold_storage_positions')['n'] == 2
     assert query_one('SELECT operator FROM cold_storage_positions WHERE pallet_id=%s', (a,))['operator'] == 'Jan'
@@ -306,23 +279,23 @@ def test_swap_via_route_in_a_completely_full_freezer(db):
 
 
 @pytest.mark.parametrize('kind', ['order', 'stock'])
-def test_swap_keeps_each_destination_footprint_and_orientation(db, kind):
+def test_swap_keeps_each_destination_place_and_orientation(db, kind):
     a, _ = seed(kind, '1')
     b, _ = seed(kind, '2')
-    first = svc.save(kind, a, '', 0, None, x_cm=0, y_cm=0)
-    second = svc.save(kind, b, '', 90, None, x_cm=240, y_cm=160)
-    neighbor = svc.block('Mnear', 'Blisko', None, x_cm=120, y_cm=0)
+    first = svc.save(kind, a, 'A1', 0, None)
+    second = svc.save(kind, b, 'D2', 90, None)
+    neighbor = svc.block('B1', 'Blisko', None)
     result = svc.swap(kind, a, first['revision'], kind, b, second['revision'])
-    assert (result['first']['xCm'], result['first']['yCm'], result['first']['rotation']) == (240, 160, 90)
-    assert (result['second']['xCm'], result['second']['yCm'], result['second']['rotation']) == (0, 0, 0)
+    assert (result['first']['slot'], result['first']['rotation']) == ('D2', 90)
+    assert (result['second']['slot'], result['second']['rotation']) == ('A1', 0)
     assert svc.plan()['blocked'] == [neighbor]
 
 
 def test_swap_rolls_back_both_locations_if_second_write_fails(db, monkeypatch):
     a, _ = seed('order', '1')
     b, _ = seed('stock', '2')
-    first = svc.save('order', a, '', 90, None, x_cm=0, y_cm=0)
-    second = svc.save('stock', b, '', 90, None, x_cm=80, y_cm=0)
+    first = svc.save('order', a, 'A1', 90, None)
+    second = svc.save('stock', b, 'B1', 90, None)
     original = svc.cx_query_one
     inserts = 0
     def fail_second(conn, sql, params=None):
@@ -342,8 +315,8 @@ def test_swap_rolls_back_both_locations_if_second_write_fails(db, monkeypatch):
 def test_simultaneous_swaps_cannot_swap_back(db):
     a, _ = seed('order', '1')
     b, _ = seed('stock', '2')
-    first = svc.save('order', a, '', 90, None, x_cm=0, y_cm=0)
-    second = svc.save('stock', b, '', 90, None, x_cm=80, y_cm=0)
+    first = svc.save('order', a, 'A1', 90, None)
+    second = svc.save('stock', b, 'B1', 90, None)
     start = Barrier(2)
     def run(reverse):
         start.wait(timeout=5)
@@ -358,20 +331,19 @@ def test_simultaneous_swaps_cannot_swap_back(db):
     with ThreadPoolExecutor(max_workers=2) as pool:
         jobs = [pool.submit(run, False), pool.submit(run, True)]
         assert sorted(j.result(timeout=10) for j in jobs) == [200, 409]
-    assert svc.location('order', a)['xCm'] == 80
-    assert svc.location('stock', b)['xCm'] == 0
+    assert svc.location('order', a)['slot'] == 'B1'
+    assert svc.location('stock', b)['slot'] == 'A1'
 
 
 def test_swap_rejects_departed_and_unpositioned_cartons(db):
     a, code = seed('order', '1')
     b, _ = seed('stock', '2')
-    first = svc.save('order', a, '', 90, None, x_cm=0, y_cm=0)
-    execute("INSERT INTO cold_storage_positions(slot, carton_id, rotation, revision) VALUES ('A1', %s, 0, 'old')", (b,))
+    first = svc.save('order', a, 'A1', 90, None)
     with pytest.raises(HTTPException) as e:
         svc.swap('order', a, first['revision'], 'stock', b, 'old')
     assert e.value.status_code == 409
     assert svc.location('order', a) == first
-    second = svc.save('stock', b, '', 90, 'old', x_cm=80, y_cm=0)
+    second = svc.save('stock', b, 'B1', 90, None)
     wyjedz_z_mrozni(code)
     with pytest.raises(HTTPException) as e:
         svc.swap('order', a, first['revision'], 'stock', b, second['revision'])

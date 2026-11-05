@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { RotateCw } from 'lucide-react'
-import { magazynApi, type KartonNaPlanie, type PlanMrozniDane, type MiejsceMrozni, type ZajeteMiejsceMrozni } from '@/lib/api'
+import { magazynApi, type KartonNaPlanie, type PlanMrozniDane, type MiejsceMrozni } from '@/lib/api'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { HMI_VARS } from '@/features/hmi-theme/vars'
 import { ZawartoscMrozni } from './ZawartoscMrozni'
 import { KlawiaturaHmi } from './KlawiaturaHmi'
-import { firstFree, locationText, palletSize, placementProblem, positioned, ROOM, type Footprint } from './mrozniaGeometry'
+import { locationText, positioned } from './mrozniaSlots'
 import { compactCartonNo, findFreezerCartons, freezerTileSummary } from './mrozniaContents'
 import { ZnacznikZamowienia, type ZamowienieKolorowe } from './koloryZaladunku'
 import './plan-mrozni.css'
@@ -13,11 +13,10 @@ import './plan-mrozni.css'
 export type CelMrozni = Pick<KartonNaPlanie, 'kind' | 'id' | 'cartonNo'>
 const key = (c: CelMrozni) => `${c.kind}:${c.id}`
 const compactNo = compactCartonNo
-const manualId = () => 'M' + Array.from(crypto.getRandomValues(new Uint32Array(4)), n => n.toString(16).padStart(8, '0')).join('')
 const buttonStyle = { background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)' }
 type Editor = { carton: KartonNaPlanie; manual?: never } | { carton?: never; manual: { slot: string; revision: string | null } }
 
-/** The same cm scale on both axes; rotation changes footprint, never other pallets. */
+/** Ready-made named tiles, in the same order as HMI 1.0.22. No coordinate picking. */
 export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono }: {
   cel?: CelMrozni; onZamknij: () => void; onZapisano?: (location: MiejsceMrozni) => void; onZmieniono?: () => void
   zaladunek?: { vehicleName: string; orders: ZamowienieKolorowe[]; online: boolean }
@@ -28,25 +27,23 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
   const [szukaj, setSzukaj] = useState('')
   const [wybrany, setWybrany] = useState(cel ? key(cel) : '')
   const [editor, setEditor] = useState<Editor | null>(null)
-  const [draft, setDraft] = useState<Footprint | null>(null)
-  const [rotation, setRotation] = useState<0 | 90>(90)
+  const [slot, setSlot] = useState<string | null>(null)
+  const [rotation, setRotation] = useState<0 | 90>(0)
   const [opis, setOpis] = useState('')
   const [zapis, setZapis] = useState(false)
   const [zwolnienie, setZwolnienie] = useState(false)
   const [komunikat, setKomunikat] = useState('')
   const [keyboard, setKeyboard] = useState<'search' | 'description' | null>(null)
-  const [powieksz, setPowieksz] = useState(false)
+  const [details, setDetails] = useState(!!cel)
   const [swapFrom, setSwapFrom] = useState<KartonNaPlanie | null>(null)
   const [swapTo, setSwapTo] = useState<KartonNaPlanie | null>(null)
   const [orderFilter, setOrderFilter] = useState('')
-  const [fitWidth, setFitWidth] = useState<number | null>(null)
   const zajety = useRef(false)
   const poczatek = useRef(false)
   const request = useRef(0)
   const mapTiles = useRef(new Map<string, HTMLButtonElement>())
   const contentCards = useRef(new Map<string, HTMLElement>())
   const aside = useRef<HTMLElement>(null)
-  const mapViewport = useRef<HTMLDivElement>(null)
 
   const odswiez = useCallback(async () => {
     const n = ++request.current
@@ -66,19 +63,10 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
     return () => { clearInterval(timer); request.current++ }
   }, [odswiez])
 
-  useEffect(() => {
-    const viewport = mapViewport.current
-    if (!viewport || typeof ResizeObserver === 'undefined') return
-    const measure = () => setFitWidth(window.matchMedia('(min-width: 768px)').matches
-      ? Math.max(80, (viewport.clientHeight - 78) * ROOM.widthCm / ROOM.depthCm) : null)
-    const observer = new ResizeObserver(measure)
-    observer.observe(viewport); measure()
-    return () => observer.disconnect()
-  }, [!!plan])
-
   function edytuj(c: KartonNaPlanie) {
     setEditor({ carton: c }); setWybrany(key(c)); setZwolnienie(false); setBlad(''); setKomunikat('')
-    setDraft(positioned(c.location) ? c.location : null); setRotation(c.location?.rotation ?? 90)
+    // A leftover coordinate address from rolled-back 1.0.23 is not a place: pick one anew.
+    setSlot(positioned(c.location) ? c.location.slot : null); setRotation(c.location?.rotation ?? 0); setDetails(true)
   }
   useEffect(() => {
     if (!cel || !plan || poczatek.current) return
@@ -104,16 +92,10 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
   const matches = (c: KartonNaPlanie) => matchingKeys.has(key(c))
   const highlight = (c: KartonNaPlanie) => !editor && (swapFrom && key(c) === key(swapFrom) || (needle ? matches(c) : key(c) === wybrany))
   const bezMiejsca = plan?.cartons.filter(c => !positioned(c.location)) ?? []
-  const manualBezMiejsca = blocked.filter(b => !positioned(b))
-  const occupied = [
-    ...(plan?.cartons.filter(c => !editor?.carton || key(c) !== key(editor.carton)).map(c => c.location) ?? []),
-    ...blocked.filter(b => b.slot !== editor?.manual?.slot),
-  ].filter(positioned)
-  const allPositions = [...(plan?.cartons.map(c => c.location) ?? []), ...blocked].filter(positioned)
-  const ready = plan?.room?.widthCm === ROOM.widthCm && plan?.room?.depthCm === ROOM.depthCm
-  const disabled = zapis || offline || !ready
-  const problem = draft ? placementProblem(draft, occupied) : 'Wskaż rzeczywiste położenie na mapie.'
-  const size = palletSize(rotation)
+  const disabled = zapis || offline || !plan
+  const occupiedByOther = !!slot && (blocked.some(b => b.slot === slot && b.slot !== editor?.manual?.slot)
+    || !!plan?.cartons.some(c => c.location?.slot === slot && (!editor?.carton || key(c) !== key(editor.carton))))
+  const problem = !slot ? 'Dotknij wolnego kafelka miejsca.' : occupiedByOther ? 'Miejsce jest już zajęte. Wybierz inne.' : ''
   const swapChanged = [swapFrom, swapTo].some(c => c && plan?.cartons.find(p => key(p) === key(c))?.location?.revision !== c.location?.revision)
 
   function pokaz(c: KartonNaPlanie, from: 'map' | 'card' | 'search') {
@@ -122,7 +104,7 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
       if (id === key(swapFrom) || !positioned(c.location)) return
       setSwapTo(c)
     }
-    setWybrany(id); setZwolnienie(false)
+    setWybrany(id); setZwolnienie(false); setDetails(true)
     // Scroll only on an operator action, never on the five-second refresh.
     requestAnimationFrame(() => {
       if (from !== 'map') mapTiles.current.get(id)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
@@ -139,7 +121,7 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
 
   function beginSwap(c: KartonNaPlanie) {
     if (!positioned(c.location) || disabled) return
-    setSwapFrom(c); setSwapTo(null); setEditor(null); setDraft(null); setSzukaj('')
+    setSwapFrom(c); setSwapTo(null); setEditor(null); setSlot(null); setSzukaj(''); setDetails(true)
     setWybrany(key(c)); setBlad(''); setKomunikat('')
     requestAnimationFrame(() => aside.current?.scrollTo?.({ top: 0, behavior: 'smooth' }))
   }
@@ -162,62 +144,48 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
     }
   }
 
-  function recznie(b?: ZajeteMiejsceMrozni) {
-    setEditor({ manual: { slot: b?.slot ?? manualId(), revision: b?.revision ?? null } })
-    setWybrany(''); setOpis(b?.description ?? ''); setDraft(positioned(b) ? b : null); setRotation(b?.rotation ?? 90)
+  function recznie(place: string) {
+    const b = blocked.find(b => b.slot === place)
+    setEditor({ manual: { slot: place, revision: b?.revision ?? null } })
+    setWybrany(''); setOpis(b?.description ?? ''); setSlot(place); setDetails(true)
     setBlad(''); setKomunikat(''); setZwolnienie(false)
   }
 
   async function zapisz(zwolnij = false) {
-    if (!editor || disabled || zajety.current || (!zwolnij && (!draft || problem))) return
+    if (!editor || disabled || zajety.current || (!zwolnij && (!slot || problem))) return
     if (zwolnij && !editor.manual?.revision) return
     zajety.current = true; setZapis(true); setBlad(''); setKomunikat(''); request.current++
     try {
-      if (editor.carton && draft) {
+      if (editor.carton && slot) {
         const location = await magazynApi.mrozniaLokalizacja({ kind: editor.carton.kind, container_id: editor.carton.id,
-          x_cm: draft.xCm, y_cm: draft.yCm, rotation: draft.rotation, expected_revision: editor.carton.location?.revision ?? null })
+          slot, rotation, expected_revision: editor.carton.location?.revision ?? null })
         onZapisano?.(location); onZmieniono?.(); onZamknij()
       } else if (editor.manual) {
         if (zwolnij) await magazynApi.mrozniaZwolnij({ slot: editor.manual.slot, expected_revision: editor.manual.revision! })
-        else if (draft) await magazynApi.mrozniaZajete({ slot: editor.manual.slot, description: opis,
-          expected_revision: editor.manual.revision, x_cm: draft.xCm, y_cm: draft.yCm, rotation: draft.rotation })
-        setKomunikat(zwolnij ? 'Zwolniono miejsce.' : 'Zapisano towar i jego położenie.')
-        setEditor(null); setDraft(null); setZwolnienie(false); onZmieniono?.(); await odswiez()
+        else await magazynApi.mrozniaZajete({ slot: editor.manual.slot, description: opis, expected_revision: editor.manual.revision })
+        setKomunikat(zwolnij ? `Zwolniono miejsce ${editor.manual.slot}.` : `Zapisano towar na miejscu ${editor.manual.slot}.`)
+        setEditor(null); setSlot(null); setZwolnienie(false); setDetails(false); onZmieniono?.(); await odswiez()
       }
     } catch (e) {
       setBlad(e instanceof Error ? e.message : 'Nie zapisano miejsca. Odczytaj plan i spróbuj ponownie.')
       await odswiez()
       // Never silently adopt a new revision after conflict; select the item again.
-      setEditor(null); setDraft(null); setZwolnienie(false)
+      setEditor(null); setSlot(null); setZwolnienie(false)
     } finally { zajety.current = false; setZapis(false) }
   }
 
-  function propose() {
-    const p = firstFree(rotation, occupied)
-    setDraft(p)
-    setBlad(p ? '' : 'Brak wolnego prostokąta dla tej orientacji palety.')
-  }
-  function rotate() {
-    const r = rotation === 0 ? 90 : 0
-    setRotation(r); setDraft(p => p ? { ...p, rotation: r } : null)
-  }
-  function placeStyle(p: Footprint): CSSProperties {
-    const s = palletSize(p.rotation)
-    return { left: `${p.xCm / ROOM.widthCm * 100}%`, bottom: `${p.yCm / ROOM.depthCm * 100}%`,
-      width: `${s.width / ROOM.widthCm * 100}%`, height: `${s.depth / ROOM.depthCm * 100}%` }
-  }
-
   return <Dialog open onOpenChange={open => { if (!open && !zajety.current) onZamknij() }}>
-    <DialogContent style={HMI_VARS} className="flex h-[94vh] w-[96vw] max-w-[1120px] flex-col gap-2 overflow-hidden p-4"
+    <DialogContent style={HMI_VARS} className="mroznia-fullscreen flex h-[100dvh] w-screen max-w-none flex-col gap-2 overflow-hidden rounded-none p-3 [&>button:last-child]:hidden"
       onInteractOutside={e => e.preventDefault()} onEscapeKeyDown={e => { if (zajety.current) e.preventDefault() }}>
-      <DialogTitle>Rzut mroźni · 560 × 1080 cm</DialogTitle>
-      <DialogDescription>Widok z góry w skali. Drzwi na dole. Paleta 80 × 120 cm; obrót zmienia zajmowane miejsce.</DialogDescription>
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto md:flex md:flex-col md:overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <DialogTitle>Rzut mroźni · 63 stałe miejsca</DialogTitle>
+        <DialogDescription>A–I / 1–7 · Rząd 1 przy drzwiach, 7 w głębi.</DialogDescription>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
       {offline ? <div role="alert" className="rounded-lg border border-red-700 p-3 text-red-800">
         Brak aktualnego planu — wybór i zapis zablokowane.
         <button type="button" className="ml-3 min-h-12 underline" onClick={() => void odswiez()}>Ponów odczyt</button>
       </div> : null}
-      {plan && !ready ? <p role="alert">Serwer nie udostępnia jeszcze planu w centymetrach. Zaktualizuj serwer i odśwież aplikację.</p> : null}
       {blad ? <p role="alert" className="font-bold text-red-800">{blad}</p> : null}
       {komunikat ? <p role="status" className="font-bold text-green-800">{komunikat}</p> : null}
       {!plan && !offline ? <p role="status">Wczytuję miejsca…</p> : null}
@@ -227,80 +195,50 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
           <button type="button" disabled={zapis} className="min-h-12 min-w-0 flex-1 rounded-lg px-3 text-left" style={buttonStyle}
             onClick={() => setKeyboard('search')}>⌨ Szukaj kartonu, klienta, receptury lub tulei{szukaj ? `: ${szukaj}` : ''}</button>
           {szukaj ? <button type="button" disabled={zapis} onClick={() => search('')} className="min-h-12 rounded-lg border px-3">Wyczyść filtr</button> : null}
-          <button type="button" disabled={disabled || !!swapFrom} className="min-h-12 rounded-lg px-3 font-bold" style={buttonStyle}
-            onClick={() => recznie()}>Dodaj towar ręcznie</button>
+          <button type="button" disabled={disabled} aria-expanded={details} className="min-h-12 rounded-lg px-3 font-bold" style={buttonStyle}
+            onClick={() => setDetails(!details)}>{details ? 'Ukryj szczegóły' : `Zawartość kartonów (${plan.cartons.length})`}</button>
         </div> : null}
-        <p className="shrink-0 text-sm">Na planie: {allPositions.length} palet · zajęta powierzchnia: {(allPositions.length * 0.96).toFixed(2)} / 60,48 m².
-          {' '}Bez potwierdzonego położenia: {bezMiejsca.length + manualBezMiejsca.length}.</p>
-        {needle && !editor ? <p role="status" className="shrink-0 rounded-lg bg-green-50 px-3 py-2 text-sm font-bold text-green-800">
-          {results.length ? `Znaleziono: ${results.length} · na mapie pulsują na zielono. Bez położenia: ${results.filter(c => !positioned(c.location)).length}.`
-            : 'Nie znaleziono kartonów. Zmień numer, recepturę lub wyczyść filtr.'}
-        </p> : null}
-        {bezMiejsca.some(c => c.location) || manualBezMiejsca.length ? <p className="rounded-lg p-2 text-sm" style={{ background: 'var(--ambSoft)' }}>
-          Stare adresy pól wymagają wskazania rzeczywistego położenia. Towar bez położenia nie jest jeszcze uwzględniony w zajętej powierzchni.
-        </p> : null}
-        <div className="grid items-start gap-4 md:min-h-0 md:flex-1 md:grid-cols-[minmax(280px,1fr)_minmax(280px,1fr)]">
-          <div className="min-w-0 rounded-xl border p-3 md:flex md:h-full md:flex-col md:overflow-hidden" aria-label="Mapa miejsc mroźni">
-            <div className="z-20 mb-2 flex shrink-0 items-center justify-between gap-2 bg-white pb-1">
-              <b className="text-sm">Plan · 560 × 1080 cm</b>
-              <button type="button" onClick={() => setPowieksz(!powieksz)} className="min-h-12 rounded-lg border px-3 text-sm">{powieksz ? 'Zmniejsz mapę' : 'Powiększ mapę'}</button>
+        <div className={`mroznia-layout ${details ? 'mroznia-layout-details' : ''}`}>
+          <div className="mroznia-map-scroll" aria-label="Mapa miejsc mroźni">
+            <div role="group" aria-label="Stałe miejsca mroźni" className="mroznia-slots"
+              style={{ gridTemplateColumns: `repeat(${plan.columns.length}, minmax(0, 1fr))` }}>
+              {Array.from({ length: plan.rows }, (_, i) => plan.rows - i).flatMap(row => plan.columns.map(col => {
+                const place = `${col}${row}`
+                const c = plan.cartons.find(c => c.location?.slot === place)
+                const b = blocked.find(b => b.slot === place)
+                const own = c && editor?.carton && key(c) === key(editor.carton)
+                const active = editor ? slot === place : !!c && key(c) === wybrany
+                const locked = disabled || (!!editor?.carton && (!!b || (!!c && !own)))
+                  || (!!editor?.manual && place !== editor.manual.slot) || (!!swapFrom && (!c || key(c) === key(swapFrom)))
+                const order = c && loadingOrder(c), color = order?.color
+                const summary = c && freezerTileSummary(c.lines)
+                const angle = active && editor?.carton ? rotation : c?.location?.rotation ?? 0
+                return <button type="button" key={place} data-slot={place} disabled={!!locked} aria-pressed={active}
+                  aria-label={`${place} · ${c ? `Karton ${c.cartonNo} · ${c.clientName}` : b ? `zajęte · ${b.description}` : 'wolne'}${order ? ` · ${color!.label} · ${order.orderNo}` : ''}`}
+                  ref={el => { if (c) { if (el) mapTiles.current.set(key(c), el); else mapTiles.current.delete(key(c)) } }}
+                  data-highlighted={c && highlight(c) ? 'true' : 'false'} data-loading-color={color?.index}
+                  onClick={() => { if (editor?.carton) setSlot(place); else if (!editor) { if (c) pokaz(c, 'map'); else recznie(place) } }}
+                  className={`mroznia-map-tile ${c && highlight(c) ? 'mroznia-found' : ''}`}
+                  style={{ '--loading-fill': color?.fill,
+                    borderColor: active ? 'var(--accent)' : color?.edge ?? (b ? 'var(--amb)' : c ? zaladunek ? '#94a3b8' : 'var(--success)' : 'var(--line)'),
+                    backgroundColor: color?.fill ?? (active ? 'var(--accentSoft)' : b ? 'var(--ambSoft)' : c ? zaladunek ? '#e2e8f0' : 'var(--successSoft)' : 'var(--panel)'),
+                    color: 'var(--ink)', opacity: c && !editor && ((needle && !matches(c)) || (!swapFrom && !inOrder(c))) ? 0.35 : 1 } as CSSProperties}>
+                  <span className="mroznia-tile-heading"><b>{place}</b><b className="hmi-v10-mono">{c ? compactNo(c.cartonNo) : ''}</b></span>
+                  {c && summary ? <>
+                    <span className="block truncate font-bold">{summary.recipe}</span>
+                    <span className="mroznia-tile-qty block truncate">{summary.quantity}</span>
+                    <span className="mroznia-tile-badges">
+                      {color ? <b style={{ color: color.edge }}>{color.label}</b> : <span aria-hidden className="mroznia-orientation" style={{ width: angle === 90 ? 8 : 14, height: angle === 90 ? 14 : 8 }} />}
+                      {summary.tubes.length ? <b className="text-amber-900" aria-label={`Tuleja niestandardowa: ${summary.tubes.join(', ')} cm`}>T {summary.tubes.join('/')}</b> : null}
+                    </span>
+                  </> : b ? <><b>ZAJĘTE</b><span className="line-clamp-2 break-words">{b.description}</span></>
+                    : <span style={{ color: 'var(--mut)' }}>{active ? 'wybrane' : 'wolne'}</span>}
+                </button>
+              }))}
             </div>
-            <div ref={mapViewport} className="md:min-h-0 md:flex-1 md:overflow-y-auto">
-            <div className="mx-auto" style={{ width: powieksz ? '100%' : `min(100%, ${fitWidth ?? 240}px)` }}>
-              <p className="mb-1 text-center text-sm font-bold">← 560 cm →</p>
-              <div role="group" aria-label="Podłoga mroźni" className="relative w-full border-2 border-slate-600"
-                style={{ aspectRatio: '560 / 1080', backgroundColor: 'var(--panel)',
-                  backgroundImage: 'linear-gradient(to right, #94a3b833 1px, transparent 1px), linear-gradient(to top, #94a3b833 1px, transparent 1px)',
-                  backgroundSize: `${20 / 560 * 100}% ${20 / 1080 * 100}%` }}
-                onClick={e => {
-                  if (!editor || disabled) return
-                  const box = e.currentTarget.getBoundingClientRect()
-                  const x = (e.clientX - box.left) / box.width * ROOM.widthCm - size.width / 2
-                  const y = (box.bottom - e.clientY) / box.height * ROOM.depthCm - size.depth / 2
-                  setDraft({ xCm: Math.max(0, Math.min(ROOM.widthCm - size.width, Math.round(x / 10) * 10)),
-                    yCm: Math.max(0, Math.min(ROOM.depthCm - size.depth, Math.round(y / 10) * 10)), rotation })
-                }}>
-                {plan.cartons.filter(c => positioned(c.location) && (!editor?.carton || key(c) !== key(editor.carton))).map(c => {
-                  const summary = freezerTileSummary(c.lines)
-                  const order = loadingOrder(c), color = order?.color
-                  return <button
-                  type="button" key={key(c)} disabled={disabled} aria-label={`Karton ${c.cartonNo} · ${c.clientName} · ${locationText(c.location)}${order ? ` · ${color!.label} · ${order.orderNo}` : ''}`}
-                  ref={el => { if (el) mapTiles.current.set(key(c), el); else mapTiles.current.delete(key(c)) }}
-                  aria-pressed={key(c) === wybrany} data-highlighted={highlight(c) ? 'true' : 'false'}
-                  data-loading-color={color?.index}
-                  title={`${c.cartonNo} · ${summary.recipe} · ${summary.quantity}${summary.tubes.length ? ` · tuleja ${summary.tubes.join('/')} cm` : ''}`}
-                  onClick={e => { e.stopPropagation(); if (!editor) pokaz(c, 'map') }}
-                  className={`mroznia-map-tile absolute overflow-hidden border-2 p-0.5 text-center ${highlight(c) ? 'mroznia-found' : ''}`}
-                  style={{ ...placeStyle(c.location as Footprint), '--loading-fill': color?.fill,
-                    borderColor: color?.edge ?? (zaladunek ? '#94a3b8' : key(c) === wybrany ? 'var(--accent)' : 'var(--success)'),
-                    backgroundColor: color?.fill ?? (zaladunek ? '#e2e8f0' : 'var(--successSoft)'), color: 'var(--ink)',
-                    opacity: !editor && ((needle && !matches(c)) || (!swapFrom && !inOrder(c))) ? 0.35 : 1 } as CSSProperties}>
-                  <b className="block leading-3" style={{ fontSize: powieksz ? 11 : `min(9px, ${140 / Math.max(1, compactNo(c.cartonNo).length)}cqw)` }}>{compactNo(c.cartonNo)}</b>
-                  {color ? <span className="block text-[9px] font-extrabold leading-3">{color.label}</span> : null}
-                  <span className="mroznia-tile-contents">
-                    <span className="block truncate text-[10px] font-bold leading-3">{summary.recipe}</span>
-                    <span className="block truncate text-[9px] leading-3">{summary.quantity}</span>
-                  </span>
-                  {summary.tubes.length ? <span className="block truncate text-[8px] font-bold leading-3 text-amber-900" aria-label={`Tuleja niestandardowa: ${summary.tubes.join(', ')} cm`}>T {summary.tubes.join('/')}</span> : null}
-                </button>})}
-                {blocked.filter(b => positioned(b) && b.slot !== editor?.manual?.slot).map(b => <button type="button" key={b.slot}
-                  disabled={disabled || !!swapFrom} aria-label={`Towar ręczny · ${b.description}`} onClick={e => { e.stopPropagation(); if (!editor) recznie(b) }}
-                  className="absolute overflow-hidden border-2 p-0.5 text-center"
-                  style={{ ...placeStyle(b as Footprint), borderColor: 'var(--amb)', background: 'var(--ambSoft)', color: 'var(--ink)' }}>
-                  <b className="block text-[9px]">TOWAR</b><span className="block truncate text-[9px]">{b.description}</span>
-                </button>)}
-                {editor && draft ? <div aria-label="Podgląd palety" className="pointer-events-none absolute z-10 grid place-items-center overflow-hidden border-2 text-center"
-                  style={{ ...placeStyle(draft), borderColor: problem ? '#b91c1c' : 'var(--accent)', background: problem ? '#fecaca' : 'var(--accentSoft)' }}>
-                  <b className="text-[8px] leading-3">{editor.carton ? compactNo(editor.carton.cartonNo) : 'TOWAR'}<br />{size.width} × {size.depth}</b>
-                </div> : null}
-              </div>
-              <div className="mt-2 text-center text-sm font-bold">Drzwi · wejście ↑</div>
-              <p className="text-center text-xs">Głębokość 1080 cm · kratka 20 × 20 cm</p>
-            </div>
-            </div>
-            <p className="mt-2 shrink-0 text-xs" style={{ color: 'var(--mut)' }}>Pełny skład na kartach obok. T = tuleja niestandardowa. Powiększenie pokazuje również opis na paletach.</p>
+            <div className="mroznia-door">Drzwi mroźnicze · wejście ↑</div>
           </div>
-          <aside ref={aside} className="min-w-0 space-y-3 md:h-full md:overflow-y-auto">
+          {details ? <aside ref={aside} className="mroznia-details space-y-3" aria-label="Szczegóły mroźni">
             {zaladunek ? <section aria-label="Kolory zamówień do załadunku" className="space-y-2 rounded-xl border p-3">
               <h3 className="text-lg font-bold">Na auto: {zaladunek.vehicleName}</h3>
               <p className="text-sm">Kolor i oznaczenie K są takie same jak na liście załadunku. Szare palety: pozostały towar.</p>
@@ -331,7 +269,7 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
               <button type="button" disabled={zapis} onClick={() => { setSwapFrom(null); setSwapTo(null) }} className="min-h-12 w-full rounded-lg border bg-white px-3">Anuluj zamianę</button>
             </section> : null}
             {editor?.manual ? <section className="space-y-2 rounded-xl border p-3" style={{ background: 'var(--ambSoft)' }}>
-              <h3 className="text-xl font-bold">Towar na palecie bez skanowania</h3>
+              <h3 className="text-xl font-bold">Miejsce {editor.manual.slot} · towar bez skanowania</h3>
               <button type="button" disabled={disabled || zwolnienie} onClick={() => setKeyboard('description')}
                 className="min-h-14 w-full break-words rounded-lg px-3 text-left" style={buttonStyle}>
                 ⌨ {opis || 'Wpisz produkt, np. łój wołowy'}</button>
@@ -349,25 +287,17 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
                 <button type="button" disabled={disabled} onClick={() => void zapisz(true)} className="min-h-12 w-full rounded-lg border px-3 font-bold">Tak, zwolnij miejsce</button>
                 <button type="button" disabled={zapis} onClick={() => setZwolnienie(false)} className="min-h-12 w-full underline">Anuluj zwolnienie</button>
               </> : <>
-                <p className="text-lg font-bold" aria-live="polite">Bok od drzwi: {size.width} cm · w głąb: {size.depth} cm</p>
-                <p className="text-sm">Na szerokość: {size.width === 80 ? '7 palet' : '4 palety'} tym bokiem; zostaje {560 % size.width} cm.</p>
-                <button type="button" disabled={disabled} onClick={rotate} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg px-3 font-bold" style={buttonStyle}>
-                  <RotateCw size={22} aria-hidden /> Obróć o 90°</button>
+                <p className="text-lg font-bold" aria-live="polite">Wybrane miejsce: {slot || 'dotknij wolnego kafelka'}</p>
+                {editor.carton ? <>
+                  <button type="button" disabled={disabled} onClick={() => setRotation(r => r === 0 ? 90 : 0)} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg px-3 font-bold" style={buttonStyle}>
+                    <RotateCw size={22} aria-hidden /> Obróć o 90°</button>
+                  <p aria-live="polite">{rotation === 0 ? 'Dłuższym bokiem od drzwi' : 'Krótszym bokiem od drzwi'}</p>
+                </> : null}
                 {editor.carton && positioned(editor.carton.location) ? <button type="button" disabled={disabled} onClick={() => beginSwap(editor.carton!)}
                   className="min-h-12 w-full rounded-lg border px-3 font-bold">Zamień miejscami</button> : null}
-                <button type="button" disabled={disabled} onClick={propose} className="min-h-12 w-full rounded-lg border px-3">Pokaż pierwsze wolne położenie</button>
-                <p className="text-sm">Dotknij mapy, potem dopasuj strzałkami co 10 cm. Zapisz zgodnie z faktycznym ustawieniem palety.</p>
-                {draft ? <>
-                  <p aria-live="polite" className="font-bold">Od lewej ściany: {draft.xCm} cm · od drzwi: {draft.yCm} cm</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {([['← 10 cm', -10, 0], ['10 cm →', 10, 0], ['W głąb ↑ 10 cm', 0, 10], ['Do drzwi ↓ 10 cm', 0, -10]] as const).map(([label, x, y]) =>
-                      <button type="button" key={label} disabled={disabled} onClick={() => setDraft(p => p ? { ...p, xCm: p.xCm + x, yCm: p.yCm + y } : p)}
-                        className="min-h-12 rounded-lg border px-1 text-sm font-bold">{label}</button>)}
-                  </div>
-                </> : null}
-                <p role={draft && problem ? 'alert' : 'status'} className={problem ? 'text-red-800' : 'text-green-800'}>{problem || 'Paleta mieści się i nie nachodzi na inne pozycje.'}</p>
+                <p role={occupiedByOther ? 'alert' : 'status'} className={occupiedByOther ? 'text-red-800' : ''}>{problem || 'Zapisz zgodnie z faktycznym ustawieniem towaru.'}</p>
               </>}
-              <button type="button" disabled={zapis} onClick={() => { setEditor(null); setDraft(null); setZwolnienie(false) }} className="min-h-12 w-full underline">Anuluj zmianę</button>
+              <button type="button" disabled={zapis} onClick={() => { setEditor(null); setSlot(null); setZwolnienie(false) }} className="min-h-12 w-full underline">Anuluj zmianę</button>
             </section> : <section className="space-y-2" aria-label="Zawartość kartonów">
               <div className="sticky top-0 z-10 bg-white pb-2">
                 <h3 className="text-lg font-bold">{needle ? 'Wyniki wyszukiwania' : 'Zawartość kartonów'} · {results.length}</h3>
@@ -396,20 +326,26 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
                 </div> : null}
               </section>})}
               {!results.length && !needle ? <p className="p-3 text-sm">{activeOrder ? 'Brak kartonów tego zamówienia w mroźni.' : 'Brak kartonów w mroźni.'}</p> : null}
-              {manualBezMiejsca.map(b => <button type="button" key={b.slot} disabled={disabled || !!swapFrom} onClick={() => recznie(b)}
-                className="min-h-12 w-full rounded-lg border px-3 text-left">{b.description} · {b.slot} · wskaż położenie</button>)}
             </section>}
-          </aside>
+          </aside> : null}
         </div>
       </> : null}
       </div>
       <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t pt-2">
+        {/* Search status lives in the footer, so searching never shrinks or shifts the 63 tiles. */}
+        {!editor && plan && needle ? <p role="status" className={`min-w-0 flex-1 text-sm font-bold ${results.length ? 'text-green-800' : 'text-amber-900'}`}>
+          {results.length ? `Znaleziono: ${results.length} · na mapie pulsują na zielono.` : 'Nie znaleziono kartonów. Zmień numer, recepturę lub wyczyść filtr.'}
+          {results.length ? <span className="block font-normal" style={{ color: 'var(--mut)' }}>Bez przypisanego miejsca: {results.filter(c => !positioned(c.location)).length}</span> : null}
+        </p> : !editor && !swapFrom && plan ? <p className="min-w-0 flex-1 text-sm">Zajęte: {plan.cartons.length - bezMiejsca.length + blocked.length}/63 · Bez miejsca: {bezMiejsca.length}
+          <span className="block" style={{ color: 'var(--mut)' }}>Dotknij kafelka · T = nietypowa tuleja</span></p> : null}
+        {zaladunek && !editor && !swapFrom ? <button type="button" disabled={zapis} onClick={() => { setDetails(true); requestAnimationFrame(() => aside.current?.scrollTo?.({ top: 0 })) }}
+          className="min-h-12 rounded-lg border px-3 font-bold">Kolory zamówień ({loadingOrders.size})</button> : null}
         {cel ? <p className="min-w-[200px] flex-1 text-sm">Zamknięcie mapy nie cofa wjazdu ani ważenia. Bez zapisu miejsce się nie zmieni.</p> : null}
         {swapFrom ? <button type="button" disabled={disabled || !swapTo || swapChanged} onClick={() => void saveSwap()}
           className="min-h-14 rounded-lg bg-green-700 px-4 font-bold text-white disabled:opacity-50">{zapis ? 'Zapisuję…' : 'Zapisz zamianę'}</button> : null}
         {editor && !zwolnienie ? <button type="button" disabled={disabled || !!problem} onClick={() => void zapisz()}
           className="min-h-14 rounded-lg px-4 font-bold text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>
-          {zapis ? 'Zapisuję…' : editor.manual ? 'Zapisz towar i położenie' : 'Zapisz miejsce'}</button> : null}
+          {zapis ? 'Zapisuję…' : editor.manual ? 'Zapisz towar' : 'Zapisz miejsce'}</button> : null}
         <button type="button" disabled={zapis} onClick={onZamknij} className="min-h-12 rounded-lg px-6 font-bold" style={buttonStyle}>Zamknij mapę</button>
       </div>
       {keyboard ? <KlawiaturaHmi label={keyboard === 'search' ? 'Szukaj kartonu' : 'Nazwa produktu'} value={keyboard === 'search' ? szukaj : opis}

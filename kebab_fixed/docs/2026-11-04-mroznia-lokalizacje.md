@@ -1,22 +1,37 @@
 # HMI magazynu: zawartość kartonów i lokalizacje mroźni
 
-## Układ po doprecyzowaniu wymiarów (2026-11-04)
+> **Obowiązuje (od 2026-11-05): stałe miejsca A–I / 1–7 i układ HMI 1.0.22.**
+> Mapa w skali 560 × 1080 cm z wersji 1.0.23 została przez użytkownika
+> odrzucona („musi być zrobione ze stałymi miejscami”) i wycofana
+> 2026-11-05 06:37 UTC. Wersja **1.0.24** przenosi funkcje 1.0.23 — kolory
+> zamówień, zawartość kartonów, zieloną wyszukiwarkę, zamianę miejsc i
+> klawiaturę dotykową — na **gotowe kafelki**, bez siatki współrzędnych.
+> Historia wycofanego rozwiązania: sekcja „Wycofana mapa w skali (1.0.23)”.
 
-- Źródło orientacji wejścia: `/root/KARTONY MROZNIA NOWE.pdf`.
-- Właściciel podał **560 cm szerokości × 1080 cm głębokości**. Zastępuje to
-  wcześniejszy model 63 stałych pól, który nie uwzględniał geometrii obrotu.
-- Drzwi są u dołu, X od lewej ściany, Y od ściany wejściowej. Obie osie mają
-  identyczną skalę. Współrzędne opisują lewy dolny narożnik palety, co 10 cm.
-- Paleta ma 80 × 120 cm. Domyślnie bok 80 cm od drzwi (rotation=90);
-  rotation=0 zachowuje wcześniejsze znaczenie: bok 120 cm od drzwi.
-- Na szerokość wejdzie 7 × 80 cm albo 4 × 120 cm z pasem 80 cm. Możliwy
-  jest układ mieszany, np. cztery szerokie i jedna wąska paleta.
-- Obrót zmienia zajęty prostokąt. Ściany i kolizje blokują zapis; sąsiednie
-  palety nie są automatycznie przesuwane. Operator wskazuje rzeczywiste ustawienie.
-- „Pokaż pierwsze wolne położenie” jest tylko propozycją do zatwierdzenia.
-  Mapa nie przydziela miejsc po samym otwarciu i nie zakłada szerokości przejazdów.
-- Starsze adresy A–I/1–7 pozostają zapisane z pustymi współrzędnymi. Są
-  wyświetlane jako wymagające potwierdzenia, bez zgadywania rzeczywistego miejsca.
+## Układ
+
+- 63 gotowe kafelki: kolumny A–I, rzędy 1–7. Rząd 1 przy drzwiach, 7 w głębi.
+  Kolejność i adresy są identyczne jak w HMI 1.0.22. Jeden karton lub jedno
+  ręczne oznaczenie na miejsce.
+- Rzut otwiera się **na pełnym ekranie**; kafelki wypełniają całą wysokość
+  panelu (przy 1024 × 768 i 1366 × 768 wszystkie 7 rzędów są widoczne bez
+  przewijania, również z otwartym panelem szczegółów).
+- Obrót zapisuje orientację palety na tym miejscu (domyślnie dłuższym bokiem
+  od drzwi; „Obróć o 90°” = krótszym bokiem). Obrót nie przesuwa sąsiadów
+  i nie zmienia adresu. Fizyczne wymiary (pomieszczenie 560 × 1080 cm,
+  paleta 80 × 120 cm) są informacją, a nie modelem ekranu.
+- Miejsca nie są nigdy zgadywane: karton bez przypisania jest „bez miejsca”.
+
+## Kafelek
+
+Na kafelku: adres, numer kartonu bez zer wiodących, receptura (dla kartonu
+mieszanego „MIX · n receptury” — nigdy pierwsza receptura za całość), ilość
+(`12×15 kg` albo `18 szt · 2 poz.`), a w dolnym wierszu znacznik zamówienia
+K1, K2… podczas załadunku albo znacznik orientacji oraz **T 80/100** dla
+tulei spoza standardu 45–65 cm. Kafelek ręcznego towaru jest bursztynowy
+z napisem ZAJĘTE i opisem. Gdy obok mapy jest otwarty panel szczegółów na
+ekranie 768–1279 px, numer przechodzi pod adres, a ilość zostaje tylko na
+karcie zawartości — dzięki temu cały rzut mieści się na jednym ekranie.
 
 ## Obsługa
 
@@ -25,103 +40,92 @@ recepturę, rodzaj, tuleję i osobno postęp pakowania. W mroźni zawartość
 pochodzi ze sztuk, a przy braku skanów rozpis jest jawnie opisany jako rozpis.
 Różne tuleje nie są łączone w jedną pozycję.
 
-Po zapisanym ważeniu/wjeździe otwiera się mapa do wskazania miejsca. Także
+Po zapisanym ważeniu/wjeździe otwiera się rzut do wskazania miejsca. Także
 „Zważ później” prowadzi do wyboru lokalizacji. Wjazd/ważenie i lokalizacja
 są oddzielnymi zapisami: błąd sieci lub zamknięcie mapy nie usuwa ważenia.
-Nie zgadujemy miejsca — karton bez przypisania jest widoczny jako „bez miejsca”.
-Można uzupełnić je później, również dla kartonów istniejących przed zmianą.
+Miejsce można uzupełnić później, również dla kartonów sprzed zmiany.
 
-Mapa pozwala wyszukać numer kartonu, klienta lub zamówienie, odczytać skład,
-przenieść karton i obrócić paletę. Nazwę produktu i wyszukiwanie wpisuje się
-klawiaturą dotykową z polskimi literami, cyframi, spacją i kasowaniem.
-Przycisk zapisu pozostaje w stałej stopce; mapę można powiększyć.
-Współrzędne i orientacja są widoczne na liście mroźni,
-karcie kartonu otwieranej skanem i liście załadunku. Mapa odświeża się co 5 s.
+Przeniesienie: karton → „Przenieś / obróć” → dotknięcie wolnego kafelka →
+ewentualnie „Obróć o 90°” → „Zapisz miejsce” (stała stopka). Miejsce i
+orientacja są widoczne na liście mroźni, na karcie kartonu otwieranej
+skanem i na liście załadunku („Mroźnia · A1”, pod spodem orientacja).
+Rzut odświeża się co 5 s; odświeżenie nie przewija mapy ani listy.
 
-### Czytelna zawartość i wyszukiwanie
+### Zawartość kartonów i wyszukiwanie
 
-Od razu po otwarciu mapy obok rzutu widoczne są karty wszystkich kartonów:
-pełny numer, klient, każda pozycja ilość × kg, receptura i rodzaj mięsa.
-Tuleje spoza standardu 45–65 cm są wyróżnione bursztynowo. Standardowe
-tuleje pomijamy na skróconej karcie; nieznane nazwy pozostają widoczne.
-Rozpis bez skanów nadal ma wyraźne oznaczenie. Skład mieszanego kartonu
-nie jest redukowany do pierwszej receptury ani łączony po samej wadze.
+„Zawartość kartonów (n)” otwiera obok rzutu karty wszystkich kartonów: pełny
+numer, klient, każda pozycja ilość × kg, receptura i rodzaj mięsa. Tuleje
+spoza standardu są wyróżnione bursztynowo; nieznane nazwy pozostają widoczne.
+Dotknięcie karty wskazuje kafelek, dotknięcie kafelka przewija listę do składu.
 
-Na małej mapie jest numer i znacznik nietypowej tulei, po powiększeniu
-dochodzi skrót receptury/składu. Obie osie pozostają w tej samej skali.
-Mapa i lista mają oddzielne przewijanie; dotknięcie karty wskazuje paletę,
-a dotknięcie palety przewija listę do jej składu.
-
-Wyszukiwanie obejmuje numer, klienta, zamówienie, recepturę, rodzaj i tuleję.
-Dokładny numer bez zer wiodących ma pierwszeństwo nad fragmentem innego numeru.
-Wyniki pulsują na zielono (bez zmiany rozmiaru prostokątów); przy preferencji
-ograniczenia animacji pozostają stale zielone. Brak wyników i kartony bez
-potwierdzonego położenia mają jawny komunikat. Odświeżanie nie przewija mapy.
+„⌨ Szukaj kartonu, klienta, receptury lub tulei” otwiera klawiaturę
+dotykową (polskie litery, cyfry, spacja, kasowanie) — fizyczna klawiatura
+ani systemowa klawiatura Windows nie są potrzebne. Wyszukiwanie obejmuje
+numer, klienta, zamówienie, recepturę, rodzaj i tuleję. Dokładny numer bez
+zer wiodących ma pierwszeństwo nad fragmentem innego numeru. Znalezione
+kafelki **pulsują na zielono**, pozostałe są przygaszone; przy ograniczeniu
+animacji pozostają stale zielone. Wynik („Znaleziono: n”, „bez przypisanego
+miejsca: n” albo brak wyników) jest w stopce, więc wyszukiwanie nie zmienia
+wielkości ani położenia kafelków.
 
 ### Zamiana kartonów bez wolnego miejsca
 
-Po wskazaniu kartonu: **Zamień miejscami → drugi karton na mapie/liście →
-Zapisz zamianę**. Podgląd pokazuje oba numery, docelowe współrzędne i orientacje.
-Każdy karton przejmuje istniejący prostokąt drugiego (wraz z jego obrotem),
-więc operacja działa także w pełnej mroźni i nie wymaga fikcyjnego miejsca pośredniego.
+Karton → **Zamień miejscami → drugi karton na mapie/liście → Zapisz zamianę**.
+Podgląd pokazuje oba numery, docelowe miejsca i orientacje. Każdy karton
+przejmuje miejsce (i orientację) drugiego, więc operacja działa także w pełnej
+mroźni i nie wymaga miejsca pośredniego. Oba kartony muszą mieć stałe miejsce.
 
 POST `/api/magazyn/mroznia/zamiana` przyjmuje `first` i `second`, każde z
 `kind`, `container_id`, `expected_revision`. Jedna transakcja, wspólna blokada
 mapy i blokady obu kontenerów chronią przed równoległą zmianą oraz załadunkiem.
-Sprawdzamy położenie, wersje, ściany i kolizje; błąd przy drugim zapisie wycofuje
-całość. Powtórzone żądanie ze starymi wersjami zwraca konflikt, zamiast zamieniać
-kartony z powrotem. Klient nie ponawia zamiany automatycznie.
+Błąd przy drugim zapisie wycofuje całość. Powtórzone żądanie ze starymi
+wersjami zwraca konflikt, zamiast zamieniać kartony z powrotem. Klient nie
+ponawia zamiany automatycznie.
 
 ### Towar bez skanowania
 
-„Dodaj towar ręcznie” otwiera opis produktu (np. łój wołowy), położenie i obrót
-palety 80 × 120 cm. Taki prostokąt jest bursztynowy i ma
-napis TOWAR. Nie tworzy kartonu, sztuk ani ruchów magazynowych; blokuje
-odkładanie palet tak samo jak istniejący karton. Po usunięciu towaru operator
-dotyka kafelka i potwierdza „Zwolnij miejsce”. Można również zmienić opis.
+Dotknięcie wolnego kafelka → „⌨ Wpisz produkt” (np. łój wołowy, klawiatura
+dotykowa) → „Zapisz towar”. Kafelek staje się bursztynowy (ZAJĘTE + opis).
+Nie powstaje karton, sztuki ani ruchy magazynowe; miejsce jest zablokowane dla
+palet tak samo jak przez karton. Po usunięciu towaru: dotknij kafelka →
+„Zwolnij miejsce” → „Tak, zwolnij miejsce”. Można też zmienić opis.
 Ręczne blokady i palety używają tej samej blokady transakcyjnej; zmiana opisu
-lub zwolnienie sprawdzają wersję, aby nie usuwać nowszego oznaczenia.
-Osobna tabela `cold_storage_blocked_slots` zachowuje opis, operatora i czas.
+lub zwolnienie sprawdzają wersję, aby nie usunąć nowszego oznaczenia.
+Tabela `cold_storage_blocked_slots` zachowuje opis, operatora i czas.
 API: PUT `/api/magazyn/mroznia/zajete`, POST `/api/magazyn/mroznia/zajete/zwolnij`.
 
 ### Kolory zamówień podczas załadunku
 
-Po dołożeniu zamówienia do auta serwer automatycznie nadaje mu wolny kolor
-i oznaczenie K1, K2 itd. Ten sam znacznik występuje przy zamówieniu, przy
-każdej jego palecie na liście załadunku oraz na rzucie otwartym przyciskiem
-„Rzut mroźni · znajdź karton do załadunku”. Otwarta mapa od razu koloruje
-kartony wszystkich zamówień wybranego auta. Legenda pokazuje klienta,
-numer zamówienia, liczbę kartonów w mroźni i liczbę bez położenia.
-Dotknięcie zamówienia w legendzie zawęża karty i przygasza pozostałe palety;
-„Wszystkie zamówienia auta” przywraca wspólny widok. Pozostałe kartony
-są szare. Ręcznie wpisany towar pozostaje opisany jako TOWAR.
+Po dołożeniu zamówienia do auta serwer nadaje mu wolny kolor i oznaczenie
+K1, K2 itd. Ten sam znacznik jest przy zamówieniu, przy każdej jego palecie na
+liście załadunku i na rzucie otwieranym przyciskiem „Rzut mroźni · znajdź
+karton do załadunku”. Rzut od razu koloruje kafelki wszystkich zamówień auta
+(4–5 zamówień = 4–5 kolorów); pozostałe kartony są szare. „Kolory zamówień
+(n)” otwiera legendę: klient, numer zamówienia, liczba kartonów w mroźni
+i bez miejsca. Dotknięcie zamówienia zawęża karty i przygasza inne kafelki;
+„Wszystkie zamówienia auta” przywraca wspólny widok. Zielone wyszukiwanie
+pulsuje obramowaniem, zachowując kolor zamówienia.
 
 Powiązanie odbywa się przez `orderId`, również dla kartonów magazynowych
-z `linked_order_id`. Dwa zamówienia tego samego klienta mają oddzielne kolory.
-Zielone wyszukiwanie pulsuje obramowaniem kolorowej palety, zachowując jej
-kolor zamówienia; przy ograniczonych animacjach obramowanie jest stałe.
-Podgląd dopasowuje całą podłogę do wysokości panelu, a powiększenie umożliwia
-odczyt małych numerów i opisów. Kolor nie zmienia wymiarów palety.
-
+z `linked_order_id`. Dwa zamówienia tego samego klienta mają osobne kolory.
 `vehicle_loading_orders.color_index` jest trwały przez cały czas przypisania
 zamówienia do auta: skan, odświeżenie, zmiana kolejności i usunięcie innego
 zamówienia nie przepisują kolorów. Indeks unikalny `(vehicle_id, color_index)`
 i trigger przydzielający najniższy wolny indeks pod blokadą auta chronią
-równoczesne dodawanie na kilku stanowiskach. Migracja uzupełnia stare rekordy
-i instaluje kolumnę/trigger w jednej transakcji, przed backfillem załadunków.
-Po zdjęciu zamówienia jego kolor można ponownie wykorzystać.
+równoczesne dodawanie na kilku stanowiskach. Po zdjęciu zamówienia kolor
+można wykorzystać ponownie.
 
 ## Spójność i API
 
-- `GET /api/magazyn/mroznia/plan` — układ, kartony, skład, lokalizacje.
-- `PUT /api/magazyn/mroznia/lokalizacja` — rodzaj/id, x_cm, y_cm, obrót,
-  oczekiwana wersja lokalizacji. Obie trasy wymagają istniejącego uprawnienia `wydanie`.
-- `cold_storage_positions`: unikalny kontener, FK, współrzędne i obrót,
-  ograniczenia ścian/siatki, operator i czas zapisu. `slot` nowych pozycji
-  ma format X160Y360. Ręczne oznaczenia mają stały klucz M… niezależny od ruchu.
+- `GET /api/magazyn/mroznia/plan` — kolumny, rzędy, kartony (z `orderId`),
+  skład, lokalizacje, ręczne oznaczenia.
+- `PUT /api/magazyn/mroznia/lokalizacja` — `kind`, `container_id`, `slot`
+  (`A1`–`I7`), `rotation` (0/90), `expected_revision`. Trasy wymagają
+  istniejącego uprawnienia `wydanie`.
+- `cold_storage_positions`: unikalny kontener i unikalne miejsce, FK, obrót,
+  operator i czas zapisu.
 - Zapis w transakcji z blokadą kontenera i advisory lockiem: dwa stanowiska
-  nie mogą przypisać nachodzących na siebie prostokątów, również przy różnych
-  narożnikach i mieszanych orientacjach. Konflikt = HTTP 409.
+  nie zajmą tego samego miejsca. Konflikt = HTTP 409 z numerem miejsca.
 - Wersja chroni przed nadpisaniem przeniesienia przez drugiego operatora.
   Ponowienie identycznego zapisu jest idempotentne.
 - Triggery zwalniają miejsce przy wyjeździe, załadunku, wydaniu lub zmianie
@@ -130,33 +134,36 @@ Po zdjęciu zamówienia jego kolor można ponownie wykorzystać.
   mogło już zostać zajęte, a fizyczne odstawienie wymaga wskazania miejsca.
 - Ponowne ważenie kartonu pozostającego w mroźni zachowuje lokalizację.
 
-## Weryfikacja i wdrożenie
+### Pozostałości po 1.0.23 w produkcyjnej bazie
 
-Testy SQL geometrii wykonywano wyłącznie na oddzielnej bazie
-`kebab_mes_test_geometry_20261104` (kopii wcześniejszej bazy testowej).
-Sprawdzono 7/4 palety w szerokości, ściany, obrót, stykające się krawędzie,
-kolizje z towarem ręcznym, równoległe zapisy, wyjazd/załadunek i migrację starych pól.
-Testy Playwright korzystają wyłącznie z atrap API (bez zapisów produkcyjnych).
-Pokrywają skalę i obrót przy 1024/1366 px, dotyk przy 375 px oraz wpisanie
-„Łój wołowy” samymi dotknięciami klawiatury ekranowej.
+Cofnięcie 1.0.23 przywróciło tylko pliki — migracje bazy zostają. W bazie są
+więc nieużywane kolumny `x_cm`, `y_cm` i luźniejsze ograniczenia `slot`
+(dopuszczają `X…Y…` i `M…`). Kod 1.0.24 ich nie używa i **nie należy ich
+usuwać** ani zaostrzać ograniczeń migracją, jeśli w tabelach mogą być takie
+wiersze (migracja by się wywróciła). Karton, któremu 1.0.23 zapisała adres
+`X…Y…`, jest pokazywany jako „bez przypisanego miejsca”: operator wskazuje
+stały kafelek, a zapis z wersją tego wiersza zastępuje stary adres. Zamiana
+takiego kartonu jest odrzucana, dopóki nie dostanie stałego miejsca.
 
-Po dodaniu zawartości, wyszukiwania i zamiany: 74 testy backendu (w tym
-zamiana przy 63 zajętych miejscach, różne orientacje, współbieżność i rollback),
-31 testów komponentów oraz 7 testów Playwright przeszło. Testy przeglądarkowe
-sprawdzają pulsowanie, czytelne karty, wyszukiwanie bez klawiatury fizycznej,
-skalę i dotykową zamianę; nie wykonują zapisów na produkcji.
+## Wycofana mapa w skali (1.0.23)
 
-Weryfikacja kolorów: 72 testy backendu (kolory, synchronizacja załadunku,
-zawartość palet i lokalizacje), 45 testów frontendu oraz 13 testów Playwright
-przeszło. Sprawdzono 5 jednocześnie dodawanych zamówień, migrację starej
-tabeli, dwa zamówienia jednego klienta, kartony magazynowe, brak położenia,
-filtr legendy, wyszukiwanie dotykiem, ograniczone animacje i zniknięcie
-załadowanego kartonu z mapy. Podglądy kolorów sprawdzono przy 1024 i 1366 px.
-Typecheck, build i kontrola białych znaków również przeszły.
+1.0.23 (commit `187c9d2b`, tag `magazyn-1.0.23`, wdrożona 2026-11-05 05:12 UTC)
+zastąpiła 63 pola rzutem 560 × 1080 cm: współrzędne co 10 cm, obrót zmieniający
+prostokąt 80 × 120 cm, kolizje i ściany. Użytkownik ocenił ten styl jako zły
+i zażądał powrotu do stałych miejsc. 06:37 UTC przywrócono pliki `4065dee3`
+(`deploy/rollback.sh all`) i kanał instalatora 1.0.22; smoke przeszedł,
+zachowano 32 kartony i 3 ręczne zajęcia. Wydanie GitHub 1.0.23 oznaczono jako
+WYCOFANE. Kopie i raport: `/opt/kebab/releases/magazyn-plan-kolory-20261104/`.
+Próba generalna przed 1.0.23 wykazała zastaną różnicę partii 679 (stan 0,
+księga raw 30 kg) — wpisana do `deploy/znane_rozjazdy.txt`, bez korekt danych.
 
-Zmiana nie została wdrożona na produkcję. Nowe DDL jest addytywne,
-idempotentne i instalowane jako jedna transakcja przez istniejący runner
-migracji. Przyszłe wdrożenie wymaga osobnej zgody, kopii bazy i aplikacji
-oraz istniejącej procedury deploymentu. Przy wycofaniu aplikacji można
-pozostawić tabelę i triggery: starszy kod ignoruje lokalizacje. Nie usuwać
-zapisanych przypisań przy rollbacku.
+## Weryfikacja 1.0.24
+
+Testy SQL wyłącznie na lokalnych, izolowanych bazach testowych
+(`kebab_mes_test_fixed_slots_*_20261105`), testy Playwright wyłącznie na
+atrapach API — bez zapisów produkcyjnych. Zakres: stałe adresy i obrót,
+zajęte/nieaktualne miejsca, wyścig dwóch stanowisk, wyjazd/załadunek/cofnięcie,
+ręczny towar, zamiana w pełnej mroźni (61 oznaczeń + 2 kartony), wycofanie
+połowy zamiany, równoległe zamiany, kolory pięciu zamówień, pozostałości
+`X…Y…`, pełny ekran 1024/1366 px z panelem i bez, dotyk przy 375 px,
+klawiatura dotykowa z polskimi literami. Wyniki: `2026-11-05-magazyn-1.0.24-release.md`.

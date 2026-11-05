@@ -311,8 +311,7 @@ def vehicle_state(vehicle_id: str) -> Dict[str, Any]:
             'SELECT * FROM cold_storage_positions WHERE pallet_id=ANY(%s) OR carton_id=ANY(%s)',
             ([p['id'] for p in palety], [p['id'] for p in palety])) if palety else []
         locations = {('order' if r['pallet_id'] else 'stock', r['pallet_id'] or r['carton_id']):
-                     {'slot': r['slot'], 'rotation': r['rotation'], 'revision': r['revision'],
-                      'xCm': r['x_cm'], 'yCm': r['y_cm']} for r in positions}
+                     {'slot': r['slot'], 'rotation': r['rotation'], 'revision': r['revision']} for r in positions}
 
     wg_palety: Dict[str, List[Dict[str, Any]]] = {}
     for poz in pozycje:

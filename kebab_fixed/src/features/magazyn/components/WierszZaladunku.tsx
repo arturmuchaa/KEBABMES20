@@ -1,6 +1,6 @@
 import type { VehicleStatePallet } from '@/lib/api'
 import { roznicaPl } from '../wazenieMrozni'
-import { locationText } from '../mrozniaGeometry'
+import { positioned } from '../mrozniaSlots'
 import { ZnacznikZamowienia, type KolorZaladunku } from '../koloryZaladunku'
 
 /** Ciemna zieleń czytelna także dla małego tekstu na bieli i na przycisku. */
@@ -29,7 +29,10 @@ export function WierszZaladunku({ paleta: p, kolor, ostatni, cofana, blokada, on
         <h3 className="hmi-v10-mono break-words text-[22px] font-extrabold leading-tight">{nazwaKartonu(p)}</h3>
         <div className="mt-1 text-sm font-semibold" style={{ color: 'var(--mut)' }}>{p.totalQty} szt.</div>
         {p.status === 'cold_storage' ? <div className="mt-2 text-base font-extrabold" style={{ color: 'var(--accent)' }}>
-          {p.location ? `Mroźnia · ${locationText(p.location)}` : p.location === null ? 'Mroźnia · BEZ MIEJSCA' : 'Mroźnia · brak danych miejsca'}
+          {/* Same compact form as HMI 1.0.22: slot first, orientation underneath. */}
+          {positioned(p.location) ? <>Mroźnia · {p.location.slot}
+            <span className="block text-sm font-normal">{p.location.rotation === 90 ? 'krótszym' : 'dłuższym'} bokiem od drzwi</span></>
+            : p.location === undefined ? 'Mroźnia · brak danych miejsca' : 'Mroźnia · BEZ MIEJSCA'}
         </div> : null}
         {ostatni ? <span className="text-xs font-bold" style={{ color: 'var(--accent)' }}>Ostatni skan</span> : null}
       </div>

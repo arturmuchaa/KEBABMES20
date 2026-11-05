@@ -66,9 +66,7 @@ def mroznia_kartony():
 class Lokalizacja(BaseModel):
     kind: Literal['order', 'stock']
     container_id: str
-    slot: str = ''
-    x_cm: Optional[int] = Field(default=None, strict=True)
-    y_cm: Optional[int] = Field(default=None, strict=True)
+    slot: str
     rotation: Literal[0, 90] = 0
     expected_revision: Optional[str] = None
 
@@ -81,7 +79,7 @@ def mroznia_plan():
 @router.put('/mroznia/lokalizacja')
 def mroznia_lokalizacja(body: Lokalizacja, request: Request):
     return lokalizacje.save(body.kind, body.container_id, body.slot, body.rotation,
-                           body.expected_revision, _operator(request), x_cm=body.x_cm, y_cm=body.y_cm)
+                           body.expected_revision, _operator(request))
 
 
 class KartonDoZamiany(BaseModel):
@@ -103,9 +101,6 @@ def mroznia_zamiana(body: ZamianaMiejsc, request: Request):
 
 class ZajeteMiejsce(BaseModel):
     slot: str
-    x_cm: Optional[int] = Field(default=None, strict=True)
-    y_cm: Optional[int] = Field(default=None, strict=True)
-    rotation: Literal[0, 90] = 90
     description: str = Field(default='', max_length=160)
     expected_revision: Optional[str] = None
 
@@ -117,8 +112,7 @@ class ZwolnienieMiejsca(BaseModel):
 
 @router.put('/mroznia/zajete')
 def mroznia_zajete(body: ZajeteMiejsce, request: Request):
-    return lokalizacje.block(body.slot, body.description, body.expected_revision, _operator(request),
-                            x_cm=body.x_cm, y_cm=body.y_cm, rotation=body.rotation)
+    return lokalizacje.block(body.slot, body.description, body.expected_revision, _operator(request))
 
 
 @router.post('/mroznia/zajete/zwolnij')
