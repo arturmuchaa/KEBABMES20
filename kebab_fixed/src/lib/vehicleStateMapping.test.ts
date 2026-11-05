@@ -10,6 +10,11 @@ it('keeps server colour identity when order position changes or another order di
   expect(after.map(o => o.color)).toEqual(before.slice(1).reverse().map(o => o.color))
 })
 
+it('carries the short trade name for the colour legend; older servers give an empty one', () => {
+  const s = mapVehicleState({ orders: [{ id: 'o1', client_name: 'YBM Gastro GmbH', client_short_name: 'YALCIN' }, { id: 'o2', client_name: 'X' }] })
+  expect(s.orders.map(o => [o.clientName, o.clientShortName])).toEqual([['YBM Gastro GmbH', 'YALCIN'], ['X', '']])
+})
+
 describe('skład kafelków załadunku', () => {
   it('zachowuje adres i obrót oraz rozróżnia brak miejsca od braku danych', () => {
     const location = { slot: 'C4', rotation: 90, revision: 'v1' }

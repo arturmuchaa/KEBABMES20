@@ -7,6 +7,7 @@ import re
 from fastapi import HTTPException
 
 from app.db import transaction, cx_execute, cx_query_all, cx_query_one, query_one
+from app.services.clients_service import client_short_name_sql
 from app.utils.ids import cuid, format_carton_no
 
 
@@ -25,17 +26,21 @@ def plan():
     with transaction() as conn:
         cx_execute(conn, 'SELECT pg_advisory_xact_lock_shared(202611040001)')
         blocked = cx_query_all(conn, 'SELECT * FROM cold_storage_blocked_slots ORDER BY slot')
-        rows = cx_query_all(conn, """
-            SELECT 'order' AS kind, p.id, p.carton_no, o.client_name, o.order_no, p.order_id,
+        rows = cx_query_all(conn, f"""
+            SELECT 'order' AS kind, p.id, p.carton_no, o.client_name, o_cs.short_name AS client_short_name,
+                   o.order_no, p.order_id,
                    'PAL|' || p.order_id || '|' || p.pallet_no AS code,
                    pos.slot, pos.rotation, pos.revision
             FROM order_pallets p JOIN client_orders o ON o.id=p.order_id
+            {client_short_name_sql('o')}
             LEFT JOIN cold_storage_positions pos ON pos.pallet_id=p.id
             WHERE p.status='cold_storage'
             UNION ALL
-            SELECT 'stock', c.id, c.carton_no, c.client_name, c.linked_order_no, c.linked_order_id,
+            SELECT 'stock', c.id, c.carton_no, c.client_name, c_cs.short_name, c.linked_order_no, c.linked_order_id,
                    'SCARTON|' || c.id, pos.slot, pos.rotation, pos.revision
-            FROM stock_cartons c LEFT JOIN cold_storage_positions pos ON pos.carton_id=c.id
+            FROM stock_cartons c
+            {client_short_name_sql('c')}
+            LEFT JOIN cold_storage_positions pos ON pos.carton_id=c.id
             WHERE c.cold_storage_at IS NOT NULL AND c.loaded_vehicle_id IS NULL AND c.shipped_at IS NULL
             ORDER BY carton_no, id
         """)
@@ -80,7 +85,8 @@ def plan():
         'cartons': [{
             'kind': r['kind'], 'id': r['id'], 'code': r['code'],
             'cartonNo': format_carton_no(r['carton_no']) if r['carton_no'] else '',
-            'clientName': r['client_name'] or '', 'orderNo': r['order_no'] or '', 'orderId': r['order_id'],
+            'clientName': r['client_name'] or '', 'clientShortName': r['client_short_name'] or '',
+            'orderNo': r['order_no'] or '', 'orderId': r['order_id'],
             'location': _position(r), 'lines': contents.get((r['kind'], r['id']), []),
         } for r in rows],
     }

@@ -12,6 +12,20 @@ from app.utils.ids import cuid, now_iso
 logger = get_logger(__name__)
 
 
+def client_short_name_sql(alias):
+    """Short trade name (clients.display_name) for rows of `alias` that carry
+    client_id/client_name. HMI operators cannot read /api/clients (office only),
+    so the warehouse screens get the name from the server. Id first, else the
+    exact full name (legacy rows); LIMIT 1 so a duplicate name never duplicates
+    a carton. NULL when the catalogue has no trade name: show the full name."""
+    return f"""LEFT JOIN LATERAL (
+            SELECT NULLIF(BTRIM(cl.display_name), '') AS short_name FROM clients cl
+             WHERE cl.id = {alias}.client_id OR (cl.name = {alias}.client_name AND {alias}.client_name <> '')
+             ORDER BY (cl.id IS NOT DISTINCT FROM {alias}.client_id) DESC,
+                      (NULLIF(BTRIM(cl.display_name), '') IS NULL), cl.id
+             LIMIT 1) {alias}_cs ON true"""
+
+
 # Dozwolone tryby nazwy pozycji HDI (kartoteka odbiorcy). Nieznany tryb
 # wraca do domyślnego, żeby literówka nie zostawiła dokumentu bez nazwy.
 HDI_NAME_MODES = ("type_recipe", "type", "recipe")

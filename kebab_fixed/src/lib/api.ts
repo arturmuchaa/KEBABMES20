@@ -2571,6 +2571,8 @@ export interface VehicleStateOrder {
   colorIndex?: number
   orderNo: string
   clientName: string
+  /** Short trade name from the client catalogue; '' when none (show clientName). */
+  clientShortName?: string
   deliveryDate: string | null
   orderStatus: string
   position: number
@@ -2603,6 +2605,7 @@ export function mapVehicleState(raw: any): VehicleState {
       id:           o.id ?? '',
       orderNo:      o.order_no ?? '',
       clientName:   o.client_name ?? '',
+      clientShortName: o.client_short_name ?? '',
       deliveryDate: o.delivery_date ?? null,
       orderStatus:  o.order_status ?? '',
       position:     Number(o.position ?? 0),
@@ -4408,6 +4411,9 @@ export interface MiejsceMrozni { slot: string; rotation: 0 | 90; revision: strin
 export interface KartonDoZamiany { kind: 'order' | 'stock'; container_id: string; expected_revision: string }
 export interface KartonNaPlanie {
   kind: 'order' | 'stock'; id: string; code: string; cartonNo: string; clientName: string; orderNo: string
+  /** Short trade name from the client catalogue ('' = none; show clientName). Sent by the
+   *  server because the warehouse HMI may not read /api/clients. */
+  clientShortName?: string
   orderId?: string | null
   location: MiejsceMrozni | null; lines: PozycjaSkladu[]
 }

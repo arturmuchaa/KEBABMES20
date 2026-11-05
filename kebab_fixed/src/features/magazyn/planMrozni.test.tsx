@@ -3,11 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { PlanMrozniDane } from '@/lib/api'
 import { PlanMrozni } from './PlanMrozni'
-import { findFreezerCartons, freezerTileSummary, freezerTube } from './mrozniaContents'
+import { clientLabel, findFreezerCartons, freezerTileSummary, freezerTube, tubeLabel } from './mrozniaContents'
 import { kolorZaladunku } from './koloryZaladunku'
 
 const api = vi.hoisted(() => ({ read: vi.fn(), save: vi.fn(), block: vi.fn(), unblock: vi.fn(), swap: vi.fn() }))
-vi.mock('@/lib/api', () => ({ magazynApi: { mrozniaPlan: api.read, mrozniaLokalizacja: api.save,
+// No clientsApi on purpose: the HMI operator cannot read the client catalogue (403);
+// the short trade name arrives with the plan (clientShortName).
+vi.mock('@/lib/api', () => ({
+  magazynApi: { mrozniaPlan: api.read, mrozniaLokalizacja: api.save,
   mrozniaZajete: api.block, mrozniaZwolnij: api.unblock, mrozniaZamiana: api.swap } }))
 const empty = { kind: 'stock' as const, id: 'c1', code: 'SCARTON|c1', cartonNo: '000001', clientName: 'YALCIN', orderNo: '', location: null,
   lines: [{ qty: 12, kgPerUnit: 15, recipeName: 'KIRMIZI', productTypeName: 'UDO', packagingName: 'METAL 80' }] }
@@ -22,7 +25,7 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-describe('pełnoekranowy rzut mroźni ze stałymi kafelkami', () => {
+describe('okno mroźni z czytelnymi stałymi kafelkami', () => {
   it('pięć zamówień jednego auta ma odrębne kolory, również przy tym samym kliencie; legenda filtruje po ID', async () => {
     const orders = Array.from({ length: 5 }, (_, i) => ({ id: `o${i}`, clientName: 'YALCIN', orderNo: `Z/${i + 1}`,
       pallets: [], color: kolorZaladunku(i) }))
@@ -32,19 +35,21 @@ describe('pełnoekranowy rzut mroźni ze stałymi kafelkami', () => {
     plan.cartons.push({ ...plan.cartons[0], id: 'foreign', cartonNo: '999', orderId: 'not-on-truck', location: { slot: 'I7', rotation: 0, revision: 'v1' } })
     const props = { onZamknij: vi.fn(), zaladunek: { vehicleName: 'SOLÓWKA', orders, online: true } }
     const { rerender } = render(<PlanMrozni {...props} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Kolory zamówień (5)' }))
-    const floor = within(screen.getByRole('group', { name: 'Stałe miejsca mroźni' }))
+    // The legend is part of the loading view: no extra tap to see the colours.
+    const floor = within(await screen.findByRole('group', { name: 'Stałe miejsca mroźni' }))
     for (let i = 0; i < 5; i++) {
       expect(floor.getByRole('button', { name: new RegExp(`Karton ${100 + 2 * i} ·`) }).dataset.loadingColor).toBe(String(i))
     }
     expect(floor.getByRole('button', { name: /Karton 999 ·/ }).dataset.loadingColor).toBeUndefined()
-    expect(screen.getByRole('region', { name: 'Zawartość kartonu 109' }).textContent).toContain('K5')
-    click(/K5.*YALCIN.*Z\/5/)
-    expect(screen.getAllByTestId('karton-zawartosc')).toHaveLength(2)
     expect(screen.getByRole('button', { name: /K5.*YALCIN.*Z\/5/ }).textContent).toContain('W mroźni: 2 · bez położenia: 1')
+    click(/K5.*YALCIN.*Z\/5/)
+    expect(floor.getByRole('button', { name: /Karton 108 ·/ }).dataset.dimmed).toBeUndefined()
+    expect(floor.getByRole('button', { name: /Karton 100 ·/ }).dataset.dimmed).toBe('true')
+    click('Bez miejsca (1)')
+    expect(screen.getByRole('complementary', { name: 'Kartony bez miejsca' }).textContent).toContain('109')
     // Another station removes the filtered order: clear the effective filter and its colours.
     rerender(<PlanMrozni {...props} zaladunek={{ ...props.zaladunek, orders: orders.slice(0, 4) }} />)
-    expect(screen.getAllByTestId('karton-zawartosc')).toHaveLength(11)
+    expect(floor.getByRole('button', { name: /Karton 100 ·/ }).dataset.dimmed).toBeUndefined()
     expect(floor.getByRole('button', { name: /Karton 108 ·/ }).dataset.loadingColor).toBeUndefined()
     expect(floor.getByRole('button', { name: /Karton 102 ·/ }).dataset.loadingColor).toBe('1')
     expect(api.save).not.toHaveBeenCalled()
@@ -63,11 +68,8 @@ describe('pełnoekranowy rzut mroźni ze stałymi kafelkami', () => {
     const preview = screen.getByRole('region', { name: 'Podgląd zamiany' })
     expect(preview.textContent).toContain('000002 · YALCIN → Miejsce D2 · dłuższym bokiem od drzwi')
     expect(preview.textContent).toContain('000003 · YALCIN → Miejsce B1 · krótszym bokiem od drzwi')
-    click(/Szukaj kartonu/)
-    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'BRAK-KARTONU' } })
-    click('Gotowe')
-    expect((screen.getByRole('button', { name: 'Zapisz zamianę' }) as HTMLButtonElement).disabled).toBe(true)
-    click('Wyczyść filtr'); click(/Karton 000003 ·/)
+    // The whole plan stays in view: no detail panel covers it during a swap.
+    expect(screen.queryByRole('complementary')).toBeNull()
     click('Zapisz zamianę')
     expect(api.swap).toHaveBeenCalledTimes(1)
     expect(api.swap).toHaveBeenCalledWith({
@@ -87,31 +89,42 @@ describe('pełnoekranowy rzut mroźni ze stałymi kafelkami', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Karton 000002 ·/ }))
     click('Zamień miejscami'); click(/Karton 000003 ·/); click('Anuluj zamianę')
     expect(api.swap).not.toHaveBeenCalled()
-    click('Zamień miejscami'); click(/Karton 000002 ·/); click('Zapisz zamianę')
+    click(/Karton 000003 ·/); click('Zamień miejscami'); click(/Karton 000002 ·/); click('Zapisz zamianę')
     await screen.findByText('Położenie jednego z kartonów zmieniło się')
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Zapisz zamianę' })).toBeNull())
     expect(api.swap).toHaveBeenCalledTimes(1)
     expect(api.save).not.toHaveBeenCalled()
   })
 
-  it('kafelki pokazują skrót, a panel zawartości pełny skład, oddzielne receptury i niestandardowe tuleje', async () => {
+  it('kafelek: skrót klienta, wszystkie receptury, pełne nazwy niestandardowych tulei; panel: pełny skład', async () => {
+    plan.cartons[1] = { ...plan.cartons[1], clientName: 'YALCIN SPÓŁKA Z O.O.', clientShortName: 'YALCIN' }
     plan.cartons[1].lines = [
       { qty: 12, kgPerUnit: 15, recipeName: 'BEYAZ', productTypeName: 'UDO', packagingName: 'METAL 65CM' },
       { qty: 6, kgPerUnit: 15, recipeName: 'KIRMIZI', productTypeName: 'INDYK', packagingName: 'METAL 80', source: 'plan' },
       { qty: 2, kgPerUnit: 25, recipeName: 'YAPRAK', productTypeName: 'WOŁOWINA', packagingName: 'PAPIER 100CM' },
     ]
     render(<PlanMrozni onZamknij={vi.fn()} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Zawartość kartonów (2)' }))
-    const cards = await screen.findAllByTestId('karton-zawartosc')
-    expect(cards).toHaveLength(2)
-    const card = within(screen.getByRole('region', { name: 'Zawartość kartonu 000002' }))
+    const tile = within(await screen.findByRole('button', { name: /B1 · Karton/ }))
+    expect(await tile.findByText('YALCIN')).toBeTruthy()
+    expect(tile.getByText('BEYAZ / KIRMIZI / YAPRAK')).toBeTruthy()
+    expect(tile.getByText('METAL 80cm')).toBeTruthy()
+    expect(tile.getByText('PAPIER 100cm')).toBeTruthy()
+    expect(tile.queryByText(/65/)).toBeNull()
+    expect(tile.queryByText(/niestandard/i)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /B1 · Karton/ }))
+    const card = within(screen.getByRole('complementary', { name: 'Szczegóły kartonu 000002' }))
+    expect(card.getByText('YALCIN')).toBeTruthy()
+    expect(card.getByText('YALCIN SPÓŁKA Z O.O.')).toBeTruthy()
     expect(card.getByText('12 szt × 15 kg · BEYAZ')).toBeTruthy()
     expect(card.getByText('6 szt × 15 kg · KIRMIZI')).toBeTruthy()
     expect(card.getByText('2 szt × 25 kg · YAPRAK')).toBeTruthy()
-    expect(card.getByText('tuleja: METAL 80 · niestandard')).toBeTruthy()
-    expect(card.getByText('tuleja: PAPIER 100CM · niestandard')).toBeTruthy()
+    expect(card.getByText('tuleja: METAL 80cm')).toBeTruthy()
+    expect(card.getByText('tuleja: PAPIER 100cm')).toBeTruthy()
+    expect(card.getByText('tuleja: METAL 65cm')).toBeTruthy()
     expect(card.getByText('ROZPIS — bez skanów sztuk')).toBeTruthy()
-    expect(card.queryByText(/METAL 65CM/)).toBeNull()
+    expect(card.queryByText(/niestandard/i)).toBeNull()
+    click('Zamknij szczegóły')
+    expect(screen.queryByRole('complementary')).toBeNull()
     expect(api.save).not.toHaveBeenCalled()
   })
 
@@ -125,10 +138,12 @@ describe('pełnoekranowy rzut mroźni ze stałymi kafelkami', () => {
     const other = screen.getByRole('button', { name: /Karton 000020 ·/ })
     expect(target.dataset.highlighted).toBe('true')
     expect(other.dataset.highlighted).toBe('false')
-    expect(screen.getAllByTestId('karton-zawartosc')).toHaveLength(1)
+    expect(screen.getByRole('status').textContent).toBe('Znaleziono: 1')
+    // A single hit opens its details straight away.
+    expect(screen.getByRole('complementary', { name: 'Szczegóły kartonu 000002' })).toBeTruthy()
     click('Wyczyść filtr')
     expect(target.dataset.highlighted).toBe('false')
-    expect(screen.getAllByTestId('karton-zawartosc')).toHaveLength(3)
+    expect(screen.queryByRole('complementary')).toBeNull()
     click(/Szukaj kartonu/)
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'BRAK-KARTONU' } })
     click('Gotowe')
@@ -243,8 +258,16 @@ it('skrót mieszanego kartonu nie przypisuje pierwszej receptury lub tulei do ca
     { qty: 12, kgPerUnit: 15, recipeName: 'BEYAZ', productTypeName: 'UDO', packagingName: 'METAL 65CM' },
     { qty: 6, kgPerUnit: 15, recipeName: 'KIRMIZI', productTypeName: 'WOŁOWINA', packagingName: 'PAPIER 100' },
   ]
-  expect(freezerTileSummary(lines)).toEqual({ recipe: 'MIX · 2 receptury', quantity: '18 szt · 2 poz.', tubes: [100] })
+  expect(freezerTileSummary(lines)).toEqual({ recipe: 'BEYAZ / KIRMIZI', quantity: '18 szt · 2 poz.', tubes: [100], tubeLabels: ['PAPIER 100cm'] })
   expect(findFreezerCartons([{ ...empty, lines }], 'wolowina 100')).toHaveLength(1)
+  expect(findFreezerCartons([{ ...empty, clientName: 'Pełna nazwa prawna', clientShortName: 'YALCIN' }], 'YALCIN')).toHaveLength(1)
+  expect(tubeLabel('METAL 80')).toBe('METAL 80cm')
+  expect(tubeLabel(' PAPIER 100 CM ')).toBe('PAPIER 100cm')
+  expect(tubeLabel('METAL 80cm')).toBe('METAL 80cm')
+  expect(tubeLabel('80cm METAL')).toBe('80cm METAL')
+  expect(clientLabel({ clientName: 'YBM Gastro GmbH', clientShortName: 'YALCIN' })).toBe('YALCIN')
+  expect(clientLabel({ clientName: 'YBM Gastro GmbH', clientShortName: '' })).toBe('YBM Gastro GmbH')
+  expect(clientLabel({ clientName: '' })).toBe('MAGAZYN')
   expect(freezerTube('METAL 65')).toEqual({ cm: 65, nonstandard: false })
   expect(freezerTube('Folia stretch')).toEqual({ cm: null, nonstandard: false })
 })

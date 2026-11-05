@@ -1,83 +1,177 @@
-.mroznia-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  flex: 1;
-  min-height: 0;
-  gap: 12px;
-}
-.mroznia-layout-details { grid-template-columns: minmax(0, 1fr) 300px; }
-/* Column flex: the tiles fill the pane, and if it is ever too short the pane
-   scrolls; the door label always follows the last row instead of covering it. */
-.mroznia-map-scroll { min-width: 0; overflow: auto; display: flex; flex-direction: column; }
-.mroznia-slots {
-  display: grid;
-  grid-template-rows: repeat(7, minmax(76px, 1fr));
-  min-width: 630px;
-  flex: 1 0 auto;
-  gap: 5px;
-}
-.mroznia-map-tile {
-  position: relative;
-  min-width: 0;
-  overflow: hidden;
-  border: 2px solid;
-  border-radius: 9px;
-  padding: 3px 5px;
-  text-align: left;
-  font-size: 13px;
-  line-height: 15px;
-  isolation: isolate;
-}
-.mroznia-map-tile:disabled { cursor: not-allowed; }
-.mroznia-tile-heading { display: flex; justify-content: space-between; gap: 3px; font-size: 18px; line-height: 21px; }
-.mroznia-tile-badges { display: flex; align-items: center; justify-content: space-between; gap: 2px; font-size: 11px; line-height: 13px; }
-.mroznia-tile-badges > b { white-space: nowrap; }
-.mroznia-orientation { display: inline-block; border: 1px solid var(--mut); border-radius: 2px; }
-.mroznia-door { flex: none; margin-top: 4px; text-align: center; font-size: 14px; font-weight: 700; }
-.mroznia-details { min-width: 0; overflow-y: auto; padding: 2px; }
-@media (min-width: 768px) and (max-width: 1279px) {
-  /* With the details panel open the tiles narrow. Stack the two identifiers
-     rather than clip a carton number, and leave the quantity to the content
-     card, so all seven rows (door row included) stay on one 768 px screen. */
-  .mroznia-layout-details .mroznia-tile-heading { flex-direction: column; gap: 0; font-size: 16px; line-height: 18px; }
-  .mroznia-layout-details .mroznia-tile-heading > b:first-child { font-size: 13px; line-height: 15px; }
-  .mroznia-layout-details .mroznia-tile-qty { display: none; }
-  .mroznia-layout-details .mroznia-tile-badges { font-size: 10px; }
-}
-@media (max-width: 767px) {
-  .mroznia-layout-details { grid-template-columns: minmax(0, 1fr); overflow-y: auto; }
-  .mroznia-layout-details .mroznia-map-scroll { min-height: 630px; }
-  .mroznia-details { overflow: visible; }
-}
-@media (min-width: 1280px) {
-  .mroznia-layout-details { grid-template-columns: minmax(0, 1fr) 340px; }
-  .mroznia-map-tile { font-size: 14px; line-height: 16px; }
-}
+/* Freezer plan window (Magazyn HMI). The 1.0.22 window, all 63 places in view.
+   Calm neutrals; colour only means something: order identity, search, manual goods. */
+.mroznia-window { background: #fff; color: var(--ink); }
 
-.mroznia-found {
-  z-index: 2;
-  border-color: #15803d !important;
-  outline: 2px solid #166534;
-  outline-offset: -2px;
-  animation: mroznia-found-green 1.8s ease-in-out infinite;
+/* ── Header / mode bar: one row, so the plan keeps the height ─────────────── */
+.mroznia-header, .mroznia-modebar { display: flex; align-items: center; gap: 8px; flex: none; min-height: 50px; }
+.mroznia-title { flex: none; min-width: 0; padding: 0 4px; }
+.mroznia-title-main { font-size: 19px; line-height: 23px; font-weight: 800; letter-spacing: -0.01em; }
+.mroznia-title-main span { font-size: 13px; font-weight: 500; color: var(--mut); }
+.mroznia-title-sub { font-size: 12px; line-height: 16px; color: var(--mut); }
+.mroznia-search-wrap { position: relative; flex: 1; min-width: 160px; display: flex; }
+.mroznia-search {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 14px;
+  border: 1px solid var(--line); border-radius: 12px; background: #f6f8fa; color: var(--mut);
+  font-size: 15px; text-align: left;
 }
+.mroznia-search.has-query { background: #fff; border-color: #a7b3f5; color: var(--ink); font-weight: 700; padding-right: 150px; }
+.mroznia-search-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mroznia-search-status {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%); pointer-events: none;
+  padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.mroznia-search-status.is-found { background: #e8f6ee; color: #1f6b43; }
+.mroznia-search-status.is-empty { background: #fdf3e3; color: #8a4b12; }
+.mroznia-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none;
+  min-height: 48px; padding: 0 16px; border: 1px solid var(--line); border-radius: 12px;
+  background: #fff; color: var(--ink); font-size: 15px; font-weight: 700; white-space: nowrap;
+}
+.mroznia-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.mroznia-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.mroznia-btn-warn { background: #fdf6ea; border-color: #ecd6b1; color: #7a4a12; }
+.mroznia-btn-warn[aria-pressed="true"] { border-color: #b98a43; }
+.mroznia-btn-block { width: 100%; }
+.mroznia-icon-btn { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border-radius: 10px; color: var(--mut); }
+.mroznia-icon-btn:hover { background: #f1f4f7; }
+.mroznia-icon-btn-bordered { width: 48px; height: 48px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
 
+.mroznia-modebar { padding: 4px 6px 4px 14px; border: 1px solid #cdd5fb; border-radius: 12px; background: #f3f5ff; }
+.mroznia-modebar-swap { border-color: #c6e7d3; background: #f1faf4; }
+.mroznia-mode-text { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 13px; line-height: 17px; }
+.mroznia-mode-text > b { font-size: 15px; line-height: 19px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mroznia-mode-note { color: var(--mut); font-size: 12px; }
+.mroznia-mode-problem { color: #b42318; font-weight: 700; }
+.mroznia-alert { flex: none; padding: 8px 12px; border: 1px solid #f3c7c3; border-radius: 10px; background: #fdf3f2; color: #8f1d14; font-weight: 700; }
+
+/* ── Loading legend: one quiet row of order chips ─────────────────────────── */
+.mroznia-legend { display: flex; gap: 6px; flex: none; overflow-x: auto; padding: 1px; }
+.mroznia-chip {
+  display: flex; align-items: center; gap: 7px; flex: 0 1 auto; min-width: 0; min-height: 46px; padding: 4px 10px 4px 7px;
+  border: 1px solid var(--line); border-left: 5px solid var(--order-edge, #a3aec0); border-radius: 10px;
+  background: var(--order-fill, #fff); color: var(--ink); text-align: left; font-size: 12px; line-height: 15px;
+}
+.mroznia-chip-all { flex: none; flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; border-left-width: 1px; padding-left: 12px; }
+.mroznia-chip-all span, .mroznia-chip-text > span { color: #556070; }
+.mroznia-chip-text { display: flex; flex-direction: column; min-width: 0; white-space: nowrap; }
+.mroznia-chip-text > * , .mroznia-chip-all > * { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.mroznia-chip-text b { font-size: 13px; }
+.mroznia-chip[aria-pressed="true"] { box-shadow: 0 0 0 2px #334155; border-color: #334155; }
+.mroznia-chip:disabled { opacity: 0.55; }
+.mroznia-chip-empty { align-self: center; color: var(--mut); font-size: 13px; }
+
+/* ── The plan ─────────────────────────────────────────────────────────────── */
+.mroznia-stage { position: relative; display: flex; flex: 1; min-height: 0; }
+.mroznia-map { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: auto; overscroll-behavior: contain; }
+/* Height comes from the window (flex-basis 0), never from tile content: rows share it
+   equally; only below 7 × 62 px does the plan scroll. */
+.mroznia-grid { display: grid; gap: 5px; flex: 1 1 0; min-height: 464px; min-width: 700px; }
+.mroznia-door {
+  flex: none; display: flex; align-items: center; justify-content: center; gap: 6px; min-width: 700px;
+  height: 18px; margin-top: 2px; font-size: 12px; font-weight: 600; color: #6b7684;
+  background: linear-gradient(#e3e8ee, #e3e8ee) center 1px / 34% 2px no-repeat;
+}
+.mroznia-door span { font-size: 9px; color: #94a0ae; }
+
+.mroznia-tile {
+  position: relative; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; align-content: start;
+  min-width: 0; min-height: 0; overflow: hidden; padding: 5px 7px 5px 8px; row-gap: 0;
+  border: 1px solid #d5dce4; border-radius: 9px; background: #f3f6f9; color: var(--ink); text-align: left;
+  transition: opacity 0.15s ease;
+}
+.mroznia-tile:disabled { cursor: not-allowed; }
+.mroznia-tile.is-order { background: var(--order-fill); border-color: #cfd6df; box-shadow: inset 4px 0 0 var(--order-edge); padding-left: 10px; }
+.mroznia-tile.is-free { background: #fbfcfd; border-style: dashed; border-color: #dde3ea; }
+.mroznia-tile.is-manual { background: #faf5ec; border-color: #e8d7b6; }
+.mroznia-tile[data-dimmed="true"] { opacity: 0.35; }
+.mroznia-tile.is-active { outline: 3px solid var(--accent); outline-offset: -2px; z-index: 1; }
+.mroznia-tile.is-free.is-active { background: #eef1ff; }
+.mroznia-grid.is-picking .mroznia-tile:disabled { opacity: 0.45; }
+.mroznia-grid.is-picking .mroznia-tile.is-free:not(:disabled) { border-color: #a9b5f6; background: #f7f8ff; }
+
+.mroznia-tile-top { display: flex; align-items: baseline; gap: 5px; min-width: 0; font-size: 11px; line-height: 13px; margin-bottom: 1px; color: #6b7684; }
+.mroznia-tile-address { font-weight: 800; color: #3d4a5a; }
+.mroznia-tile-order { font-weight: 800; color: var(--order-edge); }
+.mroznia-tile-no { margin-left: auto; font-size: 11px; color: #4a5565; }
+.mroznia-tile-client {
+  font-size: 15px; line-height: 18px; font-weight: 800; letter-spacing: 0.005em; overflow-wrap: break-word;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.mroznia-tile-client.is-long { font-size: 12.5px; line-height: 14px; letter-spacing: 0; }
+.mroznia-tile-recipe {
+  align-self: start; min-height: 0; font-size: 12px; line-height: 15px; color: #364152; overflow-wrap: break-word;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.mroznia-tile-tubes { display: flex; flex-wrap: wrap; gap: 2px 4px; padding-top: 1px; min-width: 0; overflow: hidden; }
+.mroznia-tube {
+  max-width: 100%; padding: 0 3px; border-radius: 4px; background: #fbeedd; color: #864a12;
+  font-size: 10.5px; line-height: 14px; font-weight: 700; letter-spacing: -0.01em; white-space: nowrap;
+}
+.mroznia-tile-manual {
+  font-size: 13px; line-height: 16px; font-weight: 800; color: #5f4416; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.mroznia-tile-foot { grid-row: 4; font-size: 11px; line-height: 14px; color: #9aa4b1; }
+.mroznia-tile.is-manual .mroznia-tile-foot { color: #937544; }
+
+/* Search: one calm green signal that keeps the order colour underneath. */
+.mroznia-found { z-index: 2; outline: 3px solid #1f9254; outline-offset: -2px; animation: mroznia-found-green 1.6s ease-in-out infinite; }
+.mroznia-tile.mroznia-found:not(.is-order) { background: #eaf7ef; }
 @keyframes mroznia-found-green {
-  0%, 100% { background-color: #dcfce7; box-shadow: inset 0 0 0 2px #16a34a; }
-  50% { background-color: #86efac; box-shadow: inset 0 0 0 4px #15803d; }
+  0%, 100% { outline-color: #1f9254; }
+  50% { outline-color: #8fd4ab; }
 }
-
-/* Search pulses around the order colour, so its loading identity stays visible. */
-.mroznia-found[data-loading-color] {
-  animation-name: mroznia-found-order;
-}
-
-@keyframes mroznia-found-order {
-  0%, 100% { box-shadow: inset 0 0 0 2px #16a34a; }
-  50% { box-shadow: inset 0 0 0 4px #15803d; }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .mroznia-found { animation: none; background-color: #bbf7d0 !important; }
-  .mroznia-found[data-loading-color] { animation: none; background-color: var(--loading-fill) !important; box-shadow: inset 0 0 0 2px #16a34a; }
+  .mroznia-found { animation: none; }
+}
+
+/* ── Floating detail panel over the plan, beside the chosen tile ──────────── */
+.mroznia-sheet {
+  position: absolute; top: 0; bottom: 20px; z-index: 5; width: min(360px, 44%);
+  display: flex; flex-direction: column; gap: 10px; padding: 14px;
+  border: 1px solid #d8dee6; border-radius: 14px; background: #fff;
+  box-shadow: 0 20px 44px -16px rgb(15 23 42 / 0.35), 0 2px 6px rgb(15 23 42 / 0.06);
+}
+.mroznia-sheet-right { right: 0; }
+.mroznia-sheet-left { left: 0; }
+.mroznia-sheet[style] { border-top: 5px solid var(--order-edge); }
+.mroznia-sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.mroznia-sheet-title { display: block; font-size: 22px; line-height: 26px; font-weight: 800; overflow-wrap: anywhere; }
+.mroznia-sheet-sub { display: block; font-size: 13px; line-height: 17px; color: var(--mut); overflow-wrap: anywhere; }
+.mroznia-sheet-meta { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border-radius: 10px; background: #f6f8fa; font-size: 14px; }
+.mroznia-sheet-warn { color: #8a4b12; font-weight: 700; }
+.mroznia-sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.mroznia-sheet-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.mroznia-input {
+  width: 100%; min-height: 56px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 12px;
+  background: #fff; text-align: left; font-size: 16px; overflow-wrap: anywhere;
+}
+.mroznia-list-item {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; width: 100%; min-height: 52px;
+  padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; text-align: left;
+}
+.mroznia-list-sub { grid-column: 1 / -1; font-size: 13px; color: var(--mut); }
+
+.mroznia-toasts { position: absolute; top: 6px; left: 50%; z-index: 6; transform: translateX(-50%); display: grid; gap: 6px; pointer-events: none; max-width: 70%; }
+.mroznia-toast { padding: 8px 14px; border-radius: 10px; font-size: 14px; font-weight: 700; box-shadow: 0 8px 20px -8px rgb(15 23 42 / 0.3); }
+.mroznia-toast-ok { border: 1px solid #c6e7d3; background: #effaf3; color: #1f6b43; }
+.mroznia-toast-error { border: 1px solid #f3c7c3; background: #fdf3f2; color: #8f1d14; }
+
+/* Wide screens get roomier tiles; narrow ones scroll the plan sideways. */
+@media (min-width: 1280px) {
+  .mroznia-tile { padding: 6px 9px 7px 10px; }
+  .mroznia-tile.is-order { padding-left: 12px; }
+  .mroznia-tile-client { font-size: 16px; line-height: 19px; }
+  .mroznia-tile-recipe { font-size: 12.5px; line-height: 16px; }
+  .mroznia-tube { font-size: 11px; }
+}
+@media (max-width: 1100px) {
+  .mroznia-tube { font-size: 10px; font-weight: 600; }
+  .mroznia-tile-client { font-size: 14.5px; }
+}
+@media (max-width: 900px) {
+  .mroznia-header, .mroznia-modebar { flex-wrap: wrap; }
+  .mroznia-mode-text { flex-basis: 100%; }
+  .mroznia-title { width: 100%; }
+  .mroznia-sheet { width: min(360px, 92%); }
 }

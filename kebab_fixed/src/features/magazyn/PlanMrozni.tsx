@@ -1,22 +1,53 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { RotateCw } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { RotateCw, Search, X } from 'lucide-react'
 import { magazynApi, type KartonNaPlanie, type PlanMrozniDane, type MiejsceMrozni } from '@/lib/api'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { HMI_VARS } from '@/features/hmi-theme/vars'
 import { ZawartoscMrozni } from './ZawartoscMrozni'
 import { KlawiaturaHmi } from './KlawiaturaHmi'
 import { locationText, positioned } from './mrozniaSlots'
-import { compactCartonNo, findFreezerCartons, freezerTileSummary } from './mrozniaContents'
+import { clientLabel, compactCartonNo, findFreezerCartons, freezerTileSummary } from './mrozniaContents'
 import { ZnacznikZamowienia, type ZamowienieKolorowe } from './koloryZaladunku'
 import './plan-mrozni.css'
 
 export type CelMrozni = Pick<KartonNaPlanie, 'kind' | 'id' | 'cartonNo'>
 const key = (c: CelMrozni) => `${c.kind}:${c.id}`
-const compactNo = compactCartonNo
-const buttonStyle = { background: 'var(--panel)', border: '1px solid var(--line)', color: 'var(--ink)' }
+const TITLE = 'Rzut mroźni'
 type Editor = { carton: KartonNaPlanie; manual?: never } | { carton?: never; manual: { slot: string; revision: string | null } }
+type Panel = 'none' | 'carton' | 'unplaced'
 
-/** Ready-made named tiles, in the same order as HMI 1.0.22. No coordinate picking. */
+/** Give each tile's recipe only the whole lines that fit beside the client name and
+ * tube tags, so nothing is ever cut through the middle of a line. If not even one
+ * line is left (long name + two tubes on a small panel), the recipe keeps one line
+ * and the tube row is trimmed to whole tags; the detail panel shows everything. */
+function fitTiles(grid: HTMLElement) {
+  grid.querySelectorAll<HTMLElement>('.mroznia-tile.is-carton').forEach(tile => {
+    const recipe = tile.querySelector<HTMLElement>('.mroznia-tile-recipe')
+    const tubes = tile.querySelector<HTMLElement>('.mroznia-tile-tubes')
+    if (!recipe) return
+    recipe.style.removeProperty('-webkit-line-clamp'); recipe.style.removeProperty('max-height')
+    tubes?.style.removeProperty('max-height')
+    const cs = getComputedStyle(tile)
+    const inner = tile.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
+    const gap = parseFloat(cs.rowGap) || 0
+    const line = parseFloat(getComputedStyle(recipe).lineHeight) || 15
+    let used = 0
+    for (const child of Array.from(tile.children) as HTMLElement[]) if (child !== recipe) used += child.offsetHeight + gap
+    const lines = Math.floor((inner - used) / line)
+    const keep = Math.max(1, Math.min(lines, 3))
+    recipe.style.setProperty('-webkit-line-clamp', String(keep))
+    recipe.style.setProperty('max-height', `${keep * line}px`)
+    if (lines < 1 && tubes) {
+      const tag = (tubes.firstElementChild as HTMLElement | null)?.offsetHeight ?? 14
+      const room = inner - (used - tubes.offsetHeight - gap) - line - gap
+      tubes.style.setProperty('max-height', `${Math.max(0, Math.floor((room + 2) / (tag + 2)) * (tag + 2) - 2)}px`)
+    }
+  })
+}
+
+/** The 1.0.22 window with its fixed named places A–I / 1–7, all 63 always in view.
+ * Details float over the plan beside the chosen tile; move and swap use a bar in
+ * place of the header, so the plan never shrinks, scrolls or hides a row. */
 export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono }: {
   cel?: CelMrozni; onZamknij: () => void; onZapisano?: (location: MiejsceMrozni) => void; onZmieniono?: () => void
   zaladunek?: { vehicleName: string; orders: ZamowienieKolorowe[]; online: boolean }
@@ -26,6 +57,7 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
   const [offline, setOffline] = useState(false)
   const [szukaj, setSzukaj] = useState('')
   const [wybrany, setWybrany] = useState(cel ? key(cel) : '')
+  const [panel, setPanel] = useState<Panel>('none')
   const [editor, setEditor] = useState<Editor | null>(null)
   const [slot, setSlot] = useState<string | null>(null)
   const [rotation, setRotation] = useState<0 | 90>(0)
@@ -34,7 +66,6 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
   const [zwolnienie, setZwolnienie] = useState(false)
   const [komunikat, setKomunikat] = useState('')
   const [keyboard, setKeyboard] = useState<'search' | 'description' | null>(null)
-  const [details, setDetails] = useState(!!cel)
   const [swapFrom, setSwapFrom] = useState<KartonNaPlanie | null>(null)
   const [swapTo, setSwapTo] = useState<KartonNaPlanie | null>(null)
   const [orderFilter, setOrderFilter] = useState('')
@@ -42,8 +73,16 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
   const poczatek = useRef(false)
   const request = useRef(0)
   const mapTiles = useRef(new Map<string, HTMLButtonElement>())
-  const contentCards = useRef(new Map<string, HTMLElement>())
-  const aside = useRef<HTMLElement>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
+  // Re-fit after every render (data refresh) and whenever the window changes size.
+  useLayoutEffect(() => { if (gridRef.current) fitTiles(gridRef.current) })
+  useEffect(() => {
+    const grid = gridRef.current
+    if (!grid || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => fitTiles(grid))
+    ro.observe(grid)
+    return () => ro.disconnect()
+  }, [plan === null])
 
   const odswiez = useCallback(async () => {
     const n = ++request.current
@@ -62,11 +101,17 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
     const timer = setInterval(() => { if (!zajety.current) void odswiez() }, 5000)
     return () => { clearInterval(timer); request.current++ }
   }, [odswiez])
+  useEffect(() => {
+    if (!komunikat) return
+    const t = setTimeout(() => setKomunikat(''), 5000)
+    return () => clearTimeout(t)
+  }, [komunikat])
 
+  function clearMessages() { setBlad(''); setKomunikat('') }
   function edytuj(c: KartonNaPlanie) {
-    setEditor({ carton: c }); setWybrany(key(c)); setZwolnienie(false); setBlad(''); setKomunikat('')
+    setEditor({ carton: c }); setWybrany(key(c)); setPanel('none'); setZwolnienie(false); clearMessages()
     // A leftover coordinate address from rolled-back 1.0.23 is not a place: pick one anew.
-    setSlot(positioned(c.location) ? c.location.slot : null); setRotation(c.location?.rotation ?? 0); setDetails(true)
+    setSlot(positioned(c.location) ? c.location.slot : null); setRotation(c.location?.rotation ?? 0)
   }
   useEffect(() => {
     if (!cel || !plan || poczatek.current) return
@@ -86,49 +131,53 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
   const activeOrder = loadingOrders.has(orderFilter) ? orderFilter : ''
   const inOrder = (c: KartonNaPlanie) => !activeOrder || loadingOrder(c)?.id === activeOrder
   const candidates = (plan?.cartons ?? []).filter(inOrder)
-  const needle = szukaj.trim().toLocaleLowerCase('pl')
+  const needle = szukaj.trim()
   const results = findFreezerCartons(candidates, szukaj).sort((a, b) => Number(!!loadingOrder(b)) - Number(!!loadingOrder(a)))
   const matchingKeys = new Set(results.map(key))
   const matches = (c: KartonNaPlanie) => matchingKeys.has(key(c))
-  const highlight = (c: KartonNaPlanie) => !editor && (swapFrom && key(c) === key(swapFrom) || (needle ? matches(c) : key(c) === wybrany))
+  const highlight = (c: KartonNaPlanie) => !editor && (swapFrom ? key(c) === key(swapFrom) : needle ? matches(c) : key(c) === wybrany && panel === 'carton')
+  const unplaced = (needle ? results : candidates).filter(c => !positioned(c.location))
   const bezMiejsca = plan?.cartons.filter(c => !positioned(c.location)) ?? []
+  const occupied = (plan?.cartons.length ?? 0) - bezMiejsca.length + blocked.length
   const disabled = zapis || offline || !plan
   const occupiedByOther = !!slot && (blocked.some(b => b.slot === slot && b.slot !== editor?.manual?.slot)
     || !!plan?.cartons.some(c => c.location?.slot === slot && (!editor?.carton || key(c) !== key(editor.carton))))
   const problem = !slot ? 'Dotknij wolnego kafelka miejsca.' : occupiedByOther ? 'Miejsce jest już zajęte. Wybierz inne.' : ''
   const swapChanged = [swapFrom, swapTo].some(c => c && plan?.cartons.find(p => key(p) === key(c))?.location?.revision !== c.location?.revision)
+  const picking = !!editor?.carton
 
-  function pokaz(c: KartonNaPlanie, from: 'map' | 'card' | 'search') {
+  // The floating panel goes to the side away from the tile it describes.
+  const anchor = editor?.manual?.slot ?? (panel === 'carton' && positioned(selected?.location) ? selected!.location!.slot : null)
+  const sheetSide = anchor && (plan?.columns.indexOf(anchor[0]) ?? 0) >= 5 ? 'left' : 'right'
+
+  function pokaz(c: KartonNaPlanie) {
     const id = key(c)
     if (swapFrom) {
-      if (id === key(swapFrom) || !positioned(c.location)) return
-      setSwapTo(c)
+      if (id !== key(swapFrom) && positioned(c.location)) setSwapTo(c)
+      return
     }
-    setWybrany(id); setZwolnienie(false); setDetails(true)
-    // Scroll only on an operator action, never on the five-second refresh.
-    requestAnimationFrame(() => {
-      if (from !== 'map') mapTiles.current.get(id)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
-      if (swapFrom) aside.current?.scrollTo?.({ top: 0, behavior: 'smooth' })
-      else if (from !== 'card') contentCards.current.get(id)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
-    })
+    setWybrany(id); setPanel('carton'); setZwolnienie(false)
+    // Scroll only on an operator action, never on the five-second refresh (narrow screens only).
+    requestAnimationFrame(() => mapTiles.current.get(id)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' }))
+  }
+  function zamknijPanel() {
+    setPanel('none'); setWybrany('')
+    if (editor?.manual) { setEditor(null); setSlot(null); setZwolnienie(false) }
   }
   function search(value: string) {
-    setSzukaj(value); setWybrany('')
+    setSzukaj(value); setWybrany(''); setPanel('none')
     if (swapFrom) setSwapTo(null)
     const found = findFreezerCartons(candidates, value)
-    if (value.trim() && found.length === 1) pokaz(found[0], 'search')
+    if (value.trim() && found.length === 1) pokaz(found[0])
   }
-
   function beginSwap(c: KartonNaPlanie) {
     if (!positioned(c.location) || disabled) return
-    setSwapFrom(c); setSwapTo(null); setEditor(null); setSlot(null); setSzukaj(''); setDetails(true)
-    setWybrany(key(c)); setBlad(''); setKomunikat('')
-    requestAnimationFrame(() => aside.current?.scrollTo?.({ top: 0, behavior: 'smooth' }))
+    setSwapFrom(c); setSwapTo(null); setEditor(null); setSlot(null); setSzukaj(''); setPanel('none')
+    setWybrany(key(c)); clearMessages()
   }
-
   async function saveSwap() {
     if (!swapFrom?.location || !swapTo?.location || disabled || swapChanged || zajety.current) return
-    zajety.current = true; setZapis(true); setBlad(''); setKomunikat(''); request.current++
+    zajety.current = true; setZapis(true); clearMessages(); request.current++
     try {
       await magazynApi.mrozniaZamiana({
         first: { kind: swapFrom.kind, container_id: swapFrom.id, expected_revision: swapFrom.location.revision },
@@ -140,21 +189,20 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
       setBlad(e instanceof Error ? e.message : 'Nie potwierdzono zamiany. Sprawdź aktualny plan przed kolejną operacją.')
     } finally {
       // No retry: repeating a swap could undo the physical arrangement.
-      setSwapFrom(null); setSwapTo(null); await odswiez(); zajety.current = false; setZapis(false)
+      setSwapFrom(null); setSwapTo(null); setWybrany(''); await odswiez(); zajety.current = false; setZapis(false)
     }
   }
-
   function recznie(place: string) {
     const b = blocked.find(b => b.slot === place)
     setEditor({ manual: { slot: place, revision: b?.revision ?? null } })
-    setWybrany(''); setOpis(b?.description ?? ''); setSlot(place); setDetails(true)
-    setBlad(''); setKomunikat(''); setZwolnienie(false)
+    setWybrany(''); setPanel('none'); setOpis(b?.description ?? ''); setSlot(place); setZwolnienie(false); clearMessages()
   }
+  function anulujEdycje() { setEditor(null); setSlot(null); setZwolnienie(false) }
 
   async function zapisz(zwolnij = false) {
     if (!editor || disabled || zajety.current || (!zwolnij && (!slot || problem))) return
     if (zwolnij && !editor.manual?.revision) return
-    zajety.current = true; setZapis(true); setBlad(''); setKomunikat(''); request.current++
+    zajety.current = true; setZapis(true); clearMessages(); request.current++
     try {
       if (editor.carton && slot) {
         const location = await magazynApi.mrozniaLokalizacja({ kind: editor.carton.kind, container_id: editor.carton.id,
@@ -164,190 +212,208 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
         if (zwolnij) await magazynApi.mrozniaZwolnij({ slot: editor.manual.slot, expected_revision: editor.manual.revision! })
         else await magazynApi.mrozniaZajete({ slot: editor.manual.slot, description: opis, expected_revision: editor.manual.revision })
         setKomunikat(zwolnij ? `Zwolniono miejsce ${editor.manual.slot}.` : `Zapisano towar na miejscu ${editor.manual.slot}.`)
-        setEditor(null); setSlot(null); setZwolnienie(false); setDetails(false); onZmieniono?.(); await odswiez()
+        anulujEdycje(); onZmieniono?.(); await odswiez()
       }
     } catch (e) {
       setBlad(e instanceof Error ? e.message : 'Nie zapisano miejsca. Odczytaj plan i spróbuj ponownie.')
       await odswiez()
       // Never silently adopt a new revision after conflict; select the item again.
-      setEditor(null); setSlot(null); setZwolnienie(false)
+      anulujEdycje()
     } finally { zajety.current = false; setZapis(false) }
   }
 
-  return <Dialog open onOpenChange={open => { if (!open && !zajety.current) onZamknij() }}>
-    <DialogContent style={HMI_VARS} className="mroznia-fullscreen flex h-[100dvh] w-screen max-w-none flex-col gap-2 overflow-hidden rounded-none p-3 [&>button:last-child]:hidden"
-      onInteractOutside={e => e.preventDefault()} onEscapeKeyDown={e => { if (zajety.current) e.preventDefault() }}>
-      <div className="flex shrink-0 flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-        <DialogTitle>Rzut mroźni · 63 stałe miejsca</DialogTitle>
-        <DialogDescription>A–I / 1–7 · Rząd 1 przy drzwiach, 7 w głębi.</DialogDescription>
+  const header = picking && editor?.carton ? <div className="mroznia-modebar" role="region" aria-label="Wybór miejsca kartonu">
+    <DialogTitle className="sr-only">{TITLE} · 63 stałe miejsca</DialogTitle>
+    <DialogDescription className="sr-only">Dotknij wolnego kafelka, aby wskazać miejsce kartonu.</DialogDescription>
+    <div className="mroznia-mode-text">
+      <b>{positioned(editor.carton.location) ? 'Przenieś' : 'Wskaż miejsce'} · karton {compactCartonNo(editor.carton.cartonNo)} · {clientLabel(editor.carton)}</b>
+      <span aria-live="polite">Wybrane miejsce: {slot || 'dotknij wolnego kafelka'} · <span>{rotation === 0 ? 'Dłuższym bokiem od drzwi' : 'Krótszym bokiem od drzwi'}</span></span>
+      <span role={occupiedByOther ? 'alert' : undefined} className={occupiedByOther ? 'mroznia-mode-problem' : 'mroznia-mode-note'}>
+        {occupiedByOther ? problem : cel ? 'Zamknięcie mapy nie cofa wjazdu ani ważenia.' : 'Zapisz zgodnie z faktycznym ustawieniem towaru.'}</span>
+    </div>
+    <button type="button" disabled={disabled} onClick={() => setRotation(r => r === 0 ? 90 : 0)} className="mroznia-btn">
+      <RotateCw size={20} aria-hidden /> Obróć o 90°</button>
+    <button type="button" disabled={zapis} onClick={anulujEdycje} className="mroznia-btn">Anuluj zmianę</button>
+    <button type="button" disabled={disabled || !!problem} onClick={() => void zapisz()} className="mroznia-btn mroznia-btn-primary">
+      {zapis ? 'Zapisuję…' : 'Zapisz miejsce'}</button>
+    <button type="button" disabled={zapis} onClick={onZamknij} className="mroznia-icon-btn mroznia-icon-btn-bordered" aria-label="Zamknij mapę"><X size={22} aria-hidden /></button>
+  </div> : swapFrom ? <div className="mroznia-modebar mroznia-modebar-swap" role="region" aria-label="Podgląd zamiany">
+    <DialogTitle className="sr-only">{TITLE} · 63 stałe miejsca</DialogTitle>
+    <DialogDescription className="sr-only">Dotknij drugiego kartonu, aby zamienić je miejscami.</DialogDescription>
+    <div className="mroznia-mode-text">
+      <b>Zamiana miejsc dwóch kartonów</b>
+      <span>{swapFrom.cartonNo} · {clientLabel(swapFrom)} → {swapTo ? locationText(swapTo.location) : 'dotknij drugiego kartonu na mapie'}</span>
+      {swapTo ? <span>{swapTo.cartonNo} · {clientLabel(swapTo)} → {locationText(swapFrom.location)}</span> : null}
+      {swapChanged ? <span role="alert" className="mroznia-mode-problem">Położenie zmieniło się na innym stanowisku. Anuluj i wybierz parę ponownie.</span> : null}
+    </div>
+    <button type="button" disabled={zapis} onClick={() => { setSwapFrom(null); setSwapTo(null); setWybrany('') }} className="mroznia-btn">Anuluj zamianę</button>
+    <button type="button" disabled={disabled || !swapTo || swapChanged} onClick={() => void saveSwap()} className="mroznia-btn mroznia-btn-primary">
+      {zapis ? 'Zapisuję…' : 'Zapisz zamianę'}</button>
+    <button type="button" disabled={zapis} onClick={onZamknij} className="mroznia-icon-btn mroznia-icon-btn-bordered" aria-label="Zamknij mapę"><X size={22} aria-hidden /></button>
+  </div> : <div className="mroznia-header">
+    <div className="mroznia-title">
+      <DialogTitle className="mroznia-title-main">{TITLE} <span>· 63 stałe miejsca</span></DialogTitle>
+      <DialogDescription className="mroznia-title-sub">
+        {plan ? `Zajęte ${occupied}/63 · wolne ${63 - occupied} · rząd 1 przy drzwiach` : 'A–I / 1–7 · rząd 1 przy drzwiach'}
+      </DialogDescription>
+    </div>
+    <div className="mroznia-search-wrap">
+      <button type="button" disabled={zapis || !plan} className={`mroznia-search ${needle ? 'has-query' : ''}`} onClick={() => setKeyboard('search')}
+        aria-label={`Szukaj kartonu, klienta, receptury lub tulei${needle ? `: ${szukaj}` : ''}`}>
+        <Search size={20} aria-hidden className="shrink-0" />
+        <span className="mroznia-search-text">{needle ? szukaj : 'Szukaj: karton, klient, receptura, tuleja'}</span>
+      </button>
+      {needle ? <span role="status" className={`mroznia-search-status ${results.length ? 'is-found' : 'is-empty'}`}>
+        {results.length ? `Znaleziono: ${results.length}` : 'Nie znaleziono kartonów'}</span> : null}
+    </div>
+    {needle ? <button type="button" disabled={zapis} onClick={() => search('')} className="mroznia-btn">Wyczyść filtr</button> : null}
+    {unplaced.length ? <button type="button" disabled={zapis} aria-pressed={panel === 'unplaced'} className="mroznia-btn mroznia-btn-warn"
+      onClick={() => { setWybrany(''); setPanel(panel === 'unplaced' ? 'none' : 'unplaced') }}>Bez miejsca ({unplaced.length})</button> : null}
+    <button type="button" disabled={zapis} onClick={onZamknij} className="mroznia-btn" aria-label="Zamknij mapę">
+      <X size={20} aria-hidden /> Zamknij</button>
+  </div>
+
+  const sheet = !plan ? null : editor?.manual ? <aside className={`mroznia-sheet mroznia-sheet-${sheetSide}`} aria-label={`Miejsce ${editor.manual.slot}`}>
+    <div className="mroznia-sheet-head">
+      <div><b className="mroznia-sheet-title">Miejsce {editor.manual.slot}</b>
+        <span className="mroznia-sheet-sub">Towar bez skanowania, np. łój wołowy</span></div>
+      <button type="button" disabled={zapis} onClick={zamknijPanel} className="mroznia-icon-btn" aria-label="Zamknij panel"><X size={22} aria-hidden /></button>
+    </div>
+    {zwolnienie ? <div className="mroznia-sheet-body space-y-3">
+      <p role="alert" className="font-bold">Towar został fizycznie usunięty z tego miejsca?</p>
+      <button type="button" disabled={disabled} onClick={() => void zapisz(true)} className="mroznia-btn mroznia-btn-block mroznia-btn-warn">Tak, zwolnij miejsce</button>
+      <button type="button" disabled={zapis} onClick={() => setZwolnienie(false)} className="mroznia-btn mroznia-btn-block">Anuluj zwolnienie</button>
+    </div> : <>
+      <div className="mroznia-sheet-body space-y-3">
+        <button type="button" disabled={disabled} onClick={() => setKeyboard('description')} className="mroznia-input">
+          ⌨ {opis || 'Wpisz produkt, np. łój wołowy'}</button>
+        {editor.manual.revision ? <button type="button" disabled={disabled} onClick={() => setZwolnienie(true)}
+          className="mroznia-btn mroznia-btn-block">Zwolnij miejsce</button> : null}
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-      {offline ? <div role="alert" className="rounded-lg border border-red-700 p-3 text-red-800">
-        Brak aktualnego planu — wybór i zapis zablokowane.
-        <button type="button" className="ml-3 min-h-12 underline" onClick={() => void odswiez()}>Ponów odczyt</button>
-      </div> : null}
-      {blad ? <p role="alert" className="font-bold text-red-800">{blad}</p> : null}
-      {komunikat ? <p role="status" className="font-bold text-green-800">{komunikat}</p> : null}
-      {!plan && !offline ? <p role="status">Wczytuję miejsca…</p> : null}
-      {zaladunek && !zaladunek.online ? <p role="alert" className="font-bold text-red-800">Brak aktualnego składu auta — kolory pokazują ostatnio odczytane zamówienia.</p> : null}
-      {plan ? <>
-        {!editor ? <div className="flex shrink-0 flex-wrap gap-2">
-          <button type="button" disabled={zapis} className="min-h-12 min-w-0 flex-1 rounded-lg px-3 text-left" style={buttonStyle}
-            onClick={() => setKeyboard('search')}>⌨ Szukaj kartonu, klienta, receptury lub tulei{szukaj ? `: ${szukaj}` : ''}</button>
-          {szukaj ? <button type="button" disabled={zapis} onClick={() => search('')} className="min-h-12 rounded-lg border px-3">Wyczyść filtr</button> : null}
-          <button type="button" disabled={disabled} aria-expanded={details} className="min-h-12 rounded-lg px-3 font-bold" style={buttonStyle}
-            onClick={() => setDetails(!details)}>{details ? 'Ukryj szczegóły' : `Zawartość kartonów (${plan.cartons.length})`}</button>
-        </div> : null}
-        <div className={`mroznia-layout ${details ? 'mroznia-layout-details' : ''}`}>
-          <div className="mroznia-map-scroll" aria-label="Mapa miejsc mroźni">
-            <div role="group" aria-label="Stałe miejsca mroźni" className="mroznia-slots"
-              style={{ gridTemplateColumns: `repeat(${plan.columns.length}, minmax(0, 1fr))` }}>
-              {Array.from({ length: plan.rows }, (_, i) => plan.rows - i).flatMap(row => plan.columns.map(col => {
-                const place = `${col}${row}`
-                const c = plan.cartons.find(c => c.location?.slot === place)
-                const b = blocked.find(b => b.slot === place)
-                const own = c && editor?.carton && key(c) === key(editor.carton)
-                const active = editor ? slot === place : !!c && key(c) === wybrany
-                const locked = disabled || (!!editor?.carton && (!!b || (!!c && !own)))
-                  || (!!editor?.manual && place !== editor.manual.slot) || (!!swapFrom && (!c || key(c) === key(swapFrom)))
-                const order = c && loadingOrder(c), color = order?.color
-                const summary = c && freezerTileSummary(c.lines)
-                const angle = active && editor?.carton ? rotation : c?.location?.rotation ?? 0
-                return <button type="button" key={place} data-slot={place} disabled={!!locked} aria-pressed={active}
-                  aria-label={`${place} · ${c ? `Karton ${c.cartonNo} · ${c.clientName}` : b ? `zajęte · ${b.description}` : 'wolne'}${order ? ` · ${color!.label} · ${order.orderNo}` : ''}`}
-                  ref={el => { if (c) { if (el) mapTiles.current.set(key(c), el); else mapTiles.current.delete(key(c)) } }}
-                  data-highlighted={c && highlight(c) ? 'true' : 'false'} data-loading-color={color?.index}
-                  onClick={() => { if (editor?.carton) setSlot(place); else if (!editor) { if (c) pokaz(c, 'map'); else recznie(place) } }}
-                  className={`mroznia-map-tile ${c && highlight(c) ? 'mroznia-found' : ''}`}
-                  style={{ '--loading-fill': color?.fill,
-                    borderColor: active ? 'var(--accent)' : color?.edge ?? (b ? 'var(--amb)' : c ? zaladunek ? '#94a3b8' : 'var(--success)' : 'var(--line)'),
-                    backgroundColor: color?.fill ?? (active ? 'var(--accentSoft)' : b ? 'var(--ambSoft)' : c ? zaladunek ? '#e2e8f0' : 'var(--successSoft)' : 'var(--panel)'),
-                    color: 'var(--ink)', opacity: c && !editor && ((needle && !matches(c)) || (!swapFrom && !inOrder(c))) ? 0.35 : 1 } as CSSProperties}>
-                  <span className="mroznia-tile-heading"><b>{place}</b><b className="hmi-v10-mono">{c ? compactNo(c.cartonNo) : ''}</b></span>
-                  {c && summary ? <>
-                    <span className="block truncate font-bold">{summary.recipe}</span>
-                    <span className="mroznia-tile-qty block truncate">{summary.quantity}</span>
-                    <span className="mroznia-tile-badges">
-                      {color ? <b style={{ color: color.edge }}>{color.label}</b> : <span aria-hidden className="mroznia-orientation" style={{ width: angle === 90 ? 8 : 14, height: angle === 90 ? 14 : 8 }} />}
-                      {summary.tubes.length ? <b className="text-amber-900" aria-label={`Tuleja niestandardowa: ${summary.tubes.join(', ')} cm`}>T {summary.tubes.join('/')}</b> : null}
-                    </span>
-                  </> : b ? <><b>ZAJĘTE</b><span className="line-clamp-2 break-words">{b.description}</span></>
-                    : <span style={{ color: 'var(--mut)' }}>{active ? 'wybrane' : 'wolne'}</span>}
-                </button>
-              }))}
-            </div>
-            <div className="mroznia-door">Drzwi mroźnicze · wejście ↑</div>
-          </div>
-          {details ? <aside ref={aside} className="mroznia-details space-y-3" aria-label="Szczegóły mroźni">
-            {zaladunek ? <section aria-label="Kolory zamówień do załadunku" className="space-y-2 rounded-xl border p-3">
-              <h3 className="text-lg font-bold">Na auto: {zaladunek.vehicleName}</h3>
-              <p className="text-sm">Kolor i oznaczenie K są takie same jak na liście załadunku. Szare palety: pozostały towar.</p>
-              <button type="button" disabled={!!editor || !!swapFrom || zapis} aria-pressed={!activeOrder}
-                onClick={() => { setOrderFilter(''); search('') }} className="min-h-12 w-full rounded-lg border px-3 font-bold">Wszystkie zamówienia auta ({loadingOrders.size})</button>
-              {zaladunek.orders.map(o => {
-                const cartons = plan.cartons.filter(c => loadingOrder(c)?.id === o.id)
-                return <button type="button" key={o.id} aria-pressed={activeOrder === o.id} disabled={!!editor || !!swapFrom || zapis}
-                  onClick={() => { setOrderFilter(o.id); search(''); requestAnimationFrame(() => {
-                    const first = cartons.find(c => positioned(c.location))
-                    if (first) mapTiles.current.get(key(first))?.scrollIntoView?.({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
-                  }) }}
-                  className="flex min-h-14 w-full items-center gap-2 rounded-lg border-2 p-2 text-left"
-                  style={{ borderColor: o.color.edge, background: activeOrder === o.id ? o.color.fill : 'white' }}>
-                  <ZnacznikZamowienia color={o.color} />
-                  <span className="min-w-0 break-words text-sm"><b className="block">{o.clientName} · {o.orderNo}</b>
-                    W mroźni: {cartons.length} · bez położenia: {cartons.filter(c => !positioned(c.location)).length}</span>
-                </button>
-              })}
-              {!loadingOrders.size ? <p>Dołóż zamówienie do auta, aby oznaczyć jego kartony.</p> : null}
-            </section> : null}
-            {swapFrom ? <section aria-label="Podgląd zamiany" className="space-y-2 rounded-xl border-2 border-green-700 bg-green-50 p-3">
-              <h3 className="text-lg font-bold">Zamiana miejsc dwóch kartonów</h3>
-              <p className="text-sm"><b>{swapFrom.cartonNo} · {swapFrom.clientName}</b> → {swapTo ? locationText(swapTo.location) : 'dotknij drugiego kartonu na mapie lub liście'}</p>
-              {swapTo ? <p className="text-sm"><b>{swapTo.cartonNo} · {swapTo.clientName}</b> → {locationText(swapFrom.location)}</p> : null}
-              <p className="text-xs">Każdy karton przejmuje miejsce i orientację palety drugiego. Zapis obejmuje oba kartony naraz.</p>
-              {swapChanged ? <p role="alert" className="font-bold text-red-800">Położenie zmieniło się na innym stanowisku. Anuluj i wybierz parę ponownie.</p> : null}
-              <button type="button" disabled={zapis} onClick={() => { setSwapFrom(null); setSwapTo(null) }} className="min-h-12 w-full rounded-lg border bg-white px-3">Anuluj zamianę</button>
-            </section> : null}
-            {editor?.manual ? <section className="space-y-2 rounded-xl border p-3" style={{ background: 'var(--ambSoft)' }}>
-              <h3 className="text-xl font-bold">Miejsce {editor.manual.slot} · towar bez skanowania</h3>
-              <button type="button" disabled={disabled || zwolnienie} onClick={() => setKeyboard('description')}
-                className="min-h-14 w-full break-words rounded-lg px-3 text-left" style={buttonStyle}>
-                ⌨ {opis || 'Wpisz produkt, np. łój wołowy'}</button>
-              {editor.manual.revision ? <button type="button" disabled={disabled} onClick={() => setZwolnienie(true)}
-                className="min-h-12 w-full rounded-lg border px-3 font-bold">Zwolnij miejsce</button> : null}
-            </section> : editor && selected ? <section className="rounded-xl border p-3">
-              <h3 className="text-xl font-extrabold">Karton {selected.cartonNo}</h3>
-              <p className="break-words">{selected.clientName || 'na magazyn'} · {selected.orderNo}</p>
-              <p className="font-bold">{locationText(selected.location)}</p>
-              <div className="max-h-[180px] overflow-y-auto"><ZawartoscMrozni lines={selected.lines} /></div>
-            </section> : null}
-            {editor ? <section className="space-y-3 rounded-xl border p-3">
-              {zwolnienie ? <>
-                <p role="alert" className="font-bold">Towar został fizycznie usunięty z tego miejsca?</p>
-                <button type="button" disabled={disabled} onClick={() => void zapisz(true)} className="min-h-12 w-full rounded-lg border px-3 font-bold">Tak, zwolnij miejsce</button>
-                <button type="button" disabled={zapis} onClick={() => setZwolnienie(false)} className="min-h-12 w-full underline">Anuluj zwolnienie</button>
-              </> : <>
-                <p className="text-lg font-bold" aria-live="polite">Wybrane miejsce: {slot || 'dotknij wolnego kafelka'}</p>
-                {editor.carton ? <>
-                  <button type="button" disabled={disabled} onClick={() => setRotation(r => r === 0 ? 90 : 0)} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg px-3 font-bold" style={buttonStyle}>
-                    <RotateCw size={22} aria-hidden /> Obróć o 90°</button>
-                  <p aria-live="polite">{rotation === 0 ? 'Dłuższym bokiem od drzwi' : 'Krótszym bokiem od drzwi'}</p>
-                </> : null}
-                {editor.carton && positioned(editor.carton.location) ? <button type="button" disabled={disabled} onClick={() => beginSwap(editor.carton!)}
-                  className="min-h-12 w-full rounded-lg border px-3 font-bold">Zamień miejscami</button> : null}
-                <p role={occupiedByOther ? 'alert' : 'status'} className={occupiedByOther ? 'text-red-800' : ''}>{problem || 'Zapisz zgodnie z faktycznym ustawieniem towaru.'}</p>
-              </>}
-              <button type="button" disabled={zapis} onClick={() => { setEditor(null); setSlot(null); setZwolnienie(false) }} className="min-h-12 w-full underline">Anuluj zmianę</button>
-            </section> : <section className="space-y-2" aria-label="Zawartość kartonów">
-              <div className="sticky top-0 z-10 bg-white pb-2">
-                <h3 className="text-lg font-bold">{needle ? 'Wyniki wyszukiwania' : 'Zawartość kartonów'} · {results.length}</h3>
-                <p className="text-sm" style={{ color: 'var(--mut)' }}>{swapFrom ? 'Wybierz drugi karton z zapisanym położeniem.' : 'Dotknij karty, aby wskazać karton na mapie.'}</p>
-              </div>
-              {results.map(c => {
-                const order = loadingOrder(c)
-                return <section key={key(c)} data-testid="karton-zawartosc" aria-label={`Zawartość kartonu ${c.cartonNo}`}
-                ref={el => { if (el) contentCards.current.set(key(c), el); else contentCards.current.delete(key(c)) }}
-                className="scroll-mt-16 rounded-xl border-2" style={{ borderColor: order?.color.edge ?? (key(c) === wybrany ? '#15803d' : 'var(--line)'),
-                  outline: key(c) === wybrany ? '2px solid #15803d' : undefined, outlineOffset: 1,
-                  background: order?.color.fill ?? (key(c) === wybrany ? 'var(--successSoft)' : 'var(--panel)') }}>
-                <button type="button" disabled={disabled || !!swapFrom && (!positioned(c.location) || key(c) === key(swapFrom))} aria-label={`Pokaż karton ${c.cartonNo} na mapie`} aria-pressed={key(c) === wybrany}
-                  className="min-h-14 w-full p-3 text-left" onClick={() => pokaz(c, 'card')}>
-                  <span className="flex flex-wrap items-baseline justify-between gap-x-2">
-                    <b className="hmi-v10-mono text-xl">{c.cartonNo}</b>
-                    <span className="text-sm font-bold">{c.clientName || 'magazyn'}</span>
-                  </span>
-                  {order ? <span className="my-1 flex flex-wrap items-center gap-2 text-sm font-bold"><ZnacznikZamowienia color={order.color} /> {order.orderNo}</span> : null}
-                  <ZawartoscMrozni lines={c.lines} compact />
-                  <span className="mt-2 block text-xs" style={{ color: positioned(c.location) ? 'var(--mut)' : 'var(--amb)' }}>{locationText(c.location)}</span>
-                </button>
-                {key(c) === wybrany && !swapFrom ? <div className="grid gap-2 border-t px-3 pb-3 pt-2 sm:grid-cols-2">
-                  <button type="button" disabled={disabled} onClick={() => edytuj(c)} className="min-h-12 w-full rounded-lg px-3 font-bold" style={buttonStyle}>Przenieś / obróć</button>
-                  {positioned(c.location) ? <button type="button" disabled={disabled} onClick={() => beginSwap(c)} className="min-h-12 w-full rounded-lg px-3 font-bold" style={buttonStyle}>Zamień miejscami</button> : null}
-                </div> : null}
-              </section>})}
-              {!results.length && !needle ? <p className="p-3 text-sm">{activeOrder ? 'Brak kartonów tego zamówienia w mroźni.' : 'Brak kartonów w mroźni.'}</p> : null}
-            </section>}
-          </aside> : null}
+      <div className="mroznia-sheet-actions">
+        <button type="button" disabled={zapis} onClick={zamknijPanel} className="mroznia-btn">Anuluj</button>
+        <button type="button" disabled={disabled} onClick={() => void zapisz()} className="mroznia-btn mroznia-btn-primary">
+          {zapis ? 'Zapisuję…' : 'Zapisz towar'}</button>
+      </div>
+    </>}
+  </aside> : panel === 'carton' && selected && !editor && !swapFrom ? (() => {
+    const order = loadingOrder(selected)
+    return <aside className={`mroznia-sheet mroznia-sheet-${sheetSide}`} aria-label={`Szczegóły kartonu ${selected.cartonNo}`}
+      style={order ? { '--order-fill': order.color.fill, '--order-edge': order.color.edge } as CSSProperties : undefined}>
+      <div className="mroznia-sheet-head">
+        <div className="min-w-0">
+          <b className="mroznia-sheet-title">{clientLabel(selected)}</b>
+          {selected.clientShortName && selected.clientName && selected.clientName !== selected.clientShortName
+            ? <span className="mroznia-sheet-sub">{selected.clientName}</span> : null}
         </div>
-      </> : null}
+        <button type="button" onClick={zamknijPanel} className="mroznia-icon-btn" aria-label="Zamknij szczegóły"><X size={22} aria-hidden /></button>
       </div>
-      <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t pt-2">
-        {/* Search status lives in the footer, so searching never shrinks or shifts the 63 tiles. */}
-        {!editor && plan && needle ? <p role="status" className={`min-w-0 flex-1 text-sm font-bold ${results.length ? 'text-green-800' : 'text-amber-900'}`}>
-          {results.length ? `Znaleziono: ${results.length} · na mapie pulsują na zielono.` : 'Nie znaleziono kartonów. Zmień numer, recepturę lub wyczyść filtr.'}
-          {results.length ? <span className="block font-normal" style={{ color: 'var(--mut)' }}>Bez przypisanego miejsca: {results.filter(c => !positioned(c.location)).length}</span> : null}
-        </p> : !editor && !swapFrom && plan ? <p className="min-w-0 flex-1 text-sm">Zajęte: {plan.cartons.length - bezMiejsca.length + blocked.length}/63 · Bez miejsca: {bezMiejsca.length}
-          <span className="block" style={{ color: 'var(--mut)' }}>Dotknij kafelka · T = nietypowa tuleja</span></p> : null}
-        {zaladunek && !editor && !swapFrom ? <button type="button" disabled={zapis} onClick={() => { setDetails(true); requestAnimationFrame(() => aside.current?.scrollTo?.({ top: 0 })) }}
-          className="min-h-12 rounded-lg border px-3 font-bold">Kolory zamówień ({loadingOrders.size})</button> : null}
-        {cel ? <p className="min-w-[200px] flex-1 text-sm">Zamknięcie mapy nie cofa wjazdu ani ważenia. Bez zapisu miejsce się nie zmieni.</p> : null}
-        {swapFrom ? <button type="button" disabled={disabled || !swapTo || swapChanged} onClick={() => void saveSwap()}
-          className="min-h-14 rounded-lg bg-green-700 px-4 font-bold text-white disabled:opacity-50">{zapis ? 'Zapisuję…' : 'Zapisz zamianę'}</button> : null}
-        {editor && !zwolnienie ? <button type="button" disabled={disabled || !!problem} onClick={() => void zapisz()}
-          className="min-h-14 rounded-lg px-4 font-bold text-white disabled:opacity-50" style={{ background: 'var(--accent)' }}>
-          {zapis ? 'Zapisuję…' : editor.manual ? 'Zapisz towar' : 'Zapisz miejsce'}</button> : null}
-        <button type="button" disabled={zapis} onClick={onZamknij} className="min-h-12 rounded-lg px-6 font-bold" style={buttonStyle}>Zamknij mapę</button>
+      <div className="mroznia-sheet-meta">
+        <span>Karton <b className="hmi-v10-mono">{selected.cartonNo}</b></span>
+        {order ? <span className="flex items-center gap-2"><ZnacznikZamowienia color={order.color} /> {order.orderNo}</span>
+          : selected.orderNo ? <span>{selected.orderNo}</span> : null}
+        <span className={positioned(selected.location) ? '' : 'mroznia-sheet-warn'}>{locationText(selected.location)}</span>
       </div>
+      <div className="mroznia-sheet-body"><ZawartoscMrozni lines={selected.lines} /></div>
+      <div className="mroznia-sheet-actions">
+        <button type="button" disabled={disabled} onClick={() => edytuj(selected)} className="mroznia-btn mroznia-btn-primary">
+          {positioned(selected.location) ? 'Przenieś / obróć' : 'Wskaż miejsce'}</button>
+        {positioned(selected.location) ? <button type="button" disabled={disabled} onClick={() => beginSwap(selected)} className="mroznia-btn">Zamień miejscami</button> : null}
+      </div>
+    </aside>
+  })() : panel === 'unplaced' && !editor && !swapFrom ? <aside className="mroznia-sheet mroznia-sheet-right" aria-label="Kartony bez miejsca">
+    <div className="mroznia-sheet-head">
+      <div><b className="mroznia-sheet-title">Bez przypisanego miejsca</b>
+        <span className="mroznia-sheet-sub">Dotknij kartonu, aby wskazać jego miejsce.</span></div>
+      <button type="button" onClick={zamknijPanel} className="mroznia-icon-btn" aria-label="Zamknij listę"><X size={22} aria-hidden /></button>
+    </div>
+    <div className="mroznia-sheet-body space-y-2">
+      {unplaced.map(c => <button type="button" key={key(c)} disabled={disabled} onClick={() => pokaz(c)} className="mroznia-list-item">
+        <b>{clientLabel(c)}</b><span className="hmi-v10-mono">{compactCartonNo(c.cartonNo)}</span>
+        <span className="mroznia-list-sub">{freezerTileSummary(c.lines).recipe}</span>
+      </button>)}
+    </div>
+  </aside> : null
+
+  return <Dialog open onOpenChange={open => { if (!open && !zajety.current) onZamknij() }}>
+    <DialogContent style={HMI_VARS} className="mroznia-window flex h-[96dvh] max-h-[920px] w-[96vw] max-w-[1280px] flex-col gap-2 overflow-hidden p-3 [&>button:last-child]:hidden"
+      onInteractOutside={e => e.preventDefault()} onEscapeKeyDown={e => { if (zajety.current) e.preventDefault() }}>
+      {header}
+      {offline ? <div role="alert" className="mroznia-alert">
+        Brak aktualnego planu — wybór i zapis zablokowane.
+        <button type="button" className="ml-3 min-h-11 font-bold underline" onClick={() => void odswiez()}>Ponów odczyt</button>
+      </div> : null}
+      {!plan && !offline ? <p role="status" className="p-3">Wczytuję miejsca…</p> : null}
+      {zaladunek && !zaladunek.online ? <p role="alert" className="mroznia-alert">Brak aktualnego składu auta — kolory pokazują ostatnio odczytane zamówienia.</p> : null}
+      {plan && zaladunek ? <section aria-label="Kolory zamówień do załadunku" className="mroznia-legend">
+        <button type="button" disabled={!!editor || !!swapFrom || zapis} aria-pressed={!activeOrder}
+          onClick={() => { setOrderFilter(''); search('') }} className="mroznia-chip mroznia-chip-all"
+          aria-label={`Wszystkie zamówienia auta (${loadingOrders.size}) · ${zaladunek.vehicleName}`}>
+          <b>Wszystkie ({loadingOrders.size})</b><span>{zaladunek.vehicleName}</span>
+        </button>
+        {zaladunek.orders.map(o => {
+          const cartons = plan.cartons.filter(c => loadingOrder(c)?.id === o.id)
+          return <button type="button" key={o.id} aria-pressed={activeOrder === o.id} disabled={!!editor || !!swapFrom || zapis}
+            onClick={() => { setOrderFilter(activeOrder === o.id ? '' : o.id); search('') }} className="mroznia-chip"
+            style={{ '--order-fill': o.color.fill, '--order-edge': o.color.edge } as CSSProperties}>
+            <ZnacznikZamowienia color={o.color} />
+            <span className="mroznia-chip-text"><b>{o.clientShortName || o.clientName}</b><span>{o.orderNo} · {cartons.length} szt.</span></span>
+            <span className="sr-only">W mroźni: {cartons.length} · bez położenia: {cartons.filter(c => !positioned(c.location)).length}</span>
+          </button>
+        })}
+        {!loadingOrders.size ? <span className="mroznia-chip-empty">Dołóż zamówienie do auta, aby oznaczyć jego kartony.</span> : null}
+      </section> : null}
+      {plan ? <div className="mroznia-stage">
+        <div className="mroznia-map" aria-label="Mapa miejsc mroźni">
+          <div ref={gridRef} role="group" aria-label="Stałe miejsca mroźni" className={`mroznia-grid ${picking ? 'is-picking' : ''}`}
+            style={{ gridTemplateColumns: `repeat(${plan.columns.length}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${plan.rows}, minmax(62px, 1fr))` }}>
+            {Array.from({ length: plan.rows }, (_, i) => plan.rows - i).flatMap(row => plan.columns.map(col => {
+              const place = `${col}${row}`
+              const c = plan.cartons.find(c => c.location?.slot === place)
+              const b = blocked.find(b => b.slot === place)
+              const own = c && editor?.carton && key(c) === key(editor.carton)
+              const active = editor ? slot === place : swapTo ? !!c && key(c) === key(swapTo) : false
+              const locked = disabled || (!!editor?.carton && (!!b || (!!c && !own)))
+                || (!!editor?.manual && place !== editor.manual.slot) || (!!swapFrom && (!c || key(c) === key(swapFrom)))
+              const order = c && loadingOrder(c), color = order?.color
+              const summary = c && freezerTileSummary(c.lines)
+              const label = c ? clientLabel(c) : ''
+              const found = !!c && highlight(c)
+              const dimmed = !!c && !editor && ((!!needle && !matches(c)) || (!swapFrom && !inOrder(c)))
+              const kind = c ? 'is-carton' : b ? 'is-manual' : 'is-free'
+              return <button type="button" key={place} data-slot={place} disabled={!!locked} aria-pressed={active}
+                aria-label={`${place} · ${c ? `Karton ${c.cartonNo} · ${label}` : b ? `zajęte · ${b.description}` : 'wolne'}${order ? ` · ${color!.label} · ${order.orderNo}` : ''}`}
+                ref={el => { if (c) { if (el) mapTiles.current.set(key(c), el); else mapTiles.current.delete(key(c)) } }}
+                data-highlighted={found ? 'true' : 'false'} data-loading-color={color?.index} data-dimmed={dimmed ? 'true' : undefined}
+                onClick={() => { if (editor?.carton) setSlot(place); else if (!editor) { if (c) pokaz(c); else recznie(place) } }}
+                className={`mroznia-tile ${kind} ${color ? 'is-order' : ''} ${active ? 'is-active' : ''} ${found ? 'mroznia-found' : ''}`}
+                style={color ? { '--order-fill': color.fill, '--order-edge': color.edge } as CSSProperties : undefined}>
+                <span className="mroznia-tile-top">
+                  <b className="mroznia-tile-address">{place}</b>
+                  {color ? <b className="mroznia-tile-order">{color.label}</b> : null}
+                  {c ? <span className="mroznia-tile-no hmi-v10-mono">{compactCartonNo(c.cartonNo)}</span> : null}
+                </span>
+                {c && summary ? <>
+                  <b className={`mroznia-tile-client ${label.length > 11 || label.split(/\s+/).some(w => w.length > 7) ? 'is-long' : ''}`}>{label}</b>
+                  <span className="mroznia-tile-recipe">{summary.recipe}</span>
+                  {summary.tubeLabels.length ? <span className="mroznia-tile-tubes">
+                    {summary.tubeLabels.map(t => <span key={t} className="mroznia-tube">{t}</span>)}
+                  </span> : null}
+                </> : b ? <>
+                  <b className="mroznia-tile-manual">{b.description}</b>
+                  <span className="mroznia-tile-foot">towar ręcznie</span>
+                </> : <span className="mroznia-tile-foot">{active ? 'wybrane' : 'wolne'}</span>}
+              </button>
+            }))}
+          </div>
+          <div className="mroznia-door"><span aria-hidden>▲</span> Drzwi mroźnicze · wejście ↑</div>
+        </div>
+        {sheet}
+        {blad || komunikat ? <div className="mroznia-toasts">
+          {blad ? <p role="alert" className="mroznia-toast mroznia-toast-error">{blad}</p> : null}
+          {komunikat ? <p role="status" className="mroznia-toast mroznia-toast-ok">{komunikat}</p> : null}
+        </div> : null}
+      </div> : blad ? <p role="alert" className="mroznia-alert">{blad}</p> : null}
       {keyboard ? <KlawiaturaHmi label={keyboard === 'search' ? 'Szukaj kartonu' : 'Nazwa produktu'} value={keyboard === 'search' ? szukaj : opis}
         onAccept={keyboard === 'search' ? search : setOpis} onClose={() => setKeyboard(null)} /> : null}
     </DialogContent>

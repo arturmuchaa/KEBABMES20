@@ -1,24 +1,24 @@
 import type { VehicleStateOrder } from '@/lib/api'
 
-// Light fills + dark edges keep carton numbers legible on a small HMI map.
+// Soft fills that still differ at a glance; the darker edge is the side bar on a tile.
 // Green remains the search/scan signal. K-number also works without colour vision.
 const PALETTE = [
-  ['Niebieski', '#1d4ed8', '#bfdbfe'],
-  ['Pomarańczowy', '#9a3412', '#fed7aa'],
-  ['Fioletowy', '#7e22ce', '#e9d5ff'],
-  ['Turkusowy', '#0e7490', '#a5f3fc'],
-  ['Różowy', '#be185d', '#fbcfe8'],
-  ['Żółty', '#854d0e', '#fef08a'],
-  ['Brązowy', '#713f12', '#d6b99b'],
-  ['Indygo', '#3730a3', '#c7d2fe'],
+  ['Błękit', '#3b6fb6', '#dce8f8'],
+  ['Morela', '#b26a2c', '#fbe4ce'],
+  ['Lawenda', '#7c5cc0', '#e9e0fa'],
+  ['Turkus', '#2a8577', '#d4efe9'],
+  ['Róż', '#b5506f', '#f8dce5'],
+  ['Oliwka', '#6c8726', '#e6efcd'],
+  ['Piasek', '#94741f', '#f3e8c8'],
+  ['Indygo', '#4c59a0', '#dfe3f4'],
 ] as const
 
 export type KolorZaladunku = { index: number; label: string; name: string; edge: string; fill: string }
-export type ZamowienieKolorowe = Pick<VehicleStateOrder, 'id' | 'orderNo' | 'clientName' | 'pallets'> & { color: KolorZaladunku }
+export type ZamowienieKolorowe = Pick<VehicleStateOrder, 'id' | 'orderNo' | 'clientName' | 'clientShortName' | 'pallets'> & { color: KolorZaladunku }
 
 export function kolorZaladunku(index: number): KolorZaladunku {
   const hue = Math.round(index * 137.508) % 360
-  const [name, edge, fill] = PALETTE[index] ?? [`Kolor ${index + 1}`, `hsl(${hue} 65% 30%)`, `hsl(${hue} 75% 82%)`]
+  const [name, edge, fill] = PALETTE[index] ?? [`Kolor ${index + 1}`, `hsl(${hue} 45% 36%)`, `hsl(${hue} 60% 90%)`]
   return { index, label: `K${index + 1}`, name, edge, fill }
 }
 

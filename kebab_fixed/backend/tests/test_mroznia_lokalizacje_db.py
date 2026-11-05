@@ -349,3 +349,32 @@ def test_swap_rejects_departed_and_unpositioned_cartons(db):
         svc.swap('order', a, first['revision'], 'stock', b, second['revision'])
     assert e.value.status_code == 409
     assert svc.location('stock', b) == second
+
+
+def test_plan_carries_client_short_name_for_the_hmi(db):
+    """The warehouse HMI cannot read /api/clients (office only), so the plan itself
+    carries the short trade name: by client id, else by exact full name, else ''."""
+    a, _ = seed('order', '1')
+    execute("UPDATE clients SET name='KLIENT1 SPÓŁKA Z O.O.', display_name='KLIENT1' WHERE id='klient1'")
+    execute("UPDATE client_orders SET client_name='KLIENT1 SPÓŁKA Z O.O.' WHERE id='o1'")
+    b, _ = seed('stock', '2')                      # client_id 'klient2' has no catalogue card yet
+    short = lambda: {c['id']: c['clientShortName'] for c in svc.plan()['cartons']}
+    assert short() == {a: 'KLIENT1', b: ''}        # '' = the screen shows the full name
+    execute("INSERT INTO clients (id, code, name, display_name) VALUES ('klient2','K2','KLIENT2','  K2 SKRÓT ')")
+    assert short()[b] == 'K2 SKRÓT'
+    execute('UPDATE stock_cartons SET client_id=NULL WHERE id=%s', (b,))   # legacy row: by name
+    assert short()[b] == 'K2 SKRÓT'
+    # A second card with the same full name and no trade name never duplicates the carton.
+    execute("INSERT INTO clients (id, code, name, display_name) VALUES ('klient2b','K2B','KLIENT2','')")
+    assert len(svc.plan()['cartons']) == 2 and short()[b] == 'K2 SKRÓT'
+    execute("UPDATE stock_cartons SET client_id=NULL, client_name='' WHERE id=%s", (b,))
+    assert short()[b] == ''                        # stock carton without a client
+
+
+def test_vehicle_state_carries_client_short_name_for_the_colour_legend(db):
+    from app.services import vehicle_loading_service
+    from tests.test_vehicle_loading_sync_db import _baza_jednego_auta
+    _baza_jednego_auta()                           # client c1 'YBM Gastro GmbH' trades as 'YALCIN'
+    vehicle_loading_service.add_order('v1', 'o1')
+    order = vehicle_loading_service.vehicle_state('v1')['orders'][0]
+    assert (order['client_name'], order['client_short_name']) == ('YBM Gastro GmbH', 'YALCIN')

@@ -19,8 +19,8 @@ async function start(page: Page, manyOrders = false) {
       { qty: 10, kg_per_unit: 40, recipe_name: 'BEYAZ', product_type_name: 'UDO', packaging_name: '80 cm' },
       { qty: 2, kg_per_unit: 50, recipe_name: 'BEYAZ', product_type_name: 'UDO', packaging_name: '100 cm' },
     ] : [{ qty: 10, kg_per_unit: 30,
-      recipe_name: i === 15 ? 'KIRMIZI DŁUGA NAZWA RECEPTURY DO KARTONU MIESZANEGO' : 'KIRMIZI',
-      product_type_name: 'UDO', packaging_name: '80 cm' }],
+      recipe_name: i === 15 && !manyOrders ? 'KIRMIZI DŁUGA NAZWA RECEPTURY DO KARTONU MIESZANEGO' : 'KIRMIZI',
+      product_type_name: 'UDO', packaging_name: 'METAL 80CM' }],
     weighing: i === 1 || i > 11 ? null : {
       id: `w${i}`, gross_kg: i === 2 ? 358 : 335.5, diff_kg: i === 2 ? 23 : 0.5,
       ok: i !== 2, weighed_at: '2026-10-11T10:00:00Z',
@@ -112,33 +112,31 @@ for (const width of [1024, 1366]) {
     await page.getByRole('button', { name: 'Rzut mroźni · znajdź karton do załadunku' }).tap()
     const floor = page.getByRole('group', { name: 'Stałe miejsca mroźni' })
     const legend = page.getByRole('region', { name: 'Kolory zamówień do załadunku' })
-    // The complete floor, especially the door-side row, is visible on entry
-    // and stays visible beside the colour legend.
-    const wholeFloorVisible = () => expect.poll(async () => {
-      const box = await floor.boundingBox()
-      const pane = await page.getByLabel('Mapa miejsc mroźni', { exact: true }).boundingBox()
-      return !!box && !!pane && box.y >= pane.y && box.y + box.height < pane.y + pane.height
-    }).toBe(true)
-    await wholeFloorVisible()
+    // All nine columns fit; opening details never compresses their labels.
+    const tileWidth = (await floor.getByRole('button').first().boundingBox())!.width
+    expect(await page.getByLabel('Mapa miejsc mroźni', { exact: true }).evaluate(e => e.scrollWidth - e.clientWidth)).toBeLessThanOrEqual(1)
     for (let i = 0; i < 5; i++) {
       const tiles = floor.locator(`[data-loading-color="${i}"]`)
       await expect(tiles).toHaveCount(i === 0 ? 5 : i === 4 ? 1 : 2)
       await expect(tiles.first()).toHaveCSS('background-color', fills[i])
     }
     await expect(floor.getByRole('button', { name: /Karton 009999/ })).not.toHaveAttribute('data-loading-color')
-    await page.screenshot({ path: info.outputPath('mroznia-pelny-ekran-piec-kolorow.png') })
-    await page.getByRole('button', { name: 'Kolory zamówień (5)' }).tap()
-    await expect(legend).toBeInViewport()
-    await wholeFloorVisible()
-    await expect(floor.getByRole('button', { name: /^A1 ·/ })).toBeInViewport({ ratio: 1 })
+    // The legend is part of the loading view; with it the whole plan still fits.
+    await expect(legend).toBeInViewport({ ratio: 1 })
+    await expect(floor.getByRole('button', { name: /^A7 ·/ })).toBeInViewport({ ratio: 1 })
+    await expect(floor.getByRole('button', { name: /^I1 ·/ })).toBeInViewport({ ratio: 1 })
     await expect(legend.getByRole('button', { name: /K5/ })).toContainText('W mroźni: 2 · bez położenia: 1')
+    await page.screenshot({ path: info.outputPath('mroznia-okno-piec-kolorow.png') })
+    // Details never compress the columns.
+    await floor.locator('[data-loading-color="1"]').first().tap()
+    await expect(page.getByRole('complementary', { name: /Szczegóły kartonu/ })).toContainText('K2')
+    expect((await floor.getByRole('button').first().boundingBox())!.width).toBeCloseTo(tileWidth)
     await page.screenshot({ path: info.outputPath('mroznia-piec-kolorow.png') })
-    await page.getByRole('button', { name: 'Ukryj szczegóły' }).tap()
-    await expect(floor.locator('[data-loading-color="1"]').first()).toHaveCSS('background-color', fills[1])
-    await page.getByRole('button', { name: 'Kolory zamówień (5)' }).tap()
+    await page.getByRole('button', { name: 'Zamknij szczegóły' }).tap()
     await legend.getByRole('button', { name: /K2/ }).tap()
-    await expect(page.getByTestId('karton-zawartosc')).toHaveCount(2)
+    await expect(floor.locator('[data-dimmed="true"]')).toHaveCount(await floor.locator('.is-carton').count() - 2)
     await legend.getByRole('button', { name: /Wszystkie zamówienia/ }).tap()
+    await expect(floor.locator('[data-dimmed="true"]')).toHaveCount(0)
     await page.getByRole('button', { name: /Szukaj kartonu, klienta/ }).tap()
     const keyboard = page.getByRole('dialog', { name: /Klawiatura/ })
     for (const digit of ['4', '0', '0']) await keyboard.getByRole('button', { name: digit, exact: true }).tap()
@@ -146,7 +144,7 @@ for (const width of [1024, 1366]) {
     const found = floor.getByRole('button', { name: /Karton 000400/ })
     await expect(found).toHaveAttribute('data-highlighted', 'true')
     await expect(found).toHaveCSS('background-color', fills[1])
-    await expect(found).toHaveCSS('animation-name', 'mroznia-found-order')
+    await expect(found).toHaveCSS('animation-name', 'mroznia-found-green')
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await expect(found).toHaveCSS('animation-name', 'none')
     await expect(found).toHaveCSS('background-color', fills[1])
