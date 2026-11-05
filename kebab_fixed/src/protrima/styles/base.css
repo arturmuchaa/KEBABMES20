@@ -58,6 +58,10 @@ input, select, textarea { font: inherit; color: inherit; }
 .btn.ghost { border-color: transparent; background: transparent; box-shadow: none; }
 .btn.ghost:hover { background: var(--surface-alt); border-color: var(--line-soft); }
 .btn.danger { color: var(--crit-ink); }
+/* Nieodwracalne potwierdzenie w oknie (zamknij bez zapisu, zdejmij numer, usuń) — pełna czerwień zamiast stylu wpisanego w JSX. */
+.btn.primary.danger { background: var(--crit-solid); border-color: var(--crit-solid); color: #fff; box-shadow: none; }
+.btn.primary.danger:hover { background: var(--crit-ink); border-color: var(--crit-ink); }
+.btn.primary.danger svg { color: #fff; }
 .btn.danger svg { color: var(--crit-ink); }
 .btn.sm { height: calc(var(--ctl-h) - 4px); padding: 0 9px; font-size: var(--fs-sm); }
 .btn.icon { width: var(--ctl-h); padding: 0; justify-content: center; }
@@ -209,6 +213,8 @@ input, select, textarea { font: inherit; color: inherit; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; align-items: baseline; }
 .kv dt { color: var(--ink-3); font-size: var(--fs-sm); }
 .kv dd { margin: 0; min-width: 0; }
+/* Numer porządkowy jako etykieta wiersza — identyfikator, po którym się szuka (≥ 13,5 px, pełny kolor). */
+.kv dt.nr-dt { font-family: var(--font-code); font-size: var(--fs-id); font-weight: 600; color: var(--ink-1); }
 
 /* ─── Komunikaty ───────────────────────────────────────────────────────── */
 .note {

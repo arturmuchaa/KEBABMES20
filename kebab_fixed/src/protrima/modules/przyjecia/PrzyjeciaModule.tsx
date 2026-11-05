@@ -7,6 +7,7 @@ import {
 import { useApp, Menu, useMenu, CommandBar, wierszMenu, type Cmd } from '../../shell/context'
 import { useDock } from '../../shell/useDock'
 import { kg, num, fmtDate } from '../../data/model'
+import { ile } from '../../data/tekst'
 import { dataZApi } from '../../data/mapuj'
 import {
   getSurowe, mapaMiesa, mapujPrzyjecie, mapujRodzaje, roznicaKg, stanHaccp, dniDo,
@@ -226,7 +227,11 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
   const matOpts = useMemo(() => [...new Set(rows.flatMap(r => r.p.materials))].sort((a, b) => a.localeCompare(b, 'pl')), [rows])
   const monthOpts = useMemo(() => [...new Set(rows.map(r => r.p.date.slice(0, 7)).filter(Boolean))].sort().reverse(), [rows])
   const anyFilter = !!(q || dostawca || mats.length || miesiac || termin)
-  const COLS = 12
+  // Data dostawy powtarza nagłówek grupy dnia — przy grupowaniu po dniu kolumna znika (C12).
+  // W widoku „W obiegu” każdy wiersz jest w obiegu — kolumna Stan pokazywałaby to samo słowo 28 razy (UX-19).
+  const pokazDate = groupBy !== 'day'
+  const pokazStan = view !== 'live'
+  const COLS = 10 + (pokazDate ? 1 : 0) + (pokazStan ? 1 : 0)
 
   return (
     <>
@@ -274,7 +279,7 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
               <thead><tr>
                 <th className="al"><span className="sr">Alert</span></th>
                 {thSort('no', 'Przyjęcie')}
-                {thSort('date', 'Data')}
+                {pokazDate && thSort('date', 'Data')}
                 {thSort('supplier', 'Dostawca')}
                 <th className="side-hide">Surowiec</th>
                 <th className="hide-s" data-tip="Numery porządkowe dostawy i ile kilogramów przyjęto na każdy">Numery porządkowe</th>
@@ -282,8 +287,8 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
                 <th className="num hide-m opt-col" data-tip="Przyjęto − masa netto z dokumentu HDI">Różnica HDI</th>
                 {thSort('left', 'Na stanie', 'num')}
                 {thSort('expiry', 'Termin')}
-                <th>HACCP</th>
-                <th className="side-hide">Stan</th>
+                <th className="side-hide" data-tip="Kontrola HACCP przyjęcia. Wyjątki (temperatura, brak kontroli, niezgodność) są też w kolumnie alertu.">HACCP</th>
+                {pokazStan && <th className="side-hide">Stan</th>}
               </tr></thead>
               <tbody>
                 {recRes.loading && !recRes.data && <SzkieletWierszy kolumny={COLS} />}
@@ -303,15 +308,15 @@ export function PrzyjeciaModule({ cmd, active, setCtx, setCmds }: { cmd?: { n: n
                         <span className="gmeta">{g.rows.length} {g.rows.length === 1 ? 'dostawa' : g.rows.length < 5 ? 'dostawy' : 'dostaw'} · przyjęto {kg(gs.kg)}</span>
                         {gs.left > 0 && <span className="gmeta accent-ink">na stanie {kg(gs.left)}</span>}
                       </span></td></tr>}
-                      {!isCol && g.rows.map((r, i) => <PrzyjecieRow key={r.p.id} r={r} zebra={i % 2 === 1} sel={sel === r.p.id} onClick={() => select(r.p.id)} />)}
+                      {!isCol && g.rows.map((r, i) => <PrzyjecieRow key={r.p.id} r={r} zebra={i % 2 === 1} sel={sel === r.p.id} onClick={() => select(r.p.id)} pokazDate={pokazDate} pokazStan={pokazStan} />)}
                     </React.Fragment>
                   )
                 })}
               </tbody>
               {visible.length > 0 && <tfoot><tr>
-                <td className="al" /><td colSpan={3}>Razem — {visible.length} {visible.length === 1 ? 'dostawa' : 'dostaw'}</td>
+                <td className="al" /><td colSpan={pokazDate ? 3 : 2}>Razem — {ile(visible.length, 'dostawa', 'dostawy', 'dostaw')}</td>
                 <td className="side-hide" /><td className="hide-s" />
-                <td className="num">{kg(tot.kg)}</td><td className="hide-m opt-col" /><td className="num">{kg(tot.left)}</td><td /><td /><td className="side-hide" />
+                <td className="num">{kg(tot.kg)}</td><td className="hide-m opt-col" /><td className="num">{kg(tot.left)}</td><td /><td className="side-hide" />{pokazStan && <td className="side-hide" />}
               </tr></tfoot>}
             </table>
           </div>
@@ -387,7 +392,7 @@ export function NumeryNaLiscie({ p }: { p: Przyjecie }) {
   )
 }
 
-const PrzyjecieRow = React.memo(function PrzyjecieRow({ r, zebra, sel, onClick }: { r: Row; zebra: boolean; sel: boolean; onClick: () => void }) {
+const PrzyjecieRow = React.memo(function PrzyjecieRow({ r, zebra, sel, onClick, pokazDate, pokazStan }: { r: Row; zebra: boolean; sel: boolean; onClick: () => void; pokazDate: boolean; pokazStan: boolean }) {
   const { p } = r
   const dd = dniDo(p.nearestExpiry)
   const rk = roznicaKg(p)
@@ -396,7 +401,7 @@ const PrzyjecieRow = React.memo(function PrzyjecieRow({ r, zebra, sel, onClick }
     <tr data-id={p.id} className={`row${zebra ? ' zebra' : ''}${sel ? ' sel' : ''}${p.cancelled ? ' closed' : ''}`} aria-selected={sel} onClick={onClick}>
       <td className="al">{r.level && <span className={`alert-ico ${r.level}`} data-tip={r.flags.join('\n')}><FlagIcon level={r.level} /></span>}</td>
       <td><span className="no">{p.no || '—'}</span>{p.isService && <span className="tag outline" style={{ marginLeft: 6 }}>usługa</span>}</td>
-      <td className="num">{fmtDate(dataZApi(p.date))}</td>
+      {pokazDate && <td className="tnum">{fmtDate(dataZApi(p.date))}</td>}
       <td className="ell" style={{ maxWidth: 200 }} title={p.supplierName}>{r.supplier}</td>
       <td className="ell side-hide" style={{ maxWidth: 220 }}>{p.materials.join(', ')}</td>
       <td className="hide-s nr-cell" data-tip={opisNumerow(p)}><NumeryNaLiscie p={p} /></td>
@@ -406,10 +411,10 @@ const PrzyjecieRow = React.memo(function PrzyjecieRow({ r, zebra, sel, onClick }
         ? <span className="meter cov-part" style={{ justifyContent: 'flex-end' }} data-tip={`Zużyto ${Math.round(usedPct)}% dostawy`}><b>{kg(p.kgLeft)}</b></span>
         : <span className="faint">{p.cancelled ? 'anulowana' : '0 kg'}</span>}</td>
       <td>{p.stan === 'w_obiegu' && p.nearestExpiry
-        ? <span className={`due${dd !== null && dd < 0 ? ' over' : dd !== null && dd <= 2 ? ' today' : ''}`}><span className="rel num">{fmtDate(dataZApi(p.nearestExpiry)).slice(0, 5)}</span><span className="abs">{dd === null ? '' : dd < 0 ? `${-dd} dni po` : dd === 0 ? 'dziś' : `za ${dd} d.`}</span></span>
+        ? <span className={`due${dd !== null && dd < 0 ? ' over' : dd !== null && dd <= 2 ? ' today' : ''}`}><span className="rel num">{fmtDate(dataZApi(p.nearestExpiry)).slice(0, 5)}</span><span className="abs">{dd === null ? '' : dd < 0 ? `${ile(-dd, 'dzień', 'dni', 'dni')} po` : dd === 0 ? 'dziś' : `za ${ile(dd, 'dzień', 'dni', 'dni')}`}</span></span>
         : <span className="faint">—</span>}</td>
-      <td><HaccpTag h={r.h} /></td>
-      <td className="side-hide">{p.cancelled ? <span className="tag outline">Anulowana</span> : p.stan === 'w_obiegu' ? <span className="tag info">W obiegu</span> : <span className="tag ok">Rozliczona</span>}</td>
+      <td className="side-hide"><HaccpTag h={r.h} /></td>
+      {pokazStan && <td className="side-hide">{p.cancelled ? <span className="tag outline">Anulowana</span> : p.stan === 'w_obiegu' ? <span className="tag neutral">W obiegu</span> : <span className="tag ok">Rozliczona</span>}</td>}
     </tr>
   )
 })
@@ -464,7 +469,7 @@ function PrzyjecieDetail({ r, tab, onTab, maxed, onMax, onClose, onHaccpSaved, o
                 <dt>Dokument</dt><dd>{p.documentNo || '—'}</dd>
               </dl></div>
               <div className="box ov-card"><h4><Layers size={16} />Surowiec</h4><dl className="kv">
-                {p.numery.map(x => <React.Fragment key={x.id}><dt className="code">nr {x.no}</dt><dd>{x.material} · {kg(x.kgReceived)} · {STAN_NUMERU[x.stan] ?? x.stan}</dd></React.Fragment>)}
+                {p.numery.map(x => <React.Fragment key={x.id}><dt className="nr-dt">Nr {x.no}</dt><dd>{x.material} · {kg(x.kgReceived)} · {STAN_NUMERU[x.stan] ?? x.stan}</dd></React.Fragment>)}
               </dl></div>
               <div className="box ov-card ov-notes"><h4><Thermometer size={16} />Kontrola przy aucie</h4>
                 {c ? <dl className="kv">
@@ -472,7 +477,7 @@ function PrzyjecieDetail({ r, tab, onTab, maxed, onMax, onClose, onHaccpSaved, o
                   <dt>Temp. komory</dt><dd>{c.tempChamber ?? '—'} °C</dd>
                   <dt>Próg</dt><dd>{progi.join(', ')}</dd>
                   <dt>Kwalifikacja</dt><dd>{c.verdict === 'K' ? 'przyjęta' : c.verdict === 'N' ? 'odmowa' : '—'}</dd>
-                </dl> : <p className="muted">{h ? 'Brak wpisu kontroli HACCP dla tej dostawy.' : `Kontrola starsza niż ${DNI_HACCP} dni — sprawdź kartę 1.1.1 w starym MES.`}</p>}
+                </dl> : <p className="muted">{h ? 'Brak wpisu kontroli HACCP dla tej dostawy.' : `Brak kontroli w systemie dla tej dostawy (sprzed wdrożenia kontroli albo starsza niż ${DNI_HACCP} dni) — obowiązuje karta papierowa 1.1.1.`}</p>}
                 {p.notes && <p style={{ marginTop: 8 }}>{p.notes}</p>}
               </div>
             </div>

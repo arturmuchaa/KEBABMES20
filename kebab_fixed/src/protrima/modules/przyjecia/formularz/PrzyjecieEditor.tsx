@@ -197,7 +197,9 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
   // Dlaczego nie można jeszcze zapisać — słowami operatora (podpowiedź przy przycisku).
   const czegoBrak = !ready ? 'wczytywanie kartotek' : !h.supplierId ? 'wybierz dostawcę' : totalKg <= 0 ? 'wpisz masę netto pozycji z HDI' : issues.errors[0] ?? ''
   // Błędy podziału pokazujemy dopiero, gdy jest co oceniać — pusty formularz nie krzyczy na czerwono.
-  const pokazBledy = totalKg > 0 || edycja
+  // Wyjątek: operator kliknął zablokowany zapis albo nacisnął Ctrl+Enter — wtedy pokazujemy, czego brakuje.
+  const [wymuszone, setWymuszone] = useState(false)
+  const pokazBledy = totalKg > 0 || edycja || wymuszone
 
   const zapisz = useCallback(async (groups: ReceptionGroup[]) => {
     if (lock.current) return
@@ -230,19 +232,34 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
     setConfirm({ groups: gs, warnings: v.warnings })
   }, [mozna, saving, edycja, zapisz, gs, h])
   const przyjmijRef = useRef(przyjmij); przyjmijRef.current = przyjmij
+  // Jak w edytorze zamówienia: klik w zablokowany zapis (albo Ctrl+Enter przy brakach) prowadzi kursor do pierwszego braku.
+  const pokazBraki = () => {
+    if (!ready || saving) return
+    setWymuszone(true)
+    if (!h.supplierId) requestAnimationFrame(() => document.getElementById(`${tabId}-sup`)?.focus())
+    else focusKg(0)
+  }
+  const pokazBrakiRef = useRef(pokazBraki); pokazBrakiRef.current = pokazBraki
+  const mozRef = useRef(mozna); mozRef.current = mozna
 
   const close = useCallback(() => { if (dirty) setDiscardAsk(true); else onDone() }, [dirty, onDone])
   const tytulZapisu = edycja ? 'Zapisz zmiany' : 'Przyjmij dostawę'
   const cmds = useMemo<Cmd[]>(() => [
-    { id: 'save', group: 1, label: tytulZapisu, icon: edycja ? <Save size={17} /> : <PackagePlus size={17} />, kbd: 'Ctrl+Enter', primary: true, disabled: !mozna || saving, tip: !mozna ? czegoBrak : undefined, run: () => przyjmijRef.current() },
+    { id: 'save', group: 1, label: tytulZapisu, icon: edycja ? <Save size={17} /> : <PackagePlus size={17} />, kbd: 'Ctrl+Enter', primary: true, disabled: !mozna || saving, tip: !mozna ? czegoBrak : undefined, onDisabledClick: () => pokazBrakiRef.current(), run: () => przyjmijRef.current() },
     { id: 'add-line', group: 2, label: 'Dodaj pozycję', icon: <Plus size={17} />, run: () => addLine() },
     { id: 'hdi', group: 2, label: 'Wczytaj HDI', icon: <ScanLine size={17} />, disabled: scanning, run: () => fileRef.current?.click() },
-    { id: 'discard', group: 3, label: edycja ? 'Zamknij bez zapisu' : 'Odrzuć', icon: <X size={17} />, run: close },
+    // „Odrzuć” brzmiało jak odrzucenie dostawy przy aucie — to tylko zamknięcie karty bez zapisu (jak w zamówieniu).
+    { id: 'discard', group: 3, label: 'Zamknij bez zapisu', icon: <X size={17} />, run: close },
   ], [tytulZapisu, edycja, mozna, czegoBrak, saving, scanning, addLine, close])
   useEffect(() => { setCmds(cmds) }, [cmds, setCmds])
   useEffect(() => {
     if (!active) return
-    const key = (e: KeyboardEvent) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !document.querySelector('.dialog-wrap')) { e.preventDefault(); przyjmijRef.current() } }
+    const key = (e: KeyboardEvent) => {
+      // Ctrl+Alt to AltGr (polskie znaki); okno albo paleta poleceń nad formularzem — skrót należy do nich.
+      if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.altKey || e.defaultPrevented || document.querySelector('.dialog-wrap, .overlay')) return
+      e.preventDefault()
+      if (mozRef.current) przyjmijRef.current(); else pokazBrakiRef.current()
+    }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
   }, [active])
@@ -253,7 +270,7 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
 
   return (
     <>
-      <CommandBar title={title} count={edycja ? (dirty ? 'niezapisane zmiany' : 'bez zmian') : `${kg(totalKg)} · ${f.groupCount === 1 ? `nr ${nos[0] ?? '—'}` : `nr ${nos.join(', ')}`}`} cmds={cmds} />
+      <CommandBar title={title} showKbd count={edycja ? (dirty ? 'niezapisane zmiany' : 'bez zmian') : `${kg(totalKg)} · ${f.groupCount === 1 ? `nr ${nos[0] ?? '—'}` : `nr ${nos.join(', ')}`}`} cmds={cmds} />
       <input ref={fileRef} type="file" accept=".pdf,.png,.jpg,.jpeg" hidden onChange={e => { const fl = e.target.files?.[0]; if (fl) void loadHdi(fl); e.target.value = '' }} />
       <div className={`rec-form${dragOver ? ' drop' : ''}`} style={{ flex: 1, minHeight: 0, overflow: 'auto' }}
         onDragOver={e => { e.preventDefault(); setDragOver(true) }} onDragLeave={() => setDragOver(false)}
@@ -274,7 +291,7 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
                     ? <span style={{ display: 'flex', gap: 6 }}><input className="field" autoFocus value={h.receptionNo || sugRec} onChange={e => setH('receptionNo', e.target.value.trim() === sugRec ? '' : e.target.value)} aria-label="Numer przyjęcia" />
                       <button className="btn icon" onClick={() => setEdytRec(false)} aria-label="Zatwierdź numer"><Check size={15} /></button></span>
                     : <span className="rec-no-v"><b>{numerPrzyjecia}</b>{!edycja && <button className="btn ghost icon sm" onClick={() => setEdytRec(true)} aria-label="Popraw numer przyjęcia" data-tip="Popraw numer przyjęcia"><Pencil size={13} /></button>}</span>}
-                  <span className="sub">{edycja ? 'numer dokumentu się nie zmienia' : 'podpowiedź — numer nada serwer przy zapisie'}</span>
+                  <span className="sub">{edycja ? 'numer dokumentu się nie zmienia' : 'podpowiedź — numer zostanie nadany przy zapisie'}</span>
                 </div>
                 <label className="fld rec-sup">
                   <span className="label">Dostawca</span>
@@ -390,7 +407,7 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
                       : <span className="rec-no-v"><b className="code">{g.batchNo}</b>
                           {!zam && !istniejacy && <button className="btn ghost icon sm" onClick={() => { setEdytNr(g.index); setNrDraft(f.ordinalOverride[g.index] ?? g.batchNo ?? '') }} aria-label={`Popraw numer ${g.batchNo}`} data-tip="Popraw numer — kolejne przesuną się za nim"><Pencil size={13} /></button>}</span>}
                       {zam && <span className="tag warn" style={{ marginLeft: 6 }} data-tip={zam}>użyty</span>}</td>
-                    <td className={`num strong${g.kg > 0 ? '' : ' crit-ink'}`}>{kg(g.kg)}</td>
+                    <td className={`num strong${g.kg > 0 || !pokazBledy ? '' : ' crit-ink'}`}>{kg(g.kg)}</td>
                     <td className="num"><input className="field num" style={{ width: 80 }} inputMode="numeric" disabled={!!zam} aria-label={`Pojemniki, numer ${g.batchNo}`}
                       placeholder={auto !== null ? String(auto) : 'wpisz'} value={f.containerOverride[g.index] ?? (auto ?? '')}
                       onChange={e => upd({ containerOverride: { ...f.containerOverride, [g.index]: e.target.value === '' ? null : parseInt(e.target.value) || 0 } })} /></td>
@@ -424,11 +441,11 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
           {issues.warnings.map(m => <div key={m} className="note warn"><FlagIcon level="warn" size={15} /><div>{m}</div></div>)}
           {ready && !h.supplierId && <div className="note"><FlagIcon level="info" size={15} /><div>Wybierz dostawcę, żeby przyjąć dostawę.</div></div>}
           <div className="row-wrap" style={{ justifyContent: 'flex-end' }}>
-            <button className="btn" onClick={close} disabled={saving}>{edycja ? 'Zamknij bez zapisu' : 'Odrzuć'}</button>
+            <button className="btn" onClick={close} disabled={saving}>Zamknij bez zapisu</button>
             <button className="btn primary" disabled={!mozna || saving} onClick={przyjmij}>{edycja ? <Save size={15} /> : <PackagePlus size={15} />}
               {saving ? 'Zapisywanie…' : `${tytulZapisu} (${kg(totalKg)}${f.groupCount > 1 ? ` → nr ${nos.join(', ')}` : `, nr ${nos[0] ?? '—'}`})`}</button>
           </div>
-          <div className="note info"><FlagIcon level="info" size={15} /><div>{PROBA ? 'Zapis idzie na serwer — do KOPII bazy w wersji próbnej. ' : ''}Po zapisie otworzą się zawieszki na palety.</div></div>
+          <div className="note info"><FlagIcon level="info" size={15} /><div>{PROBA ? 'W wersji próbnej zapis trafia do kopii bazy. ' : ''}Po zapisie otworzą się zawieszki na palety.</div></div>
         </div>
       </div>
 
@@ -446,14 +463,14 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
           </tbody>
         </table></div>
         {confirm.warnings.map(w => <div key={w.message} className="note warn"><FlagIcon level="warn" size={15} /><div>{w.message}</div></div>)}
-        <p className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Numery — przyjęcia i porządkowe — nadaje serwer przy zapisie; powyższe to podpowiedzi. Gdy w tej samej chwili ktoś przyjmie dostawę z drugiego stanowiska, faktyczne mogą wyjść wyższe.</p>
+        <p className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Numery — przyjęcia i porządkowe — zostaną nadane przy zapisie; powyższe to podpowiedzi. Gdy w tej samej chwili ktoś przyjmie dostawę z drugiego stanowiska, faktyczne mogą wyjść wyższe.</p>
       </Dialog>}
       {zdejmij !== null && <Dialog title={`Zdjąć numer ${nos[zdejmij]} z dostawy?`} onClose={() => setZdejmij(null)}
-        footer={<><button className="btn" onClick={() => setZdejmij(null)} data-autofocus>Wróć</button><button className="btn primary" style={{ background: 'var(--crit)', borderColor: 'var(--crit)' }} onClick={() => removeGroup(zdejmij)}>Zdejmij numer</button></>}>
+        footer={<><button className="btn" onClick={() => setZdejmij(null)} data-autofocus>Wróć</button><button className="btn primary danger" onClick={() => removeGroup(zdejmij)}>Zdejmij numer</button></>}>
         <p>Przy zapisie numer {nos[zdejmij]} zostanie anulowany, a jego pozycje HDI ({kg(gs[zdejmij]?.kg ?? 0)}) przejdą do numeru {nos[Math.max(0, zdejmij - 1)]}. Żeby zdjąć kilogramy ze stanu, usuń pozycje HDI.</p>
       </Dialog>}
       {discardAsk && <Dialog title="Zamknąć bez zapisu?" onClose={() => setDiscardAsk(false)}
-        footer={<><button className="btn" onClick={() => setDiscardAsk(false)} data-autofocus>Wróć do formularza</button><button className="btn primary" style={{ background: 'var(--crit)', borderColor: 'var(--crit)' }} onClick={() => { setDiscardAsk(false); onDone() }}>Odrzuć zmiany</button></>}>
+        footer={<><button className="btn" onClick={() => setDiscardAsk(false)} data-autofocus>Wróć do edycji</button><button className="btn primary danger" onClick={() => { setDiscardAsk(false); onDone() }}>Zamknij bez zapisu</button></>}>
         <p>Niezapisane zmiany przepadną.</p>
       </Dialog>}
     </>
