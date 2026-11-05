@@ -14,7 +14,7 @@ import { computeDisplayStatus } from '@/components/ui/badge'
 import type { RawBatch } from '@/types'
 import { fig } from '../../ui/Fig'
 import { wProtrima } from '../../shell/modules'
-import { odm, krotkaNazwa } from '../../data/tekst'
+import { odm, ile, krotkaNazwa } from '../../data/tekst'
 import { wariant } from '../../warianty'
 import { DoZrobieniaPanel } from './warianty/DoZrobienia'
 
@@ -157,7 +157,7 @@ function RawPanel({ raw }: { raw: Surowiec }) {
                     <td className="num">{kg(rec)}</td>
                     <td className="num strong">{kg(av)}</td>
                     <td><span className="reach ok"><span className="rt" aria-hidden="true"><i style={{ width: `${used}%` }} /></span><span className="rv">{pct(used)}</span></span></td>
-                    <td>{b.expiryDate ? <span className={dd !== null && dd < 0 ? 'crit-ink strong' : dd !== null && dd <= 3 ? 'warn-ink strong' : ''}>{fmtDate(dataZApi(b.expiryDate))}{dd !== null && <span className="sub">{dd < 0 ? `${-dd} dni po terminie` : dd === 0 ? 'dziś' : `za ${dd} dni`}</span>}</span> : '—'}</td>
+                    <td>{b.expiryDate ? <span className={dd !== null && dd < 0 ? 'crit-ink strong' : dd !== null && dd <= 3 ? 'warn-ink strong' : ''}>{fmtDate(dataZApi(b.expiryDate))}{dd !== null && <span className="sub">{dd < 0 ? `${ile(-dd, 'dzień', 'dni', 'dni')} po terminie` : dd === 0 ? 'dziś' : `za ${ile(dd, 'dzień', 'dni', 'dni')}`}</span>}</span> : '—'}</td>
                   </tr>
                 )
               })}

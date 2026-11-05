@@ -362,7 +362,7 @@ div.pstage { cursor: default; }
   padding: 0 10px; line-height: calc(var(--ctl-h) - 2px); resize: none; overflow: hidden; white-space: pre;
 }
 .ed-uwagi-w > .field:focus {
-  z-index: 6; height: calc(var(--ctl-h) + 72px); padding: 6px 10px; line-height: 20px; overflow: auto; white-space: pre-wrap; resize: vertical;
+  z-index: 6; height: calc(var(--ctl-h) + 72px); padding: 6px 10px; line-height: 20px; overflow: auto; white-space: pre-wrap; resize: none;
   box-shadow: var(--e2), 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .ed-lbl { display: flex; align-items: baseline; gap: 4px; }

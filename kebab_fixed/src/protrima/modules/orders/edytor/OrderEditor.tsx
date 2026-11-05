@@ -3,7 +3,7 @@ import { Plus, Trash2, Save, CheckCheck, X, ChevronDown } from 'lucide-react'
 import { useApp, useMenu, Menu, CommandBar, Dialog, type Cmd, type MenuItem } from '../../../shell/context'
 import { useOrders } from '../../../data/store'
 import { kg, num as fmtNum, weekday, fmtDay, ORDER_STATUS, type OrderStatus } from '../../../data/model'
-import { ile } from '../../../data/tekst'
+import { ile, krotkaNazwa } from '../../../data/tekst'
 import { FlagIcon } from '../../../ui/Glyphs'
 import { useApi } from '@/hooks/useApi'
 import { clientOrdersApi, clientsApi, packagingApi, productTypesApi, recipesApi } from '@/lib/api'
@@ -18,7 +18,13 @@ import { PasekMasowania } from './PasekMasowania'
 import { PROBA } from '../../../proba'
 
 /** Okno dialogowe otwarte w bieżącej karcie albo nad aplikacją — skróty formularza wtedy milczą. */
-const oknoOtwarte = () => [...document.querySelectorAll('.dialog-wrap')].some(d => d.getClientRects().length > 0)
+const oknoOtwarte = () => [...document.querySelectorAll('.dialog-wrap, .overlay')].some(d => d.getClientRects().length > 0)
+/** Linia pod klientem: najpierw miasto (to odróżnia klientów o podobnych nazwach), potem krótka nazwa firmy. */
+const opisKlienta = (c: { name: string; displayName?: string; city?: string }) => {
+  const wyswietlana = (c.displayName || c.name).trim().toLowerCase()
+  const krotka = krotkaNazwa(c.name)
+  return [c.city && c.city.trim().toLowerCase() !== wyswietlana ? c.city : '', krotka.trim().toLowerCase() !== wyswietlana ? krotka : ''].filter(Boolean).join(' · ')
+}
 /** Szybki wybór terminu: litera w polu daty (D, J, P) = przycisk obok. */
 const SZYBKIE: Array<[string, number]> = [['Dziś', 0], ['Jutro', 1], ['Pojutrze', 2]]
 const dzienZIso = (iso: string) => new Date(`${iso}T00:00:00`)
@@ -113,6 +119,8 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
   const [usunIdx, setUsunIdx] = useState<number | null>(null)
   const removeLine = (i: number) => { setF(x => ({ ...x, lines: x.lines.length > 1 ? x.lines.filter((_, j) => j !== i) : [kolejnaPozycja()] })); setDirty(true); setUsunIdx(null) }
 
+  // Po uzupełnieniu braków formularz wraca do spokojnego stanu — nowe wiersze nie świecą na czerwono z góry.
+  useEffect(() => { if (tried && !braki(f).length) setTried(false) }, [tried, f])
   const errors = tried ? walidacja(f) : {}
   const errCount = Object.keys(errors).length
   const t = sumy(f)
@@ -147,11 +155,12 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
       const zapisane = editing && orderId ? await clientOrdersApi.update(orderId, dto) : await clientOrdersApi.create(dto)
       if (potwierdz && zapisane.status === 'draft') await clientOrdersApi.updateStatus(zapisane.id, 'confirmed')
       await refresh()
-      const miary = [zapisane.orderNo, `${t.n} poz. · ${fmtNum(t.szt)} szt. · ${kg(t.kg)}`].filter(Boolean).join(' · ')
+      const miary = `${t.n} poz. · ${fmtNum(t.szt)} szt. · ${kg(t.kg)}`
       // Szkic nie trafia do planowania — ostrzegamy, żeby nie został niepotwierdzony przez przeoczenie.
       const szkic = !potwierdz && (zapisane.status ? zapisane.status === 'draft' : doPotwierdzenia)
       app.toast(szkic
-        ? { kind: 'warn', title: 'Zapisano jako szkic — nie trafi do planowania', detail: `${miary}. Potwierdź je w panelu zamówienia.` }
+        // Numer w tytule (pełny rozmiar) — po nim pracownik znajdzie szkic, żeby go potwierdzić.
+        ? { kind: 'warn', title: zapisane.orderNo ? `Szkic ${zapisane.orderNo} — nie trafi do planowania` : 'Zapisano jako szkic — nie trafi do planowania', detail: `${miary}. Potwierdź je w panelu zamówienia.` }
         : { kind: 'ok', title: `${editing ? 'Zapisano' : 'Utworzono'} ${zapisane.orderNo ?? ''}`.trim(), detail: `${t.n} poz. · ${fmtNum(t.szt)} szt. · ${kg(t.kg)}${potwierdz ? ' · potwierdzone' : ''}` })
       setDirty(false)
       onDone(zapisane.id)
@@ -178,7 +187,8 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
   useEffect(() => { setCmds(cmds) }, [cmds, setCmds])
   // Skróty: ref, żeby nasłuch nie zależał od formularza (bez przepinania przy każdym znaku).
   const skrotRef = useRef({ glowne: () => {}, szkic: null as null | (() => void) })
-  skrotRef.current = { glowne: () => void saveRef.current(doPotwierdzenia), szkic: doPotwierdzenia ? () => void saveRef.current(false) : null }
+  // Ctrl+S: szkic w nowym/szkicu, a w potwierdzonym to samo co Ctrl+Enter — „zapisz zmiany” (odruch z Worda i Excela).
+  skrotRef.current = { glowne: () => void saveRef.current(doPotwierdzenia), szkic: () => void saveRef.current(false) }
   useEffect(() => {
     if (!active) return
     const key = (e: KeyboardEvent) => {
@@ -186,8 +196,9 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
       if (!(e.ctrlKey || e.metaKey) || e.altKey) return
       const enter = e.key === 'Enter', szkic = !e.shiftKey && e.key.toLowerCase() === 's'
       if (!enter && !szkic) return
+      // Okno albo paleta poleceń (Ctrl+K) nad edytorem: skrót należy do nich — bez zapisu w tle.
+      if (e.defaultPrevented || oknoOtwarte()) return
       e.preventDefault() // Ctrl+S nie otwiera „Zapisz stronę” przeglądarki
-      if (oknoOtwarte()) return
       if (enter) skrotRef.current.glowne()
       else skrotRef.current.szkic?.()
     }
@@ -196,7 +207,7 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
   }, [active])
 
   const klient = clients.find(c => c.id === f.clientId)
-  const klienci = useMemo(() => clients.map(c => ({ id: c.id, label: c.displayName || c.name, sub: [c.displayName && c.displayName !== c.name ? c.name : '', c.city].filter(Boolean).join(' · ') || undefined })), [clients])
+  const klienci = useMemo(() => clients.map(c => ({ id: c.id, label: c.displayName || c.name, sub: opisKlienta(c) || undefined })), [clients])
   const rodzaje = useMemo(() => s.productTypes.map(p => ({ id: p.id, label: p.name })), [s.productTypes])
   const tuleje = useMemo(() => s.packaging.map(p => ({ id: p.id, label: p.name })), [s.packaging])
   const title = editing ? `Edycja ${existing?.orderNo ?? ''}` : copyFromId ? `Nowe — kopia ${zrodlo?.orderNo ?? ''}` : 'Nowe zamówienie'
@@ -212,19 +223,20 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
     ...dni.map(d => ({ label: `${d.dzien} ${d.dzienMies}${d.rel ? ` — ${d.rel}` : ''}`, checked: f.deliveryDate === d.iso, onSelect: () => ustawTermin(d.iso) }))]
   const opisDaty = opisTerminu(f.deliveryDate, dzis)
   const wierszeUwag = f.notes ? f.notes.split('\n').length : 0
-  const podpowiedz = blokada ? null : doPotwierdzenia ? 'Ctrl+Enter — zapisz i potwierdź · Ctrl+S — zapisz szkic' : 'Ctrl+Enter — zapisz zmiany'
+  const podpowiedz = blokada ? null : doPotwierdzenia ? 'Ctrl+Enter — zapisz i potwierdź · Ctrl+S — zapisz szkic' : 'Ctrl+Enter albo Ctrl+S — zapisz zmiany'
 
   return (
     <>
       <CommandBar title={title} showKbd cmds={cmds}
-        count={stan ? <span data-tip="Zmienione pozycje zachowują swoje miejsce w rozpisie palet.">{stan}</span> : 'numer zostanie nadany przy zapisie'} />
+        count={stan ? <span data-tip="Zmienione pozycje zachowują swoje miejsce w rozpisie palet.">{stan}</span>
+          : editing ? 'wczytywanie…' : t.n > 0 ? `${t.n} poz. · ${fmtNum(t.szt)} szt. · ${kg(t.kg)} · numer przy zapisie` : 'numer zostanie nadany przy zapisie'} />
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         <div className="dock-pad">
           {loadError && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div>Nie udało się pobrać danych: {loadError}</div></div>}
           {!ready && !loadError && <SzkieletBloku linie={6} opis="Pobieranie kartotek…" />}
           {blokada && <div className="note warn" role="alert"><FlagIcon level="warn" size={15} /><div>{blokada}</div></div>}
           {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Nie zapisano zamówienia:</b> {blad}</div></div>}
-          {errCount > 0 && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Popraw {ile(errCount, 'pole', 'pola', 'pól')}.</b> Błędne pola są oznaczone na czerwono.</div></div>}
+          {errCount > 0 && listaBrakow.length > 0 && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Do zapisu brakuje:</b> {listaBrakow.map(b => b.opis).join(' · ')}</div></div>}
 
           {/* Klient i termin w jednym niskim wierszu — pozycje zaczynają się wysoko (laptop 1366 × 768). */}
           <div className="box ed-head">
@@ -234,7 +246,7 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
                 placeholder="Wpisz nazwę klienta…" autoFocus={!editing && !copyFromId}
                 onChange={v => upd({ clientId: v })} onDalej={() => fokus(`${tabId}-termin`)} />
               {errors.client ? <span className="ed-pomoc crit">{errors.client}</span>
-                : klient && <span className="ed-pomoc" data-tip={klient.name}>{[klient.displayName && klient.displayName !== klient.name ? klient.name : '', klient.city].filter(Boolean).join(' · ')}</span>}
+                : klient && <span className="ed-pomoc" data-tip={klient.name}>{opisKlienta(klient)}</span>}
             </div>
             <div className="fld ed-termin">
               <label className="label" htmlFor={`${tabId}-termin`}>Termin wyjazdu</label>
@@ -330,7 +342,6 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
               <tfoot><tr><td /><td colSpan={4}>Razem — {t.n} poz.</td><td className="num">{fmtNum(t.szt)} <span className="sub">szt.</span></td><td className="num">{kg(t.kg)}</td><td className="hide-m" /><td /></tr></tfoot>
             </table>
           </div>
-          {errors.lines && <div className="note crit"><FlagIcon level="crit" size={15} /><div>{errors.lines}</div></div>}
           {PROBA && <div className="note info"><FlagIcon level="info" size={15} /><div>W wersji próbnej zapis trafia do KOPII bazy. „Zapisz szkic” zostawia zamówienie poza planowaniem, „Zapisz i potwierdź” od razu je potwierdza.</div></div>}
         </div>
       </div>

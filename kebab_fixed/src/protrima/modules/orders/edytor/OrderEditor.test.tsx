@@ -85,8 +85,9 @@ describe('OrderEditor', () => {
     await waitFor(() => expect(onDone).toHaveBeenCalledWith('new1'))
     expect(refresh).toHaveBeenCalled()
     // Szkic nie trafia do planowania — ostrzeżenie, nie zwykłe „zapisano”.
-    expect(toast).toHaveBeenCalledWith({ kind: 'warn', title: 'Zapisano jako szkic — nie trafi do planowania',
-      detail: 'TEST/Z/1/10/26 · 2 poz. · 140 szt. · 1\u00a0150 kg. Potwierdź je w panelu zamówienia.' })
+    // Numer w tytule (pełny rozmiar), miary w opisie.
+    expect(toast).toHaveBeenCalledWith({ kind: 'warn', title: 'Szkic TEST/Z/1/10/26 — nie trafi do planowania',
+      detail: '2 poz. · 140 szt. · 1\u00a0150 kg. Potwierdź je w panelu zamówienia.' })
   })
 
   it('Enter w ilości niekompletnej pozycji wraca do brakującego pola', async () => {
@@ -180,7 +181,7 @@ describe('OrderEditor', () => {
     await wypelnij()
     fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 's', ctrlKey: true })
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ kind: 'warn', title: 'Zapisano jako szkic — nie trafi do planowania' })))
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ kind: 'warn', title: expect.stringMatching(/^Szkic .* — nie trafi do planowania$/) })))
     expect(api.updateStatus).not.toHaveBeenCalled()
   })
 
@@ -193,22 +194,35 @@ describe('OrderEditor', () => {
     expect(api.create).not.toHaveBeenCalled()
   })
 
-  it('potwierdzone: Ctrl+Enter = „Zapisz zmiany”, Ctrl+S nic nie robi (nie ma „Zapisz szkic”)', async () => {
+  it('potwierdzone: Ctrl+Enter i Ctrl+S = „Zapisz zmiany” (nie ma „Zapisz szkic”), bez zmiany statusu', async () => {
     api.byId.mockResolvedValue({ id: 'o1', orderNo: 'TEST/Z/2/10/26', clientId: 'c1', orderDate: '2026-10-28', deliveryDate: '2026-11-02', status: 'confirmed', notes: '',
       lines: [{ id: 'L1', qty: 20, kgPerUnit: 25, productTypeId: 'pt', recipeId: 'r1', packagingId: 'pk', notes: '' }] })
     api.update.mockResolvedValue({ id: 'o1', orderNo: 'TEST/Z/2/10/26', status: 'confirmed' })
     mount({ orderId: 'o1' })
     await waitFor(() => expect(pole('Ilość sztuk, pozycja 1').value).toBe('20'))
     expect(cmd('save')).toMatchObject({ label: 'Zapisz zmiany', kbd: 'Ctrl+Enter', primary: true })
-    expect(screen.getByText(/Ctrl\+Enter — zapisz zmiany/)).toBeTruthy()
+    expect(screen.getByText(/Ctrl\+Enter albo Ctrl\+S — zapisz zmiany/)).toBeTruthy()
     typ('Ilość sztuk, pozycja 1', '24')
     fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 's', ctrlKey: true })
-    await new Promise(r => setTimeout(r, 30))
-    expect(api.update).not.toHaveBeenCalled()
-    fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 'Enter', ctrlKey: true })
     await waitFor(() => expect(api.update).toHaveBeenCalledTimes(1))
     expect(api.updateStatus).not.toHaveBeenCalled()
     await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ kind: 'ok', title: 'Zapisano TEST/Z/2/10/26' })))
+  })
+
+  it('paleta poleceń (Ctrl+K) albo okno nad edytorem: Ctrl+S i Ctrl+Enter nie zapisują w tle', async () => {
+    api.byId.mockResolvedValue({ id: 'o1', orderNo: 'TEST/Z/2/10/26', clientId: 'c1', orderDate: '2026-10-28', deliveryDate: '2026-11-02', status: 'confirmed', notes: '',
+      lines: [{ id: 'L1', qty: 20, kgPerUnit: 25, productTypeId: 'pt', recipeId: 'r1', packagingId: 'pk', notes: '' }] })
+    mount({ orderId: 'o1' })
+    await waitFor(() => expect(pole('Ilość sztuk, pozycja 1').value).toBe('20'))
+    typ('Ilość sztuk, pozycja 1', '24')
+    const paleta = document.createElement('div'); paleta.className = 'overlay'; paleta.textContent = 'paleta'
+    document.body.appendChild(paleta)
+    paleta.getClientRects = () => ({ length: 1 }) as unknown as DOMRectList
+    fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 's', ctrlKey: true })
+    fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 'Enter', ctrlKey: true })
+    await new Promise(r => setTimeout(r, 30))
+    expect(api.update).not.toHaveBeenCalled()
+    paleta.remove()
   })
 
   it('zapis zablokowany, dopóki czegoś brakuje: powód w dymku tym tonem co w przyjęciu, klik w przycisk przenosi kursor do braku', async () => {
