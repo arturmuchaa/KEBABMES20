@@ -33,8 +33,8 @@ const dzienZIso = (iso: string) => new Date(`${iso}T00:00:00`)
  * Nowe zamówienie / edycja zamówienia — karta robocza. Zapis przez
  * clientOrdersApi.create/update (ten sam DTO co stary MES), potem odświeżenie
  * listy z serwera. Ręka nie schodzi z klawiatury: wybór z listy przenosi kursor
- * do następnego pola, Enter w ilości — do następnej pozycji, która ma już rodzaj,
- * recepturę i tuleję z poprzedniej (czeka na gramaturę i ilość).
+ * do następnego pola: ilość (szt.) → gramatura (kg); Enter w gramaturze — do ilości następnej pozycji,
+ * która ma już rodzaj, recepturę i tuleję z poprzedniej.
  * Ctrl+Enter = główne polecenie (jak „Przyjmij dostawę” w przyjęciu): nowe i szkic —
  * „Zapisz i potwierdź”, potwierdzone — „Zapisz zmiany”. Ctrl+S = „Zapisz szkic”.
  */
@@ -104,16 +104,17 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
     el?.focus(); el?.select?.()
   }), [])
   const skocz = useCallback((i: number, pole: PoleWiersza) => fokus(`${tabId}-${pole}-${i}`), [tabId, fokus])
-  // Enter w ilości (albo uwagach): brakuje czegoś — wracamy do tego pola; komplet — następna pozycja.
+  // Enter w gramaturze (albo uwagach): brakuje czegoś — wracamy do tego pola; komplet — SZTUKI następnej pozycji
+  // (rodzaj, receptura i tuleja przechodzą z poprzedniej — właściciel 5.11.2026: „po kg na szt, nie na recepturę ani uwagi”).
   const poEnter = (i: number) => {
     const brak = pierwszyBrak(wiersze[i])
     if (brak) skocz(i, brak)
-    else skocz(i + 1, 'k')
+    else skocz(i + 1, 'q')
   }
   const addLine = () => {
-    if (nastepny) { skocz(f.lines.length, 'k'); return }
+    if (nastepny) { skocz(f.lines.length, 'q'); return }
     const ost = f.lines.length - 1
-    skocz(ost, pierwszyBrak(f.lines[ost]) ?? 'k')
+    skocz(ost, pierwszyBrak(f.lines[ost]) ?? 'q')
   }
   const addRef = useRef(addLine); addRef.current = addLine
   const [usunIdx, setUsunIdx] = useState<number | null>(null)
@@ -293,19 +294,19 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
           </div>
           {menuDni.anchor && <Menu anchor={menuDni.anchor} items={dniMenu} onClose={menuDni.close} />}
 
-          <div className="sect-h"><h3>Pozycje</h3><span className="sub"><span className="hide-m">Kilka liter i Enter — wybór i następne pole · </span>Enter w ilości — następna pozycja z tym samym rodzajem, recepturą i tuleją{podpowiedz && ` · ${podpowiedz}`}</span>
+          <div className="sect-h"><h3>Pozycje</h3><span className="sub"><span className="hide-m">Kilka liter i Enter — wybór i następne pole · </span>Enter po kg — sztuki następnej pozycji z tym samym rodzajem, recepturą i tuleją{podpowiedz && ` · ${podpowiedz}`}</span>
             <div className="tools"><button className="btn sm" onClick={addLine} disabled={!!blokada}><Plus size={15} />Dodaj pozycję</button></div></div>
           <div className="box">
             <table className="tbl editor-tbl">
               <thead><tr>
                 <th className="num" style={{ width: 44 }}>Lp.</th><th style={{ width: '21%' }}>Rodzaj</th><th style={{ width: '21%' }}>Receptura</th><th style={{ width: '14%' }}>Tuleja / opakowanie</th>
-                <th className="num" style={{ width: 120 }}>Gramatura</th><th className="num" style={{ width: 128 }}>Ilość</th><th className="num" style={{ width: 108 }}>Masa</th><th className="hide-m">Uwagi</th><th style={{ width: 44 }} />
+                <th className="num" style={{ width: 128 }}>Ilość</th><th className="num" style={{ width: 120 }}>Gramatura</th><th className="num" style={{ width: 108 }}>Masa</th><th className="hide-m">Uwagi</th><th style={{ width: 44 }} />
               </tr></thead>
               <tbody>
                 {wiersze.map((l, i) => {
                   const nowy = i === f.lines.length
                   const rec = filterRecipesFor(s.recipes, l).map(r => ({ id: r.id, label: r.name }))
-                  const errs = nowy ? [] : [errors[`p${i}`], errors[`r${i}`], errors[`k${i}`], errors[`q${i}`]].filter(Boolean)
+                  const errs = nowy ? [] : [errors[`p${i}`], errors[`r${i}`], errors[`q${i}`], errors[`k${i}`]].filter(Boolean)
                   const pusty = pustyWiersz(l)
                   const id = (pole: PoleWiersza | 'u') => `${tabId}-${pole}-${i}`
                   return (
@@ -319,13 +320,13 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
                           pusto={l.productTypeId ? 'Brak receptur dla tego rodzaju' : 'Najpierw wybierz rodzaj'}
                           onChange={v => setLine(i, { recipeId: v })} onDalej={() => skocz(i, 't')} /></td>
                         <td><Wybor id={id('t')} label={`Tuleja, pozycja ${i + 1}`} items={tuleje} value={l.packagingId} noneLabel="(bez tulei)" disabled={!!blokada}
-                          onChange={v => setLine(i, { packagingId: v })} onDalej={() => skocz(i, 'k')} /></td>
-                        <td className="num"><input id={id('k')} className={`field num w-num${errors[`k${i}`] ? ' invalid' : ''}`} inputMode="decimal" placeholder="0" value={l.kgPerUnit} disabled={!!blokada} aria-label={`Gramatura kg, pozycja ${i + 1}`}
-                          onChange={e => setLine(i, { kgPerUnit: e.target.value })}
-                          onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); skocz(i, 'q') } }} /> <span className="sub">kg</span></td>
+                          onChange={v => setLine(i, { packagingId: v })} onDalej={() => skocz(i, 'q')} /></td>
                         <td className="num"><input id={id('q')} className={`field num w-num${errors[`q${i}`] ? ' invalid' : ''}`} inputMode="numeric" placeholder="0" value={l.qty} disabled={!!blokada} aria-label={`Ilość sztuk, pozycja ${i + 1}`}
                           onChange={e => setLine(i, { qty: e.target.value })}
-                          onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); poEnter(i) } }} /> <span className="sub">szt.</span></td>
+                          onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); skocz(i, 'k') } }} /> <span className="sub">szt.</span></td>
+                        <td className="num"><input id={id('k')} className={`field num w-num${errors[`k${i}`] ? ' invalid' : ''}`} inputMode="decimal" placeholder="0" value={l.kgPerUnit} disabled={!!blokada} aria-label={`Gramatura kg, pozycja ${i + 1}`}
+                          onChange={e => setLine(i, { kgPerUnit: e.target.value })}
+                          onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); poEnter(i) } }} /> <span className="sub">kg</span></td>
                         <td className="num">{num(l.qty) > 0 && num(l.kgPerUnit) > 0 ? kg(num(l.qty) * num(l.kgPerUnit)) : <span className="faint">—</span>}</td>
                         <td className="hide-m"><input id={id('u')} className="field" value={l.notes} disabled={!!blokada} aria-label={`Uwagi, pozycja ${i + 1}`}
                           onChange={e => setLine(i, { notes: e.target.value })}
@@ -339,7 +340,7 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
                 })}
               </tbody>
               {/* Suma przyklejona do dołu przewijanego obszaru — widać ją przy każdej długości zamówienia. */}
-              <tfoot><tr><td /><td colSpan={4}>Razem — {t.n} poz.</td><td className="num">{fmtNum(t.szt)} <span className="sub">szt.</span></td><td className="num">{kg(t.kg)}</td><td className="hide-m" /><td /></tr></tfoot>
+              <tfoot><tr><td /><td colSpan={3}>Razem — {t.n} poz.</td><td className="num">{fmtNum(t.szt)} <span className="sub">szt.</span></td><td /><td className="num">{kg(t.kg)}</td><td className="hide-m" /><td /></tr></tfoot>
             </table>
           </div>
           {PROBA && <div className="note info"><FlagIcon level="info" size={15} /><div>W wersji próbnej zapis trafia do KOPII bazy. „Zapisz szkic” zostawia zamówienie poza planowaniem, „Zapisz i potwierdź” od razu je potwierdza.</div></div>}

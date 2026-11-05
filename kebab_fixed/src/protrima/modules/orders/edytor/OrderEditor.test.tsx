@@ -51,7 +51,7 @@ async function wybierz(label: string, tekst: string, pozycja: RegExp) {
 }
 
 describe('OrderEditor', () => {
-  it('nowe zamówienie: wybór przenosi kursor, Enter w ilości — następna pozycja z rodzajem, recepturą i tuleją; zapis szkicu wysyła DTO', async () => {
+  it('nowe zamówienie: najpierw sztuki, potem kg; Enter w gramaturze — sztuki następnej pozycji z rodzajem, recepturą i tuleją; zapis szkicu wysyła DTO', async () => {
     api.create.mockResolvedValue({ id: 'new1', orderNo: 'TEST/Z/1/10/26', status: 'draft' })
     const { onDone } = mount()
     await wybierz('Klient', 'tes', /TEST/)
@@ -60,20 +60,26 @@ describe('OrderEditor', () => {
     await waitFor(() => expect(document.activeElement).toBe(pole('Receptura, pozycja 1')))
     await wybierz('Receptura, pozycja 1', 'bey', /BEYAZ/)
     await wybierz('Tuleja, pozycja 1', 'met', /METAL 65CM/)
-    await waitFor(() => expect(document.activeElement).toBe(pole('Gramatura kg, pozycja 1')))
+    await waitFor(() => expect(document.activeElement).toBe(pole('Ilość sztuk, pozycja 1')))
     expect(screen.queryByLabelText('Rodzaj, pozycja 2')).toBeNull() // następna pozycja dopiero pod kompletną
-    typ('Gramatura kg, pozycja 1', '7,5'); typ('Ilość sztuk, pozycja 1', '100')
+    typ('Ilość sztuk, pozycja 1', '100')
+    fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 'Enter' })
+    await waitFor(() => expect(document.activeElement).toBe(pole('Gramatura kg, pozycja 1')))
+    typ('Gramatura kg, pozycja 1', '7,5')
     expect(pole('Rodzaj, pozycja 2').value).toBe('KEBAB UDO 100%')
     expect(pole('Receptura, pozycja 2').value).toBe('BEYAZ')
     expect(pole('Tuleja, pozycja 2').value).toBe('METAL 65CM')
+    expect(pole('Ilość sztuk, pozycja 2').value).toBe('')
     expect(pole('Gramatura kg, pozycja 2').value).toBe('')
-    fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 'Enter' })
-    await waitFor(() => expect(document.activeElement).toBe(pole('Gramatura kg, pozycja 2')))
-    typ('Gramatura kg, pozycja 2', '10')
-    fireEvent.keyDown(pole('Gramatura kg, pozycja 2'), { key: 'Enter' })
+    // Po kg — sztuki następnej pozycji, nie receptura ani uwagi.
+    fireEvent.keyDown(pole('Gramatura kg, pozycja 1'), { key: 'Enter' })
     await waitFor(() => expect(document.activeElement).toBe(pole('Ilość sztuk, pozycja 2')))
     typ('Ilość sztuk, pozycja 2', '40')
-    fireEvent.keyDown(pole('Ilość sztuk, pozycja 2'), { key: 'Enter' }) // trzeci wiersz czeka pusty — nie jest pozycją
+    fireEvent.keyDown(pole('Ilość sztuk, pozycja 2'), { key: 'Enter' })
+    await waitFor(() => expect(document.activeElement).toBe(pole('Gramatura kg, pozycja 2')))
+    typ('Gramatura kg, pozycja 2', '10')
+    fireEvent.keyDown(pole('Gramatura kg, pozycja 2'), { key: 'Enter' }) // trzeci wiersz czeka pusty — nie jest pozycją
+    await waitFor(() => expect(document.activeElement).toBe(pole('Ilość sztuk, pozycja 3')))
     expect(pole('Receptura, pozycja 3').value).toBe('BEYAZ')
     run('save')
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1))
@@ -90,11 +96,11 @@ describe('OrderEditor', () => {
       detail: '2 poz. · 140 szt. · 1\u00a0150 kg. Potwierdź je w panelu zamówienia.' })
   })
 
-  it('Enter w ilości niekompletnej pozycji wraca do brakującego pola', async () => {
+  it('Enter w gramaturze niekompletnej pozycji wraca do brakującego pola', async () => {
     mount()
     await wybierz('Rodzaj, pozycja 1', 'udo', /KEBAB UDO/)
-    typ('Gramatura kg, pozycja 1', '20'); typ('Ilość sztuk, pozycja 1', '5')
-    fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 'Enter' })
+    typ('Ilość sztuk, pozycja 1', '5'); typ('Gramatura kg, pozycja 1', '20')
+    fireEvent.keyDown(pole('Gramatura kg, pozycja 1'), { key: 'Enter' })
     await waitFor(() => expect(document.activeElement).toBe(pole('Receptura, pozycja 1')))
     expect(screen.queryByLabelText('Rodzaj, pozycja 2')).toBeNull()
   })

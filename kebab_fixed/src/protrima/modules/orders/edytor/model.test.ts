@@ -48,6 +48,8 @@ describe('edytor zamówienia — model', () => {
     expect(pierwszyBrak(line({ recipeId: '' }))).toBe('r')
     expect(pierwszyBrak(line({ packagingId: '', kgPerUnit: '' }))).toBe('k')
     expect(pierwszyBrak(line({ qty: '2,5' }))).toBe('q')
+    // Najpierw sztuki, potem gramatura (właściciel 5.11.2026) — pusta pozycja po recepturze czeka na ilość.
+    expect(pierwszyBrak(line({ kgPerUnit: '', qty: '' }))).toBe('q')
     expect(pierwszyBrak(line({ packagingId: '' }))).toBeNull()
     expect(wierszNastepny([line()])).toMatchObject({ productTypeId: 'pt', recipeId: 'r1', packagingId: 'pk', kgPerUnit: '', qty: '' })
     expect(wierszNastepny([line(), line({ qty: '' })])).toBeNull()
@@ -64,7 +66,7 @@ describe('edytor zamówienia — model', () => {
     expect(braki(f).map(b => [b.cel, b.opis])).toEqual([
       [{ pole: 'deliveryDate' }, 'popraw termin wyjazdu — jest przed datą zamówienia'],
       [{ pole: 'q', i: 2 }, 'poz. 2 — ilość w pełnych sztukach'],
-      [{ pole: 'k', i: 3 }, 'poz. 3 — wpisz gramaturę'],
+      [{ pole: 'q', i: 3 }, 'poz. 3 — wpisz ilość'],
       [{ pole: 'r', i: 4 }, 'poz. 4 — wybierz recepturę'],
     ])
     expect(braki({ ...f, deliveryDate: '', lines: [line({ qty: '0' })] }).map(b => b.opis)).toEqual(['poz. 1 — ilość musi być większa od zera'])

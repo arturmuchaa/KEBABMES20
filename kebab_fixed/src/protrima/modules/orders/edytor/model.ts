@@ -55,12 +55,15 @@ export type PoleWiersza = 'p' | 'r' | 't' | 'k' | 'q'
 
 const ilosc = (l: LineForm) => /^\d+$/.test(l.qty.trim()) && Number(l.qty) > 0
 
-/** Pierwsze pole do uzupełnienia (tuleja jest opcjonalna) — albo null, gdy pozycja kompletna. */
+/**
+ * Pierwsze pole do uzupełnienia (tuleja jest opcjonalna) — albo null, gdy pozycja kompletna.
+ * Kolejność jak w tabeli: rodzaj → receptura → SZTUKI → gramatura (właściciel 5.11.2026: „najpierw szt, potem kg”).
+ */
 export function pierwszyBrak(l: LineForm): Exclude<PoleWiersza, 't'> | null {
   if (!l.productTypeId) return 'p'
   if (!l.recipeId) return 'r'
-  if (!(num(l.kgPerUnit) > 0)) return 'k'
   if (!ilosc(l)) return 'q'
+  if (!(num(l.kgPerUnit) > 0)) return 'k'
   return null
 }
 
