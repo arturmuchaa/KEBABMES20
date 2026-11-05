@@ -54,6 +54,8 @@ class DeboningTakeCreate(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, validate_default=True)
 
+    per_worker: bool = Field(False, alias="perWorker")
+
     raw_batch_id: str = Field(..., alias="rawBatchId", min_length=1)
     session_id: Optional[str] = Field(None, alias="sessionId")
     worker_id: Optional[str] = Field(None, alias="workerId")
