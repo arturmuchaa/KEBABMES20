@@ -37,14 +37,21 @@ export function CoverMeter({ ship, stock, w = 64 }: { ship: number; stock: numbe
   )
 }
 
+/**
+ * Legenda miar — te same klasy co paski, kolor stanu na RODZICU (.cov-ok .f-ship), więc legenda
+ * nie rozjedzie się z paskiem. Próbka pokrycia ma oba odcienie w kolejności paska: wydano, w magazynie.
+ * Słowa „pełny / przygaszony”, nie „ciemniej / jaśniej”: w motywie grafitowym odcień „w magazynie”
+ * jest ciemniejszy od „wydano” (tokens.css), a pełny kolor = wydano zgadza się w obu motywach.
+ */
 export function MeasureLegend({ withShort = true, withProd = true }: { withShort?: boolean; withProd?: boolean }) {
+  const probka = <span className="lg2" aria-hidden="true"><i className="f-ship" /><i className="f-stock" /></span>
   return (
     <span className="legend">
       {withProd && <span><i className="f-prod" />Produkcja (zgłoszono)</span>}
-      <span className="cov-ok"><i className="f-ship" />komplet</span>
-      <span className="cov-part"><i className="f-ship" />częściowo</span>
+      <span className="cov-ok">{probka}komplet</span>
+      <span className="cov-part">{probka}częściowo</span>
       {withShort && <span><i className="f-short" />brak</span>}
-      <span className="muted">ciemniej — wydano, jaśniej — w magazynie</span>
+      <span className="lg-note">pełny kolor — wydano, przygaszony — w magazynie</span>
     </span>
   )
 }

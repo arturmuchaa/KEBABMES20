@@ -95,7 +95,7 @@ export function CoverageTab({ order }: { order: Order }) {
             </tbody>
           </table>
         </div>
-        <div className="note"><FlagIcon level="info" size={15} /><div>Wyrób luzem przydziela serwer sam — przy każdym odświeżeniu, dla wszystkich zamówień naraz: najpierw stempel z produkcji, potem zapas tego klienta, potem wyrób „na magazyn” od najstarszego zamówienia. Jeśli taki wyrób leży, a brak nadal widać, pokrył starsze zamówienie albo jest zapasem innego klienta.</div></div>
+        <div className="note"><FlagIcon level="info" size={15} /><div>Wyrób luzem przydziela się sam — przy każdym odświeżeniu, dla wszystkich zamówień naraz: najpierw stempel z produkcji, potem zapas tego klienta, potem wyrób „na magazyn” od najstarszego zamówienia. Jeśli taki wyrób leży, a brak nadal widać, pokrył starsze zamówienie albo jest zapasem innego klienta.</div></div>
       </>}
 
       {order.status !== 'draft' && <KartonyZMagazynu order={order} />}

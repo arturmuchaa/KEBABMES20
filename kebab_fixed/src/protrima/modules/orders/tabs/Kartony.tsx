@@ -82,7 +82,8 @@ export function KartonyZMagazynu({ order }: { order: Order }) {
           <thead><tr><th colSpan={6}>Dostępne dla tego zamówienia ({data.available.length})</th></tr></thead>
           <tbody>
             {data.available.length === 0 && <tr><td colSpan={6}><div className="empty">Brak spakowanych kartonów pasujących do pozycji tego zamówienia.</div></td></tr>}
-            {data.available.map(c => wiersz(c, <button className="btn sm primary" disabled={!!busy || !!blokada} onClick={() => zmien('assign', c)}>
+            {/* Przycisk w każdym wierszu — zwykły, nie kobaltowy: jeden przycisk główny na zakładkę. */}
+            {data.available.map(c => wiersz(c, <button className="btn sm" disabled={!!busy || !!blokada} onClick={() => zmien('assign', c)}>
               <PackageCheck size={14} />{busy === c.cartonId ? 'Przypisywanie…' : 'Przypisz'}</button>))}
           </tbody>
         </table></div>}

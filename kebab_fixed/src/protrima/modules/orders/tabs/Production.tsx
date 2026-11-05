@@ -39,7 +39,7 @@ export function ProductionTab({ order }: { order: Order }) {
                   <td>{l.planNo ? l.planNo : <span className="warn-ink">poza planem</span>}</td>
                   <td className="num strong">{num(Math.min(l.produced, l.qty))}</td>
                   <td className="num">{left > 0 ? <>{num(left)} <span className="sub">{kg(left * l.kgPerUnit)}</span></> : <span className="ok-ink">0</span>}</td>
-                  <td className="num hide-s">{up > 0 ? <span className="accent-ink strong" data-tip="Czeka na przyjęcie na magazyn — nie liczy się do pokrycia">{up} szt.</span> : <span className="faint">—</span>}</td>
+                  <td className="num hide-s">{up > 0 ? <span className="strong" data-tip="Czeka na przyjęcie na magazyn — nie liczy się do pokrycia">{up} szt.</span> : <span className="faint">—</span>}</td>
                   <td><ProdMeter value={l.qty ? Math.min(100, l.produced / l.qty * 100) : 0} w={110} /></td>
                 </tr>
               )

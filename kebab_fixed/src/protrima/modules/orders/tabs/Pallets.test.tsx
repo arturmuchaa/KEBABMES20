@@ -37,10 +37,40 @@ describe('zakładka Palety', () => {
     const o = mapujZamowienie(mapClientOrder(RAW2), { clients: [], pallets: { o2: P as never }, wz: [], planByLine: {} })
     render(<AppCtx.Provider value={app}><PalletsTab order={o} /></AppCtx.Provider>)
     const strip = screen.getByLabelText('Rozpisanie pozycji na palety')
+    // Pozycja rozpisana w całości (METAL 65CM, 20/20) jest zwinięta do liczby — po rozwinięciu widać obie tuleje.
+    expect(within(strip).queryByText('METAL 65CM')).toBeNull()
+    expect(within(strip).getByText('METAL 80CM')).toBeTruthy()
+    fireEvent.click(within(strip).getByRole('button', { name: /1 pozycja rozpisana w całości/ }))
     expect(within(strip).getByText('METAL 65CM')).toBeTruthy()
     expect(within(strip).getByText('METAL 80CM')).toBeTruthy()
     const karta = screen.getByRole('button', { name: /Paleta 1, karton 000700/ })
     expect(within(karta).getAllByText(/^METAL (65|80)CM$/).map(e => e.textContent)).toEqual(['METAL 65CM', 'METAL 80CM'])
+  })
+
+  it('pasek Rozpisanie: rozpis ponad zamówienie zawsze widoczny (czerwień + ikona), pozycje w całości zwinięte do liczby', () => {
+    const P = [{ id: 'p1', palletNo: 1, cartonNo: '000700', notes: '', status: 'created', items: [{ orderLineId: 'a', qty: 25 }, { orderLineId: 'c', qty: 10 }] }]
+    const o = mapujZamowienie(mapClientOrder(RAW), { clients: [], pallets: { o1: P as never }, wz: [], planByLine: {} })
+    render(<AppCtx.Provider value={app}><PalletsTab order={o} /></AppCtx.Provider>)
+    const strip = screen.getByLabelText('Rozpisanie pozycji na palety')
+    const ponad = within(strip).getByText(/KIRMIZI/).closest('.achip') as HTMLElement
+    expect(ponad.className).toContain('over')
+    expect(within(ponad).getByLabelText('Krytyczne')).toBeTruthy()
+    expect(within(strip).queryByText(/BEYAZ/)).toBeNull()
+    expect(within(strip).getByRole('button', { name: /1 pozycja rozpisana w całości/ })).toBeTruthy()
+  })
+
+  it('jeden przycisk główny na zakładce: bez palet „Rozpisz automatycznie” i bez pustej kolumny szczegółów; z paletami „Rozpisz pozostałe”', () => {
+    const pusta = mapujZamowienie(mapClientOrder(RAW), { clients: [], pallets: { o1: [] }, wz: [], planByLine: {} })
+    const r = render(<AppCtx.Provider value={app}><PalletsTab order={pusta} /></AppCtx.Provider>)
+    expect(r.container.querySelector('.pal-layout.solo')).toBeTruthy()
+    expect(r.container.querySelector('aside')).toBeNull()
+    expect([...r.container.querySelectorAll('.btn.primary')].map(b => b.textContent)).toEqual(['Rozpisz automatycznie'])
+    expect(screen.getByRole('button', { name: /^Nowa paleta/ }).className).not.toContain('primary')
+    r.unmount()
+    const { container } = mount()
+    expect(container.querySelector('.pal-layout.solo')).toBeNull()
+    expect(container.querySelector('aside')).toBeTruthy()
+    expect([...container.querySelectorAll('.btn.primary')].map(b => b.textContent)).toEqual(['Rozpisz pozostałe (15 szt.)'])
   })
 
   it('nowa paleta: limit „do rozpisania”, zapis = świeża lista + nowa z numerem 0', async () => {

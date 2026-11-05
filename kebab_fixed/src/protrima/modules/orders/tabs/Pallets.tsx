@@ -1,12 +1,17 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Plus, Printer, Wand2, Boxes, Lock, ScanLine, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Printer, Wand2, Boxes, Lock, ScanLine, Pencil, Trash2, Check } from 'lucide-react'
 import { useApp, Dialog } from '../../../shell/context'
 import { useOrders } from '../../../data/store'
 import { computeMetrics, kg, num, palletKg, palletQty, PALLET_STATUS, type Order, type Pallet } from '../../../data/model'
 import { PalletFlow, PalletStatusLabel, FlagIcon } from '../../../ui/Glyphs'
+import { Pusto } from '../../../ui/Pusto'
+import { ile, odm } from '../../../data/tekst'
 import { WazeniePalety } from './WazeniePalety'
 import { orderPalletsApi, type OrderPallet } from '@/lib/api'
 import { bezPalety, bledyPalety, rozpisz, sztukNaPalete, wykryjSztuki, zDodanymi, zZmieniona, MAX_KG_RESZTKI, STANDARD_SZTUK, WARIANTY_SZTUK, type ItemLite } from '../palety/model'
+
+/** Zasada numeracji palet — w notce przy szczegółach palety i w podpowiedzi „Nowa paleta”. */
+const STALE_NUMERY = 'Numery palet i kartonów są stałe — usunięta paleta nie oddaje numeru, nowa dostaje kolejny.'
 
 /**
  * Palety zamówienia. Zapis przez orderPalletsApi.save — zawsze ze świeżej listy
@@ -22,8 +27,9 @@ export function PalletsTab({ order }: { order: Order }) {
   const [dlg, setDlg] = useState<null | { t: 'new' } | { t: 'edit'; p: Pallet } | { t: 'del'; p: Pallet } | { t: 'auto' }>(null)
   const [busy, setBusy] = useState(false)
   const [blad, setBlad] = useState<string | null>(null)
+  const [wszystkiePoz, setWszystkiePoz] = useState(false)
   const closed = order.status === 'done' || order.status === 'cancelled'
-  useEffect(() => { setSelNo(order.pallets[0]?.no ?? null); setMarked([]) }, [order.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setSelNo(order.pallets[0]?.no ?? null); setMarked([]); setWszystkiePoz(false) }, [order.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const onPal = useMemo(() => {
     const r: Record<string, number> = {}
@@ -51,56 +57,81 @@ export function PalletsTab({ order }: { order: Order }) {
     } finally { setBusy(false) }
   }
 
+  const maPalety = order.pallets.length > 0
+  // Pasek „Rozpisanie”: pozycja rozpisana w całości to norma — zwinięta do liczby (duże zamówienie ma 20+ pozycji
+  // i w panelu z boku pasek spychał palety o ekran niżej). Widać pozycje w toku i rozpis ponad zamówienie.
+  const pelne = order.lines.filter(l => (onPal[l.id] ?? 0) === l.qty)
+  const naPasku = wszystkiePoz ? order.lines : order.lines.filter(l => (onPal[l.id] ?? 0) !== l.qty)
   return (
     <div className="dock-pad">
-      {blad && !dlg && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Serwer odmówił:</b> {blad}</div></div>}
-      <div className="pal-layout">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
+      {blad && !dlg && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Nie zapisano:</b> {blad}</div></div>}
+      {/* Bez palet nie ma czego wybrać — kolumna szczegółów znika, a pusty stan zajmuje całą szerokość
+          (.pal-layout.solo: jedna kolumna siatki zamiast pustego miejsca po prawej). */}
+      <div className={`pal-layout${maPalety ? '' : ' solo'}`}>
+        <div className="pal-main">
           <div className="sect-h">
             <h3>Palety zamówienia</h3>
-            <span className="sub">{m.palletsTotal ? `${m.palletsReady} z ${m.palletsTotal} gotowych · ${m.palletsLoaded} załadowanych` : 'nierozpisane'}</span>
-            <div className="tools">
-              <button className="btn sm" disabled={!order.pallets.length} onClick={() => app.printPallets(order.id, marked.length ? marked : undefined)}>
+            {(maPalety || !closed) && <span className="sub">{m.palletsTotal ? `${m.palletsReady} z ${m.palletsTotal} gotowych · ${m.palletsLoaded} załadowanych` : 'nierozpisane'}</span>}
+            {maPalety && <div className="tools">
+              <button className="btn sm" onClick={() => app.printPallets(order.id, marked.length ? marked : undefined)}>
                 <Printer size={15} />{marked.length ? `Drukuj kartki (${marked.length})` : 'Drukuj wszystkie kartki'}
               </button>
-            </div>
+            </div>}
           </div>
-          {order.lines.length > 0 && (order.pallets.length > 0 || closed) && (
+          {order.lines.length > 0 && maPalety && (
             <div className="box astrip" aria-label="Rozpisanie pozycji na palety">
-              <span className="ah">Rozpisanie</span>
-              {order.lines.map(l => {
-                const on = onPal[l.id] ?? 0
-                return (
-                  <span key={l.id} className={`achip${on > l.qty ? ' over' : on < l.qty ? ' short' : ''}`} data-tip={`Poz. ${l.lp}: ${l.product}, ${l.recipe} ${l.kgPerUnit} kg${l.packaging ? `, tuleja ${l.packaging}` : ''}\nNa paletach ${on} z ${l.qty} szt.${on > l.qty ? `\nROZPIS PONAD ZAMÓWIENIE o ${on - l.qty} szt.` : ''}`}>
-                    <span className="t"><span>{l.recipe} {l.kgPerUnit} kg<Tuleja n={l.packaging} /></span><span className="num"><b>{on}</b>/{l.qty}</span></span>
-                    <span className="bar" aria-hidden="true"><i style={{ width: `${Math.min(100, on / l.qty * 100)}%` }} /></span>
-                  </span>
-                )
-              })}
-              <span className="grow" />
-              {m.unassignedQty > 0 && !closed
-                ? <button className="btn sm primary" disabled={busy} onClick={() => setDlg({ t: 'auto' })}><Wand2 size={14} />Rozpisz pozostałe ({num(m.unassignedQty)} szt.)</button>
-                : <span className="tag ok">wszystko rozpisane</span>}
+              {/* Akcja w nagłówku paska, nie na jego końcu — w panelu z boku koniec paska bywa ekran niżej. */}
+              <div className="astrip-h">
+                <span className="ah">Rozpisanie</span>
+                <span className="grow" />
+                {m.unassignedQty > 0
+                  ? (closed ? <span className="muted">{num(m.unassignedQty)} szt. bez palety</span>
+                    : <button className="btn sm primary" disabled={busy} onClick={() => setDlg({ t: 'auto' })}><Wand2 size={14} />Rozpisz pozostałe ({num(m.unassignedQty)} szt.)</button>)
+                  : <span className="tag ok"><Check size={13} aria-hidden="true" />wszystko rozpisane</span>}
+              </div>
+              <div className="astrip-b">
+                {naPasku.map(l => {
+                  const on = onPal[l.id] ?? 0
+                  return (
+                    <span key={l.id} className={`achip${on > l.qty ? ' over' : ''}`} data-tip={`Poz. ${l.lp}: ${l.product}, ${l.recipe} ${l.kgPerUnit} kg${l.packaging ? `, tuleja ${l.packaging}` : ''}\nNa paletach ${on} z ${l.qty} szt.${on > l.qty ? `\nROZPIS PONAD ZAMÓWIENIE o ${on - l.qty} szt.` : ''}`}>
+                      <span className="t"><span>{l.recipe} {l.kgPerUnit} kg<Tuleja n={l.packaging} /></span>
+                        <span className="num">{on > l.qty && <span className="alert-ico crit"><FlagIcon level="crit" size={13} /></span>}<b>{on}</b>/{l.qty}</span></span>
+                      <span className="bar" aria-hidden="true"><i style={{ width: `${Math.min(100, on / l.qty * 100)}%` }} /></span>
+                    </span>
+                  )
+                })}
+                {pelne.length > 0 && (
+                  <button type="button" className="btn sm ghost achip-more" aria-expanded={wszystkiePoz} onClick={() => setWszystkiePoz(v => !v)}>
+                    {wszystkiePoz ? 'Zwiń rozpisane w całości'
+                      : <><Check size={14} aria-hidden="true" />{ile(pelne.length, 'pozycja rozpisana', 'pozycje rozpisane', 'pozycji rozpisanych')} w całości · pokaż</>}
+                  </button>
+                )}
+              </div>
             </div>
           )}
-          {order.pallets.length === 0 && !closed ? (
+          {/* Palet zamkniętych zamówień program nie wczytuje (data/store.tsx) — nie twierdzimy, że ich nie było. */}
+          {!maPalety && closed && (
+            <div className="box"><Pusto ikona={<Boxes size={22} />} tytul="Zamówienie zamknięte">Palet zamkniętego zamówienia już się tu nie pokazuje — rozpis się nie zmienia.</Pusto></div>
+          )}
+          {!maPalety && !closed && (
             <div className="box empty-state">
               <Boxes size={28} color="var(--ink-3)" />
               <div className="es-text">
                 <div className="strong">Palety nie są rozpisane</div>
                 <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>{num(m.unassignedQty)} szt. ({kg(m.orderedKg)}) czeka na przypisanie. Rozpis automatyczny układa pełne palety wg standardu sztuk (np. 40 kg × 20), resztki łączy po recepturze — przed zapisem zobaczysz podgląd.</div>
               </div>
-              <button className="btn" disabled={busy} onClick={() => setDlg({ t: 'new' })}><Plus size={15} />Nowa paleta</button>
+              <button className="btn" disabled={busy} onClick={() => setDlg({ t: 'new' })} data-tip={STALE_NUMERY}><Plus size={15} />Nowa paleta</button>
               <button className="btn primary" disabled={busy} onClick={() => setDlg({ t: 'auto' })}><Wand2 size={15} />Rozpisz automatycznie</button>
             </div>
-          ) : (
+          )}
+          {maPalety && (
             <div className="pal-grid">
               {[...order.pallets].sort((a, b) => a.no - b.no).map(p => (
                 <PalletCard key={p.id} order={order} p={p} sel={p.no === selNo} marked={marked.includes(p.no)}
                   onSelect={() => setSelNo(p.no)} onMark={() => setMarked(ms => ms.includes(p.no) ? ms.filter(n => n !== p.no) : [...ms, p.no])} />
               ))}
               {!closed && (
-                <button className="pal add" onClick={() => setDlg({ t: 'new' })} disabled={m.unassignedQty === 0 || busy} data-tip={m.unassignedQty === 0 ? 'Wszystkie sztuki są już rozpisane' : 'Numer i karton nada serwer'}>
+                <button className="pal add" onClick={() => setDlg({ t: 'new' })} disabled={m.unassignedQty === 0 || busy} data-tip={m.unassignedQty === 0 ? 'Wszystkie sztuki są już rozpisane' : STALE_NUMERY}>
                   <Plus size={18} />Nowa paleta<span className="muted" style={{ fontSize: 'var(--fs-sm)', fontWeight: 400 }}>{m.unassignedQty ? `${num(m.unassignedQty)} szt. do rozpisania` : 'wszystko rozpisane'}</span>
                 </button>
               )}
@@ -108,7 +139,7 @@ export function PalletsTab({ order }: { order: Order }) {
           )}
         </div>
 
-        <aside className="side">
+        {maPalety && <aside className="side">
           {!sel && <div className="box" style={{ padding: 14 }}><span className="muted">Wybierz paletę, aby zobaczyć jej etapy i zmienić zawartość.</span></div>}
           {sel && (
             <div className="box">
@@ -133,8 +164,8 @@ export function PalletsTab({ order }: { order: Order }) {
               </div>
             </div>
           )}
-          <div className="note"><Lock size={15} /><div>Numery palet i kartonów są stałe. Usunięcie palety nie zwalnia numeru — numer nowej palety nadaje serwer.</div></div>
-        </aside>
+          <div className="note"><Lock size={15} /><div>{STALE_NUMERY}</div></div>
+        </aside>}
       </div>
 
       {dlg?.t === 'new' && <PaletaDialog title="Nowa paleta" order={order} wolne={wolne()} busy={busy} blad={blad} onClose={() => { setDlg(null); setBlad(null) }}
@@ -147,10 +178,10 @@ export function PalletsTab({ order }: { order: Order }) {
             onClick={() => zapisz(fresh => bezPalety(fresh, dlg.p.id), `Usunięto paletę ${dlg.p.no}`, () => setSelNo(null))}>{busy ? 'Zapisywanie…' : 'Usuń paletę'}</button></>}>
         <p>Karton <span className="code">{dlg.p.carton}</span> · {palletQty(dlg.p)} szt. · {kg(palletKg(order, dlg.p))}. Sztuki wrócą do puli „do rozpisania”.</p>
         <div className="note warn"><FlagIcon level="warn" size={15} /><div>Numer {dlg.p.no} i karton zostają zablokowane — nie zostaną nadane innej palecie (wydrukowana kartka nie wskaże innego towaru).</div></div>
-        {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Serwer odmówił:</b> {blad}</div></div>}
+        {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Nie zapisano:</b> {blad}</div></div>}
       </Dialog>}
       {dlg?.t === 'auto' && <RozpisDialog order={order} wolne={wolne()} busy={busy} blad={blad} onClose={() => { setDlg(null); setBlad(null) }}
-        onSave={plan => zapisz(fresh => zDodanymi(fresh, plan.map(p => ({ items: p.items }))), `Utworzono ${plan.length} ${plan.length === 1 ? 'paletę' : plan.length < 5 ? 'palety' : 'palet'}`)} lineOf={lineOf} />}
+        onSave={plan => zapisz(fresh => zDodanymi(fresh, plan.map(p => ({ items: p.items }))), `Utworzono ${ile(plan.length, 'paletę', 'palety', 'palet')}`)} lineOf={lineOf} />}
     </div>
   )
 }
@@ -201,7 +232,7 @@ export function PaletaDialog({ title, order, wolne, start, busy, blad, onClose, 
       footer={<><span className="left">Masa palety: <b className="num">{kg(total)}</b>{total > 1000 && <span className="warn-ink"> · ponad 1000 kg</span>}</span>
         <button className="btn" onClick={onClose} disabled={busy}>Anuluj</button>
         <button className="btn primary" onClick={go} disabled={busy}>{busy ? 'Zapisywanie…' : start ? 'Zapisz paletę' : 'Dodaj paletę'}</button></>}>
-      <p className="muted" style={{ fontSize: 'var(--fs-sm)', margin: 0 }}>Wpisz, ile sztuk z każdej pozycji leży na palecie. {start ? 'Numer palety i karton się nie zmieniają.' : 'Numer i karton nada serwer — nie zmieniają się później.'}</p>
+      <p className="muted" style={{ fontSize: 'var(--fs-sm)', margin: 0 }}>Wpisz, ile sztuk z każdej pozycji leży na palecie. {start ? 'Numer palety i karton się nie zmieniają.' : 'Numer i karton zostaną nadane automatycznie i nie zmienią się później.'}</p>
       <div className="box">
         <table className="tbl">
           <thead><tr><th>Pozycja</th><th className="num">Do rozpisania</th><th className="num" style={{ width: 130 }}>Na palecie</th></tr></thead>
@@ -216,7 +247,7 @@ export function PaletaDialog({ title, order, wolne, start, busy, blad, onClose, 
         </table>
       </div>
       {tried && empty && <div className="note crit"><FlagIcon level="crit" size={15} /><div>Wpisz ilość przynajmniej dla jednej pozycji.</div></div>}
-      {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Serwer odmówił:</b> {blad}</div></div>}
+      {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Nie zapisano:</b> {blad}</div></div>}
     </Dialog>
   )
 }
@@ -239,9 +270,9 @@ export function RozpisDialog({ order, wolne, busy, blad, onClose, onSave, lineOf
   const pelnych = plan.filter(p => p.items.length === 1 && p.szt === sztukNaPalete(lineOf(p.items[0].lineId)?.kgPerUnit ?? 0, nadpisz)).length
   return (
     <Dialog wide title="Rozpis automatyczny palet" icon={<Wand2 size={20} color="var(--accent)" />} onClose={() => { if (!busy) onClose() }}
-      footer={<><span className="left">{plan.length} {plan.length === 1 ? 'paleta' : plan.length < 5 ? 'palety' : 'palet'} ({pelnych} pełnych) · {num(plan.reduce((a, p) => a + p.szt, 0))} szt. · {kg(plan.reduce((a, p) => a + p.kg, 0))}</span>
+      footer={<><span className="left">{ile(plan.length, 'paleta', 'palety', 'palet')} ({pelnych} {odm(pelnych, 'pełna', 'pełne', 'pełnych')}) · {num(plan.reduce((a, p) => a + p.szt, 0))} szt. · {kg(plan.reduce((a, p) => a + p.kg, 0))}</span>
         <button className="btn" onClick={onClose} disabled={busy}>Anuluj</button>
-        <button className="btn primary" disabled={busy || !plan.length} onClick={() => onSave(plan)}>{busy ? 'Zapisywanie…' : `Utwórz ${plan.length} ${plan.length === 1 ? 'paletę' : plan.length < 5 ? 'palety' : 'palet'}`}</button></>}>
+        <button className="btn primary" disabled={busy || !plan.length} onClick={() => onSave(plan)}>{busy ? 'Zapisywanie…' : `Utwórz ${ile(plan.length, 'paletę', 'palety', 'palet')}`}</button></>}>
       <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <span className="label">Sztuk na pełną paletę</span>
@@ -283,8 +314,8 @@ export function RozpisDialog({ order, wolne, busy, blad, onClose, onSave, lineOf
           })}</tbody>
         </table>
       </div>
-      <div className="note info"><FlagIcon level="info" size={15} /><div>Kolejność jak w biurze: pełne palety jednej pozycji, potem resztki tej samej receptury, rodzaju i tulei, potem tej samej receptury, na końcu mieszane. Sztuka nie jest dzielona. Numery i kartony nada serwer; paletę można zmienić lub usunąć, dopóki nie zacznie się pakowanie.</div></div>
-      {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Serwer odmówił:</b> {blad}</div></div>}
+      <div className="note info"><FlagIcon level="info" size={15} /><div>Kolejność jak w biurze: pełne palety jednej pozycji, potem resztki tej samej receptury, rodzaju i tulei, potem tej samej receptury, na końcu mieszane. Sztuka nie jest dzielona. Numery i kartony zostaną nadane automatycznie; paletę można zmienić lub usunąć, dopóki nie zacznie się pakowanie.</div></div>
+      {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Nie zapisano:</b> {blad}</div></div>}
     </Dialog>
   )
 }

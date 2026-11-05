@@ -1,38 +1,59 @@
-import React from 'react'
-import { Eye, Printer, ClipboardList, Truck, FileText, Split } from 'lucide-react'
-import { useApp } from '../../../shell/context'
-import { type Order } from '../../../data/model'
+import React, { useId, useState } from 'react'
+import { Eye, Printer, ClipboardList, Truck, FileText, Split, Boxes, PackageMinus, Hash } from 'lucide-react'
+import { useApp, Dialog } from '../../../shell/context'
+import { computeMetrics, kg, type Order } from '../../../data/model'
+import { ile } from '../../../data/tekst'
 import { FlagIcon } from '../../../ui/Glyphs'
 import { downloadDocPdf, wzApi } from '@/lib/api'
 
 /**
- * Dokumenty zamówienia — jedno miejsce na wszystkie wydruki i dokumenty wydania.
+ * Dokumenty zamówienia — dwie grupy, żeby skutek było widać przed kliknięciem:
+ * „Wydruki” niczego nie zmieniają w systemie, „Dokumenty wydania” nadają numer,
+ * a WZ (także z podziału wysyłki) dodatkowo zdejmuje towar ze stanu.
  * WZ/WM: lista z API (powiązane z zamówieniem) z podglądem PDF. HDI i CMR na liście
- * API nie mają numeru zamówienia (BRAKI_API) — generuje się je stąd, PDF otwiera się od razu.
+ * API nie mają numeru zamówienia (BRAKI_API) — wystawia się je stąd, PDF otwiera się od razu.
  */
 export function DocumentsTab({ order }: { order: Order }) {
   const app = useApp()
+  const id = useId()
+  const [pytajHdi, setPytajHdi] = useState(false)
   const draft = order.status === 'draft'
   const closed = order.status === 'done' || order.status === 'cancelled'
-  const pdf = async (id: string, nr?: string) => {
-    try { await downloadDocPdf(wzApi.pdfUrl(id), `${(nr ?? 'WZ').replace(/\//g, '-')}.pdf`) }
+  const palet = order.pallets.length
+  const najpierw = 'Najpierw potwierdź zamówienie'
+  const pdf = async (docId: string, nr?: string) => {
+    try { await downloadDocPdf(wzApi.pdfUrl(docId), `${(nr ?? 'WZ').replace(/\//g, '-')}.pdf`) }
     catch (e) { app.toast({ kind: 'warn', title: 'Nie udało się pobrać PDF', detail: e instanceof Error ? e.message : '' }) }
   }
-  const akcja = (label: string, icon: React.ReactNode, run: () => void, opis: string, disabled?: boolean, tip?: string) => (
-    <button className="doc-tile" onClick={run} disabled={disabled} data-tip={disabled ? tip : undefined}>
-      <span className="dt-ico">{icon}</span><span className="dt-t">{label}</span><span className="dt-d">{opis}</span>
-    </button>
-  )
   return (
     <div className="dock-pad">
-      <div className="sect-h"><h3>Wydruki i dokumenty</h3><span className="sub">PDF zapiszesz z okna druku albo otworzy się w czytniku</span></div>
-      <div className="doc-tiles">
-        {akcja('Zamówienie dla klienta', <Printer size={18} />, () => app.printOrder(order.id), 'A4 z logo — do wysłania klientowi')}
-        {akcja('Lista kompletacji', <ClipboardList size={18} />, () => app.printPicking([order.id]), 'wewnętrzna, z kratkami i paletami')}
-        {akcja('Wystaw WZ', <Truck size={18} />, () => app.issueWz(order.id), 'zdejmuje towar ze stanu', draft || closed, draft ? 'Najpierw potwierdź zamówienie' : 'Zamówienie zamknięte')}
-        {akcja(closed ? 'Podgląd HDI' : 'Generuj HDI', <FileText size={18} />, () => app.genHdi(order.id), closed ? 'zamrożone po realizacji' : 'na stan faktyczny', draft, 'Najpierw potwierdź zamówienie')}
-        {akcja('Wystaw CMR', <FileText size={18} />, () => app.openCmr(order.id), 'przewoźnik, faktura, instrukcje', draft, 'Najpierw potwierdź zamówienie')}
-        {akcja('Podział wysyłki', <Split size={18} />, () => app.splitOrder(order.id), 'część na fakturę, reszta na WZ — komplet dokumentów', draft || closed, draft ? 'Najpierw potwierdź zamówienie' : 'Zamówienie zamknięte')}
+      <div className="doc-groups">
+        <section className="doc-group" aria-labelledby={`${id}-wydruki`}>
+          <div className="sect-h"><h3 id={`${id}-wydruki`}>Wydruki</h3><span className="sub">nic nie zmieniają w systemie</span></div>
+          <div className="doc-tiles">
+            <Kafel tytul="Zamówienie" opis="dla klienta, A4 z logo" ikona={<Printer size={18} />} onClick={() => app.printOrder(order.id)} />
+            <Kafel tytul="Lista kompletacji" opis="wewnętrzna, z kratkami i paletami" ikona={<ClipboardList size={18} />} onClick={() => app.printPicking([order.id])} />
+            {/* Zamknięte zamówienia nie wczytują palet (data/store.tsx) — „nierozpisane” byłoby tam nieprawdą. */}
+            <Kafel tytul="Kartki palet" opis={palet ? `${ile(palet, 'paleta', 'palety', 'palet')}, kartki z kodem QR` : closed ? 'palet zamkniętego zamówienia nie wczytujemy' : 'palety nie są jeszcze rozpisane'}
+              ikona={<Boxes size={18} />} onClick={() => app.printPallets(order.id)}
+              wylaczony={palet ? undefined : closed ? 'Zamówienie zamknięte' : 'Najpierw rozpisz palety (zakładka Palety)'} />
+          </div>
+        </section>
+
+        <section className="doc-group wyd" aria-labelledby={`${id}-wydanie`}>
+          <div className="sect-h"><h3 id={`${id}-wydanie`}>Dokumenty wydania</h3><span className="sub">nadają numer</span></div>
+          <div className="doc-tiles">
+            <Kafel tytul="Wystaw WZ…" opis="wydanie towaru do klienta" ikona={<Truck size={18} />} skutek="stan"
+              onClick={() => app.issueWz(order.id)} wylaczony={draft ? najpierw : closed ? 'Zamówienie zamknięte' : undefined} />
+            {/* Zamknięte zamówienie: HDI jest zamrożone, ponowne otwarcie tylko je pokazuje — bez pytania. */}
+            <Kafel tytul={closed ? 'Podgląd HDI' : 'Wystaw HDI…'} opis={closed ? 'zamrożone po realizacji' : 'na stan faktyczny wyrobu'} ikona={<FileText size={18} />}
+              skutek={closed ? undefined : 'numer'} onClick={() => (closed ? app.genHdi(order.id) : setPytajHdi(true))} wylaczony={draft ? najpierw : undefined} />
+            <Kafel tytul="Wystaw CMR…" opis="list przewozowy: przewoźnik, faktura" ikona={<FileText size={18} />} skutek="numer"
+              onClick={() => app.openCmr(order.id)} wylaczony={draft ? najpierw : undefined} />
+            <Kafel tytul="Podział wysyłki…" opis="część na fakturę, reszta na WZ" ikona={<Split size={18} />} skutek="stan"
+              onClick={() => app.splitOrder(order.id)} wylaczony={draft ? najpierw : closed ? 'Zamówienie zamknięte' : undefined} />
+          </div>
+        </section>
       </div>
 
       <div className="sect-h"><h3>Wystawione WZ / WM</h3><span className="sub">dokumenty wydania powiązane z zamówieniem</span></div>
@@ -40,11 +61,11 @@ export function DocumentsTab({ order }: { order: Order }) {
         <table className="tbl">
           <thead><tr><th>Numer</th><th className="hide-s">Data</th><th>Stan</th><th className="r">Podgląd</th></tr></thead>
           <tbody>
-            {order.docs.length === 0 && <tr><td colSpan={4}><div className="empty">Brak WZ/WM wystawionych z tego zamówienia.</div></td></tr>}
+            {order.docs.length === 0 && <tr><td colSpan={4} className="docs-empty">Z tego zamówienia nie wystawiono jeszcze WZ ani WM.</td></tr>}
             {order.docs.map((d, i) => (
-              <tr key={`${d.number ?? i}`} className={`row${i % 2 ? ' zebra' : ''}`}>
-                <td className="num strong">{d.number}</td>
-                <td className="num hide-s">{d.date ?? '—'}</td>
+              <tr key={d.id ?? `${d.number ?? ''}-${i}`} className={`row${i % 2 ? ' zebra' : ''}`}>
+                <td className="tnum strong">{d.number}</td>
+                <td className="tnum hide-s">{d.date ?? '—'}</td>
                 <td className="muted">{d.note}</td>
                 <td className="r">{d.id && <button className="btn sm ghost" onClick={() => void pdf(d.id!, d.number)}><Eye size={14} />PDF</button>}</td>
               </tr>
@@ -53,6 +74,51 @@ export function DocumentsTab({ order }: { order: Order }) {
         </table>
       </div>
       <div className="note"><FlagIcon level="info" size={15} /><div>Anulowanie WZ, edycja HDI i rejestr wszystkich dokumentów — w module „Dokumenty WZ, CMR, HDI” starego MES.</div></div>
+      {pytajHdi && <PotwierdzenieHdi order={order} onClose={() => setPytajHdi(false)} onConfirm={() => { setPytajHdi(false); app.genHdi(order.id) }} />}
     </div>
+  )
+}
+
+/** Skutek dokumentu wydania — słowem i ikoną, nie kolorem. */
+const SKUTEK = {
+  stan: { ikona: <PackageMinus size={14} aria-hidden="true" />, tekst: 'zdejmuje towar ze stanu' },
+  numer: { ikona: <Hash size={14} aria-hidden="true" />, tekst: 'nadaje numer' },
+} as const
+
+function Kafel({ tytul, opis, ikona, skutek, onClick, wylaczony }: {
+  tytul: string; opis: string; ikona: React.ReactNode; skutek?: keyof typeof SKUTEK; onClick: () => void
+  /** Powód blokady — kafel jest wtedy wyszarzony, powód w podpowiedzi. */
+  wylaczony?: string
+}) {
+  return (
+    <button className="doc-tile" onClick={onClick} disabled={!!wylaczony} data-tip={wylaczony}>
+      <span className="dt-ico">{ikona}</span>
+      <span className="dt-t">{tytul}</span>
+      <span className="dt-d">{opis}</span>
+      {skutek && <span className={`dt-s ${skutek}`}>{SKUTEK[skutek].ikona}{SKUTEK[skutek].tekst}</span>}
+    </button>
+  )
+}
+
+/**
+ * Pytanie przed wystawieniem HDI — numer HDI raz nadany zostaje na stałe.
+ * Przeglądarka nie wie, czy HDI tego zamówienia już istnieje (lista dokumentów zamówienia
+ * zna tylko WZ), więc okno mówi o obu przypadkach. Liczby „na stan faktyczny” podaje
+ * dopiero serwer; tu tylko ostrzeżenie, gdy brakuje wyrobu.
+ * Wywołanie zostaje w rodzicu (app.genHdi) — generujHdi woła serwer od razu.
+ */
+export function PotwierdzenieHdi({ order, onClose, onConfirm }: { order: Order; onClose: () => void; onConfirm: () => void }) {
+  const m = computeMetrics(order)
+  return (
+    <Dialog title="Wystawić HDI?" icon={<FileText size={20} color="var(--ink-2)" />} onClose={onClose}
+      footer={<><button className="btn" onClick={onClose} data-autofocus>Wróć</button>
+        <button className="btn primary" onClick={onConfirm}><FileText size={15} />Wystaw HDI</button></>}>
+      <p className="hdi-kto">Zamówienie <b>{order.no}</b> · {order.client.name}</p>
+      <ul className="hdi-pyt">
+        <li><Hash size={16} aria-hidden="true" /><span><b>Pierwsze wystawienie nada numer HDI.</b> Numer zostaje na stałe — nie wraca do puli.</span></li>
+        <li><FileText size={16} aria-hidden="true" /><span><b>Ponowne odświeży treść</b> tego samego HDI, dopóki jest wstępny — bez nowego numeru.</span></li>
+      </ul>
+      {m.missingKg > 0 && <div className="note warn"><FlagIcon level="warn" size={15} /><div>Brakuje jeszcze <b>{kg(m.missingKg)}</b> wyrobu. HDI obejmie tylko to, co już jest (stan faktyczny).</div></div>}
+    </Dialog>
   )
 }
