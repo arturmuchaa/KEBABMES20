@@ -119,7 +119,7 @@ describe('mroźnia — ważenie pełnego kartonu', () => {
     fireEvent.click(screen.getByRole('button', { name: /Zatwierdź/ }))
     await screen.findByRole('dialog', { name: /Rzut mroźni · 560/ })
     expect((screen.getByPlaceholderText('Skanuj kartkę palety…') as HTMLInputElement).disabled).toBe(true)
-    fireEvent.click(screen.getByRole('button', { name: 'Pokaż pierwsze wolne położenie' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Pokaż pierwsze wolne położenie' }))
     fireEvent.click(screen.getByRole('button', { name: 'Zapisz miejsce' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(s.wazenia).toEqual([{ code: PELNY.code, palletTypeId: 'euro', grossKg: 780, mode: 'auto' }])
