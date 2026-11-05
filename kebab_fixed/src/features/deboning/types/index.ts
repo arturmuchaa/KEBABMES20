@@ -63,6 +63,7 @@ export interface DeboningEntry {
   readonly completedAt?: string | null
   /** Suma porcji z częściowych ważeń (tylko pending; complete ma sumę w kgMeat). */
   readonly kgMeatWeighed?: number
+  readonly settlementStage?: 'meat' | 'backs' | 'bones' | 'balance' | 'done' | null
 }
 
 export interface CreateDeboningEntryDto {
@@ -86,6 +87,7 @@ export interface CreateDeboningEntryDto {
 }
 
 export interface CreateDeboningTakeDto {
+  perWorker?: boolean
   /** 'bs' stoi w kolejce OBOK otwartego z/s, zamiast doliczać się do niego. */
   meatType?:  'zs' | 'bs'
   sessionId:  string

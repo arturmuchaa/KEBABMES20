@@ -12,6 +12,8 @@ from app.models.deboning import (
 from app.services import deboning_service as svc
 from app.services import batch_byproducts_service as byproducts_svc
 from app.services import settings_service
+from app.services import take_settlement_service as settlement
+from app.models.deboning_settlement import SettlementWeighing, SettlementAdvance, SettlementReopen
 
 router = APIRouter(tags=["deboning"])
 
@@ -252,6 +254,48 @@ def create_deboning_take(dto: DeboningTakeCreate):
 @router.post("/api/deboning/takes/{entry_id}/complete")
 def complete_deboning_take(entry_id: str, dto: DeboningTakeComplete, request: Request):
     return svc.complete_deboning_take(entry_id, dto, _subject_of(request))
+
+
+@router.get("/api/deboning/takes/{entry_id}/settlement")
+def get_settlement(entry_id: str):
+    return settlement.get(entry_id)
+
+
+@router.get("/api/deboning/batches/{batch_id}/settlement-mode")
+def settlement_batch_mode(batch_id: str):
+    from app.db import transaction
+    with transaction() as conn:
+        return {"mode": settlement.batch_mode(conn, batch_id)}
+
+
+@router.post("/api/deboning/takes/{entry_id}/settlement/start")
+def start_settlement(entry_id: str):
+    return settlement.start(entry_id)
+
+
+@router.post("/api/deboning/takes/{entry_id}/settlement/weigh")
+def weigh_settlement(entry_id: str, dto: SettlementWeighing, request: Request):
+    return settlement.weigh(entry_id, dto, _subject_of(request))
+
+
+@router.post("/api/deboning/takes/{entry_id}/settlement/advance")
+def advance_settlement(entry_id: str, dto: SettlementAdvance, request: Request):
+    return settlement.advance(entry_id, dto, _subject_of(request))
+
+
+@router.post("/api/deboning/takes/{entry_id}/settlement/reopen")
+def reopen_settlement(entry_id: str, dto: SettlementReopen):
+    return settlement.reopen(entry_id, dto.stage)
+
+
+@router.post("/api/deboning/takes/{entry_id}/settlement/weighings/{weighing_id}/correct")
+def correct_settlement(entry_id: str, weighing_id: str, dto: SettlementWeighing, request: Request):
+    return settlement.correct(entry_id, weighing_id, dto, _subject_of(request))
+
+
+@router.post("/api/deboning/takes/{entry_id}/settlement/finish")
+def finish_settlement(entry_id: str, request: Request):
+    return settlement.finish(entry_id, _subject_of(request))
 
 
 @router.post("/api/deboning/takes/{entry_id}/weigh-part")

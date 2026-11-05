@@ -1,0 +1,20 @@
+.take-settlement .ts-button {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  min-height: 56px;
+  padding: .75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--ink);
+  font-weight: 700;
+  cursor: pointer;
+}
+.take-settlement .ts-button:active:not(:disabled) { filter: brightness(.92); }
+.take-settlement .ts-button:focus-visible,
+.take-settlement .ts-input:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.take-settlement .ts-button[aria-pressed="true"] { background: var(--accentSoft); border-color: var(--accent); color: var(--accent); }
+.take-settlement .ts-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.take-settlement .ts-button:disabled { opacity: .45; cursor: not-allowed; }
+.take-settlement .ts-input { display: block; width: 100%; min-height: 56px; padding: .5rem .75rem; margin: .5rem 0; font-size: 1.5rem; border: 2px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); }

@@ -351,7 +351,8 @@ def pending() -> List[Dict[str, Any]]:
               AND COALESCE(de.status, 'complete') = 'complete'
         ), 0) AS meat_sum
         FROM batch_byproducts b
-        WHERE b.finished_at IS NOT NULL AND b.closed_at IS NULL AND (
+        WHERE NOT EXISTS (SELECT 1 FROM raw_batches rb WHERE rb.id=b.raw_batch_id AND rb.deboning_mode='worker')
+        AND b.finished_at IS NOT NULL AND b.closed_at IS NULL AND (
             b.backs_kg IS NULL OR b.bones_kg IS NULL OR
             (COALESCE(b.quarter_kg, 0) - COALESCE((
                 SELECT SUM(kg_meat) FROM deboning_entries de
@@ -447,6 +448,8 @@ def list_weighings(date_from: str, date_to: str) -> Dict[str, Any]:
             "rawBatchId":     r["raw_batch_id"],
             "rawBatchNo":     r["raw_batch_no"],
             "kind":           r["kind"],
+            "workerName":     p.get("workerName"),
+            "entryId":        p.get("entryId"),
             # Surowy stempel — TOŻSAMOŚĆ palety przy korekcie. Indeks w tablicy
             # przesuwa się po każdym usunięciu, więc nie nadaje się na klucz.
             "weighedAt":      (p.get("weighedAt") or ""),
@@ -538,6 +541,8 @@ def _write_fraction(conn, raw_batch_id: str, raw_batch_no: str, kind: str,
     kasując już wydane pojemniki. Liczymy więc, ile już skonsumowano (stara
     suma z palet − stary licznik) i odejmujemy TĘ SAMĄ liczbę od nowej sumy.
     """
+    from app.services.take_settlement_service import require_legacy_batch
+    require_legacy_batch(conn, raw_batch_id)
     old = cx_query_one(
         conn,
         f"SELECT {kind}_pallets AS old_pallets, {kind}_kg AS old_kg "
@@ -794,6 +799,10 @@ def move_weighing(
 
     with transaction() as conn:
         # Blokada w stałej kolejności — dwie korekty naraz nie zakleszczą się.
+        from app.services.take_settlement_service import require_legacy_batch
+        for bid in sorted([raw_batch_id, cel]):
+            cx_query_one(conn, "SELECT id FROM raw_batches WHERE id=%s FOR UPDATE", (bid,))
+            require_legacy_batch(conn, bid)
         for bid in sorted([raw_batch_id, cel]):
             cx_query_one(
                 conn,
@@ -907,6 +916,10 @@ def record(raw_batch_id: str, kind: str, kg: Optional[float],
     # albo wyścig z równoległym wydaniem WZ (konsumuje loty) zostawiał
     # niespójność frakcja↔lot (ta sama klasa co incydent 411: 2252,5 kg).
     with transaction() as conn:
+        # Same lock order as per-worker settlement: no race with the first start.
+        cx_query_one(conn, "SELECT id FROM raw_batches WHERE id=%s FOR UPDATE", (raw_batch_id,))
+        from app.services.take_settlement_service import require_legacy_batch
+        require_legacy_batch(conn, raw_batch_id)
         rec = cx_query_one(
             conn,
             "SELECT quarter_kg, raw_batch_no FROM batch_byproducts "

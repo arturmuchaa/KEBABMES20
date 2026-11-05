@@ -18,7 +18,9 @@ import { fmtKg, fmtPct, cn } from '@/lib/utils'
 import { getExpiryStatus } from '@/lib/utils/fefo'
 import { mergeBatchOrder, moveBatch } from './batchOrder'
 import { Play, Lock, Save, Flag, LogOut, Delete, X, BarChart3, Bell, BellOff, ListOrdered, Check, Scale, Minus, Plus, Undo2, Clock, Wifi, WifiOff, Layers, Printer } from 'lucide-react'
-import { BASE } from '@/lib/api'
+import { BASE, takeSettlementApi } from '@/lib/api'
+import { TakeSettlementWizard } from '@/features/deboning/TakeSettlementWizard'
+import type { TakeSettlement, SettlementInitial } from '@/features/deboning/settlement'
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
@@ -314,13 +316,14 @@ const PendingBatchTile = memo(function PendingBatchTile({ rec, onOpen }: {
 })
 
 // ─── Kafel pracownika ──────────────────────────────────────────────
-const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, pendingKg, pendingWeighedKg, pendingBatchNo, pendingKind, otherKindKg, otherKind, blocked, disabled, onSelect, onLongPress }: {
+const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount, kgToday, pendingKg, pendingWeighedKg, pendingBatchNo, pendingKind, settlementStage, otherKindKg, otherKind, blocked, disabled, onSelect, onLongPress }: {
   worker: User; selected: boolean; entryCount: number; kgToday: number
   /** Otwarte pobranie ćwiartki (kg) RODZAJU ustawionego na suwaku — kafel
    *  pokazuje „czeka na zważenie", a klik wraca do domknięcia mięsem. */
   pendingKg?: number
   /** Suma porcji z częściowych ważeń — kafel pokazuje „zważono X/Y kg". */
   pendingWeighedKg?: number
+  settlementStage?: DeboningEntry['settlementStage']
   /** Numer partii otwartego pobrania — mięso wraca pod TĘ partię. */
   pendingBatchNo?: string
   /** Rodzaj pokazywanego pobrania — przy b/s kafel woła to głośno, bo to
@@ -363,7 +366,9 @@ const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount
         <span className="text-[10px] font-bold uppercase text-center leading-tight px-1 py-0.5 w-full"
           style={{ borderRadius: 6, background: selected ? 'rgba(255,255,255,.2)' : 'var(--ambSoft)', color: selected ? '#fff' : 'var(--amb)', letterSpacing: '.02em' }}>
           ⏳ {pendingKind === 'bs' ? 'B/S · ' : ''}{pendingBatchNo ? `${pendingBatchNo} · ` : 'czeka '}
-          {(pendingWeighedKg ?? 0) > 0
+          {settlementStage && settlementStage !== 'meat'
+            ? settlementStage === 'backs' ? 'do zważenia: grzbiety i kości' : settlementStage === 'bones' ? 'do zważenia: kości' : 'sprawdź bilans pobrania'
+            : (pendingWeighedKg ?? 0) > 0
             ? `zważono ${fmtKg(pendingWeighedKg ?? 0, 0)}/${fmtKg(pendingKg ?? 0, 0)} kg`
             : `${fmtKg(pendingKg, 1)} kg`}
         </span>
@@ -633,7 +638,10 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // je NA PARTIĘ, nie per wpis, więc suma wpisów ich nie widzi).
   const byprodToday = useApi(() => byproductsApi.today())
   const { session, timeWindow, loading: sessionLoading, startDay, startLoading, closeDay, closeLoading } = useProductionSession()
-  const { entries, addEntry, addTake, completeTake, weighPart, editTake, editEntry, removeEntry, hallRemoveEntry, lastCreated, lastTakeRef, addLoading, addTakeLoading, completeTakeLoading, weighPartLoading, removeLoading } = useDeboningEntries(session?.id ?? null)
+  const { entries, addEntry, addTake, completeTake, weighPart, editTake, editEntry, removeEntry, hallRemoveEntry, lastCreated, lastTakeRef, addLoading, addTakeLoading, completeTakeLoading, weighPartLoading, removeLoading, refetch: refetchEntries } = useDeboningEntries(session?.id ?? null)
+  const [settlement, setSettlement] = useState<{ state: TakeSettlement; initial?: SettlementInitial } | null>(null)
+  const [settlementOpening, setSettlementOpening] = useState(false)
+  const settlementLaunchRef = useRef(false)
 
   // Rozdział: pobrania czekające na mięso (pending) vs domknięte wpisy (complete).
   // Agregaty, statystyki i lista „ostatnie” liczą tylko complete; pending mają
@@ -1136,7 +1144,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       autoMode,
       connected: scale.connected,
       ready: weighing.ready,
-      blocked: wizard != null || finishPrompt != null,
+      blocked: wizard != null || finishPrompt != null || settlement != null || settlementOpening,
       netKg: weighing.netKg,
       gross: scale.gross,
       cartTareKg: cartTareTotal,
@@ -1154,7 +1162,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     ))
   }, [autoMode, scale.connected, scale.stable, scale.gross, weighing.ready, weighing.netKg,
       cartTareTotal, e2Count, selWorker, selBatch, taken, resumeWeighedKg, resumeId,
-      wizard, finishPrompt])
+       wizard, finishPrompt, settlement, settlementOpening])
 
   const saveHint = !selBatch ? 'WYBIERZ PARTIĘ'
     : !selWorker ? 'WYBIERZ PRACOWNIKA'
@@ -1267,7 +1275,21 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
 
   // Klik w kafelek pracownika z otwartym pobraniem: wraca do formularza z
   // wpisaną, zablokowaną ćwiartką; operator tylko wjeżdża na wagę i zapisuje.
-  const resumeTake = useCallback((e: DeboningEntry) => {
+  const resumeTake = useCallback(async (e: DeboningEntry) => {
+    if (settlementLaunchRef.current) return
+    settlementLaunchRef.current = true; setSettlementOpening(true)
+    try {
+      const state = await takeSettlementApi.start(e.id)
+      if (state.mode === 'worker') {
+        setMeatDriveOff(DRIVE_OFF_IDLE)
+        setSettlement({ state })
+        return
+      }
+      showToast('Partia rozpoczęta w starym trybie — uboczne nadal zbiorczo')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Nie udało się otworzyć rozliczenia', 'err')
+      return
+    } finally { settlementLaunchRef.current = false; setSettlementOpening(false) }
     // Partia pobrania mogła się już WYCZERPAĆ (0 kg = poza listą aktywnych) —
     // domknięcie mięsem musi działać mimo to (prod 2026-07-09, Anatoli/407):
     // szukamy w PEŁNEJ liście partii, nie tylko aktywnych.
@@ -1289,7 +1311,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     // nawet jeśli w międzyczasie ekran wrócił do Z/S.
     setMeatType((e.meatType as MeatType | undefined) ?? 'zs')
     setActive('meat')
-  }, [batchData.data, workers])
+  }, [batchData.data, workers, showToast])
 
   const cancelResume = useCallback(() => {
     setResumeId(null)
@@ -1366,8 +1388,36 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     return { cancelled: false, error: err }
   }
 
+  /** For fresh batches, even the old "take + meat at once" button must enter
+   * the full settlement. Existing bulk batches stay legacy without rewriting history. */
+  async function launchFreshSettlement(b: RawBatch, workerId: string, kg: number, initial: SettlementInitial): Promise<boolean> {
+    if (settlementLaunchRef.current || !session) return true
+    settlementLaunchRef.current = true; setSettlementOpening(true)
+    try {
+      if ((await takeSettlementApi.mode(b.id)).mode === 'legacy') return false
+      const err = await addTake({ sessionId: session.id, rawBatchId: b.id, workerId, kgTaken: kg, meatType, perWorker: true }, session, Number(b.kgAvailable), b.expiryDate)
+      if (err) { showToast(err, 'err'); return true }
+      const created = lastTakeRef.current
+      // Input has already been taken from stock. Never repeat createTake after
+      // a failed second request (it would merge and double the nominal input).
+      setKgTaken(''); setKgMeat(''); setSelWorker(null); setResumeId(null)
+      setMeatDriveOff(DRIVE_OFF_IDLE); batchData.refetch()
+      if (!created) { showToast('Pobranie zapisane — otwórz rozliczenie z kafelka pracownika', 'err'); return true }
+      const state = await takeSettlementApi.start(created.id)
+      setSettlement({ state, initial })
+      return true
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Nie udało się otworzyć rozliczenia', 'err')
+      return true
+    } finally { settlementLaunchRef.current = false; setSettlementOpening(false) }
+  }
+
   async function handleSave() {
     if (addLoading || !canSave || !selBatch || !selWorker || !session) return
+    if (await launchFreshSettlement(selBatch, selWorker.id, taken, {
+      kgNet: meat, weighMode: autoMode ? 'auto' : 'manual',
+      ...(autoMode ? { kgGross: scale.gross, tareCartKg: cartTareTotal ?? 0, tareE2Kg: weighing.tareE2Kg, e2Count } : {}),
+    })) return
     const { cancelled, error: err } = await guardYield(taken, meat, meatType, override => addEntry(
       {
         sessionId: session.id, rawBatchId: selBatch.id, workerId: selWorker.id,
@@ -1432,7 +1482,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   async function handleSaveTake() {
     if (addTakeLoading || !selBatch || !selWorker || taken <= 0 || !session) return
     const err = await addTake(
-      { sessionId: session.id, rawBatchId: selBatch.id, workerId: selWorker.id, kgTaken: taken, meatType },
+      { sessionId: session.id, rawBatchId: selBatch.id, workerId: selWorker.id, kgTaken: taken, meatType, perWorker: true },
       session, Number(selBatch.kgAvailable), selBatch.expiryDate,
     )
     if (err) { showToast(err, 'err'); return }
@@ -1580,7 +1630,18 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     flashSaveSummary({ batchNo: s.batchNo, workerName: s.workerName, takenKg: s.takenKg, meatKg: s.netKg, kind: 'partial', meatType })
   }
 
-  function runDriveOffAction(action: MeatPromptAction, s: MeatSnapshot) {
+  async function runDriveOffAction(action: MeatPromptAction, s: MeatSnapshot) {
+    const dto = meatSaveDto(s)
+    const initial: SettlementInitial = { kgNet: dto.kgMeat, weighMode: dto.weighMode ?? 'manual', kgGross: dto.kgGross, tareCartKg: dto.tareCartKg, tareE2Kg: dto.tareE2Kg, e2Count: dto.e2Count }
+    if (!s.resumeId) {
+      const b = driveOffBatch(s)
+      if (b && await launchFreshSettlement(b, s.workerId, s.takenKg, initial)) return
+    } else {
+      try {
+        const state = await takeSettlementApi.start(s.resumeId)
+        if (state.mode === 'worker') { setMeatDriveOff(DRIVE_OFF_IDLE); setSettlement({ state, initial }); return }
+      } catch (error) { showToast(error instanceof Error ? error.message : 'Nie udało się otworzyć rozliczenia', 'err'); return }
+    }
     if (action === 'part') { void driveOffSavePart(s); return }
     if (action === 'complete') { void driveOffComplete(s); return }
     if (action === 'entry') { void driveOffSaveEntry(s); return }
@@ -1657,6 +1718,10 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     try {
       const rec = await byproductsApi.finish(selBatch.id, loggedInUser?.name)
       byproductsData.refetch()
+      if ((await takeSettlementApi.mode(selBatch.id)).mode === 'worker') {
+        showToast('Partia zakończona — grzbiety i kości rozliczono przy pracownikach')
+        return
+      }
       setFinishPrompt({ batch: selBatch, record: rec })
     } catch (e: any) {
       showToast(e?.message || 'Nie udało się zakończyć partii', 'err')
@@ -1669,6 +1734,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // pól (id + numer), a etykieta ubocznych przepisuje datę ważności z ćwiartki
   // — bez uzupełnienia wychodziła z pustym terminem (502, 24.08.2026).
   async function openWizard(batch: RawBatch) {
+    if (await usesWorkerByproducts(batch.id)) return
     const rec = byproductsByBatch.get(batch.id) ?? await byproductsApi.finish(batch.id, loggedInUser?.name).catch(() => null)
     if (!rec) { showToast('Nie udało się otworzyć ważenia', 'err'); return }
     setFinishPrompt(null)
@@ -1680,9 +1746,18 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   // ensure NIE oznacza partii jako zakończonej; kolejne ważenia doładowują
   // palety do sumy, a % przelicza się przy zakończeniu partii.
   async function openWizardInProgress(batch: RawBatch) {
+    if (await usesWorkerByproducts(batch.id)) return
     const rec = await byproductsApi.ensure(batch.id, loggedInUser?.name).catch(() => null)
     if (!rec) { showToast('Nie udało się otworzyć ważenia', 'err'); return }
     setWizard({ batch: batchForLabel(batch, (batchData.data?.data ?? []) as RawBatch[]), record: rec })
+  }
+
+  async function usesWorkerByproducts(batchId: string) {
+    try {
+      if ((await takeSettlementApi.mode(batchId)).mode === 'legacy') return false
+      showToast('Grzbiety i kości ważymy przy pobraniu — wybierz kafelek pracownika')
+    } catch { showToast('Nie można sprawdzić trybu rozliczenia partii — spróbuj ponownie', 'err') }
+    return true
   }
 
   function startEditEntry(e: DeboningEntry) {
@@ -1999,6 +2074,16 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       )}
 
       {/* Kreator ważenia zbiorczego grzbietów i kości. */}
+      {settlementOpening && <div role="status" className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40"><div className="rounded-xl bg-white p-8 text-xl font-bold">Otwieram rozliczenie pobrania…</div></div>}
+      {settlement && <TakeSettlementWizard key={settlement.state.id} initialState={settlement.state}
+        initialMeasurement={settlement.initial} scale={scale} cartTares={cartTares}
+        onChange={() => { refetchEntries(); batchData.refetch(); byprodToday.refetch(); byproductsData.refetch() }}
+        onClose={completed => {
+          setSettlement(null); refetchEntries(); batchData.refetch(); byprodToday.refetch(); byproductsData.refetch()
+          setResumeId(null); setSelWorker(null); setKgTaken(''); setKgMeat(''); setActive('taken')
+          setMeatManual(false); setCartCounts({}); setNoCart(false); setE2Count(0); setMeatDriveOff(DRIVE_OFF_IDLE)
+          showToast(completed ? 'Pobranie rozliczone — mięso, grzbiety i kości' : 'Zapisane ważenia zachowane — dokończ z kafelka pracownika')
+        }} />}
       {wizard && (
         <ByproductsWizard batch={wizard.batch} record={wizard.record} scale={scale}
           cartTares={cartTares}
@@ -2404,6 +2489,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                       entryCount={ws?.count ?? 0} kgToday={ws?.taken ?? 0}
                       pendingKg={st?.pendingKg}
                       pendingWeighedKg={st?.pendingWeighedKg}
+                      settlementStage={pendingTakes.find(p => p.id === st?.resumeEntryId)?.settlementStage}
                       pendingBatchNo={(st?.pendingBatchNos ?? []).join(', ')}
                       pendingKind={st?.pendingKg != null ? meatType : undefined}
                       otherKindKg={st?.otherKindKg}

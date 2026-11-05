@@ -6,6 +6,7 @@
  * BUGFIX: mapowanie snake_case (Python backend) → camelCase (TypeScript frontend)
  */
 import { tokenStore } from '@/features/auth/storage'
+import type { TakeSettlement, SettlementMeasurement, SettlementKind } from '@/features/deboning/settlement'
 import { formatCartonNo } from '@/lib/unitLocation'
 import type { UpdateReceptionDto } from '@/features/raw-batches/receptionEditView'
 import type {
@@ -149,6 +150,18 @@ const post  = <T>(p: string, b: unknown) => req<T>('POST',   p, b)
 const put   = <T>(p: string, b: unknown) => req<T>('PUT',    p, b)
 const patch = <T>(p: string, b: unknown) => req<T>('PATCH',  p, b)
 const del   = <T>(p: string)             => req<T>('DELETE', p)
+
+const settlementPath = (id: string) => `/deboning/takes/${encodeURIComponent(id)}/settlement`
+export const takeSettlementApi = {
+  mode: (batchId: string) => get<{ mode: 'worker' | 'legacy' }>(`/deboning/batches/${encodeURIComponent(batchId)}/settlement-mode`),
+  get: (id: string) => get<TakeSettlement>(settlementPath(id)),
+  start: (id: string) => post<TakeSettlement>(`${settlementPath(id)}/start`, {}),
+  weigh: (id: string, dto: SettlementMeasurement) => post<TakeSettlement>(`${settlementPath(id)}/weigh`, dto),
+  advance: (id: string, stage: SettlementKind, overrideYield = false) => post<TakeSettlement>(`${settlementPath(id)}/advance`, { stage, overrideYield }),
+  reopen: (id: string, stage: SettlementKind) => post<TakeSettlement>(`${settlementPath(id)}/reopen`, { stage }),
+  correct: (id: string, weighingId: string, dto: SettlementMeasurement) => post<TakeSettlement>(`${settlementPath(id)}/weighings/${encodeURIComponent(weighingId)}/correct`, dto),
+  finish: (id: string) => post<TakeSettlement>(`${settlementPath(id)}/finish`, {}),
+}
 
 /** Pobierz PDF endpointu dokumentów (HDI/WZ/CMR) Z SESJĄ. Zwykły <a href> /
  * window.open idzie bez nagłówka Authorization i dostaje 401 (prod

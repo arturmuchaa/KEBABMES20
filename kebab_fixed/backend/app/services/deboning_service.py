@@ -61,6 +61,7 @@ def _map_deboning_entry(row: Dict) -> Dict:
         "e2Count": row.get("e2_count"),
         "weighMode": row.get("weigh_mode"),
         "status": row.get("status") or "complete",
+        "settlementStage": row.get("settlement_stage"),
         "completedAt": str(row.get("completed_at") or "") or None,
         "createdAt": str(row.get("created_at") or ""),
     }
@@ -1114,6 +1115,9 @@ def create_deboning_entry(
                 f"{batch.get('status')} — rozbiór niemożliwy",
             )
 
+        from app.services.take_settlement_service import require_legacy_batch
+        require_legacy_batch(conn, batch["id"])
+
         expiry_err = validate_batch_expiry(batch.get("expiry_date"))
         if expiry_err:
             raise HTTPException(400, expiry_err)
@@ -1436,6 +1440,9 @@ def weigh_part_deboning_take(entry_id: str, dto) -> Dict:
         )
         if not entry:
             raise HTTPException(404, "Pobranie nie znalezione")
+        from app.services.take_settlement_service import require_legacy_batch, require_legacy_entry
+        require_legacy_entry(entry)
+        require_legacy_batch(conn, entry["raw_batch_id"])
         if (entry.get("status") or "complete") != "pending":
             raise HTTPException(409, "Pobranie już domknięte lub nie jest pobraniem")
 
@@ -1506,6 +1513,11 @@ def create_deboning_take(dto) -> Dict:
             )
         if not batch:
             raise HTTPException(404, f"Partia nie znaleziona (raw_batch_id={raw_batch_id!r})")
+        mode = batch.get("deboning_mode")
+        if getattr(dto, "per_worker", False) and mode is None:
+            from app.services.take_settlement_service import batch_mode
+            mode = batch_mode(conn, batch["id"])
+            cx_execute(conn, "UPDATE raw_batches SET deboning_mode=%s WHERE id=%s", (mode, batch["id"]))
         if batch.get("status") != "active":
             raise HTTPException(
                 400,
@@ -1549,6 +1561,8 @@ def create_deboning_take(dto) -> Dict:
             (batch["id"], worker_id, session_id, meat_type),
         )
         if existing:
+            if existing.get("settlement_stage") not in (None, "meat"):
+                raise HTTPException(409, "Najpierw dokończ rozliczenie pracownika — grzbiety i kości są już ważone")
             entry = cx_execute_returning(
                 conn,
                 "UPDATE deboning_entries SET kg_quarter = kg_quarter + %s, "
@@ -1610,6 +1624,10 @@ def create_deboning_take(dto) -> Dict:
                 "deboning.take.created", extra={"entry_id": entry_id, "kg_taken": kg_taken}
             )
 
+        if mode == "worker":
+            cx_execute(conn, "UPDATE deboning_entries SET settlement_stage=COALESCE(settlement_stage,'meat') WHERE id=%s", (entry["id"],))
+            entry["settlement_stage"] = entry.get("settlement_stage") or "meat"
+
     _auto_finish_exhausted(batch["id"], after["kg_available"] if after else None)
     return _map_deboning_entry(entry)  # type: ignore[arg-type]
 
@@ -1643,6 +1661,8 @@ def update_deboning_take(entry_id: str, dto) -> Dict:
         )
         if not entry:
             raise HTTPException(404, "Pobranie nie znalezione")
+        if entry.get("settlement_stage") and cx_query_one(conn, "SELECT 1 FROM deboning_settlement_weighings WHERE entry_id=%s LIMIT 1", (entry_id,)):
+            raise HTTPException(409, "Rozliczenie już rozpoczęte — nie zmieniaj nominalnej masy pobrania")
         if entry.get("raw_batch_id") != batch.get("id"):
             raise HTTPException(409, "Wpis zmienił partię w trakcie — spróbuj ponownie")
         if (entry.get("status") or "complete") != "pending":
@@ -1708,6 +1728,9 @@ def complete_deboning_take(entry_id: str, dto, by: str = "") -> Dict:
         )
         if not entry:
             raise HTTPException(404, "Pobranie nie znalezione")
+        from app.services.take_settlement_service import require_legacy_batch, require_legacy_entry
+        require_legacy_entry(entry)
+        require_legacy_batch(conn, entry["raw_batch_id"])
         if (entry.get("status") or "complete") != "pending":
             raise HTTPException(409, "Pobranie już domknięte lub nie jest pobraniem")
 
@@ -1852,6 +1875,8 @@ def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate, by_subject: s
         )
         if not existing:
             raise HTTPException(404, "Wpis rozbioru nie znaleziony")
+        from app.services.take_settlement_service import require_legacy_entry
+        require_legacy_entry(existing)
 
         if existing.get("session_id"):
             session_row = cx_query_one(
@@ -2053,6 +2078,8 @@ def delete_deboning_entry(entry_id: str, office_correction: bool = False,
         )
         if not entry:
             raise HTTPException(404, "Wpis rozbioru nie znaleziony")
+        if entry.get("settlement_stage") and (entry.get("status") == "complete" or cx_query_one(conn, "SELECT 1 FROM deboning_settlement_weighings WHERE entry_id=%s LIMIT 1", (entry_id,))):
+            raise HTTPException(409, "Pobranie ma rozliczenie pracownika — nie można usuwać zapisanych ważeń")
         if entry.get("raw_batch_id") != peek.get("raw_batch_id"):
             raise HTTPException(409, "Wpis zmienił partię w trakcie — spróbuj ponownie")
 
@@ -2207,6 +2234,8 @@ def change_deboning_entry_batch(
         )
         if not entry:
             raise HTTPException(404, "Wpis rozbioru nie znaleziony")
+        from app.services.take_settlement_service import require_legacy_entry, require_legacy_batch
+        require_legacy_entry(entry)
         if (entry.get("status") or "complete") != "complete":
             raise HTTPException(
                 400, "Zmiana partii możliwa tylko dla zakończonego wpisu"
@@ -2236,6 +2265,7 @@ def change_deboning_entry_batch(
         )
         if not new_batch:
             raise HTTPException(404, "Docelowa partia surowca nie znaleziona")
+        require_legacy_batch(conn, new_batch["id"])
         new_batch_no = new_batch.get("internal_batch_no")
 
         kg_quarter = float(entry.get("kg_quarter") or 0)
@@ -2440,6 +2470,8 @@ def correct_deboning_entry(
         )
         if not entry:
             raise HTTPException(404, "Wpis rozbioru nie znaleziony")
+        from app.services.take_settlement_service import require_legacy_entry
+        require_legacy_entry(entry)
 
         changes: Dict[str, Any] = {}
 

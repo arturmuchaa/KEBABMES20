@@ -51,6 +51,10 @@ vi.mock('@/lib/apiClient', () => ({
 }))
 vi.mock('@/lib/api', () => ({
   BASE: 'http://test',
+  takeSettlementApi: {
+    mode: vi.fn(async () => ({ mode: 'legacy' })),
+    start: vi.fn(async () => ({ mode: 'legacy' })),
+  },
   meatPalletsApi: { list: async () => stan.pallets, create: vi.fn() },
   meatStockApi:   { list: async () => ({ data: stan.lots }) },
 }))

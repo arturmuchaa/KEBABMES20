@@ -12,6 +12,7 @@ from app.db import (
     query_all, query_one, transaction,
 )
 from app.logging_config import get_logger
+from app.deboning_settlement_schema import DDL as DEBONING_SETTLEMENT_DDL
 from app.mroznia_schema import DDL as MROZNIA_DDL
 from app.utils.pallets import pallet_containers
 from app.services.product_catalog_service import (
@@ -24,6 +25,7 @@ from app.utils.stock_codes import (
 logger = get_logger(__name__)
 
 _DDL: list[str] = [
+    *DEBONING_SETTLEMENT_DDL,
     # ── Product types ──
     "ALTER TABLE product_types ADD COLUMN IF NOT EXISTS description TEXT",
     "ALTER TABLE product_types ADD COLUMN IF NOT EXISTS components JSONB DEFAULT '[]'",
