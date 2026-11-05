@@ -62,6 +62,7 @@ def _map_deboning_entry(row: Dict) -> Dict:
         "weighMode": row.get("weigh_mode"),
         "status": row.get("status") or "complete",
         "settlementStage": row.get("settlement_stage"),
+        "settlementException": row.get("settlement_exception"),
         "completedAt": str(row.get("completed_at") or "") or None,
         "createdAt": str(row.get("created_at") or ""),
     }

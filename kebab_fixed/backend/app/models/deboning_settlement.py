@@ -37,5 +37,12 @@ class SettlementAdvance(BaseModel):
     override_yield: bool = Field(False, alias="overrideYield")
 
 
+class SettlementFinish(BaseModel):
+    """Optional: closing OUTSIDE the tolerance needs the manager's code and a reason."""
+    model_config = ConfigDict(populate_by_name=True)
+    exception_code: Optional[str] = Field(None, alias="exceptionCode", max_length=20)
+    exception_reason: Optional[str] = Field(None, alias="exceptionReason", max_length=200)
+
+
 class SettlementReopen(BaseModel):
     stage: Literal["meat", "backs", "bones"]

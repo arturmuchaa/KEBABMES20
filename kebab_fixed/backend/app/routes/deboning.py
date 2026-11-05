@@ -13,7 +13,7 @@ from app.services import deboning_service as svc
 from app.services import batch_byproducts_service as byproducts_svc
 from app.services import settings_service
 from app.services import take_settlement_service as settlement
-from app.models.deboning_settlement import SettlementWeighing, SettlementAdvance, SettlementReopen
+from app.models.deboning_settlement import SettlementWeighing, SettlementAdvance, SettlementReopen, SettlementFinish
 
 router = APIRouter(tags=["deboning"])
 
@@ -294,8 +294,9 @@ def correct_settlement(entry_id: str, weighing_id: str, dto: SettlementWeighing,
 
 
 @router.post("/api/deboning/takes/{entry_id}/settlement/finish")
-def finish_settlement(entry_id: str, request: Request):
-    return settlement.finish(entry_id, _subject_of(request))
+def finish_settlement(entry_id: str, request: Request, dto: SettlementFinish = SettlementFinish()):
+    return settlement.finish(entry_id, _subject_of(request),
+                             exception_code=dto.exception_code, exception_reason=dto.exception_reason)
 
 
 @router.post("/api/deboning/takes/{entry_id}/weigh-part")

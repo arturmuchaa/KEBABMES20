@@ -160,7 +160,9 @@ export const takeSettlementApi = {
   advance: (id: string, stage: SettlementKind, overrideYield = false) => post<TakeSettlement>(`${settlementPath(id)}/advance`, { stage, overrideYield }),
   reopen: (id: string, stage: SettlementKind) => post<TakeSettlement>(`${settlementPath(id)}/reopen`, { stage }),
   correct: (id: string, weighingId: string, dto: SettlementMeasurement) => post<TakeSettlement>(`${settlementPath(id)}/weighings/${encodeURIComponent(weighingId)}/correct`, dto),
-  finish: (id: string) => post<TakeSettlement>(`${settlementPath(id)}/finish`, {}),
+  /** Outside the tolerance: the manager's code + reason (checked by the server). */
+  finish: (id: string, exception?: { code: string; reason: string }) =>
+    post<TakeSettlement>(`${settlementPath(id)}/finish`, exception ? { exceptionCode: exception.code, exceptionReason: exception.reason } : {}),
 }
 
 /** Pobierz PDF endpointu dokumentów (HDI/WZ/CMR) Z SESJĄ. Zwykły <a href> /

@@ -204,3 +204,45 @@ def test_yield_guard_stays_independent_of_total_mass(db):
     with pytest.raises(HTTPException): advance(entry, 'meat')
     svc.advance(entry, SettlementAdvance(stage='meat', overrideYield=True), 'operator')
     assert query_one('SELECT COUNT(*) AS n FROM deboning_entry_corrections WHERE entry_id=%s', (entry,))['n'] == 1
+
+
+# ── Wyjątek kierownika: bilans poza tolerancją, kod + powód, ślad ──────────
+def out_of_tolerance(entry):
+    svc.start(entry)
+    return ready(entry, bones=30)          # 200 + 55 + 30 = 285 of 300: -15 kg, tolerance ±3 kg
+
+
+def test_out_of_tolerance_needs_manager_code_and_reason_and_leaves_trace(db, monkeypatch):
+    monkeypatch.setenv('KIOSK_SERVICE_CODE', '4321')
+    seed(); entry = take()
+    out_of_tolerance(entry)
+    with pytest.raises(HTTPException) as e:
+        svc.finish(entry, 'operator')
+    assert e.value.status_code == 400 and 'kodu kierownika' in e.value.detail
+    with pytest.raises(HTTPException) as e:
+        svc.finish(entry, 'operator', exception_code='0000', exception_reason='Mięso upadło')
+    assert e.value.status_code == 403
+    with pytest.raises(HTTPException) as e:
+        svc.finish(entry, 'operator', exception_code='4321', exception_reason=' ')
+    assert e.value.status_code == 400
+    assert query_one('SELECT status, settlement_stage FROM deboning_entries WHERE id=%s', (entry,)) == {
+        'status': 'pending', 'settlement_stage': 'balance'}
+    result = svc.finish(entry, 'MARCIN', exception_code='4321', exception_reason='Mięso upadło / odpad')
+    assert result['status'] == 'complete' and result['stage'] == 'done'
+    exc = result['settlementException']
+    assert exc['reason'] == 'Mięso upadło / odpad' and exc['by'] == 'MARCIN'
+    assert exc['differenceKg'] == -15 and exc['toleranceKg'] == 3
+    trail = query_one("SELECT reason, changes FROM deboning_entry_corrections WHERE entry_id=%s", (entry,))
+    assert 'poza tolerancją' in trail['reason'] and trail['changes']['differenceKg'] == -15
+    # Real weights only: no kilograms are invented to hide the loss.
+    lots = {r['kind']: float(r['kg']) for r in query_all('SELECT kind, kg FROM byproduct_lots WHERE deboning_entry_id=%s', (entry,))}
+    assert lots == {'backs': 55, 'bones': 30}
+    assert svc.finish(entry, 'MARCIN', exception_code='4321', exception_reason='Mięso upadło / odpad')['status'] == 'complete'
+
+
+def test_within_tolerance_ignores_exception_fields(db, monkeypatch):
+    monkeypatch.setenv('KIOSK_SERVICE_CODE', '4321')
+    seed(); entry = take()
+    svc.start(entry); ready(entry)
+    result = svc.finish(entry, 'operator', exception_code='0000', exception_reason='niepotrzebny')
+    assert result['status'] == 'complete' and result['settlementException'] is None
