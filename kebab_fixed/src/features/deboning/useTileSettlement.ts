@@ -19,7 +19,13 @@ export const tileStage = (s: TakeSettlement | null): SettlementKind | null =>
  * with the SAME id and body — never a second measurement. A definitive 4xx
  * clears it so the operator can weigh again.
  */
-export function useTileSettlement() {
+export function useTileSettlement(opts: {
+  /** Meat weighed together with the take (saved by itself when the tile opens): the page
+   *  needs the same follow-up as after "ZAPISZ" — drive off, 200 kg label, or the error. */
+  onInitialResult?: (error: string | null, measurement: SettlementMeasurement) => void
+} = {}) {
+  const onInitialRef = useRef(opts.onInitialResult)
+  onInitialRef.current = opts.onInitialResult
   const [state, setStateRaw] = useState<TakeSettlement | null>(null)
   // Latest server state for chained steps (correction → back to where the operator was).
   const latestRef = useRef<TakeSettlement | null>(null)
@@ -81,7 +87,7 @@ export function useTileSettlement() {
     const first = initialRef.current
     if (!state || !first || pending) return
     initialRef.current = null   // cleared before sending: a re-run never sends it twice
-    void send(first)
+    void send(first).then(err => onInitialRef.current?.(err, first.measurement))
   }, [state?.id, pending, send])
 
   const weigh = useCallback((m: Omit<SettlementMeasurement, 'requestId'>) =>

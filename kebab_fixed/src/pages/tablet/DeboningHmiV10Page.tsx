@@ -27,7 +27,7 @@ import { SettlementExceptionModal } from '@/features/deboning/SettlementExceptio
 import { ServiceCodeModal } from '@/features/deboning/ServiceCodeModal'
 import { ByproductPalletCheckModal } from '@/features/deboning/ByproductPalletCheckModal'
 import { SERVICE_CODE } from '@/features/deboning/ServiceMenu'
-import { SETTLEMENT_LABEL, SETTLEMENT_STAGES, type TakeSettlement, type SettlementInitial, type SettlementKind, type SettlementStage } from '@/features/deboning/settlement'
+import { SETTLEMENT_LABEL, SETTLEMENT_STAGES, type TakeSettlement, type SettlementInitial, type SettlementKind, type SettlementStage, type SettlementMeasurement } from '@/features/deboning/settlement'
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
 import { useProductionSession, useDeboningEntries } from '@/features/deboning/hooks'
@@ -687,7 +687,10 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [settlementOpening, setSettlementOpening] = useState(false)
   // Rozliczenie pobrania W KAFELKU ważenia (decyzja z hali 2026-11-05): mięso →
   // DALEJ → grzbiety → DALEJ → kości na głównym ekranie, bez osobnego okna.
-  const tile = useTileSettlement()
+  // Mięso zważone razem z pobraniem zapisuje się samo po otwarciu kafelka — ten sam ciąg dalszy co po
+  // ZAPISZ: zjedź z wagi, etykieta przy równych 200 kg, błąd na ekranie (hala 2026-11-06, KATERYNA 11:47).
+  const tile = useTileSettlement({ onInitialResult: (err, m) => initialMeatResultRef.current?.(err, m) })
+  const initialMeatResultRef = useRef<((err: string | null, m: SettlementMeasurement) => void) | null>(null)
   const tileSt = tile.state
   const tileKind = tileStage(tileSt)
   const [mustUnload, setMustUnload] = useState(false)
@@ -1286,6 +1289,17 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     return true
   }
 
+  initialMeatResultRef.current = (err, m) => {
+    if (err) { showToast(`Mięso nie zapisane: ${err}`, 'err'); return }
+    showToast(`Zapisano mięso: ${fmtKg(m.kgNet, 1)} kg — zjedź z wagi, potem grzbiety`)
+    const s = tile.latest()
+    const batch = s ? ((batchData.data?.data ?? []) as RawBatch[]).find(b => b.id === s.rawBatchId) : undefined
+    if (s && batch && m.weighMode === 'auto' && isSettlementAutoLabel(m.kgNet)) {
+      void printMeatPalletLabel({ batch, netKg: m.kgNet, containers: m.e2Count ?? 0, cartTare: m.tareCartKg ?? null,
+        lotNo: s.meatType === 'bs' ? `${batch.internalBatchNo}-BS` : undefined, targetKg: SETTLEMENT_AUTO_LABEL_KG })
+    }
+  }
+
   /** DALEJ z bieżącego etapu serwera (po zapisie stan z tile.latest(), nie z renderu). */
   async function advanceTile(): Promise<boolean> {
     const s = tile.latest()
@@ -1683,6 +1697,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       if (!created) { showToast('Pobranie zapisane — otwórz rozliczenie z kafelka pracownika', 'err'); return true }
       const state = await takeSettlementApi.start(created.id)
       openTile(state, initial)
+      // Wózek z mięsem stoi jeszcze na wadze: grzbiety dopiero po zjeździe (jak po ZAPISZ w kafelku).
+      if (initial.kgNet > 0 && initial.weighMode === 'auto') setMustUnload(true)
       return true
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Nie udało się otworzyć rozliczenia', 'err')
