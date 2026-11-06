@@ -7,7 +7,6 @@ import { EtapLabel, FlagIcon, StageNode } from '../../ui/Glyphs'
 import { CoverMeter, ProdMeter } from '../../ui/Meters'
 import { OrderDetail, orderCommands, widoczneZakladki } from './OrderDetail'
 import { useOrderActions, dozwolone } from './akcje'
-import { W_STARYM_MES } from '../../proba'
 import { useDock } from '../../shell/useDock'
 import { SzkieletWierszy } from '../../ui/Szkielet'
 import { Pusto } from '../../ui/Pusto'
@@ -459,7 +458,6 @@ const OrderRow = React.memo(function OrderRow({ r, zebra, sel, checked, onClick,
 
 // ─── Zapotrzebowanie na masowanie (zaznaczone) ────────────────────────────
 function RequirementsDialog({ rows, onClose }: { rows: Row[]; onClose: () => void }) {
-  const app = useApp()
   const open = rows.filter(r => !isClosed(r.o) && r.o.status !== 'draft')
   // Liczby z backendu (line.mixing) — ta sama zasada co w starym MES: zaokrąglenie po recepturze.
   const list = mixingByRecipe(open.flatMap(r => r.o.lines.map(line => ({ line, orderNo: r.o.no }))))
@@ -469,8 +467,7 @@ function RequirementsDialog({ rows, onClose }: { rows: Row[]; onClose: () => voi
   const skipped = rows.length - open.length
   return (
     <Dialog wide title="Zapotrzebowanie na masowanie" icon={<Calculator size={20} color="var(--accent)" />} onClose={onClose}
-      footer={<><span className="left">Dla {open.length} zamówień · brakującego wyrobu</span><button className="btn" onClick={onClose}>Zamknij</button>
-        <button className="btn primary" onClick={() => { onClose(); app.toast({ kind: 'info', title: 'Przekazanie do planu masowania', detail: W_STARYM_MES }) }} disabled={!list.length}>Przekaż do planu masowania</button></>}>
+      footer={<><span className="left">Dla {open.length} zamówień · brakującego wyrobu</span><button className="btn primary" onClick={onClose}>Zamknij</button></>}>
       <div className="req-sum">
         <div className="f"><span className="k">Mięso do masowania</span><span className="v">{kg(total)}{unknown.length > 0 && <small className="warn-ink"> + nieznane</small>}</span></div>
         <div className="f"><span className="k">Wyrób do zmasowania</span><span className="v">{kg(remaining)}</span></div>

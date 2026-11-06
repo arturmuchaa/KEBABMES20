@@ -351,7 +351,10 @@ function Shell() {
     ] },
     { key: 'modul', label: modLabel, access: modAccess, items: modCmds.length ? byGroup(modCmds) : [{ label: 'Brak poleceń dla tego okna', disabled: true }] },
     { key: 'raporty', label: 'Raporty', access: 'r', items: [
-      ...['Raport dzienny produkcji', 'Realizacja zamówień wg klienta', 'Terminowość dostaw', 'Stany magazynowe na dzień', 'Wydajność rozbioru'].map(l => ({ label: l, icon: <FileBarChart size={15} />, onSelect: () => openModule('raporty') })),
+      // Tylko raporty, które istnieją (dziś w starym MES — zaślepka prowadzi). Prototyp miał tu 4 wymyślone.
+      { label: 'Raport rozbioru za okres', icon: <FileBarChart size={15} />, onSelect: () => openModule('raporty') },
+      { label: 'Statystyki rozbioru', icon: <FileBarChart size={15} />, onSelect: () => openModule('rozbior') },
+      { label: 'Analityka', icon: <FileBarChart size={15} />, onSelect: () => openModule('analityka') },
     ] },
     { key: 'narzedzia', label: 'Narzędzia', access: 'n', items: [
       { header: 'Pozostałe moduły' },
@@ -390,12 +393,9 @@ function Shell() {
     ] },
     { id: 's1', sep: true },
     { id: 'plan', label: 'Plan produkcji', icon: <ClipboardList size={16} />, tip: 'Otwórz plan produkcji', run: () => openModule('plan-produkcji') },
-    { id: 'report', label: 'Raport dzienny', icon: <FileBarChart size={16} />, tip: 'Raport dzienny produkcji', run: () => openModule('raporty') },
     { id: 's2', sep: true },
     { id: 'print', label: 'Drukuj', icon: <Printer size={16} />, kbd: 'Ctrl+P', tip: `Wydruki okna: ${modLabel}`, menu: [
       { header: `Wydruki · ${activeTab.title}` }, ...printItems,
-      { sep: true }, { header: 'Raporty' },
-      { label: 'Raport dzienny produkcji', icon: <FileText size={15} />, onSelect: () => openModule('raporty') },
     ] },
     { id: 'refresh', label: 'Odśwież', icon: <RefreshCw size={16} />, kbd: 'F5', run: reload },
     { id: 'grow', grow: true },

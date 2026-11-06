@@ -92,13 +92,15 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
     if (o) { setView('allocated'); setQ(o.no); setRecipes([]); const first = stock.find(p => p.orderId === o.id); setSel(first?.id ?? null); setTab('alloc') }
   }, [cmd]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const VIEWS: Array<{ key: View; label: string; tip: string; test: (r: Row) => boolean }> = [
+  // `zDanych`: widok zależy od pola, którego API wyrobu jeszcze nie podaje (status palety/blokady, data przydatności,
+  // BRAKI_API.md) — pokazujemy go dopiero, gdy coś w nim jest. Inaczej zawsze „0” udaje, że problemu nie ma.
+  const VIEWS: Array<{ key: View; label: string; tip: string; test: (r: Row) => boolean; zDanych?: boolean }> = [
     { key: 'all', label: 'Wszystko', tip: 'Cały wyrób gotowy na stanie', test: () => true },
     { key: 'free', label: 'Wolne', tip: 'Wiersz magazynu bez numeru zamówienia', test: r => !r.p.orderNo && r.p.status !== 'blocked' },
     { key: 'allocated', label: 'Przydzielone', tip: 'Przydzielone do zamówienia (stempel zamówienia z produkcji)', test: r => !!r.p.orderNo },
-    { key: 'pallet', label: 'Na paletach', tip: 'Spakowane na palety wydania', test: r => r.p.status === 'pallet' },
-    { key: 'blocked', label: 'Zablokowane', tip: 'Blokada jakościowa', test: r => r.p.status === 'blocked' },
-    { key: 'short', label: 'Krótka data', tip: `Przydatność ≤ ${SHORT_DAYS} dni (API nie podaje jeszcze daty przydatności)`, test: r => { const d = daysLeft(r.p); return d !== null && d <= SHORT_DAYS } },
+    { key: 'pallet', label: 'Na paletach', tip: 'Spakowane na palety wydania', test: r => r.p.status === 'pallet', zDanych: true },
+    { key: 'blocked', label: 'Zablokowane', tip: 'Blokada jakościowa', test: r => r.p.status === 'blocked', zDanych: true },
+    { key: 'short', label: 'Krótka data', tip: `Przydatność ≤ ${SHORT_DAYS} dni`, test: r => { const d = daysLeft(r.p); return d !== null && d <= SHORT_DAYS }, zDanych: true },
   ]
   const counts = Object.fromEntries(VIEWS.map(v => [v.key, rows.filter(v.test).length])) as Record<View, number>
 
@@ -226,7 +228,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
 
   const widoki = (
     <div className="seg" role="group" aria-label="Widoki magazynu">
-      {VIEWS.map(v => (
+      {VIEWS.filter(v => !v.zDanych || counts[v.key] > 0 || view === v.key).map(v => (
         <button key={v.key} aria-pressed={widok === 'wyrob' && view === v.key} data-tip={v.tip} onClick={() => { setWidok('wyrob'); setView(v.key) }}>
           {v.label}<span className={`count${(v.key === 'blocked' || v.key === 'short') && counts[v.key] ? ' crit' : ''}`}>{counts[v.key]}</span>
         </button>
