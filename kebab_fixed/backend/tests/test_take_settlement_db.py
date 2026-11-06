@@ -81,13 +81,13 @@ def test_complete_flow_preserves_real_weights_and_does_not_invent_loss_stock(db)
     assert costs['bonesPct'] == 14.67
 
 
-@pytest.mark.parametrize('bones,accepted', [(42, True), (48, True), (41.99, False), (48.01, False)])
-def test_finish_enforces_one_percent_on_server(db, bones, accepted):
+@pytest.mark.parametrize('bones,accepted', [(43.5, True), (49.5, True), (43.49, False), (49.51, False)])
+def test_finish_enforces_tolerance_on_server(db, bones, accepted):
     seed(); entry = take(); ready(entry, bones)
     if accepted:
         assert svc.finish(entry)['status'] == 'complete'
     else:
-        with pytest.raises(HTTPException, match='±1%'):
+        with pytest.raises(HTTPException, match=r'\+1.5% / −0.5%'):
             svc.finish(entry)
         assert svc.get(entry)['stage'] == 'balance'
         assert not query_all('SELECT * FROM byproduct_lots')
@@ -178,17 +178,17 @@ def test_legacy_partial_meat_can_resume_without_receiving_twice(db):
 def test_correction_preserves_audit_updates_ledger_and_requires_reconfirming(db):
     seed(); entry = take(); ready(entry)
     measurement = svc.get(entry)['weighings'][0]
-    correction = dto('meat', 199, reason='Poprawiona tara')
+    correction = dto('meat', 199.5, reason='Poprawiona tara')
     state = svc.correct(entry, measurement['id'], correction, 'operator')
-    assert state['stage'] == 'meat' and state['meatKg'] == 199
+    assert state['stage'] == 'meat' and state['meatKg'] == 199.5
     svc.correct(entry, measurement['id'], correction, 'operator')
-    assert float(query_one("SELECT kg_available FROM meat_stock WHERE lot_no='901'")['kg_available']) == 199
-    assert float(query_one("SELECT SUM(qty) AS kg FROM stock_movements WHERE product_type='meat'")['kg']) == 199
+    assert float(query_one("SELECT kg_available FROM meat_stock WHERE lot_no='901'")['kg_available']) == 199.5
+    assert float(query_one("SELECT SUM(qty) AS kg FROM stock_movements WHERE product_type='meat'")['kg']) == 199.5
     history = query_one('SELECT corrections FROM deboning_settlement_weighings WHERE id=%s', (measurement['id'],))['corrections']
     assert len(history) == 1 and history[0]['before']['kg_net'] == '200.0'
     with pytest.raises(HTTPException): svc.finish(entry)
     advance(entry, 'meat'); advance(entry, 'backs'); advance(entry, 'bones')
-    assert svc.finish(entry)['totalKg'] == 298
+    assert svc.finish(entry)['totalKg'] == 298.5
 
 
 def test_correction_never_steals_consumed_meat(db):
@@ -231,7 +231,7 @@ def test_out_of_tolerance_needs_manager_code_and_reason_and_leaves_trace(db, mon
     assert result['status'] == 'complete' and result['stage'] == 'done'
     exc = result['settlementException']
     assert exc['reason'] == 'Mięso upadło / odpad' and exc['by'] == 'MARCIN'
-    assert exc['differenceKg'] == -15 and exc['toleranceKg'] == 3
+    assert exc['differenceKg'] == -15 and exc['toleranceKg'] == 1.5
     trail = query_one("SELECT reason, changes FROM deboning_entry_corrections WHERE entry_id=%s", (entry,))
     assert 'poza tolerancją' in trail['reason'] and trail['changes']['differenceKg'] == -15
     # Real weights only: no kilograms are invented to hide the loss.
@@ -284,7 +284,7 @@ def test_settled_take_with_correction_is_fully_reversed(db, monkeypatch):
     monkeypatch.setenv('KIOSK_SERVICE_CODE', '4321')
     seed(); other = take('w2', kg=100); svc.start(other)
     weigh(other, 'meat', 66); advance(other, 'meat'); weigh(other, 'backs', 18); advance(other, 'backs')
-    weigh(other, 'bones', 15); advance(other, 'bones'); svc.finish(other)
+    weigh(other, 'bones', 16); advance(other, 'bones'); svc.finish(other)
     entry = take(kg=200); svc.start(entry)
     first = weigh(entry, 'meat', 130)['weighings'][0]['id']
     svc.correct(entry, first, dto('meat', 132, reason='Poprawiona tara'), 'operator')
@@ -293,9 +293,9 @@ def test_settled_take_with_correction_is_fully_reversed(db, monkeypatch):
     deb.delete_deboning_entry(entry, hall_correction=True, by_subject='MARCIN', service_code='4321')
     assert float(query_one("SELECT kg_available FROM raw_batches WHERE id='settle-batch'")['kg_available']) == 200
     assert float(query_one("SELECT kg_available FROM meat_stock WHERE lot_no='901'")['kg_available']) == 66
-    assert [(r['kind'], float(r['kg'])) for r in query_all('SELECT kind, kg FROM byproduct_lots ORDER BY kind')] == [('backs', 18), ('bones', 15)]
+    assert [(r['kind'], float(r['kg'])) for r in query_all('SELECT kind, kg FROM byproduct_lots ORDER BY kind')] == [('backs', 18), ('bones', 16)]
     agg = bp.get('settle-batch')
-    assert agg['backsKg'] == 18 and agg['bonesKg'] == 15
+    assert agg['backsKg'] == 18 and agg['bonesKg'] == 16
     row = query_one("SELECT quarter_kg, backs_pallets FROM batch_byproducts WHERE raw_batch_id='settle-batch'")
     assert float(row['quarter_kg']) == 100 and [p['entryId'] for p in row['backs_pallets']] == [other]
     _ledger_ok()
@@ -325,7 +325,7 @@ def test_take_amount_fixed_with_service_code_after_settlement_started(db, monkey
     assert 'zważono już' in err.value.detail
     deb.update_deboning_take(entry, DeboningTakeUpdate(kgTaken=250, serviceCode='4321'), 'MARCIN')
     state = svc.get(entry)
-    assert state['kgTaken'] == 250 and state['minKg'] == 247.5 and state['maxKg'] == 252.5
+    assert state['kgTaken'] == 250 and state['minKg'] == 248.75 and state['maxKg'] == 253.75
     assert float(query_one("SELECT kg_available FROM raw_batches WHERE id='settle-batch'")['kg_available']) == 50
     trace = query_one('SELECT by_subject, changes FROM deboning_entry_corrections WHERE entry_id=%s', (entry,))
     assert trace['by_subject'] == 'MARCIN' and trace['changes']['kgQuarter'] == {'przed': 300.0, 'po': 250.0}

@@ -1,7 +1,7 @@
 import { useState, type CSSProperties } from 'react'
 import { AlertTriangle, Delete } from 'lucide-react'
 import { fmtKg } from '@/lib/utils'
-import type { TakeSettlement } from './settlement'
+import { toleranceLabel, type TakeSettlement } from './settlement'
 
 export const EXCEPTION_REASONS = [
   'Mięso upadło / odpad',
@@ -11,7 +11,7 @@ export const EXCEPTION_REASONS = [
 ]
 
 /**
- * Closing a take OUTSIDE ±1%: a conscious manager decision with a reason.
+ * Closing a take OUTSIDE the tolerance (+1.5 % / −0.5 %): a conscious manager decision with a reason.
  * The code is verified by the server; weights stay exactly as measured.
  */
 export function SettlementExceptionModal({ s, vars, busy, error, onCancel, onConfirm }: {
@@ -39,7 +39,7 @@ export function SettlementExceptionModal({ s, vars, busy, error, onCancel, onCon
             <h3 className="font-extrabold text-xl leading-tight">Zatwierdź poza tolerancją — {s.workerName}</h3>
             <p className="text-sm mt-1" style={{ color: 'var(--mut)' }}>
               {diff < 0 ? 'Brakuje' : 'Nadmiar'} {fmtKg(Math.abs(diff), 1)} kg z {fmtKg(Number(s.kgTaken), 1)} kg
-              (dopuszczalne ±{fmtKg(s.toleranceKg, 1)} kg). Wagi zostaną zapisane tak, jak zważono — bez dopisywania kilogramów.
+              (dopuszczalne {toleranceLabel(s)} = {fmtKg(s.minKg, 1)}–{fmtKg(s.maxKg, 1)} kg). Wagi zostaną zapisane tak, jak zważono — bez dopisywania kilogramów.
             </p>
           </div>
         </div>

@@ -655,7 +655,7 @@ const SaveSummaryCard = memo(function SaveSummaryCard({ s, onClose }: { s: SaveS
       {prog && <div style={{ minWidth: 560 }}><TakeProgressBarV10 p={prog} compact /></div>}
       {st?.exceptionReason && (
         <div className="text-[13px] font-bold px-3 py-1.5" style={{ borderRadius: 8, background: 'var(--ambSoft)', border: '1px solid var(--ambLine)', color: 'var(--amb)' }}>
-          Poza tolerancją ±1% — powód: {st.exceptionReason}. Widoczne w raporcie rozbioru.
+          Poza tolerancją — powód: {st.exceptionReason}. Widoczne w raporcie rozbioru.
         </div>
       )}
       </div>
@@ -2340,7 +2340,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         </div>
       )}
 
-      {/* Bilans poza ±1% — świadoma decyzja kierownika: kod + powód, ślad w raporcie. */}
+      {/* Bilans poza tolerancją — świadoma decyzja kierownika: kod + powód, ślad w raporcie. */}
       {exceptionOpen && tileSt && (
         <SettlementExceptionModal s={tileSt} vars={VARS} busy={tile.busy} error={exceptionError}
           onCancel={() => { setExceptionOpen(false); setExceptionError('') }}

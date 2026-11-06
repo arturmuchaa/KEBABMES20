@@ -1,6 +1,6 @@
 import { Check, AlertTriangle } from 'lucide-react'
 import { fmtKg, fmtPct } from '@/lib/utils'
-import { SETTLEMENT_LABEL, type SettlementKind, type TakeSettlement } from './settlement'
+import { SETTLEMENT_LABEL, toleranceLabel, type SettlementKind, type TakeSettlement } from './settlement'
 
 const KINDS: SettlementKind[] = ['meat', 'backs', 'bones']
 
@@ -52,7 +52,7 @@ export function SettlementBalancePanel({ s, onFix, busy }: {
               : `${diff < 0 ? 'Brakuje' : 'Nadmiar'} ${fmtKg(Math.abs(diff), 1)} kg`}
           </div>
           <div className="text-[14px] font-semibold" style={{ color: 'var(--mut)' }}>
-            Bilans {fmtPct(s.balancePct, 1)} · dopuszczalne ±{s.tolerancePct}% = {fmtKg(s.minKg, 1)}–{fmtKg(s.maxKg, 1)} kg
+            Bilans {fmtPct(s.balancePct, 1)} · dopuszczalne {toleranceLabel(s)} = {fmtKg(s.minKg, 1)}–{fmtKg(s.maxKg, 1)} kg
             {ok ? '' : ' · sprawdź tary i liczbę pojemników, popraw ważenie albo zatwierdź z wyjątkiem'}
           </div>
         </div>

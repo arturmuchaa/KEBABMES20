@@ -32,6 +32,10 @@ export interface TakeSettlement extends DeboningEntry {
   totalKg: number
   differenceKg: number
   balancePct: number
+  /** Allowed excess / shortfall of the whole take (hall 2026-11-06: +1.5 % / −0.5 %). */
+  tolerancePlusPct?: number
+  toleranceMinusPct?: number
+  /** Tolerance on the side of the difference (excess → plus, shortfall → minus). */
   tolerancePct: number
   toleranceKg: number
   minKg: number
@@ -46,4 +50,11 @@ export const settlementPendingKey = (id: string) => `mes:take-settlement:pending
 export interface PendingSettlementWrite {
   measurement: SettlementMeasurement
   correctingId?: string
+}
+
+/** "+1,5% / −0,5%" — older servers send one symmetric tolerance ("±1%"). */
+export function toleranceLabel(s: Pick<TakeSettlement, 'tolerancePct' | 'tolerancePlusPct' | 'toleranceMinusPct'>) {
+  const pct = (n: number) => `${String(n).replace('.', ',')}%`
+  return s.tolerancePlusPct != null && s.toleranceMinusPct != null
+    ? `+${pct(s.tolerancePlusPct)} / −${pct(s.toleranceMinusPct)}` : `±${pct(s.tolerancePct)}`
 }

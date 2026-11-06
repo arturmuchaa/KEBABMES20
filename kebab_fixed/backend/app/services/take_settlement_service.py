@@ -17,7 +17,10 @@ from app.services import deboning_service as deboning
 from app.utils.ids import cuid
 from app.utils.stock import create_stock_movement
 
-TOLERANCE_PCT = 1
+# Balance of the whole take (meat + backs + bones vs quarters taken), hall decision
+# 2026-11-06: up to +1.5 % over (wet product, cart scale) and up to −0.5 % under.
+TOLERANCE_PLUS_PCT = Decimal("1.5")
+TOLERANCE_MINUS_PCT = Decimal("0.5")
 
 
 def _manager_code():
@@ -29,13 +32,18 @@ STAGES = ("meat", "backs", "bones", "balance", "done")
 def mass_balance(taken, meat, backs, bones):
     q, m, b, k = (Decimal(str(x or 0)) for x in (taken, meat, backs, bones))
     total = m + b + k
-    tolerance = q * Decimal(TOLERANCE_PCT) / 100
+    plus = q * TOLERANCE_PLUS_PCT / 100
+    minus = q * TOLERANCE_MINUS_PCT / 100
+    over = total >= q
     return {
         "totalKg": float(total), "differenceKg": float(total - q),
         "balancePct": float(total / q * 100) if q > 0 else 0,
-        "tolerancePct": TOLERANCE_PCT, "toleranceKg": float(tolerance),
-        "minKg": float(q - tolerance), "maxKg": float(q + tolerance),
-        "withinTolerance": q > 0 and abs(total - q) <= tolerance,
+        "tolerancePlusPct": float(TOLERANCE_PLUS_PCT), "toleranceMinusPct": float(TOLERANCE_MINUS_PCT),
+        # The side the difference is on (excess → plus, shortfall → minus): messages and the exception record.
+        "tolerancePct": float(TOLERANCE_PLUS_PCT if over else TOLERANCE_MINUS_PCT),
+        "toleranceKg": float(plus if over else minus),
+        "minKg": float(q - minus), "maxKg": float(q + plus),
+        "withinTolerance": q > 0 and q - minus <= total <= q + plus,
     }
 
 
@@ -259,7 +267,7 @@ def finish(entry_id, subject="", exception_code=None, exception_reason=None):
         exception = None
         if not state["withinTolerance"]:
             if exception_code is None:
-                raise HTTPException(400, f"Bilans poza tolerancją ±{TOLERANCE_PCT}%: różnica {state['differenceKg']:.2f} kg; dopuszczalne ±{state['toleranceKg']:.2f} kg. Popraw ważenia albo zatwierdź z wyjątkiem (wymaga kodu kierownika i powodu)")
+                raise HTTPException(400, f"Bilans poza tolerancją (+{TOLERANCE_PLUS_PCT}% / −{TOLERANCE_MINUS_PCT}%): różnica {state['differenceKg']:.2f} kg; dopuszczalne {state['minKg']:.2f}–{state['maxKg']:.2f} kg. Popraw ważenia albo zatwierdź z wyjątkiem (wymaga kodu kierownika i powodu)")
             if exception_code != _manager_code():
                 raise HTTPException(403, "Błędny kod kierownika — rozliczenie nie zostało zatwierdzone")
             reason = (exception_reason or "").strip()
