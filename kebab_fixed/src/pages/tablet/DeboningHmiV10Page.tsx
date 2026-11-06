@@ -24,6 +24,8 @@ import { useTileSettlement, tileStage } from '@/features/deboning/useTileSettlem
 import { SettlementSummaryCard } from '@/features/deboning/SettlementSummaryCard'
 import { SettlementBalancePanel } from '@/features/deboning/SettlementBalancePanel'
 import { SettlementExceptionModal } from '@/features/deboning/SettlementExceptionModal'
+import { ServiceCodeModal } from '@/features/deboning/ServiceCodeModal'
+import { SERVICE_CODE } from '@/features/deboning/ServiceMenu'
 import { SETTLEMENT_LABEL, SETTLEMENT_STAGES, type TakeSettlement, type SettlementInitial, type SettlementKind, type SettlementStage } from '@/features/deboning/settlement'
 import type { RawBatch, User } from '@/types'
 import type { DeboningEntry } from '@/features/deboning/types'
@@ -1499,6 +1501,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
 
   // Edycja otwartego pobrania — przytrzymanie kafelka pracownika z „⏳ czeka".
   const [takeEdit, setTakeEdit] = useState<{ entry: DeboningEntry; value: string } | null>(null)
+  // Kod serwisowy przed zmianą/usunięciem pobrania lub wpisu (prośba z hali 2026-11-06).
+  const [codeAsk, setCodeAsk] = useState<{ title: string; detail: string; confirmLabel: string; danger?: boolean; run: (code: string) => Promise<string | null> } | null>(null)
+  // Pobranie z rozliczeniem pracownika: kod sprawdza serwer; wpisy starego typu — panel.
+  const localCode = (e: DeboningEntry, code: string) => (e.settlementStage || code === SERVICE_CODE ? null : 'Błędny kod serwisowy — nic nie zmieniono')
+  const operatorName = loggedInUser?.name ?? ''
 
   /** Pobranie per pracownik wchodzi do TEGO SAMEGO kafelka ważenia: zablokowana
    *  ćwiartka u góry, poniżej frakcja (mięso → grzbiety → kości), z prawej bilans. */
@@ -2012,23 +2019,42 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     const km = parseFloat(editMeat.replace(',', '.')) || 0
     if (kt <= 0 || km <= 0) { showToast('Ćwiartka i mięso muszą być > 0', 'err'); return }
     if (km > kt) { showToast('Mięso nie może przekraczać ćwiartki', 'err'); return }
-    const err = await editEntry(editEntryId, { kgTaken: kt, kgMeat: km }, session)
-    if (err) { showToast(err, 'err'); return } // backend blokuje np. gdy mięso poszło dalej
-    setEditEntryId(null); batchData.refetch()
-    showToast('Wpis zaktualizowany')
+    const id = editEntryId, sess = session
+    setCodeAsk({ title: 'Edycja wpisu', detail: `Ćwiartka ${fmtKg(kt, 1)} kg · mięso ${fmtKg(km, 1)} kg`, confirmLabel: 'Zapisz wpis',
+      run: async code => {
+        if (code !== SERVICE_CODE) return 'Błędny kod serwisowy — nic nie zmieniono'
+        const err = await editEntry(id, { kgTaken: kt, kgMeat: km }, sess)
+        if (err) return err // backend blokuje np. gdy mięso poszło dalej
+        setCodeAsk(null); setEditEntryId(null); batchData.refetch()
+        showToast('Wpis zaktualizowany')
+        return null
+      } })
   }
 
   async function confirmDeleteEntry() {
     if (!delEntry || !session) return
-    setDelBusy(true)
-    const err = await hallRemoveEntry(delEntry.id, loggedInUser?.name ?? '', session)
-    setDelBusy(false)
-    // Backend blokuje, gdy mięso poszło dalej albo uboczne są rozliczone —
-    // komunikat idzie wprost na ekran, bez tłumaczenia go na własne słowa.
-    if (err) { showToast(err, 'err'); return }
-    setDelEntry(null)
-    batchData.refetch()
-    showToast('Wpis usunięty — wprowadź poprawny')
+    const e = delEntry, sess = session
+    setCodeAsk({ title: 'Usunięcie wpisu', detail: `${e.workerName} · partia ${e.rawBatchNo} · ${fmtKg(e.kgTaken, 1)} kg`, confirmLabel: 'Usuń wpis', danger: true,
+      run: async code => {
+        const bad = localCode(e, code); if (bad) return bad
+        setDelBusy(true)
+        const err = await hallRemoveEntry(e.id, operatorName, sess, code)
+        setDelBusy(false)
+        // Backend blokuje, gdy mięso poszło dalej albo uboczne są rozliczone —
+        // komunikat idzie wprost na ekran, bez tłumaczenia go na własne słowa.
+        if (err) return err
+        setCodeAsk(null); setDelEntry(null)
+        batchData.refetch(); byprodToday.refetch()
+        showToast('Wpis usunięty — wprowadź poprawny')
+        return null
+      } })
+  }
+
+  /** Po zmianie/usunięciu pobrania otwartego w kafelku: odśwież albo zamknij kafelek. */
+  function afterTakeChanged(id: string, removed: boolean) {
+    if (!tileSt || tileSt.id !== id) return
+    if (removed) { leaveTile(); return }
+    takeSettlementApi.get(id).then(tile.setState).catch(() => showToast('Odśwież rozliczenie z kafelka pracownika', 'err'))
   }
 
   async function handleWizardWeigh(kind: 'backs' | 'bones', kg: number, pallets: any[]) {
@@ -2354,7 +2380,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
             <div>
               <div className="font-extrabold text-xl leading-tight">Pobranie — {takeEdit.entry.workerName}</div>
               <div className="text-sm font-semibold mt-0.5" style={{ color: 'var(--mut)' }}>
-                Partia {takeEdit.entry.rawBatchNo} · czeka na zważenie mięsa
+                Partia {takeEdit.entry.rawBatchNo} · {takeEdit.entry.settlementStage ? 'rozliczenie w toku' : 'czeka na zważenie mięsa'} · zmiana kodem serwisowym
               </div>
             </div>
             <div className="flex items-baseline gap-2 justify-center py-1">
@@ -2376,13 +2402,19 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
             </div>
             <button type="button"
               disabled={!(parseFloat((takeEdit.value || '0').replace(',', '.')) > 0)}
-              onClick={async () => {
+              onClick={() => {
                 const kg = parseFloat((takeEdit.value || '0').replace(',', '.')) || 0
-                const err = await editTake(takeEdit.entry.id, kg, session)
-                if (err) { showToast(err, 'err'); return }
-                batchData.refetch()
-                setTakeEdit(null)
-                showToast(`Pobranie poprawione: ${fmtKg(kg, 1)} kg`)
+                const e = takeEdit.entry
+                setCodeAsk({ title: 'Zmiana pobrania', detail: `${e.workerName} · ${fmtKg(e.kgTaken, 1)} → ${fmtKg(kg, 1)} kg`, confirmLabel: 'Zapisz pobranie',
+                  run: async code => {
+                    const bad = localCode(e, code); if (bad) return bad
+                    const err = await editTake(e.id, kg, session, code)
+                    if (err) return err
+                    setCodeAsk(null); setTakeEdit(null); batchData.refetch()
+                    afterTakeChanged(e.id, false)
+                    showToast(`Pobranie poprawione: ${fmtKg(kg, 1)} kg`)
+                    return null
+                  } })
               }}
               className="h-14 text-lg font-extrabold flex items-center justify-center gap-2"
               style={{ borderRadius: 12, background: 'var(--accent)', color: '#fff' }}>
@@ -2390,12 +2422,19 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
             </button>
             <div className="flex gap-2">
               <button type="button"
-                onClick={async () => {
-                  const err = await removeEntry(takeEdit.entry.id, session)
-                  if (err) { showToast(err, 'err'); return }
-                  batchData.refetch()
-                  setTakeEdit(null)
-                  showToast(`Pobranie usunięte — ${fmtKg(takeEdit.entry.kgTaken, 1)} kg wróciło do partii`)
+                onClick={() => {
+                  const e = takeEdit.entry
+                  setCodeAsk({ title: 'Usunięcie pobrania', danger: true, confirmLabel: 'Usuń pobranie',
+                    detail: `${e.workerName} · partia ${e.rawBatchNo} · ${fmtKg(e.kgTaken, 1)} kg wróci do partii${e.settlementStage ? ', zważone mięso zejdzie ze stanu' : ''}`,
+                    run: async code => {
+                      const bad = localCode(e, code); if (bad) return bad
+                      const err = await hallRemoveEntry(e.id, operatorName, session, code)
+                      if (err) return err
+                      setCodeAsk(null); setTakeEdit(null); batchData.refetch()
+                      afterTakeChanged(e.id, true)
+                      showToast(`Pobranie usunięte — ${fmtKg(e.kgTaken, 1)} kg wróciło do partii`)
+                      return null
+                    } })
                 }}
                 className="h-12 flex-1 text-sm font-bold uppercase"
                 style={{ borderRadius: 10, background: 'var(--redSoft)', color: 'var(--red)', border: '1px solid var(--redLine)' }}>
@@ -2477,7 +2516,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                     <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>ćw</span>{fmtKg(e.kgTaken, 1)}</span>
                     <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>mię</span>{fmtKg(e.kgMeat, 1)}</span>
                     <span className="hmi-v10-mono text-sm font-bold text-right" style={{ color: yieldInk(e.yieldPct) }}>{fmtPct(e.yieldPct, 1)}</span>
-                    <button type="button" onClick={() => startEditEntry(e)} className="h-9 text-xs font-bold" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--accent)' }}>Edytuj</button>
+                    {e.settlementStage ? <span className="text-[10px] font-bold text-center leading-tight" style={{ color: 'var(--mut)' }}>rozliczone<br />— usuń i zważ</span>
+                      : <button type="button" onClick={() => startEditEntry(e)} className="h-9 text-xs font-bold" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--accent)' }}>Edytuj</button>}
                     {/* Usunięcie działa na KAŻDYM wpisie otwartej zmiany, nie
                         tylko w oknie „Cofnij" — operator prostuje pomyłkę
                         sprzed godziny bez dzwonienia do biura. */}
@@ -2502,6 +2542,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           </div>
         )
       })()}
+
+      {codeAsk && (
+        <ServiceCodeModal title={codeAsk.title} detail={codeAsk.detail} confirmLabel={codeAsk.confirmLabel}
+          danger={codeAsk.danger} vars={VARS} onCancel={() => setCodeAsk(null)} run={codeAsk.run} />
+      )}
 
       {/* Potwierdzenie usunięcia wpisu — usunięcie rusza akord pracownika
           i bilans partii, więc operator musi zobaczyć CO kasuje. */}
@@ -2810,7 +2855,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           {tileSt && !weighKind ? null : tileSt ? (
             <div className="flex gap-2 flex-shrink-0">
               <ReadoutV10 label="Pobrano (z pobrania)" unit="kg" value={fmtKg(tileTaken, 1)} active={false}
-                onActivate={() => {}} sub={`${tileSt.workerName} · partia ${tileSt.rawBatchNo}`} />
+                onActivate={() => { if (!tile.busy && !fix) setTakeEdit({ entry: tileSt, value: String(tileTaken) }) }}
+                sub={`${tileSt.workerName} · partia ${tileSt.rawBatchNo} · dotknij: popraw / usuń`} />
               <ReadoutV10
                 label={`${fix ? 'Poprawa — ' : ''}${tileLabel}${autoMode ? ' — z wagi' : ''}`}
                 unit="kg"

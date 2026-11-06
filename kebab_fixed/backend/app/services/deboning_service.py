@@ -1633,7 +1633,7 @@ def create_deboning_take(dto) -> Dict:
     return _map_deboning_entry(entry)  # type: ignore[arg-type]
 
 
-def update_deboning_take(entry_id: str, dto) -> Dict:
+def update_deboning_take(entry_id: str, dto, by_subject: str = "") -> Dict:
     """Edycja OTWARTEGO pobrania (czeka na zważenie): zmiana kg pobranej
     ćwiartki. Różnica koryguje stan partii i ruch magazynowy OUT."""
     new_kg = float(dto.kg_taken)
@@ -1662,8 +1662,13 @@ def update_deboning_take(entry_id: str, dto) -> Dict:
         )
         if not entry:
             raise HTTPException(404, "Pobranie nie znalezione")
-        if entry.get("settlement_stage") and cx_query_one(conn, "SELECT 1 FROM deboning_settlement_weighings WHERE entry_id=%s LIMIT 1", (entry_id,)):
-            raise HTTPException(409, "Rozliczenie już rozpoczęte — nie zmieniaj nominalnej masy pobrania")
+        settling = bool(entry.get("settlement_stage")) and bool(cx_query_one(
+            conn, "SELECT 1 FROM deboning_settlement_weighings WHERE entry_id=%s LIMIT 1", (entry_id,)))
+        if settling:
+            # Pomyłka w ilości pobrania po rozpoczęciu rozliczenia: tylko kodem
+            # serwisowym; tolerancja ±1% przelicza się od nowej masy.
+            from app.services import take_settlement_service as ts
+            ts.require_service_code(getattr(dto, "service_code", None))
         if entry.get("raw_batch_id") != batch.get("id"):
             raise HTTPException(409, "Wpis zmienił partię w trakcie — spróbuj ponownie")
         if (entry.get("status") or "complete") != "pending":
@@ -1708,6 +1713,14 @@ def update_deboning_take(entry_id: str, dto) -> Dict:
             create_stock_movement(
                 conn, product_type="raw", batch_id=batch["id"], qty=new_kg,
                 movement_type="OUT", source_type="deboning", source_id=entry_id,
+            )
+
+        if settling:
+            cx_execute(
+                conn,
+                "INSERT INTO deboning_entry_corrections (id, entry_id, by_subject, reason, changes) VALUES (%s,%s,%s,%s,%s)",
+                (cuid(), entry_id, by_subject or "kiosk", "Zmiana ilości pobrania kodem serwisowym",
+                 json.dumps({"kgQuarter": {"przed": old_kg, "po": new_kg}}, ensure_ascii=False)),
             )
 
     logger.info(
@@ -2036,7 +2049,7 @@ def _slad_usuniecia_cx(conn, entry, zapisz_slad: bool,
 
 def delete_deboning_entry(entry_id: str, office_correction: bool = False,
                           by_subject: str = "", reason: str = "",
-                          hall_correction: bool = False) -> Dict:
+                          hall_correction: bool = False, service_code: str = "") -> Dict:
     """Cofnięcie wpisu rozbioru (przycisk „Cofnij" na HMI, usunięcie z biura).
 
     Odwraca w JEDNEJ transakcji wszystko, co utworzył create_deboning_entry:
@@ -2079,8 +2092,17 @@ def delete_deboning_entry(entry_id: str, office_correction: bool = False,
         )
         if not entry:
             raise HTTPException(404, "Wpis rozbioru nie znaleziony")
-        if entry.get("settlement_stage") and (entry.get("status") == "complete" or cx_query_one(conn, "SELECT 1 FROM deboning_settlement_weighings WHERE entry_id=%s LIMIT 1", (entry_id,))):
-            raise HTTPException(409, "Pobranie ma rozliczenie pracownika — nie można usuwać zapisanych ważeń")
+        # Pobranie z rozliczeniem pracownika (mięso → grzbiety → kości): z hali
+        # tylko kodem serwisowym, z biura z powodem. Bez kodu/biura — jak dotąd blokada.
+        settlement_cancel = bool(entry.get("settlement_stage")) and (
+            entry.get("status") == "complete"
+            or bool(cx_query_one(conn, "SELECT 1 FROM deboning_settlement_weighings WHERE entry_id=%s LIMIT 1", (entry_id,))))
+        if settlement_cancel:
+            from app.services import take_settlement_service as ts
+            if not office_correction:
+                if not hall_correction:
+                    raise HTTPException(409, "Pobranie ma rozliczenie pracownika — usuń je z rozpiski pracownika kodem serwisowym")
+                ts.require_service_code(service_code)
         if entry.get("raw_batch_id") != peek.get("raw_batch_id"):
             raise HTTPException(409, "Wpis zmienił partię w trakcie — spróbuj ponownie")
 
@@ -2097,6 +2119,12 @@ def delete_deboning_entry(entry_id: str, office_correction: bool = False,
             session_err = validate_session_writable(session_row)
             if session_err:
                 raise HTTPException(400, session_err)
+
+        if settlement_cancel:
+            from app.services import take_settlement_service as ts
+            ts.cancel_settlement_entry(conn, entry, by_subject, reason or "Usunięte na hali kodem serwisowym")
+            logger.info("deboning.settlement_take.cancelled", extra={"entry_id": entry_id})
+            return {"ok": True, "id": entry_id}
 
         # Storno POBRANIA (pending): odwraca fazę 1 — oddaje surowiec, kasuje
         # ruch OUT i wiersz. Brak ABP do odwracania, ALE częściowe ważenia

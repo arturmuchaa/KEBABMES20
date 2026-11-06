@@ -91,6 +91,8 @@ class DeboningTakeUpdate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     kg_taken: float = Field(..., alias="kgTaken", gt=0)
+    # Wymagany, gdy rozliczenie pobrania już ruszyło (zapisane ważenia).
+    service_code: Optional[str] = Field(None, alias="serviceCode", max_length=20)
 
 
 class DeboningEntryUpdate(BaseModel):

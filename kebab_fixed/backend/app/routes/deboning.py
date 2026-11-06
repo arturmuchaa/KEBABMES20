@@ -306,8 +306,10 @@ def weigh_part_deboning_take(entry_id: str, dto: DeboningTakeComplete):
 
 
 @router.patch("/api/deboning/takes/{entry_id}")
-def update_deboning_take(entry_id: str, dto: DeboningTakeUpdate):
-    return svc.update_deboning_take(entry_id, dto)
+def update_deboning_take(entry_id: str, dto: DeboningTakeUpdate, request: Request):
+    subject = getattr(request.state, "subject", None) or {}
+    by = str(subject.get("username") or subject.get("id") or "")
+    return svc.update_deboning_take(entry_id, dto, by)
 
 
 @router.patch("/api/deboning/entries/{entry_id}")
@@ -397,7 +399,10 @@ def hall_delete_deboning_entry(entry_id: str, body: dict, request: Request):
         (body or {}).get("operator")
         or subject.get("username") or subject.get("id") or ""
     )
-    return svc.delete_deboning_entry(entry_id, hall_correction=True, by_subject=by)
+    return svc.delete_deboning_entry(
+        entry_id, hall_correction=True, by_subject=by,
+        service_code=str((body or {}).get("serviceCode") or ""),
+    )
 
 
 @router.get("/api/deboning/entries/{entry_id}/corrections")
