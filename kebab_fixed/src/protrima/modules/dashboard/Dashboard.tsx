@@ -18,6 +18,7 @@ import { odm, ile, krotkaNazwa } from '../../data/tekst'
 import { wariant } from '../../warianty'
 import { DoZrobieniaPanel } from './warianty/DoZrobienia'
 import { wierszeMiesa, type SeasonedLite } from './miesoPrzyprawione'
+import { ETAP } from '../../shell/etapy'
 
 /** Wariant Pulpitu do porównania: A — „Wymaga uwagi”, B — „Do zrobienia teraz” (te same słowa co kolumna „Dalej”). */
 const W = wariant('pulpit')
@@ -188,12 +189,12 @@ function ProcessPanel({ open, ext }: { open: Open; ext: Ext }) {
   // Każdy etap: liczba + DWA fakty w dwóch liniach (pierwszy mówi, co znaczy liczba; przy uwadze — powód).
   // `zero` = licznik zaległości: zero to dobra wiadomość, więc przygaszone (nie dotyczy postępu produkcji).
   const stages: Array<{ key: string; name: string; value: string; unit?: string; sub: [string, string?]; level: 'ok' | 'warn' | 'crit' | 'idle'; progress?: number; zero?: boolean; tip?: string }> = [
-    { key: 'przyjecia', name: 'Przyjęcie surowca', value: String(ext.haccp), unit: odm(ext.haccp, 'dostawa', 'dostawy', 'dostaw'), sub: ext.haccp ? ['bez kompletu kontroli HACCP', 'z ostatnich 14 dni'] : ['kontrole HACCP kompletne', 'ostatnie 14 dni'], level: ext.haccp ? 'warn' : 'ok', zero: ext.haccp === 0 },
-    { key: 'masowanie', name: 'Masowanie', value: num(meat), unit: 'kg', sub: ['mięsa do zmasowania', `wolne przyprawione ${num(seasonedFree)} kg`], tip: `Mięso przyprawione: wolne ${num(seasonedFree)} z ${num(seasonedAll)} kg w magazynie`, level: meat > 0 ? 'warn' : 'ok', zero: meat === 0 },
-    { key: 'realizacja', name: 'Produkcja', value: num(pd), unit: 'kg', sub: plans.length ? [`z ${num(pk)} kg w planach w toku`, ext.pending ? `${ext.pending} ${odm(ext.pending, 'sesja', 'sesje', 'sesji')} do potwierdzenia` : 'sesje potwierdzone'] : ['brak planów w toku'], level: ext.pending ? 'warn' : plans.length ? 'ok' : 'idle', progress: pk ? pd / pk : undefined },
-    { key: 'magazyn-wg', name: 'Magazyn wyrobu', value: num(ext.stockKg), unit: 'kg', sub: [`przydzielone ${num(ext.allocKg)} kg`, `wolne ${num(ext.stockKg - ext.allocKg)} kg`], level: 'ok' },
-    { key: 'zamowienia', name: 'Zamówienia', value: num(missing), unit: 'kg', sub: missing > 0 ? ['wyrobu brakuje', `w ${zBrakiem} ${odm(zBrakiem, 'zamówieniu', 'zamówieniach', 'zamówieniach')}`] : ['zamówienia mają komplet wyrobu'], tip: 'Liczone z otwartych zamówień, bez szkiców', level: missing > 0 ? 'warn' : 'ok', zero: missing === 0 },
-    { key: 'wysylki', name: 'Wysyłka', value: String(ext.kursy.length), unit: odm(ext.kursy.length, 'kurs', 'kursy', 'kursów'), sub: ext.kursy.length ? ['po załadunku', doWyst ? `${doWyst} do wystawienia papierów` : 'papiery wystawione'] : ['brak kursów do wydruku'], level: ext.kursy.some(k => k.rozjazd) ? 'crit' : doWyst ? 'warn' : 'ok', zero: ext.kursy.length === 0 },
+    { key: 'przyjecia', name: ETAP['przyjecia'], value: String(ext.haccp), unit: odm(ext.haccp, 'dostawa', 'dostawy', 'dostaw'), sub: ext.haccp ? ['bez kompletu kontroli HACCP', 'z ostatnich 14 dni'] : ['kontrole HACCP kompletne', 'ostatnie 14 dni'], level: ext.haccp ? 'warn' : 'ok', zero: ext.haccp === 0 },
+    { key: 'masowanie', name: ETAP['masowanie'], value: num(meat), unit: 'kg', sub: ['mięsa do zmasowania', `wolne przyprawione ${num(seasonedFree)} kg`], tip: `Mięso przyprawione: wolne ${num(seasonedFree)} z ${num(seasonedAll)} kg w magazynie`, level: meat > 0 ? 'warn' : 'ok', zero: meat === 0 },
+    { key: 'realizacja', name: ETAP['realizacja'], value: num(pd), unit: 'kg', sub: plans.length ? [`z ${num(pk)} kg w planach w toku`, ext.pending ? `${ext.pending} ${odm(ext.pending, 'sesja', 'sesje', 'sesji')} do potwierdzenia` : 'sesje potwierdzone'] : ['brak planów w toku'], level: ext.pending ? 'warn' : plans.length ? 'ok' : 'idle', progress: pk ? pd / pk : undefined },
+    { key: 'magazyn-wg', name: ETAP['magazyn-wg'], value: num(ext.stockKg), unit: 'kg', sub: [`przydzielone ${num(ext.allocKg)} kg`, `wolne ${num(ext.stockKg - ext.allocKg)} kg`], level: 'ok' },
+    { key: 'zamowienia', name: ETAP['zamowienia'], value: num(missing), unit: 'kg', sub: missing > 0 ? ['wyrobu brakuje', `w ${zBrakiem} ${odm(zBrakiem, 'zamówieniu', 'zamówieniach', 'zamówieniach')}`] : ['zamówienia mają komplet wyrobu'], tip: 'Liczone z otwartych zamówień, bez szkiców', level: missing > 0 ? 'warn' : 'ok', zero: missing === 0 },
+    { key: 'wysylki', name: ETAP['wysylki'], value: String(ext.kursy.length), unit: odm(ext.kursy.length, 'kurs', 'kursy', 'kursów'), sub: ext.kursy.length ? ['po załadunku', doWyst ? `${doWyst} do wystawienia papierów` : 'papiery wystawione'] : ['brak kursów do wydruku'], level: ext.kursy.some(k => k.rozjazd) ? 'crit' : doWyst ? 'warn' : 'ok', zero: ext.kursy.length === 0 },
   ]
   // Dokąd prowadzi etap: własny ekran PROTRIMA, a Wysyłka — panel kursów niżej na Pulpicie.
   // Etap bez ekranu w PROTRIMA nie udaje przycisku (bez najechania, dymek mówi, gdzie to jest).
