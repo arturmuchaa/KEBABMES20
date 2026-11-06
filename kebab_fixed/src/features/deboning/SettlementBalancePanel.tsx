@@ -41,8 +41,8 @@ export function SettlementBalancePanel({ s, onFix, busy }: {
         <span className="hmi-v10-mono font-extrabold text-4xl">{fmtKg(s.totalKg, 1)} kg</span>
       </div>
       {/* Wydajność mięsa z pobrania — duża, na środku (hala 2026-11-06). */}
-      <div className="mt-auto flex flex-col items-center leading-none py-1" aria-label="Procent mięsa z pobrania">
-        <span className="text-[12px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>Mięso z pobrania</span>
+      <div className="mt-auto flex flex-col items-center leading-none py-1" aria-label="Procent z pobrania">
+        <span className="text-[12px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>Procent z pobrania</span>
         <span className="hmi-v10-mono font-extrabold mt-1" style={{ fontSize: 56, color: 'var(--accent)' }}>{fmtPct(pctOf(s.meatKg), 1)}</span>
       </div>
       <div className="flex items-center gap-4 p-4" role="status"
