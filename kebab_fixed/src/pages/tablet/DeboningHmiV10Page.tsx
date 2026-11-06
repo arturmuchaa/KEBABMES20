@@ -2487,7 +2487,12 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         const wEntries = completeEntries.filter(e => e.workerId === workerDetail.id).slice().reverse()
         const wt = wEntries.reduce((s, e) => s + e.kgTaken, 0)
         const wm = wEntries.reduce((s, e) => s + e.kgMeat, 0)
+        const wb = wEntries.reduce((s, e) => s + (Number(e.kgBacks) || 0), 0)
+        const wk = wEntries.reduce((s, e) => s + (Number(e.kgBones) || 0), 0)
         const wy = wt > 0 ? (wm / wt) * 100 : 0
+        // Kolumny pobrania: godz · partia · pobrano · mięso · grzbiety · kości · % · zmiana · usuń.
+        const cols = 'grid-cols-[48px_46px_1fr_1fr_1fr_1fr_56px_74px_60px]'
+        const kg = (v: number | undefined) => (Number(v) > 0 ? fmtKg(Number(v), 1) : '—')
         // Otwarte pobrania pracownika — statystyki i zmiana pobrania w JEDNYM modalu
         // (wcześniej long-press przy pending otwierał od razu edycję i statystyk nie było).
         // KAŻDE osobno, bo pracownik może mieć naraz z/s i b/s — jedna zbiorcza
@@ -2495,7 +2500,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         const wPending = pendingTakes.filter(p => (p as any).workerId === workerDetail.id) as DeboningEntry[]
         return (
           <div className="fixed inset-0 z-[56] flex items-center justify-center bg-black/45" style={VARS}>
-            <div className="w-[720px] max-w-[96vw] flex flex-col" style={{ maxHeight: '92vh', borderRadius: 16, background: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', boxShadow: '0 30px 80px -30px rgba(0,0,0,.5)' }}>
+            <div className="w-[960px] max-w-[96vw] flex flex-col" style={{ maxHeight: '92vh', borderRadius: 16, background: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', boxShadow: '0 30px 80px -30px rgba(0,0,0,.5)' }}>
               <div className="flex items-center gap-4 px-6 py-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--line)', background: 'var(--panel)', borderTopLeftRadius: 16, borderTopRightRadius: 16 }}>
                 <span className="w-12 h-12 rounded-full flex items-center justify-center font-extrabold" style={{ background: 'var(--accent)', color: '#fff' }}>
                   {workerTileLabel(workerDetail.name).no ?? workerDetail.name.trim().charAt(0).toUpperCase()}
@@ -2503,7 +2508,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                 <div className="flex-1 min-w-0">
                   <div className="font-extrabold text-xl leading-tight truncate">{workerDetail.name}</div>
                   <div className="hmi-v10-mono text-[12px] font-bold" style={{ color: 'var(--mut)' }}>
-                    {wEntries.length} szt · ćwiartka {fmtKg(wt, 0)} kg · mięso {fmtKg(wm, 0)} kg · <span style={{ color: yieldInk(wy) }}>{fmtPct(wy, 1)}</span>
+                    {wEntries.length} szt · pobrano {fmtKg(wt, 0)} kg · mięso {fmtKg(wm, 0)} kg{wb > 0 ? ` · grzbiety ${fmtKg(wb, 0)} kg` : ''}{wk > 0 ? ` · kości ${fmtKg(wk, 0)} kg` : ''} · <span style={{ color: yieldInk(wy) }}>{fmtPct(wy, 1)}</span>
                   </div>
                 </div>
                 <button type="button" onClick={() => { setWorkerDetail(null); setEditEntryId(null) }} className="w-9 h-9 flex items-center justify-center" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}><X size={18} /></button>
@@ -2543,11 +2548,13 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                     </div>
                   </div>
                 ) : (
-                  <div key={e.id} className="grid grid-cols-[52px_56px_1fr_1fr_52px_78px_74px] items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
-                    <span className="hmi-v10-mono text-xs" style={{ color: 'var(--mut)' }}>{new Date(entryTime(e)).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</span>
+                  <div key={e.id} className={`grid ${cols} items-center gap-2 px-4 py-3`} style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
+                    <span className="hmi-v10-mono text-sm font-bold">{new Date(entryTime(e)).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</span>
                     <span className="hmi-v10-mono text-xs font-bold" style={{ color: 'var(--accent)' }}>{e.rawBatchNo}</span>
-                    <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>ćw</span>{fmtKg(e.kgTaken, 1)}</span>
-                    <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>mię</span>{fmtKg(e.kgMeat, 1)}</span>
+                    <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>pobr.</span>{fmtKg(e.kgTaken, 1)}</span>
+                    <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>mięso</span>{fmtKg(e.kgMeat, 1)}</span>
+                    <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>grzb.</span>{kg(e.kgBacks)}</span>
+                    <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>kości</span>{kg(e.kgBones)}</span>
                     <span className="hmi-v10-mono text-sm font-bold text-right" style={{ color: yieldInk(e.yieldPct) }}>{fmtPct(e.yieldPct, 1)}</span>
                     {e.settlementStage ? <button type="button" onClick={() => { setTakeEdit({ entry: e, value: String(e.kgTaken) }); setWorkerDetail(null); setEditEntryId(null) }}
                         className="h-9 text-xs font-bold" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--accent)' }}>Pobranie</button>
@@ -2559,10 +2566,12 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                   </div>
                 ))}
                 {wEntries.length > 0 && (
-                  <div className="grid grid-cols-[52px_56px_1fr_1fr_52px_78px_74px] items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1.5px solid var(--accent)' }}>
+                  <div className={`grid ${cols} items-center gap-2 px-4 py-3`} style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1.5px solid var(--accent)' }}>
                     <span className="text-[11px] font-extrabold uppercase col-span-2" style={{ color: 'var(--accent)', letterSpacing: '.08em' }}>Razem</span>
-                    <span className="hmi-v10-mono text-sm font-extrabold text-right"><span className="text-[9px] uppercase mr-1 font-bold" style={{ color: 'var(--mut)' }}>ćw</span>{fmtKg(wt, 1)}</span>
-                    <span className="hmi-v10-mono text-sm font-extrabold text-right"><span className="text-[9px] uppercase mr-1 font-bold" style={{ color: 'var(--mut)' }}>mię</span>{fmtKg(wm, 1)}</span>
+                    <span className="hmi-v10-mono text-sm font-extrabold text-right"><span className="text-[9px] uppercase mr-1 font-bold" style={{ color: 'var(--mut)' }}>pobr.</span>{fmtKg(wt, 1)}</span>
+                    <span className="hmi-v10-mono text-sm font-extrabold text-right"><span className="text-[9px] uppercase mr-1 font-bold" style={{ color: 'var(--mut)' }}>mięso</span>{fmtKg(wm, 1)}</span>
+                    <span className="hmi-v10-mono text-sm font-extrabold text-right">{kg(wb)}</span>
+                    <span className="hmi-v10-mono text-sm font-extrabold text-right">{kg(wk)}</span>
                     <span className="hmi-v10-mono text-sm font-extrabold text-right" style={{ color: yieldInk(wy) }}>{fmtPct(wy, 1)}</span>
                     <span className="hmi-v10-mono text-[11px] font-bold text-right" style={{ color: 'var(--mut)' }}>{wEntries.length} szt</span>
                     <span />
