@@ -982,7 +982,9 @@ export interface BatchByproducts {
   /** Ile kg ubocznych brakuje do bilansu masy partii (kafel pending). */
   missingKg?: number
   /** Bilans domknięty — kafel tylko „do przywrócenia/poprawy" (dzisiejsza partia). */
-  balanced?: boolean
+balanced?: boolean
+  /** 'worker' = grzbiety/kości ważone przy pobraniach — kafel tylko „rozebrana ✓”, bez ważenia zbiorczego. */
+  mode?: 'worker' | 'legacy'
   /** Palety poprzednich ważeń — kreator doładowuje do sumy (ważenie w trakcie). */
   backsPallets?: ByproductPallet[]; bonesPallets?: ByproductPallet[]
   /** Ważenie zamknięte ręcznie z biura — kafel zdjęty mimo otwartego bilansu. */

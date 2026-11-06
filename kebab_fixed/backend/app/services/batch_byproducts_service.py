@@ -345,14 +345,18 @@ def pending() -> List[Dict[str, Any]]:
     partia jest wtedy nadal aktywnym kaflem."""
     rows = query_all(
         f"""
-        SELECT b.*, COALESCE((
+        SELECT b.*, (SELECT rb.deboning_mode FROM raw_batches rb WHERE rb.id=b.raw_batch_id) AS deboning_mode, COALESCE((
             SELECT SUM(kg_meat) FROM deboning_entries de
             WHERE de.raw_batch_id = b.raw_batch_id
               AND COALESCE(de.status, 'complete') = 'complete'
         ), 0) AS meat_sum
         FROM batch_byproducts b
-        WHERE NOT EXISTS (SELECT 1 FROM raw_batches rb WHERE rb.id=b.raw_batch_id AND rb.deboning_mode='worker')
-        AND b.finished_at IS NOT NULL AND b.closed_at IS NULL AND (
+        WHERE b.finished_at IS NOT NULL AND b.closed_at IS NULL AND (
+          -- Partia per pracownik (grzbiety/kości ważone przy pobraniach): tylko zielony kafel
+          -- „rozebrana ✓" w dniu zakończenia — nigdy zaproszenie do zbiorczego ważenia.
+          (EXISTS (SELECT 1 FROM raw_batches rb WHERE rb.id=b.raw_batch_id AND rb.deboning_mode='worker')
+           AND (b.finished_at AT TIME ZONE 'Europe/Warsaw')::date = (now() AT TIME ZONE 'Europe/Warsaw')::date)
+          OR (NOT EXISTS (SELECT 1 FROM raw_batches rb WHERE rb.id=b.raw_batch_id AND rb.deboning_mode='worker') AND (
             b.backs_kg IS NULL OR b.bones_kg IS NULL OR
             (COALESCE(b.quarter_kg, 0) - COALESCE((
                 SELECT SUM(kg_meat) FROM deboning_entries de
@@ -368,6 +372,7 @@ def pending() -> List[Dict[str, Any]]:
                = (now() AT TIME ZONE 'Europe/Warsaw')::date
             OR (b.bones_at AT TIME ZONE 'Europe/Warsaw')::date
                = (now() AT TIME ZONE 'Europe/Warsaw')::date
+        ))
         )
         ORDER BY b.finished_at
         """
@@ -382,6 +387,13 @@ def pending() -> List[Dict[str, Any]]:
             - float(r.get("backs_kg") or 0)
             - float(r.get("bones_kg") or 0)
         )
+        d["mode"] = "worker" if r.get("deboning_mode") == "worker" else "legacy"
+        if d["mode"] == "worker":
+            # Bilans domyka się na każdym pobraniu (±tolerancja) — partia jest po prostu rozebrana.
+            d["missingKg"] = 0.0
+            d["balanced"] = True
+            out.append(d)
+            continue
         d["missingKg"] = round(max(0.0, missing), 1)
         # Bilans domknięty = kafel tylko „do przywrócenia" (dzisiejsza partia).
         d["balanced"] = (
