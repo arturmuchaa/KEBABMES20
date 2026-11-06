@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { CheckCircle2, CircleDashed, Truck, FileText, Printer, Split, ScanLine, Route, Ban, PencilLine } from 'lucide-react'
 import { useApp } from '../../../shell/context'
 import { zaladunkiApi } from '@/lib/api'
-import { computeMetrics, etapZamowienia, kg, num, palletKg, dueText, type Order } from '../../../data/model'
+import { computeMetrics, etapZamowienia, kg, kursCzeka as czekaNaPapiery, num, palletKg, dueText, type Order } from '../../../data/model'
 import { odm } from '../../../data/tekst'
 import { FlagIcon, PalletStatusLabel } from '../../../ui/Glyphs'
 
@@ -26,10 +26,9 @@ export function ShippingTab({ order }: { order: Order }) {
   const closed = order.status === 'done' || order.status === 'cancelled'
   const toShip = order.lines.reduce((a, l) => a + l.stock * l.kgPerUnit, 0)
   const plate = order.zaladunek?.plate
-  // Kurs czeka na papiery tylko wtedy, gdy magazynier zakończył załadunek (etap „Załadowane”), a WZ jeszcze nie ma.
-  // Samo „załadowano N palet” tego nie mówi (liczy też skanowanie w toku), a auto przy zamówieniu bywa
-  // wzięte z już wystawionej WZ (numer rejestracyjny na dokumencie) — wtedy papiery są już zrobione.
-  const kursCzeka = etap === 'zaladowane' && !wzDoc
+  // Kurs czeka na papiery tylko wtedy, gdy magazynier zakończył załadunek, a biuro jeszcze nie wystawiło papierów
+  // TEGO kursu (znacznik z kursu) — stara WZ z wcześniejszej, częściowej wysyłki tego nie rozstrzyga.
+  const kursCzeka = czekaNaPapiery(order, etap)
   // Kurs w ogóle wchodzi w grę dopiero od skanowania: wcześniej przycisk kończyłby się komunikatem „nie czeka”.
   const zKursu = etap === 'zaladunek' || etap === 'zaladowane'
   // Ręczne wydanie nie dotyczy auta, które już zeskanowano i zamknięto — tam podział wybiera się w papierach kursu.

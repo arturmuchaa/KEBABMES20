@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Trash2, Save, CheckCheck, X, ChevronDown } from 'lucide-react'
-import { useApp, useMenu, Menu, CommandBar, Dialog, type Cmd, type MenuItem } from '../../../shell/context'
+import { useApp, useMenu, Menu, CommandBar, Dialog, oknoOtwarte, type Cmd, type MenuItem } from '../../../shell/context'
 import { useOrders } from '../../../data/store'
 import { kg, num as fmtNum, weekday, fmtDay, ORDER_STATUS, type OrderStatus } from '../../../data/model'
 import { ile, krotkaNazwa } from '../../../data/tekst'
@@ -18,7 +18,6 @@ import { PasekMasowania } from './PasekMasowania'
 import { PROBA } from '../../../proba'
 
 /** Okno dialogowe otwarte w bieżącej karcie albo nad aplikacją — skróty formularza wtedy milczą. */
-const oknoOtwarte = () => [...document.querySelectorAll('.dialog-wrap, .overlay')].some(d => d.getClientRects().length > 0)
 /** Linia pod klientem: najpierw miasto (to odróżnia klientów o podobnych nazwach), potem krótka nazwa firmy. */
 const opisKlienta = (c: { name: string; displayName?: string; city?: string }) => {
   const wyswietlana = (c.displayName || c.name).trim().toLowerCase()

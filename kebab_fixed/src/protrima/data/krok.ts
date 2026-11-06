@@ -5,7 +5,7 @@
  * bez zmian reguł serwera.
  */
 import type { DetailTab } from '../shell/context'
-import { etapZamowienia, fmtDate, isClosed, kg, num, pct, type Metrics, type Order } from './model'
+import { etapZamowienia, fmtDate, isClosed, kg, kursCzeka, num, pct, type Metrics, type Order } from './model'
 
 export type Poziom = 'ok' | 'warn' | 'crit' | 'idle'
 export interface EtapSzyny { key: DetailTab; name: string; value: string; sub: string; level: Poziom }
@@ -60,7 +60,7 @@ export function nastepnyKrok(o: Order, m: Metrics): Krok {
   if (o.status === 'draft') return { kod: 'potwierdz', tekst: 'Potwierdź', akcja: true, tab: 'overview', pilne, dopisek: 'szkic nie trafia do planowania' }
   const e = etapZamowienia(o, m)
   if (e.etap === 'zaladunek') return { kod: 'w-zaladunku', tekst: 'W załadunku', akcja: false, tab: 'shipping', pilne: false, dopisek: e.szczegol }
-  if (e.etap === 'zaladowane') return { kod: 'papiery', tekst: 'Papiery kursu', akcja: true, tab: 'shipping', pilne, dopisek: e.szczegol }
+  if (kursCzeka(o, e.etap)) return { kod: 'papiery', tekst: 'Papiery kursu', akcja: true, tab: 'shipping', pilne, dopisek: e.szczegol }
   if (m.unassignedQty > 0 && (m.missingKg <= 0 || pilne)) return { kod: 'palety', tekst: 'Rozpisz palety', akcja: true, tab: 'pallets', pilne, dopisek: `${num(m.unassignedQty)} szt. bez palety` }
   if (m.missingKg > 0) return pilne
     ? { kod: 'brak-wyrobu', tekst: 'Brakuje wyrobu', akcja: false, tab: 'coverage', pilne, dopisek: kg(m.missingKg) }

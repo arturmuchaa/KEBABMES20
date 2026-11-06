@@ -57,6 +57,12 @@ export interface AppApi {
 export type PanelWybor = 'auto' | 'dol' | 'bok'
 
 export const AppCtx = createContext<AppApi>(null as unknown as AppApi)
+/**
+ * Czy nad aktywną kartą jest otwarte okno (Dialog, paleta poleceń) — wtedy skróty formularza należą do okna.
+ * Okno z ukrytej karty (`<section hidden>`) się nie liczy: nie ma go na ekranie (brak prostokątów).
+ */
+export const oknoOtwarte = () => [...document.querySelectorAll('.dialog-wrap, .overlay')].some(d => d.getClientRects().length > 0)
+
 export const useApp = () => useContext(AppCtx)
 
 /** Pozycja względem okna aplikacji (działa też, gdy aplikacja jest skalowana). */

@@ -10,7 +10,7 @@
 import type { Client as ApiClient, ClientOrder, FinishedGoodsItem, OrderLine } from '@/lib/mockApi'
 import type { OrderPallet, WzDoc } from '@/lib/api'
 import { naMagazynie, wydane } from '@/features/orders/lineShipping'
-import type { Client, Line, Order, OrderDoc, OrderStatus, Pallet, PalletStatus } from './model'
+import type { AutoZamowienia, Client, Line, Order, OrderDoc, OrderStatus, Pallet, PalletStatus } from './model'
 import type { StockPos } from './stock'
 
 /** Data z API ('2026-10-30' albo ISO z czasem) → północ czasu lokalnego. */
@@ -119,7 +119,7 @@ export interface KontekstZamowien {
   /** id pozycji zamówienia → numer planu produkcji */
   planByLine: Record<string, string>
   /** id zamówienia → auto z zakończonego kursu, który czeka na papiery biura. */
-  zaladunki?: Record<string, { plate: string; at?: string }>
+  zaladunki?: Record<string, AutoZamowienia>
 }
 
 /** Auto z dokumentu wydania zamówienia — załadunek stempluje na nim numer rejestracyjny (`vehicle_plate`). */

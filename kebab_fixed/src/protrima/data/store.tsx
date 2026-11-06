@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { clientOrdersApi, clientsApi, finishedGoodsApi, orderPalletsApi, productionPlansApi, wzApi, zaladunkiApi, type OrderPallet, type WzDoc, type ZaladunekDoWydruku } from '@/lib/api'
 import type { Client as ApiClient, ClientOrder, FinishedGoodsItem } from '@/lib/mockApi'
 import { mapujWyrob, mapujZamowienie, planyPozycji } from './mapuj'
-import type { Order } from './model'
+import type { AutoZamowienia, Order } from './model'
 import type { StockPos } from './stock'
 
 /**
@@ -35,7 +35,7 @@ interface Surowe {
   plans: Array<{ planNo: string; status?: string; lines: Array<{ clientOrderLineId?: string | null }> }>
   fg: FinishedGoodsItem[]
   pallets: Record<string, OrderPallet[]>
-  zaladunki: Record<string, { plate: string; at?: string }>
+  zaladunki: Record<string, AutoZamowienia>
 }
 
 /** Zapytanie pomocnicze: brak danych pobocznych (np. WZ) nie może zablokować listy zamówień. */
@@ -59,12 +59,18 @@ async function pobierz(): Promise<Surowe> {
  * Zamówienia z zakończonych kursów, które czekają na papiery biura → auto.
  * Lista kursów nie niesie id zamówień — dociągamy szczegóły (kursów czeka zwykle kilka).
  */
-async function autaKursow(): Promise<Record<string, { plate: string; at?: string }>> {
+export async function autaKursow(): Promise<Record<string, AutoZamowienia>> {
   const kursy = await albo(zaladunkiApi.doWydruku(), [] as ZaladunekDoWydruku[])
-  const szczegoly = await Promise.all(kursy.map(k => albo(zaladunkiApi.get(k.id) as Promise<{ plate?: string; finished_at?: string; pozycje?: Array<{ order_id?: string }> } | null>, null)))
-  const out: Record<string, { plate: string; at?: string }> = {}
+  const szczegoly = await Promise.all(kursy.map(k => albo(zaladunkiApi.get(k.id) as Promise<{ plate?: string; finished_at?: string; pozycje?: Array<{ order_id?: string; wz_status?: string }> } | null>, null)))
+  const out: Record<string, AutoZamowienia> = {}
   szczegoly.forEach((d, i) => (d?.pozycje ?? []).forEach(p => {
-    if (p.order_id) out[p.order_id] = { plate: d?.plate || kursy[i].plate, at: d?.finished_at || kursy[i].finishedAt || undefined }
+    if (!p.order_id) return
+    // wz_status pozycji kursu: do_wystawienia / rozjazd = czeka na biuro, wystawiony = papiery zrobione.
+    const czekaNaBiuro = p.wz_status ? p.wz_status !== 'wystawiony' : undefined
+    // Zamówienie w dwóch kursach (lista od najnowszego): zostaje pierwszy, chyba że dopiero dalszy czeka na biuro.
+    const byl = out[p.order_id]
+    if (byl && (byl.czekaNaBiuro || !czekaNaBiuro)) return
+    out[p.order_id] = { plate: d?.plate || kursy[i].plate, at: d?.finished_at || kursy[i].finishedAt || undefined, czekaNaBiuro }
   }))
   return out
 }

@@ -119,8 +119,14 @@ export interface Order {
   materialIssue?: string
   docs: OrderDoc[]
   /** Auto, którym zamówienie wyjechało: kurs załadunku czekający na biuro albo dokument wydania z numerem rejestracyjnym. */
-  zaladunek?: { plate: string; at?: string }
+  zaladunek?: AutoZamowienia
 }
+
+/**
+ * Auto zamówienia. `czekaNaBiuro` niesie tylko kurs załadunku (`wz_status` pozycji kursu: do_wystawienia/rozjazd);
+ * auto wzięte z wystawionego dokumentu wydania go nie ma — papiery są już zrobione.
+ */
+export interface AutoZamowienia { plate: string; at?: string; czekaNaBiuro?: boolean }
 
 export type Bucket = 'overdue' | 'today' | 'tomorrow' | 'week' | 'later' | 'nodate' | 'closed'
 export type Level = 'crit' | 'warn' | 'info'
@@ -366,6 +372,16 @@ export function dueText(o: Pick<Order, 'delivery' | 'deliveryTime'>): string {
 // ─── Etap zamówienia: płynny status z tego, co się faktycznie dzieje ─────────
 export type Etap = 'szkic' | 'potwierdzone' | 'realizacja' | 'gotowe' | 'zaladunek' | 'zaladowane' | 'zrealizowane' | 'anulowane'
 export interface EtapZamowienia { etap: Etap; tekst: string; szczegol?: string; tip?: string }
+
+/**
+ * Kurs tego zamówienia czeka na papiery biura — jedno źródło dla kolumny „Dalej”, Pulpitu i zakładki Wysyłka.
+ * Etap „Załadowane” powstaje też z auta na już wystawionej WZ (wcześniejsza, częściowa wysyłka) — wtedy nie czeka.
+ * Znacznik z kursu rozstrzyga; bez niego (palety wyjechały, kursu nie widać) — czeka, dopóki nie ma żadnej WZ.
+ */
+export function kursCzeka(o: Order, etap: Etap): boolean {
+  if (etap !== 'zaladowane') return false
+  return o.zaladunek?.czekaNaBiuro ?? !o.docs.some(d => d.kind === 'WZ')
+}
 
 /**
  * Status, który idzie za zakładem (właściciel 31.10.2026: „ładuję auto na YALCIN,

@@ -112,6 +112,30 @@ describe('Nowe przyjęcie', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(api.rec.create).not.toHaveBeenCalled()
   })
+
+  it('Ctrl+Enter działa mimo okna zostawionego w innej (ukrytej) karcie; okno nad formularzem nadal je blokuje', async () => {
+    // Przegląd 0.6.0: „Zawieszki palet” otwarte w karcie Przyjęć, Ctrl+N → nowa karta: skrót był głuchy.
+    mountEditor()
+    await screen.findByRole('option', { name: 'KOKO' })
+    const karta = document.createElement('section'); karta.hidden = true
+    const ukryte = document.createElement('div'); ukryte.className = 'dialog-wrap'
+    karta.appendChild(ukryte); document.body.appendChild(karta)
+    const widoczne = document.createElement('div'); widoczne.className = 'dialog-wrap'
+    widoczne.getClientRects = () => ({ length: 1 }) as unknown as DOMRectList
+    const braki = () => document.querySelectorAll('.note.crit').length
+    try {
+      expect(braki()).toBe(0)
+      // Okno nad formularzem: skrót należy do okna — braki się nie pokazują.
+      document.body.appendChild(widoczne)
+      fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true })
+      await new Promise(r => setTimeout(r, 30))
+      expect(braki()).toBe(0)
+      widoczne.remove()
+      // Zostało tylko okno w ukrytej karcie: Ctrl+Enter przy pustym formularzu pokazuje braki.
+      fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true })
+      await waitFor(() => expect(braki()).toBeGreaterThan(0))
+    } finally { karta.remove(); widoczne.remove() }
+  })
 })
 
 describe('Edycja przyjęcia', () => {

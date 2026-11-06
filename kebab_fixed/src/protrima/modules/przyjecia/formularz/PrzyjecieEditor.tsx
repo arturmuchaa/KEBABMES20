@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Save, X, ScanLine, Printer, Pencil, Check, Layers, Download, PackagePlus } from 'lucide-react'
-import { useApp, CommandBar, Dialog, type Cmd } from '../../../shell/context'
+import { useApp, CommandBar, Dialog, oknoOtwarte, type Cmd } from '../../../shell/context'
 import { kg, num, fmtDate } from '../../../data/model'
 import { dataZApi } from '../../../data/mapuj'
 import { FlagIcon } from '../../../ui/Glyphs'
@@ -256,7 +256,7 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
     if (!active) return
     const key = (e: KeyboardEvent) => {
       // Ctrl+Alt to AltGr (polskie znaki); okno albo paleta poleceń nad formularzem — skrót należy do nich.
-      if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.altKey || e.defaultPrevented || document.querySelector('.dialog-wrap, .overlay')) return
+      if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.altKey || e.defaultPrevented || oknoOtwarte()) return
       e.preventDefault()
       if (mozRef.current) przyjmijRef.current(); else pokazBrakiRef.current()
     }

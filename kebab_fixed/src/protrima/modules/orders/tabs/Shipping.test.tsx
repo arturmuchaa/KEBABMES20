@@ -59,6 +59,16 @@ describe('zakładka Wysyłka', () => {
     expect(kursBtn()!.className).not.toContain('primary')
   })
 
+  it('drugie auto po wcześniejszej częściowej WZ: kurs czeka na papiery, bez zielonego „Wystawiono” i bez ręcznej WZ', () => {
+    const staraWz = { ...WZ, id: 'wz0', number: 'WZ/3/10/26', vehicle_plate: 'KR0', loaded_at: '2026-10-29T08:00:00+00:00' }
+    const { container } = mount({ pallets: { o1: palety('shipped') as never }, wz: [staraWz] as never, zaladunki: { o1: { plate: 'KR2', czekaNaBiuro: true } } })
+    expect(screen.getByText(/Auto KR2 jest załadowane — kurs czeka na papiery/)).toBeTruthy()
+    expect(screen.queryByText(/^Wystawiono /)).toBeNull()
+    expect(kursBtn()!.className).toContain('primary')
+    expect(container.querySelectorAll('.btn.primary')).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: /Wystaw WZ/ })).toBeNull()
+  })
+
   it('auto wzięte z wystawionej WZ (papiery zrobione): kurs nie jest główną akcją, widać numer WZ', () => {
     mount({ pallets: { o1: palety('shipped') as never }, wz: [WZ] as never })
     expect(screen.getAllByText(/WZ\/7\/10\/26/).length).toBeGreaterThan(0)

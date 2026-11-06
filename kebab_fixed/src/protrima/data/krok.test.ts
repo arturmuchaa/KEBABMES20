@@ -36,6 +36,24 @@ describe('następny krok zamówienia — jedno słowo na liście, w panelu i na 
   it('auto odjechało (kurs zakończony) → „Papiery kursu” (czynność biura)', () => {
     expect(krok(zam({ delivery_date: zaDni(0) }, { qty_stock: 20 }, PALETA('shipped')))).toMatchObject({ kod: 'papiery', akcja: true, tab: 'shipping' })
   })
+  it('wcześniej wyjechała część (WZ z autem już wystawiona), reszty brakuje → nie „Papiery kursu”, tylko prawdziwy krok', () => {
+    // Przegląd 0.6.0: auto z wystawionej WZ dawało etap „Załadowane częściowo”, a „Dalej” podsuwało papiery,
+    // których nie da się wystawić („To zamówienie nie czeka na papiery kursu”) i chowało brak wyrobu.
+    const wz = [{ id: 'w1', number: 'WM/1', status: 'zatwierdzony', source_type: 'order', source_id: 'o1', vehicle_plate: 'KR12345', loaded_at: '2026-10-30T07:00:00Z', valued: false, lines: [], total_value: 0 }]
+    const o = mapujZamowienie(mapClientOrder({
+      id: 'o1', order_no: 'X/Z/1/10/26', client_name: 'X', status: 'confirmed', order_date: iso(TODAY), delivery_date: zaDni(5),
+      lines: [{ id: 'a', qty: 20, kg_per_unit: 40, recipe_id: 'k', recipe_name: 'KIRMIZI', product_type_name: 'UDO', qty_stock: 0, qty_delivered: 8 }],
+    } as never), { clients: [], pallets: { o1: [] }, wz: wz as never, planByLine: {} })
+    expect(krok(o)).toMatchObject({ kod: 'czeka-wyrob', dopisek: '480 kg' })
+  })
+  it('drugie auto po częściowej WZ: kurs naprawdę czeka na biuro → „Papiery kursu”', () => {
+    const wz = [{ id: 'w1', number: 'WM/1', status: 'zatwierdzony', source_type: 'order', source_id: 'o1', vehicle_plate: 'KR1', loaded_at: '2026-10-30T07:00:00Z', valued: false, lines: [], total_value: 0 }]
+    const o = mapujZamowienie(mapClientOrder({
+      id: 'o1', order_no: 'X/Z/1/10/26', client_name: 'X', status: 'confirmed', order_date: iso(TODAY), delivery_date: zaDni(0),
+      lines: [{ id: 'a', qty: 20, kg_per_unit: 40, recipe_id: 'k', recipe_name: 'KIRMIZI', product_type_name: 'UDO', qty_stock: 12, qty_delivered: 8 }],
+    } as never), { clients: [], pallets: { o1: PALETA('shipped', 12) as never }, wz: wz as never, planByLine: {}, zaladunki: { o1: { plate: 'KR2', czekaNaBiuro: true } } })
+    expect(krok(o)).toMatchObject({ kod: 'papiery', akcja: true, dopisek: 'KR2' })
+  })
   it('zamknięte zamówienia nie mają kroku do zrobienia', () => {
     expect(krok(zam({ status: 'done' }))).toMatchObject({ kod: 'zrealizowane', akcja: false, pilne: false })
     expect(krok(zam({ status: 'cancelled' }))).toMatchObject({ kod: 'anulowane', akcja: false })

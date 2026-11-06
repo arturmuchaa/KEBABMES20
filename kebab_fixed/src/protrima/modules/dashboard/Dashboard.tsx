@@ -17,13 +17,13 @@ import { wProtrima } from '../../shell/modules'
 import { odm, ile, krotkaNazwa } from '../../data/tekst'
 import { wariant } from '../../warianty'
 import { DoZrobieniaPanel } from './warianty/DoZrobienia'
+import { wierszeMiesa, type SeasonedLite } from './miesoPrzyprawione'
 
 /** Wariant Pulpitu do porównania: A — „Wymaga uwagi”, B — „Do zrobienia teraz” (te same słowa co kolumna „Dalej”). */
 const W = wariant('pulpit')
 
 type Open = Array<{ o: Order; m: ReturnType<typeof computeMetrics> }>
 interface PlanLite { id: string; planNo: string; planDate: string; status: string; lines: Array<{ qty: number; kgPerUnit: number; qtyDone: number; recipeName: string }> }
-interface SeasonedLite { recipeId: string; recipeName: string; kgAvailable: number; kgReserved: number }
 
 /**
  * Pulpit zakładu — te same źródła co stary pulpit (DashboardPage): zamówienia,
@@ -416,22 +416,7 @@ function ShipmentsPanel({ kursy }: { kursy: ZaladunekDoWydruku[] }) {
 // ─── Półprodukty: mięso przyprawione a potrzeby zamówień ─────────────────
 function MaterialsPanel({ open, seasoned }: { open: Open; seasoned: SeasonedLite[] }) {
   // Wyrób do zmasowania liczy backend z POKRYCIA zamówień; porównujemy go z wolnym mięsem przyprawionym tej receptury.
-  const need = mixingByRecipe(open.filter(x => x.o.status !== 'draft').flatMap(x => x.o.lines.map(line => ({ line, orderNo: x.o.no }))))
-  const byId = new Map<string, { name: string; free: number; all: number }>()
-  for (const s of seasoned) {
-    const x = byId.get(s.recipeId) ?? { name: s.recipeName, free: 0, all: 0 }
-    x.free += Math.max(0, s.kgAvailable - s.kgReserved); x.all += s.kgAvailable
-    byId.set(s.recipeId, x)
-  }
-  const names = new Set([...need.map(n => n.recipe), ...[...byId.values()].map(v => v.name)])
-  const rows = [...names].map(name => {
-    const n = need.find(x => x.recipe === name)
-    const s = [...byId.values()].find(v => v.name === name)
-    const req = n?.remainingKg ?? 0
-    const free = s?.free ?? 0
-    const level = req > 0 && free < req ? (free <= 0 ? 'crit' : 'warn') : 'ok'
-    return { name, req, free, all: s?.all ?? 0, level, known: n?.known ?? true }
-  }).filter(r => r.req > 0 || r.free > 0).sort((a, b) => (b.req - b.free) - (a.req - a.free))
+  const rows = wierszeMiesa(open.filter(x => x.o.status !== 'draft').flatMap(x => x.o.lines.map(line => ({ line, orderNo: x.o.no }))), seasoned)
   return (
     <section className="panel" aria-label="Mięso przyprawione">
       <div className="panel-h"><h2>Mięso przyprawione</h2><span className="sub">wolne w magazynie a wyrób do zrobienia z zamówień</span></div>
@@ -449,7 +434,7 @@ function MaterialsPanel({ open, seasoned }: { open: Open; seasoned: SeasonedLite
                   {r.req > 0 ? <span className={`reach ${r.level}`}>
                     <span className="rt" aria-hidden="true"><i style={{ width: `${Math.min(100, (r.free / r.req) * 100)}%` }} /></span>
                     <span className="rv">{pct(Math.min(999, (r.free / r.req) * 100))}</span>
-                  </span> : <span className="faint">bez potrzeb</span>}
+                  </span> : r.known ? <span className="faint">bez potrzeb</span> : <span className="warn-ink" data-tip="Receptura bez składu — nie da się policzyć mięsa do zmasowania">nieznana</span>}
                 </td>
               </tr>
             ))}

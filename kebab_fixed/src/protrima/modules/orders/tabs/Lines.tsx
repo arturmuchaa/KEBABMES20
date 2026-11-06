@@ -33,7 +33,8 @@ export function LinesTab({ order }: { order: Order }) {
             {order.lines.map((l, i) => (
               <tr key={l.id} className={`row${i % 2 ? ' zebra' : ''}`}>
                 <td className="num muted sd">{l.lp}</td>
-                <td>{l.product}<span className="sub so">{l.packaging}</span></td>
+                {/* Panel z boku chowa kolumny .sd — opakowanie i uwaga idą wtedy pod wyrób (.so). */}
+                <td>{l.product}<span className="sub so">{l.packaging}</span>{l.note && <span className="sub so uwaga">Uwagi: {l.note}</span>}</td>
                 <td className="strong">{l.recipe}</td>
                 <td className="num">{l.kgPerUnit} kg</td>
                 <td className="hide-s sd">{l.packaging}</td>
