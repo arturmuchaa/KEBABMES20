@@ -20,6 +20,7 @@
   --line-field:    #B9C1CB;   /* krawędź pola formularza — widoczna także na matrycy laptopa */
   --line-soft:     #EDF0F3;   /* linie wierszy */
   --line-strong:   #A9B1BC;   /* obramowanie aktywnego pola */
+  --chev:          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235B6676' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); /* strzałka listy rozwijanej — kolor --ink-3 */
 
   --ink-1:         #17202B;   /* tekst podstawowy */
   --ink-2:         #414C5A;   /* tekst drugorzędny */
@@ -159,6 +160,7 @@
   :root:not([data-theme="light"]) {
     --canvas: #0F1216; --surface: #1A1F26; --surface-alt: #1F252D; --surface-sunk: #232A33; --field: #151A20;
     --line: #333C48; --line-soft: #29303A; --line-strong: #5D6876; --line-field: #5D6876;
+    --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2396A1AE' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
     --ink-1: #E2E6EB; --ink-2: #BCC4CE; --ink-3: #96A1AE; --ink-4: #7F8A97; --ink-dis: #5F6A77;
     --bar: #0F1318; --bar-2: #1E252E; --bar-ink: #E2E6EB; --bar-ink-2: #98A3B0; --win-close: #C42B1C; --chrome-1: #0D1014; --chrome-2: #141920; --logo-type: #E2E6EB; --logo-mark: #8AACF4; --logo-on: #0D1424;
     --nav: #161B21; --nav-hover: #212831; --status: #161B21;
@@ -177,6 +179,7 @@
 :root[data-theme="dark"] {
   --canvas: #0F1216; --surface: #1A1F26; --surface-alt: #1F252D; --surface-sunk: #232A33; --field: #151A20;
   --line: #333C48; --line-soft: #29303A; --line-strong: #5D6876; --line-field: #5D6876;
+    --chev: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2396A1AE' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   --ink-1: #E2E6EB; --ink-2: #BCC4CE; --ink-3: #96A1AE; --ink-4: #7F8A97; --ink-dis: #5F6A77;
   --bar: #0F1318; --bar-2: #1E252E; --bar-ink: #E2E6EB; --bar-ink-2: #98A3B0; --win-close: #C42B1C; --chrome-1: #0D1014; --chrome-2: #141920; --logo-type: #E2E6EB; --logo-mark: #8AACF4; --logo-on: #0D1424;
   --nav: #161B21; --nav-hover: #212831; --status: #161B21;

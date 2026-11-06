@@ -40,7 +40,7 @@
 .search-trigger .kbd { margin-left: auto; flex: none; white-space: nowrap; }
 .tb-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 34px; min-width: 32px; padding: 0 8px 0 4px; border-radius: var(--r-sm); color: var(--bar-ink-2); font-size: var(--fs-sm); position: relative; transition: background-color .12s; }
 .tb-btn:hover { background: var(--bar-2); color: var(--bar-ink); }
-.tb-btn .dot { position: absolute; top: 3px; right: 3px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: var(--crit); color: #fff; font-size: 10px; font-weight: 600; line-height: 15px; box-shadow: 0 0 0 2px var(--chrome-1); }
+.tb-btn .dot { position: absolute; top: 3px; right: 3px; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: var(--crit-solid); color: #fff; font-size: 10px; font-weight: 600; line-height: 15px; box-shadow: 0 0 0 2px var(--chrome-1); }
 .avatar {
   display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%;
   background: var(--logo-type); color: var(--logo-on); font-size: 11px; font-weight: 600; letter-spacing: .02em;

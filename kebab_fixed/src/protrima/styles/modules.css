@@ -488,7 +488,7 @@ div.pstage { cursor: default; }
 .pal-warn { display: inline-flex; margin-right: 5px; vertical-align: -1px; }
 
 /* Wybór klienta z listy na pasku filtrów — wygląda jak chip. */
-.chip-select { flex: none; width: auto; min-width: 150px; max-width: 240px; height: calc(var(--ctl-h) - 4px); padding: 0 8px; border-radius: var(--r-sm); font-size: var(--fs-sm); }
+.chip-select { flex: none; width: auto; min-width: 150px; max-width: 240px; height: calc(var(--ctl-h) - 4px); padding: 0 28px 0 8px; border-radius: var(--r-sm); font-size: var(--fs-sm); color: var(--ink-2); font-weight: 500; }
 .chip-select.on { border-color: var(--accent); background-color: var(--accent-tint-2); color: var(--accent-ink); font-weight: 500; }
 .menu { max-height: min(70vh, 520px); overflow-y: auto; }
 

@@ -40,6 +40,16 @@ const mountEditor = (receptionId?: string) => {
   return { onDone }
 }
 const ustaw = (label: string, v: string) => fireEvent.change(screen.getByLabelText(label), { target: { value: v } })
+/** Formularz gotowy: słowniki (rodzaje, dostawcy) wczytane. */
+const gotowe = async () => { await screen.findByRole('option', { name: 'Ćwiartka z kurczaka' }); await waitFor(() => expect(api.suppliers.list).toHaveBeenCalled()); await new Promise(r => setTimeout(r, 0)) }
+/** Dostawca jak klient w zamówieniu: fragment nazwy, pozycja na liście, Enter. */
+async function dostawca(tekst: string, nazwa: RegExp) {
+  const el = screen.getByLabelText('Dostawca') as HTMLInputElement
+  el.focus()
+  fireEvent.change(el, { target: { value: tekst } })
+  await screen.findByRole('option', { name: nazwa })
+  fireEvent.keyDown(el, { key: 'Enter' })
+}
 
 afterEach(cleanup)
 beforeEach(() => {
@@ -55,9 +65,9 @@ beforeEach(() => {
 describe('Nowe przyjęcie', () => {
   it('przyjmuje dostawę przez okno potwierdzenia — DTO jak stary MES (kg z HDI z przecinkiem, pojemniki z kalibru)', async () => {
     const { onDone } = mountEditor()
-    await screen.findByRole('option', { name: 'KOKO' })
+    await gotowe()
     expect(screen.queryByRole('option', { name: 'Mięso b/s' })).toBeNull() // nieprzyjmowalny rodzaj
-    ustaw('Dostawca', 'sup-koko')
+    await dostawca('kok', /KOKO/)
     ustaw('Masa netto, pozycja 1', '3 000,50')
     ustaw('Nr partii, pozycja 1', '112819')
     await waitFor(() => expect(cmds.find(c => c.id === 'save')!.disabled).toBe(false))
@@ -82,8 +92,8 @@ describe('Nowe przyjęcie', () => {
 
   it('Enter w masie ostatniej pozycji dodaje kolejną z numerem partii +1; podział na dwa numery', async () => {
     mountEditor()
-    await screen.findByRole('option', { name: 'KOKO' })
-    ustaw('Dostawca', 'sup-koko')
+    await gotowe()
+    await dostawca('kok', /KOKO/)
     ustaw('Nr partii, pozycja 1', '112819')
     ustaw('Masa netto, pozycja 1', '1000')
     fireEvent.keyDown(screen.getByLabelText('Masa netto, pozycja 1'), { key: 'Enter' })
@@ -101,8 +111,8 @@ describe('Nowe przyjęcie', () => {
 
   it('reguły starego MES blokują zapis (ważność przed datą przyjęcia) — bez okna i bez zapisu', async () => {
     mountEditor()
-    await screen.findByRole('option', { name: 'KOKO' })
-    ustaw('Dostawca', 'sup-koko')
+    await gotowe()
+    await dostawca('kok', /KOKO/)
     ustaw('Masa netto, pozycja 1', '100')
     ustaw('Cena / kg (zł)', '7')
     ustaw('Data ważności, pozycja 1', plusDni(dzisIso(), -3))
@@ -113,10 +123,22 @@ describe('Nowe przyjęcie', () => {
     expect(api.rec.create).not.toHaveBeenCalled()
   })
 
+  it('Dostawca jak klient w zamówieniu: fragment nazwy + Enter wybiera, kursor idzie do Nr HDI', async () => {
+    // Przegląd (UX-18): natywna lista bez filtrowania łamała nawyk z edytora zamówienia.
+    mountEditor()
+    await gotowe()
+    await dostawca('szum', /SZUMERA/)
+    expect((screen.getByLabelText('Dostawca') as HTMLInputElement).value).toBe('SZUMERA')
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Nr HDI')))
+    // Podpowiedzi sum ze stopki HDI nie udają wpisanych danych.
+    expect((screen.getByLabelText('Masa netto z HDI') as HTMLInputElement).placeholder).toMatch(/^np\. /)
+    expect((screen.getByLabelText('Pojemniki z HDI') as HTMLInputElement).placeholder).toMatch(/^np\. /)
+  })
+
   it('Ctrl+Enter działa mimo okna zostawionego w innej (ukrytej) karcie; okno nad formularzem nadal je blokuje', async () => {
     // Przegląd 0.6.0: „Zawieszki palet” otwarte w karcie Przyjęć, Ctrl+N → nowa karta: skrót był głuchy.
     mountEditor()
-    await screen.findByRole('option', { name: 'KOKO' })
+    await gotowe()
     const karta = document.createElement('section'); karta.hidden = true
     const ukryte = document.createElement('div'); ukryte.className = 'dialog-wrap'
     karta.appendChild(ukryte); document.body.appendChild(karta)

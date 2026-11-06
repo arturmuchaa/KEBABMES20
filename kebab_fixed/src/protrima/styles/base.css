@@ -92,6 +92,8 @@ input, select, textarea { font: inherit; color: inherit; }
 .field:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
 .field.invalid { border-color: var(--crit); box-shadow: 0 0 0 3px color-mix(in srgb, var(--crit) 16%, transparent); }
 .field.num { text-align: right; }
+/* Jedna strzałka listy: natywna lista wygląda jak własne pole z listą (Wybor), także w trybie ciemnym. */
+select.field { appearance: none; -webkit-appearance: none; padding-right: 28px; background-image: var(--chev); background-repeat: no-repeat; background-position: right 9px center; background-size: 12px; }
 .field-wrap { position: relative; display: flex; align-items: center; }
 .field-wrap > svg { position: absolute; left: 9px; color: var(--ink-3); pointer-events: none; }
 .field-wrap > .field { padding-left: 32px; width: 100%; }

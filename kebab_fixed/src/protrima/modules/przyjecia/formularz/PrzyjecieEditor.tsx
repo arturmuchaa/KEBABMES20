@@ -21,6 +21,7 @@ import {
   zDokumentu, zmianaUboju, zSkanu, type FormPrzyjecia, type SkanHdi,
 } from './model'
 import { SzkieletBloku } from '../../../ui/Szkielet'
+import { Wybor, type WyborItem } from '../../../ui/Wybor'
 
 interface Rodzaj { id: string; name: string; requiresDeboning: boolean; receivable: boolean; category: string }
 interface Dostawca { id: string; name: string; displayName?: string }
@@ -46,6 +47,8 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
 
   const rodzaje = useMemo(() => (typesRes.data ?? []).filter(m => m.receivable), [typesRes.data])
   const dostawcy = useMemo(() => ((supRes.data ?? []) as Dostawca[]).slice().sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name, 'pl')), [supRes.data])
+  // Pełna nazwa pod krótką — szukanie działa po obu („kok” i „spółka”).
+  const dostawcyWybor = useMemo<WyborItem[]>(() => dostawcy.map(d => ({ id: d.id, label: d.displayName || d.name, sub: d.displayName && d.displayName !== d.name ? d.name : undefined })), [dostawcy])
 
   const [f, setF] = useState<FormPrzyjecia>(() => nowyFormularz(dzis))
   const [frozen, setFrozen] = useState<Record<string, string>>({})
@@ -293,14 +296,13 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
                     : <span className="rec-no-v"><b>{numerPrzyjecia}</b>{!edycja && <button className="btn ghost icon sm" onClick={() => setEdytRec(true)} aria-label="Popraw numer przyjęcia" data-tip="Popraw numer przyjęcia"><Pencil size={13} /></button>}</span>}
                   <span className="sub">{edycja ? 'numer dokumentu się nie zmienia' : 'podpowiedź — numer zostanie nadany przy zapisie'}</span>
                 </div>
-                <label className="fld rec-sup">
+                {/* Jak Klient w edytorze zamówienia: fragment nazwy, Enter — wybrany, kursor idzie do Nr HDI. */}
+                <div className="fld rec-sup" data-tip={edycja ? 'Zła firma? Anuluj dostawę i wpisz ją ponownie — zmiana dostawcy przesunęłaby saldo pojemników.' : undefined}>
                   <span className="label">Dostawca</span>
-                  <select id={`${tabId}-sup`} className="field" value={h.supplierId} onChange={e => setH('supplierId', e.target.value)} disabled={edycja} autoFocus={!edycja}
-                    data-tip={edycja ? 'Zła firma? Anuluj dostawę i wpisz ją ponownie — zmiana dostawcy przesunęłaby saldo pojemników.' : undefined}>
-                    <option value="">Wybierz dostawcę…</option>
-                    {dostawcy.map(s => <option key={s.id} value={s.id}>{s.displayName || s.name}</option>)}
-                  </select>
-                </label>
+                  <Wybor id={`${tabId}-sup`} label="Dostawca" items={dostawcyWybor} value={h.supplierId} disabled={edycja} autoFocus={!edycja}
+                    placeholder="Wpisz nazwę dostawcy…" pusto="Brak dostawcy o tej nazwie"
+                    onChange={v => setH('supplierId', v)} onDalej={() => document.getElementById(`${tabId}-hdi`)?.focus()} />
+                </div>
                 <label className="fld">
                   <span className="label">Data przyjęcia</span>
                   <input type="date" className="field" value={h.receivedDate} onChange={e => setH('receivedDate', e.target.value)} />
@@ -332,7 +334,7 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
             <div className="box ov-card">
               <h4>Dokument dostawcy i opakowania</h4>
               <div className="rec-fields">
-                <label className="fld"><span className="label">Nr HDI</span><input className="field" value={h.hdiNo} onChange={e => setH('hdiNo', e.target.value)} placeholder="np. 33656" /></label>
+                <label className="fld"><span className="label">Nr HDI</span><input id={`${tabId}-hdi`} className="field" value={h.hdiNo} onChange={e => setH('hdiNo', e.target.value)} placeholder="np. 33656" /></label>
                 <label className="fld rec-wide"><span className="label">Nr WZ / faktury dostawcy</span><input className="field" value={h.documentNo} onChange={e => setH('documentNo', e.target.value)} placeholder="np. WZ 388/MDU/08/2026" /></label>
                 <label className="fld"><span className="label">Kaliber pojemnika</span>
                   <select className="field" value={caliberValue(h.containerKg)} onChange={e => { setF(x => ({ ...x, header: { ...x.header, containerKg: caliberKg(e.target.value as CaliberValue) }, containerOverride: {} })); setDirty(true) }}>
@@ -425,8 +427,8 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
             <div className="f"><span className="k">Dostawa</span><span className="v">{kg(totalKg)}</span></div>
             <div className="f"><span className="k">Pojemniki</span><span className="v">{num(pojemniki)}</span></div>
             <div className="f"><span className="k">Wartość netto</span><span className="v">{usluga ? <span className="faint">usługa</span> : pln(totalKg * (h.pricePerKg || 0))}</span></div>
-            <label className="fld"><span className="label">Masa netto z HDI</span><input className="field num" inputMode="decimal" placeholder="9 000,00" value={h.docKg || ''} onChange={e => setH('docKg', parseKg(e.target.value))} /></label>
-            <label className="fld"><span className="label">Pojemniki z HDI</span><input className="field num" inputMode="numeric" placeholder="600" value={h.docContainers || ''} onChange={e => setH('docContainers', parseInt(e.target.value) || 0)} /></label>
+            <label className="fld"><span className="label">Masa netto z HDI</span><input className="field num" inputMode="decimal" placeholder="np. 9 000,00" value={h.docKg || ''} onChange={e => setH('docKg', parseKg(e.target.value))} /></label>
+            <label className="fld"><span className="label">Pojemniki z HDI</span><input className="field num" inputMode="numeric" placeholder="np. 600" value={h.docContainers || ''} onChange={e => setH('docContainers', parseInt(e.target.value) || 0)} /></label>
             <div className="rec-check">
               {h.docKg <= 0 && h.docContainers <= 0 ? <span className="muted">Wpisz sumy ze stopki HDI — od razu widać pominiętą albo zdublowaną pozycję.</span>
                 : hdi.ok ? <span className="ok-ink strong">Zgodne z HDI: {kg(totalKg)}{h.docContainers > 0 ? `, ${num(h.docContainers)} poj.` : ''}</span>
