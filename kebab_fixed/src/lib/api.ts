@@ -152,6 +152,20 @@ const patch = <T>(p: string, b: unknown) => req<T>('PATCH',  p, b)
 const del   = <T>(p: string)             => req<T>('DELETE', p)
 
 const settlementPath = (id: string) => `/deboning/takes/${encodeURIComponent(id)}/settlement`
+/** Paleta grzbietów/kości zważona INFORMACYJNIE — stan magazynu bez zmian (hala 2026-11-06). */
+export interface ByproductPalletCheckRecord {
+  id: string; kind: 'backs' | 'bones'; kgNet: number; kgGross: number | null; tareKg: number | null; tareLabel: string
+  e2Count: number | null; tareE2Kg: number | null; weighMode: 'auto' | 'manual'; reason: string
+  batches: { rawBatchId: string; rawBatchNo: string; expiryDate: string | null }[]
+  workersKg: number; weighedBy: string; weighedAt: string
+}
+export const byproductPalletChecksApi = {
+  create: (dto: { requestId: string; kind: 'backs' | 'bones'; rawBatchIds: string[]; kgNet: number; kgGross?: number; tareKg?: number;
+    tareLabel?: string; tareE2Kg?: number; e2Count?: number; weighMode: 'auto' | 'manual'; reason?: string }) =>
+    post<ByproductPalletCheckRecord>('/deboning/byproduct-pallet-checks', dto),
+  recent: (days = 1) => get<{ checks: ByproductPalletCheckRecord[] }>(`/deboning/byproduct-pallet-checks?days=${days}`).then(r => r?.checks ?? []),
+}
+
 export const takeSettlementApi = {
   mode: (batchId: string) => get<{ mode: 'worker' | 'legacy' }>(`/deboning/batches/${encodeURIComponent(batchId)}/settlement-mode`),
   get: (id: string) => get<TakeSettlement>(settlementPath(id)),

@@ -17,7 +17,7 @@ function state(overrides: Partial<TakeSettlement> = {}): TakeSettlement {
     kgRemainder: 300, yieldPct: 0, sessionNo: 'ROZ/05/11/26', createdAt: '2026-11-05T06:00:00Z',
     status: 'pending', meatType: 'zs', mode: 'worker', stage: 'meat',
     meatKg: 0, backsKg: 0, bonesKg: 0, totalKg: 0, differenceKg: -300, balancePct: 0,
-    tolerancePct: 1, toleranceKg: 3, minKg: 297, maxKg: 303, withinTolerance: false, weighings: [],
+    tolerancePct: 0.5, toleranceKg: 1.5, tolerancePlusPct: 1.5, toleranceMinusPct: 0.5, minKg: 298.5, maxKg: 304.5, withinTolerance: false, weighings: [],
     ...overrides,
   }
 }
@@ -31,7 +31,7 @@ function append(dto: SettlementMeasurement) {
   server = { ...server, [key]: server[key] + dto.kgNet,
     weighings: [...server.weighings, { ...dto, id: dto.requestId, weighedAt: '2026-11-05T07:00:00Z' }] }
   const total = server.meatKg + server.backsKg + server.bonesKg
-  server = { ...server, totalKg: total, differenceKg: total - 300, balancePct: total / 3, withinTolerance: total >= 297 && total <= 303 }
+  server = { ...server, totalKg: total, differenceKg: total - 300, balancePct: total / 3, withinTolerance: total >= 298.5 && total <= 304.5 }
   return server
 }
 
@@ -79,27 +79,27 @@ describe('prowadzone rozliczenie pobrania', () => {
     await weighCart('bones', 44, view)
     await screen.findByRole('heading', { name: 'Sprawdź pełny bilans' })
     expect(screen.getByText('Brakuje 1,00 kg')).toBeTruthy()
-    expect(screen.getByText('✓ W tolerancji ±1%')).toBeTruthy()
+    expect(screen.getByText('✓ W tolerancji +1,5% / −0,5%')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Zatwierdź rozliczenie' }))
     await screen.findByRole('heading', { name: 'Pobranie rozliczone' })
     expect(takeSettlementApi.weigh).toHaveBeenCalledTimes(3)
     expect(takeSettlementApi.finish).toHaveBeenCalledTimes(1)
   })
 
-  it.each([297, 303])('akceptuje granicę %s kg dla pobrania 300 kg', total => {
+  it.each([298.5, 304.5])('akceptuje granicę %s kg dla pobrania 300 kg (+1,5% / −0,5%)', total => {
     renderWizard(scale(), state({ stage: 'balance', meatKg: 200, backsKg: 55, bonesKg: total - 255,
       totalKg: total, differenceKg: total - 300, withinTolerance: true }))
     expect((screen.getByRole('button', { name: 'Zatwierdź rozliczenie' }) as HTMLButtonElement).disabled).toBe(false)
-    expect(screen.getByText(/297,00–303,00 kg/)).toBeTruthy()
+    expect(screen.getAllByText(/298,50–304,50 kg/).length).toBeGreaterThan(0)
   })
 
-  it.each([296.99, 303.01])('nie zamyka %s kg poza 1%, choć mieściłoby się w 2%', total => {
+  it.each([298.49, 304.51])('nie zamyka %s kg poza tolerancją +1,5% / −0,5%', total => {
     renderWizard(scale(), state({ stage: 'balance', totalKg: total, differenceKg: total - 300 }))
     const finish = screen.getByRole('button', { name: 'Zatwierdź rozliczenie' })
     expect((finish as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(finish)
     expect(takeSettlementApi.finish).not.toHaveBeenCalled()
-    expect(screen.getByText('Poza tolerancją ±1%')).toBeTruthy()
+    expect(screen.getByText('Poza tolerancją +1,5% / −0,5%')).toBeTruthy()
   })
 
   it('nie zapisuje niestabilnej ani odłączonej wagi', () => {

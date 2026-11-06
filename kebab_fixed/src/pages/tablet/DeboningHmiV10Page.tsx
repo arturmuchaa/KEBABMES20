@@ -25,6 +25,7 @@ import { SettlementSummaryCard } from '@/features/deboning/SettlementSummaryCard
 import { SettlementBalancePanel } from '@/features/deboning/SettlementBalancePanel'
 import { SettlementExceptionModal } from '@/features/deboning/SettlementExceptionModal'
 import { ServiceCodeModal } from '@/features/deboning/ServiceCodeModal'
+import { ByproductPalletCheckModal } from '@/features/deboning/ByproductPalletCheckModal'
 import { SERVICE_CODE } from '@/features/deboning/ServiceMenu'
 import { SETTLEMENT_LABEL, SETTLEMENT_STAGES, type TakeSettlement, type SettlementInitial, type SettlementKind, type SettlementStage } from '@/features/deboning/settlement'
 import type { RawBatch, User } from '@/types'
@@ -55,7 +56,7 @@ import { buildBatchMeatSummary } from '@/features/deboning/batchMeatSummary'
 import { lotProgress } from '@/features/deboning/meatPallet'
 import type { MeatStock } from '@/types'
 import { BulkWeighingWizard } from '@/features/deboning/BulkWeighingWizard'
-import { QUICK_TARGET_KG, quickPalletDraft, withinTolerance } from '@/features/deboning/meatPallet'
+import { QUICK_TARGET_KG, SETTLEMENT_AUTO_LABEL_KG, isSettlementAutoLabel, quickPalletDraft, withinTolerance } from '@/features/deboning/meatPallet'
 import { meatPalletLabelZpl } from '@/features/deboning/meatPalletLabelZpl'
 import { getDevices, sendZpl, probeBrowserPrint } from '@/lib/zebra'
 import { getProductionDate } from '@/features/deboning/utils'
@@ -347,7 +348,7 @@ const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount
   disabled?: boolean
   onSelect: (w: User) => void; onLongPress: (w: User) => void
 }) {
-  const initials = worker.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+  const label = workerTileLabel(worker.name)
   // Przytrzymanie (0,5 s) = szczegóły/edycja pracownika; krótkie dotknięcie = wybór.
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const longRef = useRef(false)
@@ -366,8 +367,9 @@ const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount
         color: selected ? '#fff' : disabled ? 'var(--mut)' : 'var(--ink)',
         opacity: disabled ? 0.5 : blocked ? 0.55 : 1,
       }}>
-      <span className="font-extrabold text-3xl leading-none">{initials}</span>
-      <span className="text-sm font-semibold leading-tight text-center truncate w-full">{worker.name}</span>
+      {/* Duże imię, pod nim mniejszy numer pracownika — bez skrótu z liter („I8” mylił się w oczach, hala 2026-11-06). */}
+      <span className="font-extrabold leading-tight text-center w-full line-clamp-2 break-words text-[22px]">{label.name}</span>
+      {label.no ? <span className="hmi-v10-mono font-bold leading-none text-lg" style={{ opacity: 0.8 }}>{label.no}</span> : null}
       {pendingKg != null ? (
         <span className="text-[10px] font-bold uppercase text-center leading-tight px-1 py-0.5 w-full"
           style={{ borderRadius: 6, background: selected ? 'rgba(255,255,255,.2)' : 'var(--ambSoft)', color: selected ? '#fff' : 'var(--amb)', letterSpacing: '.02em' }}>
@@ -544,6 +546,12 @@ const TakeProgressBarV10 = memo(function TakeProgressBarV10({ p, compact = false
   )
 })
 
+/** „IVAN 8” → numer 8 + imię IVAN. Bez numeru na końcu — samo imię. */
+export function workerTileLabel(name: string): { no: string | null; name: string } {
+  const m = /^(.*\S)\s+(\d{1,3})$/.exec(name.trim())
+  return m ? { no: m[2], name: m[1] } : { no: null, name: name.trim() }
+}
+
 /** Kafelek podsumowania po zapisie — operator widzi na oko CO zapisał, bez
  * szukania w gęstej tabeli „Ostatnie wpisy". `meatKg: null` = tylko pobranie
  * (mięso czeka na zważenie); `kind: 'partial'` = porcja zapisana, pobranie
@@ -648,7 +656,7 @@ const SaveSummaryCard = memo(function SaveSummaryCard({ s, onClose }: { s: SaveS
       {prog && <div style={{ minWidth: 560 }}><TakeProgressBarV10 p={prog} compact /></div>}
       {st?.exceptionReason && (
         <div className="text-[13px] font-bold px-3 py-1.5" style={{ borderRadius: 8, background: 'var(--ambSoft)', border: '1px solid var(--ambLine)', color: 'var(--amb)' }}>
-          Poza tolerancją ±1% — powód: {st.exceptionReason}. Widoczne w raporcie rozbioru.
+          Poza tolerancją — powód: {st.exceptionReason}. Widoczne w raporcie rozbioru.
         </div>
       )}
       </div>
@@ -719,6 +727,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const pickCartTare = useCallback((w: number) => {
     if (w === 0) { setNoCart(true); setCartCounts({}); return }
     setNoCart(false)
+    // Wózek = zwykle 5 pojemników E2: start od 5, operator koryguje ± (hala 2026-11-06).
+    setE2Count(n => (n > 0 ? n : 5))
     setCartCounts(prev => {
       const key = String(w)
       const next = ((prev[key] ?? 0) + 1) % 4
@@ -789,6 +799,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [operatorModal, setOperatorModal] = useState(false)
   // Ważenie zbiorcze mięsa: kompletowanie równych palet dla masowni.
   const [bulkOpen, setBulkOpen] = useState(false)
+  // Paleta grzbietów/kości z wielu pobrań — ważenie informacyjne, stan bez zmian.
+  const [palletCheckOpen, setPalletCheckOpen] = useState(false)
   // Szybka etykieta słupka (100 kg) wprost z panelu ważenia.
   const [quickBusy, setQuickBusy] = useState(false)
   // Kafel zakończonej partii prowadził WYŁĄCZNIE do ubocznych — nie dało się
@@ -1122,54 +1134,64 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const quickReady = !!selBatch && weighing.netKg > 0 && scale.stable && !ponadPartie
     && withinTolerance(weighing.netKg, QUICK_TARGET_KG)
 
-  /** Zapisz słupek i wydrukuj etykietę — jedno dotknięcie, bez kreatora. */
-  async function handleQuickLabel() {
-    if (!selBatch || weighing.netKg <= 0) return
-    setQuickBusy(true)
+  /** Zapisz słupek mięsa (paleta z lotu partii) i wydrukuj jego etykietę. Zwraca true po wydruku. */
+  async function printMeatPalletLabel(o: { batch: RawBatch; lotNo?: string; netKg: number; containers: number; cartTare: number | null; targetKg?: number }) {
     try {
       // Termin z lotu mięsa tej partii; gdy lotu nie ma (świeże pobranie
       // jeszcze niezapisane) — termin ćwiartki, żeby etykieta nie wyszła pusta.
-      let expiry = selBatch.expiryDate ?? ''
+      let expiry = o.batch.expiryDate ?? ''
       try {
         const lots = await meatStockApi.list()
-        const lot = lots.data.find(m => m.lotNo === selBatch.internalBatchNo)
+        const lot = lots.data.find(m => m.lotNo === (o.lotNo || o.batch.internalBatchNo))
         if (lot?.expiryDate) expiry = lot.expiryDate
       } catch { /* brak sieci nie może blokować etykiety */ }
 
       const draft = quickPalletDraft({
-        netKg: weighing.netKg,
-        containers: e2Count,
-        batchNo: selBatch.internalBatchNo,
-        carrierLabel: cartTareTotal ? `wózek ${fmtKg(cartTareTotal, 1)}` : 'bez wózka',
-        carrierKg: cartTareTotal ?? 0,
+        netKg: o.netKg,
+        containers: o.containers,
+        batchNo: o.batch.internalBatchNo,
+        lotNo: o.lotNo,
+        targetKg: o.targetKg,
+        carrierLabel: o.cartTare ? `wózek ${fmtKg(o.cartTare, 1)}` : 'bez wózka',
+        carrierKg: o.cartTare ?? 0,
         operator: loggedInUser?.name ?? '',
         productionDate: getProductionDate(),
         expiryDate: expiry,
       })
-      if (!draft) { showToast('Brak partii albo wagi — etykieta nie powstała', 'err'); return }
+      if (!draft) { showToast('Brak partii albo wagi — etykieta nie powstała', 'err'); return false }
 
       const zapisana = await meatPalletsApi.create(draft)
       const { default: def, list } = await getDevices()
       const dev = def ?? list[0]
-      if (!dev) throw new Error('Nie znaleziono drukarki etykiet')
+      if (!dev) throw new Error(`Słupek ${zapisana.palletNo} zapisany, ale nie znaleziono drukarki etykiet`)
       await sendZpl(dev, meatPalletLabelZpl({
         palletNo: zapisana.palletNo,
         netKg: draft.kgNet,
         containers: draft.containers,
         productionDate: draft.productionDate,
         expiryDate: draft.expiryDate,
-        // Szybka etykieta zawsze idzie z JEDNEJ partii — tej zaznaczonej na
-        // ekranie — więc jej daty uboju i przyjęcia są jednoznaczne.
-        slaughterDate: selBatch.slaughterDate,
-        receivedDate:  selBatch.receivedDate,
+        // Etykieta idzie z JEDNEJ partii, więc daty uboju i przyjęcia są jednoznaczne.
+        slaughterDate: o.batch.slaughterDate,
+        receivedDate:  o.batch.receivedDate,
         lots: draft.lots,
       }))
       meatStockData.refetch()
-      showToast(`Etykieta ${zapisana.palletNo} — ${fmtKg(draft.kgNet, 1)} kg z partii ${selBatch.internalBatchNo}`)
+      showToast(`Etykieta ${zapisana.palletNo} — ${fmtKg(draft.kgNet, 1)} kg z partii ${o.batch.internalBatchNo}`)
+      return true
     } catch (e: any) {
       const probe = await probeBrowserPrint()
       showToast(probe.ok ? (e?.message || 'Nie udało się wydrukować etykiety')
         : (probe.reason ?? 'Brak połączenia z drukarką'), 'err')
+      return false
+    }
+  }
+
+  /** Zapisz słupek i wydrukuj etykietę — jedno dotknięcie, bez kreatora. */
+  async function handleQuickLabel() {
+    if (!selBatch || weighing.netKg <= 0) return
+    setQuickBusy(true)
+    try {
+      await printMeatPalletLabel({ batch: selBatch, netKg: weighing.netKg, containers: e2Count, cartTare: cartTareTotal })
     } finally {
       setQuickBusy(false)
     }
@@ -1249,10 +1271,18 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     }
     if (!tileKind || !canSaveTile || fix) return false
     const kind = tileKind, kg = tileNet
+    const label = { containers: e2Count, cartTare: cartTareTotal, s: tileSt }
     const err = await tile.weigh(tileMeasurement(kind, ''))
     if (err) { showToast(err, 'err'); return false }
     showToast(`Zapisano ${SETTLEMENT_LABEL[kind].toLowerCase()}: ${fmtKg(kg, 1)} kg`)
     afterTileWrite()
+    // Mięso równe 200 kg = gotowy słupek: etykieta od razu (mięso jest już na locie partii),
+    // operator nie wjeżdża drugi raz po zważeniu grzbietów i kości. Druk w tle — nie blokuje dalej.
+    const batch = label.s ? ((batchData.data?.data ?? []) as RawBatch[]).find(b => b.id === label.s!.rawBatchId) : undefined
+    if (kind === 'meat' && autoMode && batch && isSettlementAutoLabel(kg)) {
+      void printMeatPalletLabel({ batch, netKg: kg, containers: label.containers, cartTare: label.cartTare,
+        lotNo: label.s!.meatType === 'bs' ? `${batch.internalBatchNo}-BS` : undefined, targetKg: SETTLEMENT_AUTO_LABEL_KG })
+    }
     return true
   }
 
@@ -1735,10 +1765,13 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     )
     if (err) { showToast(err, 'err'); return }
     batchData.refetch()
+    const takenBy = selWorker
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false); setMeatType('zs')
     setMeatDriveOff(DRIVE_OFF_IDLE)
+    // Pobranie zapisane — następny krok to wybór pracownika od zera, bez podświetlonego poprzedniego.
+    setSelWorker(null)
     showToast(`Pobrano ${fmtKg(taken, 1)} kg — czeka na zważenie`)
-    flashSaveSummary({ batchNo: selBatch.internalBatchNo, workerName: selWorker.name, takenKg: taken, meatKg: null, kind: 'taken' })
+    flashSaveSummary({ batchNo: selBatch.internalBatchNo, workerName: takenBy.name, takenKg: taken, meatKg: null, kind: 'taken' })
     // Pobranie NIE zakańcza partii, nawet gdy wyczerpało kg — mięso dopiero
     // przyjdzie na wagę. Zakończenie odpala się przy domknięciu OSTATNIEGO
     // pobrania (handleCompleteTake + gwarancja serwerowa).
@@ -2333,7 +2366,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         </div>
       )}
 
-      {/* Bilans poza ±1% — świadoma decyzja kierownika: kod + powód, ślad w raporcie. */}
+      {/* Bilans poza tolerancją — świadoma decyzja kierownika: kod + powód, ślad w raporcie. */}
       {exceptionOpen && tileSt && (
         <SettlementExceptionModal s={tileSt} vars={VARS} busy={tile.busy} error={exceptionError}
           onCancel={() => { setExceptionOpen(false); setExceptionError('') }}
@@ -2380,7 +2413,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
             <div>
               <div className="font-extrabold text-xl leading-tight">Pobranie — {takeEdit.entry.workerName}</div>
               <div className="text-sm font-semibold mt-0.5" style={{ color: 'var(--mut)' }}>
-                Partia {takeEdit.entry.rawBatchNo} · {takeEdit.entry.settlementStage ? 'rozliczenie w toku' : 'czeka na zważenie mięsa'} · zmiana kodem serwisowym
+                Partia {takeEdit.entry.rawBatchNo} · {takeEdit.entry.settlementStage === 'done' ? 'rozliczone — ważenia zostają' : takeEdit.entry.settlementStage ? 'rozliczenie w toku' : 'czeka na zważenie mięsa'} · zmiana kodem serwisowym
               </div>
             </div>
             <div className="flex items-baseline gap-2 justify-center py-1">
@@ -2454,7 +2487,12 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         const wEntries = completeEntries.filter(e => e.workerId === workerDetail.id).slice().reverse()
         const wt = wEntries.reduce((s, e) => s + e.kgTaken, 0)
         const wm = wEntries.reduce((s, e) => s + e.kgMeat, 0)
+        const wb = wEntries.reduce((s, e) => s + (Number(e.kgBacks) || 0), 0)
+        const wk = wEntries.reduce((s, e) => s + (Number(e.kgBones) || 0), 0)
         const wy = wt > 0 ? (wm / wt) * 100 : 0
+        // Kolumny pobrania: godz · partia · pobrano · mięso · grzbiety · kości · % · zmiana · usuń.
+        const cols = 'grid-cols-[48px_46px_1fr_1fr_1fr_1fr_56px_74px_60px]'
+        const kg = (v: number | undefined) => (Number(v) > 0 ? fmtKg(Number(v), 1) : '—')
         // Otwarte pobrania pracownika — statystyki i zmiana pobrania w JEDNYM modalu
         // (wcześniej long-press przy pending otwierał od razu edycję i statystyk nie było).
         // KAŻDE osobno, bo pracownik może mieć naraz z/s i b/s — jedna zbiorcza
@@ -2462,15 +2500,15 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         const wPending = pendingTakes.filter(p => (p as any).workerId === workerDetail.id) as DeboningEntry[]
         return (
           <div className="fixed inset-0 z-[56] flex items-center justify-center bg-black/45" style={VARS}>
-            <div className="w-[720px] max-w-[96vw] flex flex-col" style={{ maxHeight: '92vh', borderRadius: 16, background: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', boxShadow: '0 30px 80px -30px rgba(0,0,0,.5)' }}>
+            <div className="w-[960px] max-w-[96vw] flex flex-col" style={{ maxHeight: '92vh', borderRadius: 16, background: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', boxShadow: '0 30px 80px -30px rgba(0,0,0,.5)' }}>
               <div className="flex items-center gap-4 px-6 py-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--line)', background: 'var(--panel)', borderTopLeftRadius: 16, borderTopRightRadius: 16 }}>
                 <span className="w-12 h-12 rounded-full flex items-center justify-center font-extrabold" style={{ background: 'var(--accent)', color: '#fff' }}>
-                  {workerDetail.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                  {workerTileLabel(workerDetail.name).no ?? workerDetail.name.trim().charAt(0).toUpperCase()}
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="font-extrabold text-xl leading-tight truncate">{workerDetail.name}</div>
                   <div className="hmi-v10-mono text-[12px] font-bold" style={{ color: 'var(--mut)' }}>
-                    {wEntries.length} szt · ćwiartka {fmtKg(wt, 0)} kg · mięso {fmtKg(wm, 0)} kg · <span style={{ color: yieldInk(wy) }}>{fmtPct(wy, 1)}</span>
+                    {wEntries.length} szt · pobrano {fmtKg(wt, 0)} kg · mięso {fmtKg(wm, 0)} kg{wb > 0 ? ` · grzbiety ${fmtKg(wb, 0)} kg` : ''}{wk > 0 ? ` · kości ${fmtKg(wk, 0)} kg` : ''} · <span style={{ color: yieldInk(wy) }}>{fmtPct(wy, 1)}</span>
                   </div>
                 </div>
                 <button type="button" onClick={() => { setWorkerDetail(null); setEditEntryId(null) }} className="w-9 h-9 flex items-center justify-center" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--mut)' }}><X size={18} /></button>
@@ -2510,13 +2548,16 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                     </div>
                   </div>
                 ) : (
-                  <div key={e.id} className="grid grid-cols-[52px_56px_1fr_1fr_52px_78px_74px] items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
-                    <span className="hmi-v10-mono text-xs" style={{ color: 'var(--mut)' }}>{new Date(entryTime(e)).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</span>
+                  <div key={e.id} className={`grid ${cols} items-center gap-2 px-4 py-3`} style={{ borderRadius: 12, background: 'var(--panel)', border: '1px solid var(--line)' }}>
+                    <span className="hmi-v10-mono text-sm font-bold">{new Date(entryTime(e)).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}</span>
                     <span className="hmi-v10-mono text-xs font-bold" style={{ color: 'var(--accent)' }}>{e.rawBatchNo}</span>
-                    <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>ćw</span>{fmtKg(e.kgTaken, 1)}</span>
-                    <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>mię</span>{fmtKg(e.kgMeat, 1)}</span>
+                    <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>pobr.</span>{fmtKg(e.kgTaken, 1)}</span>
+                    <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>mięso</span>{fmtKg(e.kgMeat, 1)}</span>
+                    <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>grzb.</span>{kg(e.kgBacks)}</span>
+                    <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>kości</span>{kg(e.kgBones)}</span>
                     <span className="hmi-v10-mono text-sm font-bold text-right" style={{ color: yieldInk(e.yieldPct) }}>{fmtPct(e.yieldPct, 1)}</span>
-                    {e.settlementStage ? <span className="text-[10px] font-bold text-center leading-tight" style={{ color: 'var(--mut)' }}>rozliczone<br />— usuń i zważ</span>
+                    {e.settlementStage ? <button type="button" onClick={() => { setTakeEdit({ entry: e, value: String(e.kgTaken) }); setWorkerDetail(null); setEditEntryId(null) }}
+                        className="h-9 text-xs font-bold" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--accent)' }}>Pobranie</button>
                       : <button type="button" onClick={() => startEditEntry(e)} className="h-9 text-xs font-bold" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--accent)' }}>Edytuj</button>}
                     {/* Usunięcie działa na KAŻDYM wpisie otwartej zmiany, nie
                         tylko w oknie „Cofnij" — operator prostuje pomyłkę
@@ -2525,10 +2566,12 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                   </div>
                 ))}
                 {wEntries.length > 0 && (
-                  <div className="grid grid-cols-[52px_56px_1fr_1fr_52px_78px_74px] items-center gap-3 px-4 py-3" style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1.5px solid var(--accent)' }}>
+                  <div className={`grid ${cols} items-center gap-2 px-4 py-3`} style={{ borderRadius: 12, background: 'var(--accentSoft)', border: '1.5px solid var(--accent)' }}>
                     <span className="text-[11px] font-extrabold uppercase col-span-2" style={{ color: 'var(--accent)', letterSpacing: '.08em' }}>Razem</span>
-                    <span className="hmi-v10-mono text-sm font-extrabold text-right"><span className="text-[9px] uppercase mr-1 font-bold" style={{ color: 'var(--mut)' }}>ćw</span>{fmtKg(wt, 1)}</span>
-                    <span className="hmi-v10-mono text-sm font-extrabold text-right"><span className="text-[9px] uppercase mr-1 font-bold" style={{ color: 'var(--mut)' }}>mię</span>{fmtKg(wm, 1)}</span>
+                    <span className="hmi-v10-mono text-sm font-extrabold text-right"><span className="text-[9px] uppercase mr-1 font-bold" style={{ color: 'var(--mut)' }}>pobr.</span>{fmtKg(wt, 1)}</span>
+                    <span className="hmi-v10-mono text-sm font-extrabold text-right"><span className="text-[9px] uppercase mr-1 font-bold" style={{ color: 'var(--mut)' }}>mięso</span>{fmtKg(wm, 1)}</span>
+                    <span className="hmi-v10-mono text-sm font-extrabold text-right">{kg(wb)}</span>
+                    <span className="hmi-v10-mono text-sm font-extrabold text-right">{kg(wk)}</span>
                     <span className="hmi-v10-mono text-sm font-extrabold text-right" style={{ color: yieldInk(wy) }}>{fmtPct(wy, 1)}</span>
                     <span className="hmi-v10-mono text-[11px] font-bold text-right" style={{ color: 'var(--mut)' }}>{wEntries.length} szt</span>
                     <span />
@@ -2542,6 +2585,19 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           </div>
         )
       })()}
+
+      {palletCheckOpen && (
+        <ByproductPalletCheckModal scale={scale} cartTares={cartTares} vars={VARS}
+          productionDate={getProductionDate()} defaultBatchId={selBatch?.id}
+          batches={(() => {
+            // Aktywne partie + partie, z których dziś rozliczano pobrania (grzbiety leżą jeszcze na hali).
+            const all = (batchData.data?.data ?? []) as RawBatch[]
+            const ids = new Set([...allActiveBatches.map(b => b.id),
+              ...completeEntries.filter(e => e.settlementStage === 'done').map(e => e.rawBatchId)])
+            return all.filter(b => ids.has(b.id))
+          })()}
+          onClose={() => setPalletCheckOpen(false)} />
+      )}
 
       {codeAsk && (
         <ServiceCodeModal title={codeAsk.title} detail={codeAsk.detail} confirmLabel={codeAsk.confirmLabel}
@@ -2651,7 +2707,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       <header className="flex-shrink-0 h-[76px] flex items-center gap-5 px-6" style={{ background: 'var(--barBg)', borderBottom: '1px solid var(--line)' }}>
         <div>
           <div className="font-extrabold text-xl leading-none uppercase" style={{ letterSpacing: '-.01em' }}>Rozbiór</div>
-          <div className="hmi-v10-mono text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.14em' }}>
+          <div className="hmi-v10-mono text-[10px] font-bold uppercase whitespace-nowrap" style={{ color: 'var(--mut)', letterSpacing: '.08em' }}>
             {session.sessionDate} · {buildLabel}
           </div>
         </div>
@@ -2692,6 +2748,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           className="h-9 px-4 text-[13px] font-bold flex items-center gap-2 flex-shrink-0"
           style={{ border: '1px solid var(--line)', color: 'var(--ink)', borderRadius: 8, background: 'var(--panel)' }}>
           <Layers size={15} /> Ważenie zbiorcze
+        </button>
+        <button type="button" onClick={() => setPalletCheckOpen(true)}
+          className="h-9 px-3 text-[13px] font-bold flex items-center gap-1.5 flex-shrink-0"
+          style={{ border: '1px solid var(--line)', color: 'var(--ink)', borderRadius: 8, background: 'var(--panel)' }}>
+          <Printer size={15} /> Paleta grzbiety/kości
         </button>
         <button type="button" onClick={handleFinishBatch}
           className="h-9 px-4 text-[13px] font-bold flex items-center gap-2 flex-shrink-0"
@@ -2795,7 +2856,10 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                       otherKindKg={st?.otherKindKg}
                       otherKind={meatType === 'bs' ? 'zs' : 'bs'}
                       blocked={st?.blocked}
-                      disabled={batchWaitingOnlyForMeat && st?.action === 'new'}
+                      // W trakcie ważenia pracownika pozostali są zablokowani (hala 2026-11-06) —
+                      // wyjście: ZATWIERDŹ albo PÓŹNIEJ / Anuluj; potem wybór od zera.
+                      disabled={(batchWaitingOnlyForMeat && st?.action === 'new')
+                        || (!!tileSt && tileSt.workerId !== w.id) || (!!resumeId && selWorker?.id !== w.id)}
                       onSelect={pickWorker}
                       onLongPress={(wk) => { setWorkerDetail(wk); setEditEntryId(null) }} />
                   )

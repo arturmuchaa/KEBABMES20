@@ -22,4 +22,24 @@ DDL = [
         corrections JSONB NOT NULL DEFAULT '[]'
     )""",
     "CREATE INDEX IF NOT EXISTS idx_settlement_weighings_entry ON deboning_settlement_weighings(entry_id)",
+    # Whole pallet of backs/bones collected from many takes, weighed FOR INFORMATION:
+    # the kilograms already entered stock per worker, so no stock movement here.
+    """CREATE TABLE IF NOT EXISTS byproduct_pallet_checks (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('backs','bones')),
+        kg_net NUMERIC(10,3) NOT NULL CHECK (kg_net > 0),
+        kg_gross NUMERIC(10,3),
+        tare_kg NUMERIC(10,3),
+        tare_label TEXT NOT NULL DEFAULT '',
+        tare_e2_kg NUMERIC(10,3),
+        e2_count INTEGER,
+        weigh_mode TEXT NOT NULL CHECK (weigh_mode IN ('auto','manual')),
+        reason TEXT NOT NULL DEFAULT '',
+        batches JSONB NOT NULL,
+        workers_kg NUMERIC(10,3) NOT NULL DEFAULT 0,
+        weighed_by TEXT NOT NULL,
+        weighed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        original_payload JSONB NOT NULL
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_byproduct_pallet_checks_at ON byproduct_pallet_checks(weighed_at)",
 ]

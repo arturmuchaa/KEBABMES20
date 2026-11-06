@@ -19,7 +19,7 @@ function state(overrides: Partial<TakeSettlement> = {}): TakeSettlement {
     kgRemainder: 300, yieldPct: 0, sessionNo: 'ROZ/05/11/26', createdAt: '2026-11-05T06:00:00Z',
     status: 'pending', meatType: 'zs', mode: 'worker', stage: 'balance',
     meatKg: 200, backsKg: 55, bonesKg: 30, totalKg: 285, differenceKg: -15, balancePct: 95,
-    tolerancePct: 1, toleranceKg: 3, minKg: 297, maxKg: 303, withinTolerance: false,
+    tolerancePct: 0.5, toleranceKg: 1.5, tolerancePlusPct: 1.5, toleranceMinusPct: 0.5, minKg: 298.5, maxKg: 304.5, withinTolerance: false,
     weighings: [
       { id: 'm1', kind: 'meat', kgNet: 120, weighMode: 'auto', reason: '', weighedAt: '2026-11-05T07:00:00Z' },
       { id: 'm2', kind: 'meat', kgNet: 80, weighMode: 'auto', reason: '', weighedAt: '2026-11-05T07:05:00Z' },
@@ -41,13 +41,14 @@ describe('SettlementBalancePanel (bilans na środku ekranu)', () => {
     expect(within(panel).getByText('Grzbiety')).toBeTruthy()
     expect(within(panel).getByText('Kości')).toBeTruthy()
     expect(within(panel).getByText('285,0 kg')).toBeTruthy()
+    expect(within(panel).getByLabelText('Procent z pobrania').textContent).toMatch(/66,7%/)
     expect(within(panel).getByRole('status').textContent).toMatch(/Brakuje 15,0 kg/)
-    expect(within(panel).getByRole('status').textContent).toMatch(/297,0–303,0 kg/)
+    expect(within(panel).getByRole('status').textContent).toMatch(/\+1,5% \/ −0,5% = 298,5–304,5 kg/)
   })
 
-  it('says "W tolerancji" inside ±1%', () => {
-    render(<SettlementBalancePanel s={state({ bonesKg: 43.4, totalKg: 298.4, differenceKg: -1.6, balancePct: 99.47, withinTolerance: true })} onFix={() => {}} />)
-    expect(screen.getByRole('status').textContent).toMatch(/W tolerancji — brakuje 1,6 kg/)
+  it('says "W tolerancji" inside +1,5% / −0,5%', () => {
+    render(<SettlementBalancePanel s={state({ bonesKg: 43.6, totalKg: 298.6, differenceKg: -1.4, balancePct: 99.53, withinTolerance: true })} onFix={() => {}} />)
+    expect(screen.getByRole('status').textContent).toMatch(/W tolerancji — brakuje 1,4 kg/)
   })
 
   it('"Popraw" fixes that fraction in place', () => {

@@ -289,6 +289,10 @@ export interface QuickPalletInput {
   operator: string
   productionDate: string
   expiryDate: string
+  /** Lot mięsa, gdy różni się od numeru partii (b/s: „694-BS”). */
+  lotNo?: string
+  /** Cel słupka na etykiecie — domyślnie szybka etykieta 100 kg. */
+  targetKg?: number
 }
 
 export interface PalletDraft {
@@ -319,9 +323,10 @@ export function quickPalletDraft(i: QuickPalletInput): PalletDraft | null {
   const kg = Math.round((i.netKg ?? 0) * 10) / 10
   const nr = (i.batchNo ?? '').trim()
   if (!nr || kg <= 0) return null
+  const target = i.targetKg ?? QUICK_TARGET_KG
   return {
-    targetKg: QUICK_TARGET_KG,
-    stackKg: QUICK_TARGET_KG,
+    targetKg: target,
+    stackKg: target,
     kgNet: kg,
     containers: Math.max(0, Math.round(i.containers ?? 0)),
     carrierLabel: i.carrierLabel ?? '',
@@ -329,6 +334,11 @@ export function quickPalletDraft(i: QuickPalletInput): PalletDraft | null {
     operator: i.operator ?? '',
     productionDate: i.productionDate,
     expiryDate: i.expiryDate ?? '',
-    lots: [{ lotNo: nr, kg }],
+    lots: [{ lotNo: (i.lotNo ?? '').trim() || nr, kg }],
   }
 }
+
+/** Mięso z rozliczenia pobrania równe 200 kg = gotowy słupek: etykieta drukuje się sama
+ * (hala 2026-11-06 — bez drugiego wjazdu z mięsem po zważeniu grzbietów i kości). */
+export const SETTLEMENT_AUTO_LABEL_KG = 200
+export const isSettlementAutoLabel = (netKg: number) => Math.abs(netKg - SETTLEMENT_AUTO_LABEL_KG) < 0.05

@@ -1,6 +1,6 @@
 import { Check } from 'lucide-react'
 import { fmtKg } from '@/lib/utils'
-import { SETTLEMENT_LABEL, type SettlementKind, type TakeSettlement } from './settlement'
+import { SETTLEMENT_LABEL, toleranceLabel, type SettlementKind, type TakeSettlement } from './settlement'
 
 const KINDS: SettlementKind[] = ['meat', 'backs', 'bones']
 const ORDER = ['meat', 'backs', 'bones', 'balance', 'done']
@@ -86,7 +86,7 @@ export function SettlementSummaryCard({ s, liveKg, onFix, fixing = null }: {
             : diff < 0 ? `Brakuje ${fmtKg(-diff, 1)} kg` : `Nadmiar ${fmtKg(diff, 1)} kg`}
         </div>
         <div className="text-[13px] font-semibold" style={{ color: 'var(--mut)' }}>
-          Dopuszczalne ±{s.tolerancePct}% = {fmtKg(s.minKg, 1)}–{fmtKg(s.maxKg, 1)} kg
+          Dopuszczalne {toleranceLabel(s)} = {fmtKg(s.minKg, 1)}–{fmtKg(s.maxKg, 1)} kg
           {balance && !ok ? ' · sprawdź ważenia i tary' : ''}
         </div>
       </div>

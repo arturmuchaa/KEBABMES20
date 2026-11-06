@@ -41,6 +41,8 @@ export interface ByproductLabelInput {
   productionDate: string
   /** ISO (yyyy-mm-dd) — data ważności rozbieranej ćwiartki. */
   expiryDate: string
+  /** Podpis pod frakcją zamiast „z kurczaka” (paleta zbiorcza z pobrań — stan bez zmian). */
+  subtitle?: string
 }
 
 export interface ByproductLabelOptions {
@@ -95,11 +97,12 @@ export function byproductLabelZpl(
 
   const body = [
     text(M, 3, 7, KIND_TITLE[input.kind] ?? '', dpi),
-    text(M, 11.5, 4, KIND_SUBTITLE, dpi),
+    text(M, 11.5, 4, input.subtitle ?? KIND_SUBTITLE, dpi),
     line(M, 17.5, W, dpi),
 
     text(M, 20, 3.2, 'Nr przyjęcia zewn.', dpi),
-    text(M, 24, 11, input.batchNo ?? '', dpi),
+    // Kilka partii na jednej palecie („695+696+697”) — mniejsza czcionka, żeby nie ucięło.
+    text(M, (input.batchNo ?? '').length > 7 ? 26 : 24, (input.batchNo ?? '').length > 7 ? 6 : 11, input.batchNo ?? '', dpi),
     line(M, 37, W, dpi),
 
     text(M, 39.5, 3.2, 'Waga netto', dpi),

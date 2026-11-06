@@ -1,6 +1,6 @@
 import { Check, AlertTriangle } from 'lucide-react'
 import { fmtKg, fmtPct } from '@/lib/utils'
-import { SETTLEMENT_LABEL, type SettlementKind, type TakeSettlement } from './settlement'
+import { SETTLEMENT_LABEL, toleranceLabel, type SettlementKind, type TakeSettlement } from './settlement'
 
 const KINDS: SettlementKind[] = ['meat', 'backs', 'bones']
 
@@ -40,7 +40,12 @@ export function SettlementBalancePanel({ s, onFix, busy }: {
         <span className="font-extrabold text-xl">Razem</span>
         <span className="hmi-v10-mono font-extrabold text-4xl">{fmtKg(s.totalKg, 1)} kg</span>
       </div>
-      <div className="mt-auto flex items-center gap-4 p-4" role="status"
+      {/* Wydajność mięsa z pobrania — duża, na środku (hala 2026-11-06). */}
+      <div className="mt-auto flex flex-col items-center leading-none py-1" aria-label="Procent z pobrania">
+        <span className="text-[12px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.1em' }}>Procent z pobrania</span>
+        <span className="hmi-v10-mono font-extrabold mt-1" style={{ fontSize: 56, color: 'var(--accent)' }}>{fmtPct(pctOf(s.meatKg), 1)}</span>
+      </div>
+      <div className="flex items-center gap-4 p-4" role="status"
         style={{ borderRadius: 12, background: ok ? '#F0FDF4' : 'var(--redSoft)', border: `1.5px solid ${ok ? '#BBF0D3' : 'var(--redLine)'}` }}>
         <span className="w-12 h-12 rounded-full flex items-center justify-center flex-shrink-0"
           style={{ background: ok ? 'var(--success)' : 'var(--red)', color: '#fff' }}>
@@ -52,7 +57,7 @@ export function SettlementBalancePanel({ s, onFix, busy }: {
               : `${diff < 0 ? 'Brakuje' : 'Nadmiar'} ${fmtKg(Math.abs(diff), 1)} kg`}
           </div>
           <div className="text-[14px] font-semibold" style={{ color: 'var(--mut)' }}>
-            Bilans {fmtPct(s.balancePct, 1)} · dopuszczalne ±{s.tolerancePct}% = {fmtKg(s.minKg, 1)}–{fmtKg(s.maxKg, 1)} kg
+            Bilans {fmtPct(s.balancePct, 1)} · dopuszczalne {toleranceLabel(s)} = {fmtKg(s.minKg, 1)}–{fmtKg(s.maxKg, 1)} kg
             {ok ? '' : ' · sprawdź tary i liczbę pojemników, popraw ważenie albo zatwierdź z wyjątkiem'}
           </div>
         </div>

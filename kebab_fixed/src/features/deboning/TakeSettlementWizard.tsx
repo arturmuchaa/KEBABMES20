@@ -8,7 +8,7 @@ import type { ScaleState } from './useScale'
 import { E2_TARE_KG, byproductTareOptions } from './utils/weighing'
 import { SERVICE_CODE } from './ServiceMenu'
 import {
-  SETTLEMENT_LABEL, SETTLEMENT_STAGES, settlementPendingKey,
+  SETTLEMENT_LABEL, SETTLEMENT_STAGES, settlementPendingKey, toleranceLabel,
   type TakeSettlement, type SettlementKind, type SettlementInitial,
   type SettlementMeasurement, type SettlementWeighing, type PendingSettlementWrite,
 } from './settlement'
@@ -240,7 +240,7 @@ export function TakeSettlementWizard({ initialState, initialMeasurement, scale, 
               {!!currentMeasurement && <p className="mt-2 text-sm">Najpierw zapisz lub odrzuć bieżący pomiar.</p>}
             </> : <div className="flex flex-col gap-5">
               <h2 className="text-3xl font-extrabold">{state.stage === 'done' ? 'Pobranie rozliczone' : 'Sprawdź pełny bilans'}</h2>
-              <p>Wszystkie trzy frakcje zapisane. Tolerancja nominalnej masy pobrania: <strong>±{state.tolerancePct}%</strong>, czyli <strong>±{fmtKg(state.toleranceKg, 2)} kg</strong>.</p>
+              <p>Wszystkie trzy frakcje zapisane. Tolerancja nominalnej masy pobrania: <strong>{toleranceLabel(state)}</strong>, czyli <strong>{fmtKg(state.minKg, 2)}–{fmtKg(state.maxKg, 2)} kg</strong>.</p>
               <p className="text-xl font-bold">Akceptowany zakres: {fmtKg(state.minKg, 2)}–{fmtKg(state.maxKg, 2)} kg</p>
               {!state.withinTolerance && <p className="font-bold" style={{ color: 'var(--red)' }}>Nie można zamknąć pobrania. Sprawdź wszystkie ważenia i tary. Nie dopisuj brakujących kilogramów bez pomiaru.</p>}
               {state.stage === 'done' ? <button className="ts-button ts-primary" onClick={() => onClose(true)}>Gotowe — następny pracownik</button>
@@ -263,7 +263,7 @@ export function TakeSettlementWizard({ initialState, initialMeasurement, scale, 
                 borderColor: step < 3 ? 'var(--accentLine)' : state.withinTolerance ? 'var(--successLine)' : 'var(--redLine)',
               }}>
                 <p className="text-2xl font-extrabold">{state.differenceKg < 0 ? 'Brakuje' : state.differenceKg > 0 ? 'Nadmiar' : 'Różnica'} {fmtKg(Math.abs(state.differenceKg), 2)} kg</p>
-                <p className="mt-1 font-bold">{step < 3 ? 'Rozliczenie w toku — zważ wszystkie frakcje' : state.withinTolerance ? `✓ W tolerancji ±${state.tolerancePct}%` : `Poza tolerancją ±${state.tolerancePct}%`}</p>
+                <p className="mt-1 font-bold">{step < 3 ? 'Rozliczenie w toku — zważ wszystkie frakcje' : state.withinTolerance ? `✓ W tolerancji ${toleranceLabel(state)}` : `Poza tolerancją ${toleranceLabel(state)}`}</p>
               </div>
             </section>
             <section className="rounded-xl p-5" style={{ background: 'var(--panel)' }}>
