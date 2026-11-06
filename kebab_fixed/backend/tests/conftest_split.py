@@ -16,7 +16,7 @@ trafiało DOKŁADNIE (11 szt. z pierwszej pozycji + 1 szt. z drugiej =
 """
 import json
 
-from app.db import execute
+from app.db import execute, query_all
 from app.services.order_split_service import zapisz_podzial
 
 
@@ -80,20 +80,40 @@ def _wyroby(cid="c1"):
         " %s,'YBM Gastro GmbH','2026-09-08')", (cid,))
 
 
-def _przygotuj_bez_podzialu(oid="o1"):
+def _zeskanuj_rozpis(oid="o1"):
+    """Explicit new document prerequisite: known quantities scanned onto a car.
+
+    The shipment is NOT finalized, so cancellation/stock-return tests keep
+    testing the supported pre-departure workflow rather than a shipped return.
+    """
+    execute("INSERT INTO vehicles(id,name,plate,active) VALUES ('split-car','Test','TEST',true) ON CONFLICT DO NOTHING")
+    execute("INSERT INTO order_pallets(id,order_id,pallet_no,status,loaded_vehicle_id,loaded_at) VALUES (%s,%s,1,'loaded','split-car',now()) ON CONFLICT DO NOTHING", (f"split-{oid}", oid))
+    for line in query_all("SELECT id,qty FROM client_order_lines WHERE order_id=%s", (oid,)):
+        execute("INSERT INTO order_pallet_items(id,pallet_id,order_line_id,qty) VALUES (%s,%s,%s,%s) ON CONFLICT(id) DO UPDATE SET qty=EXCLUDED.qty",
+                (f"split-item-{line['id']}", f"split-{oid}", line["id"], line["qty"]))
+
+
+def _zdejmij_z_auta(oid="o1"):
+    from app.services.pallets_service import scan
+    scan(f"PAL|{oid}|1", "undo", operator="test", vehicle_id="split-car")
+
+
+def _przygotuj_bez_podzialu(oid="o1", *, scanned=True):
     """Zamówienie BEZ podziału — `qty_invoice` puste, zachowanie jak dziś."""
     _firma()
     _klient()
     _slownik()
     _zamowienie(oid)
     _wyroby()
+    if scanned:
+        _zeskanuj_rozpis(oid)
     return oid
 
 
-def _przygotuj_z_podzialem(oid="o1", cel_kg=300.0):
+def _przygotuj_z_podzialem(oid="o1", cel_kg=300.0, *, scanned=True):
     """Jak wyżej, plus zapisany podział — drogą produkcyjną (przez serwis,
     nie SQL-em wprost, [[kebab-nie-ruszac-planu-sql]])."""
-    _przygotuj_bez_podzialu(oid)
+    _przygotuj_bez_podzialu(oid, scanned=scanned)
     zapisz_podzial(oid, cel_kg)
     return oid
 

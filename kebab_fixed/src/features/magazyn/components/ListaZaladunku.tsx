@@ -2,16 +2,18 @@ import { useRef, useState } from 'react'
 import type { palletScanApi, VehicleState, VehicleStatePallet } from '@/lib/api'
 import { krotkaData } from '../pula'
 import { kgZaladunku, nazwaKartonu, WierszZaladunku, ZALADUNEK_OK } from './WierszZaladunku'
+import { ZnacznikZamowienia, type ZamowienieKolorowe } from '../koloryZaladunku'
 
 type Dostepne = Awaited<ReturnType<typeof palletScanApi.activeLoading>>
 
 /** Widok operatora: stały postęp + potwierdzenie, przewijany pełny rozpis.
  * Liczba w nagłówku to PLAN, nie deklarowana pojemność samochodu.
  */
-export function ListaZaladunku({ stan, ladowanie, online, skanuje, czekaNaStan, cofana,
+export function ListaZaladunku({ stan, koloroweZamowienia, ladowanie, online, skanuje, czekaNaStan, cofana,
   otwarte, ostatni, dostepne, bladDostepnych, ladujeDostepne,
   onOtworz, onDodaj, onZdejmij, onCofnij, onZakoncz }: {
   stan: VehicleState | null
+  koloroweZamowienia: ZamowienieKolorowe[]
   ladowanie: boolean
   online: boolean
   skanuje: boolean
@@ -31,6 +33,7 @@ export function ListaZaladunku({ stan, ladowanie, online, skanuje, czekaNaStan, 
   const [pokazDostepne, setPokazDostepne] = useState(false)
   const lista = useRef<HTMLDivElement>(null)
   const orders = stan?.orders ?? []
+  const colors = new Map(koloroweZamowienia.map(o => [o.id, o.color]))
   const total = stan?.totals.totalPallets ?? 0
   const loaded = stan?.totals.loadedPallets ?? 0
   const komplet = total > 0 && loaded === total
@@ -106,8 +109,8 @@ export function ListaZaladunku({ stan, ladowanie, online, skanuje, czekaNaStan, 
       {orders.length > 1 ? <nav aria-label="Zamówienia na aucie" className="sticky top-0 z-10 flex flex-wrap gap-2 rounded-xl p-2" style={{ background: 'var(--bg)' }}>
         {orders.map(z => <button key={z.id} type="button" aria-pressed={(otwarte ?? orders[0]?.id) === z.id}
           onClick={() => onOtworz(z.id)} className="min-h-12 rounded-lg border px-4 py-2 text-left text-base font-bold"
-          style={{ background: (otwarte ?? orders[0]?.id) === z.id ? 'var(--accentSoft)' : 'var(--panel)', borderColor: 'var(--line)' }}>
-          {z.clientName} · {z.totals.loadedPallets}/{z.totals.totalPallets}
+          style={{ background: (otwarte ?? orders[0]?.id) === z.id ? colors.get(z.id)?.fill : 'var(--panel)', borderColor: colors.get(z.id)?.edge }}>
+          {colors.has(z.id) ? <ZnacznikZamowienia color={colors.get(z.id)!} /> : null} {z.clientName} · {z.orderNo} · {z.totals.loadedPallets}/{z.totals.totalPallets}
         </button>)}
       </nav> : null}
 
@@ -117,7 +120,8 @@ export function ListaZaladunku({ stan, ladowanie, online, skanuje, czekaNaStan, 
           <div className="mb-2 flex flex-wrap items-center gap-3">
             <button type="button" aria-expanded={expanded} aria-controls={`kartony-${z.id}`}
               onClick={() => onOtworz(expanded ? '' : z.id)} className="min-h-12 min-w-0 flex-1 text-left">
-              <span className="block break-words text-xl font-extrabold">{i + 1}. {z.clientName}</span>
+              <span className="flex flex-wrap items-center gap-2 break-words text-xl font-extrabold">
+                {colors.has(z.id) ? <ZnacznikZamowienia color={colors.get(z.id)!} /> : null} {i + 1}. {z.clientName}</span>
               <span className="block text-sm" style={{ color: 'var(--mut)' }}>{z.orderNo} · {z.totals.loadedPallets}/{z.totals.totalPallets} załadowanych · {expanded ? '▾ Zwiń' : '▸ Pokaż zawartość'}</span>
             </button>
             {z.totals.loadedPallets === 0 ? <button type="button" onClick={() => onZdejmij(z.id)}
@@ -127,6 +131,7 @@ export function ListaZaladunku({ stan, ladowanie, online, skanuje, czekaNaStan, 
           <div id={`kartony-${z.id}`} hidden={!expanded}>
             <ul aria-label={`Kartony: ${z.clientName}`} className="space-y-2">
               {z.pallets.map(p => <WierszZaladunku key={p.id || p.palletNo} paleta={p}
+                kolor={colors.get(z.id)}
                 ostatni={ostatni?.paleta === p} cofana={cofana === p.id} blokada={!!cofana || skanuje}
                 onCofnij={() => onCofnij(z.id, p)} />)}
             </ul>

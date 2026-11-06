@@ -94,6 +94,10 @@ def _odmow_gdy_dokumenty_wystawione(order_id: str) -> None:
 
 
 def _linie(order_id: str) -> List[Dict[str, Any]]:
+    from app.services.shipment_documents import current
+    shipment = current(order_id)
+    if shipment:
+        return shipment["lines"]
     return query_all(
         "SELECT id, qty, kg_per_unit, recipe_name, product_type_name, position, qty_invoice "
         "FROM client_order_lines WHERE order_id=%s ORDER BY position", (order_id,))
@@ -145,7 +149,10 @@ def podglad_podzialu(order_id: str, cel_kg: float) -> Dict[str, Any]:
 def zapisz_podzial(order_id: str, cel_kg: float,
                    per_line: Optional[Dict[str, int]] = None) -> Dict[str, Any]:
     """Utrwala podział na pozycjach. `per_line` nadpisuje wyliczenie."""
-    _odmow_gdy_dokumenty_wystawione(order_id)
+    from app.services.shipment_documents import current
+    shipment = current(order_id)
+    if not shipment:
+        _odmow_gdy_dokumenty_wystawione(order_id)
     podglad = podglad_podzialu(order_id, cel_kg)
     korekty = per_line or {}
     for l in podglad["lines"]:
@@ -161,10 +168,16 @@ def zapisz_podzial(order_id: str, cel_kg: float,
 
     with transaction() as conn:
         for l in podglad["lines"]:
-            cx_execute(conn, "UPDATE client_order_lines SET qty_invoice=%s WHERE id=%s",
-                       (l["qty_invoice"], l["id"]))
-        cx_execute(conn, "UPDATE client_orders SET invoice_kg_target=%s WHERE id=%s",
-                   (float(cel_kg or 0), order_id))
+            if shipment:
+                next(x for x in shipment["lines"] if x["id"] == l["id"])["qty_invoice"] = l["qty_invoice"]
+            else:
+                cx_execute(conn, "UPDATE client_order_lines SET qty_invoice=%s WHERE id=%s",
+                           (l["qty_invoice"], l["id"]))
+        if shipment:
+            shipment["invoice_kg_target"] = float(cel_kg or 0)
+        else:
+            cx_execute(conn, "UPDATE client_orders SET invoice_kg_target=%s WHERE id=%s",
+                       (float(cel_kg or 0), order_id))
     logger.info("order.split.saved", extra={"order_id": order_id, "cel_kg": float(cel_kg or 0)})
     kg_fv = sum(l["qty_invoice"] * l["kg_per_unit"] for l in podglad["lines"])
     podglad["kg_fv"] = round(kg_fv, 3)

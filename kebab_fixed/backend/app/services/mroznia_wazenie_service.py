@@ -20,6 +20,7 @@ from fastapi import HTTPException
 from app.db import execute, query_all, query_one
 from app.logging_config import get_logger
 from app.services import pallets_service, settings_service
+from app.services.mroznia_lokalizacje_service import location
 from app.utils.ids import cuid, format_carton_no
 from app.utils.wazenie_mrozni import werdykt
 
@@ -36,10 +37,10 @@ def _rozpis_bez_skanow(kind: str, cid: str) -> List[Dict[str, Any]]:
     if query_one("SELECT id FROM warehouse_events WHERE container_id=%s AND action='unpack' LIMIT 1", (cid,)):
         return []  # opróżniony karton nie staje się sam pełnym kartonem bez skanera
     if kind == 'stock':
-        rows = query_all("SELECT target_qty AS qty, kg_per_unit, recipe_name, product_type_name, packed_qty "
+        rows = query_all("SELECT target_qty AS qty, kg_per_unit, recipe_name, product_type_name, packaging_name, packed_qty "
                          "FROM stock_carton_lines WHERE carton_id=%s ORDER BY id", (cid,))
     else:
-        rows = query_all("SELECT pi.qty, l.kg_per_unit, l.recipe_name, l.product_type_name "
+        rows = query_all("SELECT pi.qty, l.kg_per_unit, l.recipe_name, l.product_type_name, l.packaging_name "
                          "FROM order_pallet_items pi JOIN client_order_lines l ON l.id=pi.order_line_id "
                          "WHERE pi.pallet_id=%s ORDER BY l.position, pi.id", (cid,))
     if not rows or any(int(r['qty'] or 0) <= 0 or float(r['kg_per_unit'] or 0) <= 0
@@ -47,20 +48,20 @@ def _rozpis_bez_skanow(kind: str, cid: str) -> List[Dict[str, Any]]:
         return []
     return [{"qty": int(r['qty']), "kgPerUnit": float(r['kg_per_unit']),
              "recipeName": r.get('recipe_name') or '', "productTypeName": r.get('product_type_name') or '',
-             "source": "plan"} for r in rows]
+             "packagingName": r.get('packaging_name') or '', "source": "plan"} for r in rows]
 
 
 def _sklad(kolumna: str, container_id: str) -> List[Dict[str, Any]]:
     """Skład kartonu ze SZTUK, które w nim leżą — „15 × 50 kg ZAGROS"."""
     rows = query_all(
-        f"""SELECT fu.weight_kg, MAX(r.name) AS recipe_name, MAX(pt.name) AS product_type_name,
+        f"""SELECT fu.weight_kg, fu.tuleja, MAX(r.name) AS recipe_name, MAX(pt.name) AS product_type_name,
                    COUNT(*) AS n
             FROM finished_units fu
             LEFT JOIN recipes r ON r.id = fu.recipe_id
             LEFT JOIN product_types pt ON pt.id = fu.product_type_id
             WHERE fu.{kolumna} = %s
-            GROUP BY fu.weight_kg, fu.recipe_id, fu.product_type_id
-            ORDER BY fu.weight_kg DESC, MAX(r.name)""",
+            GROUP BY fu.weight_kg, fu.recipe_id, fu.product_type_id, fu.tuleja
+            ORDER BY fu.weight_kg DESC, MAX(r.name), MAX(pt.name), fu.tuleja""",
         (container_id,),
     )
     return [{
@@ -68,6 +69,7 @@ def _sklad(kolumna: str, container_id: str) -> List[Dict[str, Any]]:
         "kgPerUnit": round(float(r.get("weight_kg") or 0), 3),
         "recipeName": r.get("recipe_name") or "",
         "productTypeName": r.get("product_type_name") or "",
+        "packagingName": r.get("tuleja") or "",
     } for r in rows]
 
 
@@ -225,6 +227,7 @@ def sprawdz(code: str) -> Dict[str, Any]:
             "qty": sum(x["qty"] for x in lines), "lines": lines,
             "batches": _partie("carton_id", cid),
             "lastWeighing": ostatnie_wazenie(cid),
+            "location": location('stock', cid) if stan == 'cold_storage' else None,
         }
 
     try:
@@ -262,6 +265,7 @@ def sprawdz(code: str) -> Dict[str, Any]:
         "qty": sum(x["qty"] for x in lines), "lines": lines,
         "batches": _partie("pallet_id", p["id"]),
         "lastWeighing": ostatnie_wazenie(p["id"]),
+        "location": location('order', p['id']) if stan == 'cold_storage' else None,
     }
 
 

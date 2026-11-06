@@ -15,17 +15,24 @@
 const wTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 
 /** Otwórz okno drukarki. Bezpieczne w obu środowiskach. */
-export async function drukuj(): Promise<void> {
+export async function drukuj(options: { strict?: boolean; beforePrint?: () => void } = {}): Promise<void> {
   if (!wTauri) {
+    options.beforePrint?.()
     window.print()
     return
   }
   try {
     const { invoke } = await import('@tauri-apps/api/core')
+    options.beforePrint?.()
     await invoke('print_page')
-  } catch {
+  } catch (error) {
+    // Audited label jobs must surface native failure, not report the no-op
+    // WebView fallback as a successful dialog invocation. Other callers retain
+    // their existing best-effort behaviour.
+    if (options.strict) throw error
     // Starsza wersja desktopu bez komendy print_page — lepiej spróbować
     // przeglądarkowo (nic nie zrobi) niż wywalić stronę wyjątkiem.
+    options.beforePrint?.()
     window.print()
   }
 }

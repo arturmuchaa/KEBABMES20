@@ -27,6 +27,10 @@ const PALETY = [
 
 vi.mock('@/lib/api', () => ({
   magazynApi: {
+    mrozniaPlan: () => Promise.resolve({ columns: [...'ABCDEFGHI'], rows: 7, cartons: [{
+      kind: 'stock', id: 'c1', code: 'SCARTON|c1', cartonNo: '000123', clientName: 'YALCIN', orderNo: '', location: null, lines: [],
+    }] }),
+    mrozniaLokalizacja: () => Promise.resolve({ slot: 'A1', rotation: 0, revision: 'new' }),
     mrozniaKartony: () => Promise.resolve(s.kartony),
     mrozniaWazenia: () => Promise.resolve(s.wm),
     mrozniaWyjazd: (kod: string) => { s.wyjazdy.push(kod); return Promise.resolve({ result: 'SUCCESS', cartonNo: '000123', clientName: 'YALCIN' }) },
@@ -113,6 +117,10 @@ describe('mroźnia — ważenie pełnego kartonu', () => {
     fireEvent.click(screen.getByRole('button', { name: /EURO/ }))
     expect(screen.getByTestId('werdykt').textContent).toContain('ZGODNA')
     fireEvent.click(screen.getByRole('button', { name: /Zatwierdź/ }))
+    await screen.findByRole('dialog', { name: /Rzut mroźni · 63 stałe miejsca/ })
+    expect((screen.getByPlaceholderText('Skanuj kartkę palety…') as HTMLInputElement).disabled).toBe(true)
+    fireEvent.click(await screen.findByRole('button', { name: 'A1 · wolne' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Zapisz miejsce' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(s.wazenia).toEqual([{ code: PELNY.code, palletTypeId: 'euro', grossKg: 780, mode: 'auto' }])
     expect(s.druki).toHaveLength(1)

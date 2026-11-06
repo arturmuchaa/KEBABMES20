@@ -19,7 +19,7 @@
  * to po turecku „długi" — stąd ta linia na oryginale.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import { rozrachunkiApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -50,16 +50,18 @@ function data(iso: string): string {
 
 export function RozliczenieDostawyPage() {
   const { id = '' } = useParams<{ id: string }>()
+  const [params] = useSearchParams()
+  const loadingId = params.get('loading_id') || undefined
   const [dane, setDane] = useState<Rozliczenie | null>(null)
   const [blad, setBlad] = useState('')
   const [ceny, setCeny] = useState<Record<string, string>>({})
 
   const wczytaj = useCallback((stawki: Record<string, number>) => {
     setBlad('')
-    return rozrachunkiApi.dostawa(id, stawki)
+    return rozrachunkiApi.dostawa(id, stawki, loadingId)
       .then((d: Rozliczenie) => setDane(d))
-      .catch(() => setBlad('Nie udało się wczytać rozliczenia dostawy'))
-  }, [id])
+      .catch(e => setBlad(e instanceof Error ? e.message : 'Nie udało się wczytać rozliczenia dostawy'))
+  }, [id, loadingId])
 
   useEffect(() => { void wczytaj({}) }, [wczytaj])
 

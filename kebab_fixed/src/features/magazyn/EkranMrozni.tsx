@@ -14,7 +14,7 @@
  * dopiero zatwierdzenie ważenia (z etykietą). Niepełny i rozpisana paleta
  * bez sztuk idą starą ścieżką — nie ma z czym porównać wagi.
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { isOfflineError, magazynApi, palletScanApi, type ColdStoragePallet, type KartonDoWazenia, type PaletaMrozni, type WazenieMrozni, type WazenieWMrozni } from '@/lib/api'
 import { idKartonu } from '@/features/scan/skanKodu'
 import { PasSkanowania } from './components/PasSkanowania'
@@ -26,6 +26,10 @@ import { drukujEtykieteWagi } from './drukEtykietyWagi'
 import { dataGodzina } from './etykietaWagiZpl'
 import { kgPl, roznicaPl } from './wazenieMrozni'
 import type { PokazAlarm } from './magazynTypes'
+import { PlanMrozni, type CelMrozni } from './PlanMrozni'
+import { locationText, positioned } from './mrozniaSlots'
+import { ZawartoscMrozni } from './ZawartoscMrozni'
+import type { KartonNaPlanie, PlanMrozniDane } from '@/lib/api'
 
 /** Co robi skan na tym ekranie. Właściciel 29.09.2026: operator WYBIERA —
  *  wjazd (z ważeniem) albo wyjazd (karton wraca do pakowania na poprawki). */
@@ -50,6 +54,10 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
   const [aktualizacja, setAktualizacja] = useState<Date | null>(null)
   const [palety, setPalety] = useState<PaletaMrozni[]>([])
   const [doWazenia, setDoWazenia] = useState<KartonDoWazenia | null>(null)
+  const [mapa, setMapa] = useState<false | { cel?: CelMrozni }>(false)
+  const [plan, setPlan] = useState<PlanMrozniDane | null>(null)
+  const [skanuje, setSkanuje] = useState(false)
+  const pobranie = useRef(0)
 
   useEffect(() => {
     magazynApi.paletyMrozni().then(p => setPalety(Array.isArray(p) ? p : [])).catch(() => { /* ponowi przy ważeniu */ })
@@ -82,6 +90,7 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
 
   function poWazeniu(w: WazenieMrozni, bladDruku: string | null) {
     setDoWazenia(null)
+    setMapa({ cel: { kind: w.containerKind, id: w.containerId, cartonNo: w.cartonNo } })
     setOstatnia(`Karton ${w.cartonNo} · ${w.clientName || 'magazyn'} · ${kgPl(w.grossKg)} kg brutto · ${w.ok ? 'ZGODNA' : 'NIEZGODNA'}`)
     if (bladDruku) {
       grajBlad('L')
@@ -119,18 +128,21 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
   }
 
   const wczytaj = useCallback(async () => {
+    const n = ++pobranie.current
     try {
-      const [p, k, w] = await Promise.all([palletScanApi.inColdStorage(), magazynApi.mrozniaKartony(),
-        magazynApi.mrozniaWazenia().catch(() => ({}))])
+      const [p, k, w, m] = await Promise.all([palletScanApi.inColdStorage(), magazynApi.mrozniaKartony(),
+        magazynApi.mrozniaWazenia().catch(() => ({})), magazynApi.mrozniaPlan().catch(() => null)])
+      if (n !== pobranie.current) return
+      setPlan(m)
       setLista(p); setKartony(Array.isArray(k) ? k : []); setWazenia(w && typeof w === 'object' ? (w as typeof wazenia) : {})
       setBlad(false); setAktualizacja(new Date())
-    } catch { setBlad(true) }
+    } catch { if (n === pobranie.current) setBlad(true) }
   }, [])
 
   useEffect(() => {
     void wczytaj()
     const t = setInterval(() => { void wczytaj() }, 10000)
-    return () => clearInterval(t)
+    return () => { clearInterval(t); pobranie.current++ }
   }, [wczytaj])
 
   function alarmBlad(naglowek: string, szczegol: string) {
@@ -218,7 +230,10 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
         return alarmBlad('KARTON NIE JEST PEŁNY', 'Do mroźni wjeżdża karton spakowany do końca. Dopakuj go na kaflu KARTONY.')
       case 'planned':
         // Rozpisana paleta bez skanu sztuk — nie ma czego ważyć (decyzja 09.09).
-        if (await wstawBezWazenia(k)) setOstatnia(`${k.clientName} · karton ${k.cartonNo} (bez skanu sztuk)`)
+        if (await wstawBezWazenia(k)) {
+          setOstatnia(`${k.clientName} · karton ${k.cartonNo} (bez skanu sztuk)`)
+          wybierzMiejsce(k)
+        }
         return
       default:
         // W mroźni / na aucie / wydany — karta kartonu, nie czerwony ekran.
@@ -231,7 +246,12 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
     setDoWazenia(null)
     if (await wstawBezWazenia(k)) {
       setOstatnia(`Karton ${k.cartonNo} · ${k.clientName || 'magazyn'} — DO ZWAŻENIA`)
+      wybierzMiejsce(k)
     }
+  }
+
+  function wybierzMiejsce(k: KartonDoWazenia) {
+    if (k.id && k.kind) setMapa({ cel: { id: k.id, kind: k.kind, cartonNo: k.cartonNo || '' } })
   }
 
   const kg = lista.reduce((s, p) => s + Number(p.totalKg || 0), 0) + kartony.reduce((s, k) => s + k.kg, 0)
@@ -261,6 +281,13 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
               palet i kartonów · {Math.round(kg).toLocaleString('pl-PL')} kg
             </div>
           </section>
+          <button type="button" disabled={skanuje} onClick={() => setMapa({})} className="min-h-14 rounded-xl px-4 py-4 text-xl font-extrabold disabled:opacity-50"
+            style={{ background: 'var(--panel)', border: '2px solid var(--accent)', color: 'var(--accent)' }}>
+            Rzut mroźni · znajdź karton
+          </button>
+          <p className="text-sm" style={{ color: 'var(--mut)' }}>
+            {plan ? `Bez przypisanego miejsca: ${plan.cartons.filter(c => !positioned(c.location)).length}` : 'Brak aktualnych danych lokalizacji — otwórz mapę, aby ponowić.'}
+          </p>
           {ostatnia ? (
             <div className="rounded-xl px-4 py-3 text-[14px] font-bold"
               style={{ background: 'var(--successSoft)', border: '1px dashed var(--successLine)', color: '#166534' }}>
@@ -273,7 +300,7 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
             {tryb === 'wyjazd'
               ? 'Zeskanuj kartkę kartonu — wróci do pakowania. Do mroźni wjedzie znowu z ważeniem.'
               : tryb === 'wjazd'
-                ? 'Zeskanuj kartkę pełnego kartonu i wjedź nim na wagę. Karton na aucie wyjeżdża skanem załadunku.'
+                ? 'Zeskanuj kartkę, zważ karton, potem wybierz miejsce na rzucie mroźni. Karton na aucie wyjeżdża skanem załadunku.'
                 : 'Wjazd — pełny karton na wagę i do mroźni. Wyjazd — karton wraca do pakowania.'}
           </div>
         </div>
@@ -287,6 +314,9 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
               termin={p.deliveryDate ? `wydanie ${String(p.deliveryDate).slice(8, 10)}.${String(p.deliveryDate).slice(5, 7)}` : 'bez terminu'}
               pelnosc={pelnoscPalety(p.scannedQty, p.totalQty)}
               w={wazenia[p.palletId]}
+              naPlanie={plan?.cartons.find(c => c.kind === 'order' && c.id === p.palletId)} planDostepny={!!plan}
+              blokada={skanuje}
+              onMiejsce={() => setMapa({ cel: { kind: 'order', id: p.palletId, cartonNo: p.cartonNo || '' } })}
               onDodruk={() => void dodruk(p.palletId)}
               onZwaz={() => void zwazPonownie(`PAL|${p.orderId}|${p.palletNo}`)}
               onWyjazd={() => void wyjedz({ result: 'OK', code: `PAL|${p.orderId}|${p.palletNo}` })} />
@@ -302,6 +332,9 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
                 ? { pelny: false, t: `NIEPEŁNY ${k.packedQty}/${k.targetQty || '?'} szt` }
                 : { pelny: true, t: `PEŁNY ${k.packedQty}${k.targetQty ? `/${k.targetQty}` : ''} szt` }}
               w={wazenia[k.id]}
+              naPlanie={plan?.cartons.find(c => c.kind === 'stock' && c.id === k.id)} planDostepny={!!plan}
+              blokada={skanuje}
+              onMiejsce={() => setMapa({ cel: { kind: 'stock', id: k.id, cartonNo: k.cartonNo } })}
               onDodruk={() => void dodruk(k.id)}
               onZwaz={() => void zwazPonownie(`SCARTON|${k.id}`)}
               onWyjazd={() => void wyjedz({ result: 'OK', code: `SCARTON|${k.id}` })} />
@@ -312,7 +345,8 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
         </Karta>
       </div>
 
-      <PasSkanowania placeholder="Skanuj kartkę palety…" onSkan={skanuj} disabled={!!doWazenia || zablokowany}
+      <PasSkanowania placeholder="Skanuj kartkę palety…" onSkan={skanuj} disabled={!!doWazenia || !!mapa || zablokowany}
+        onPendingChange={setSkanuje}
         podpis={tryb === 'wyjazd' ? 'Skan kartki: karton WYJEŻDŻA z mroźni do pakowania.'
           : tryb === 'wjazd' ? 'Skan kartki: pełny karton → waga → etykieta → mroźnia.'
             : 'Najpierw wybierz: wjazd albo wyjazd.'} />
@@ -322,6 +356,8 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
           onAnuluj={() => setDoWazenia(null)}
           onPozniej={doWazenia.inColdStorage || doWazenia.scannerless ? undefined : () => void zwazPozniej(doWazenia)} />
       ) : null}
+      {mapa ? <PlanMrozni cel={mapa.cel} onZamknij={() => setMapa(false)} onZapisano={() => void wczytaj()}
+        onZmieniono={() => void wczytaj()} /> : null}
     </div>
   )
 }
@@ -337,20 +373,25 @@ export function pelnoscPalety(zeskanowane: number, rozpis: number): { pelny: boo
 /** Wiersz listy „Stoi w mroźni" (właściciel 30.09.2026): pełny karton na
  *  zielono, niepełny na szaro, a przy każdym wprost — zważony czy nie,
  *  kiedy i kto. */
-function WierszMrozni({ klient, opis, kg, termin, pelnosc, w, onDodruk, onZwaz, onWyjazd }: {
+function WierszMrozni({ klient, opis, kg, termin, pelnosc, w, naPlanie, planDostepny, blokada, onMiejsce, onDodruk, onZwaz, onWyjazd }: {
   klient: string
   opis: string
   kg: number
   termin: string
   pelnosc: { pelny: boolean; t: string }
   w?: WazenieWMrozni
+  naPlanie?: KartonNaPlanie
+  planDostepny: boolean
+  blokada: boolean
+  onMiejsce: () => void
   onDodruk: () => void
   onZwaz: () => void
   onWyjazd: () => void
 }) {
   const { pelny } = pelnosc
   return (
-    <div data-testid="wiersz-mrozni" data-pelny={pelny ? '1' : '0'} className="flex items-center gap-3 px-4 py-3"
+    <div data-testid="wiersz-mrozni" data-pelny={pelny ? '1' : '0'}
+      className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 xl:grid-cols-[minmax(0,1fr)_auto_150px_auto]"
       style={{
         borderTop: '1px solid var(--lineSoft)',
         borderLeft: `6px solid ${pelny ? 'var(--success)' : 'var(--line)'}`,
@@ -359,6 +400,12 @@ function WierszMrozni({ klient, opis, kg, termin, pelnosc, w, onDodruk, onZwaz, 
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[16px] font-extrabold" style={{ color: pelny ? 'var(--ink)' : 'var(--mut)' }}>{klient}</span>
         <span className="hmi-v10-mono block truncate text-[12px]" style={{ color: 'var(--mut)' }}>{opis}</span>
+        <ZawartoscMrozni lines={naPlanie?.lines ?? []} />
+        <button type="button" disabled={blokada} onClick={onMiejsce} className="mt-2 min-h-12 rounded-lg border px-3 text-[15px] font-bold disabled:opacity-50"
+          style={{ borderColor: 'var(--accentLine)', background: 'var(--panel)', color: 'var(--accent)' }}>
+          {naPlanie?.location ? locationText(naPlanie.location)
+            : planDostepny ? 'Bez miejsca · wskaż na mapie' : 'Lokalizacja niedostępna · otwórz mapę'}
+        </button>
         <span className="mt-1 inline-block rounded-md px-2 py-0.5 text-[11.5px] font-extrabold uppercase"
           style={pelny
             ? { background: 'var(--panel)', color: '#166534', border: '1px solid var(--successLine)' }
@@ -398,9 +445,9 @@ function PrzyciskiWagi({ onDodruk, onZwaz, onWyjazd }: { onDodruk: () => void; o
   const styl = { border: '1px solid var(--line)', color: 'var(--ink)' }
   return (
     <span className="flex shrink-0 gap-1.5">
-      <button type="button" className="rounded-lg px-2.5 py-1.5 text-[12px] font-bold" style={styl} onClick={onWyjazd}>Wyjedź</button>
-      <button type="button" className="rounded-lg px-2.5 py-1.5 text-[12px] font-bold" style={styl} onClick={onZwaz}>Zważ</button>
-      <button type="button" className="rounded-lg px-2.5 py-1.5 text-[12px] font-bold" style={styl} onClick={onDodruk}>Etykieta</button>
+      <button type="button" className="min-h-11 rounded-lg px-2.5 py-1.5 text-[12px] font-bold" style={styl} onClick={onWyjazd}>Wyjedź</button>
+      <button type="button" className="min-h-11 rounded-lg px-2.5 py-1.5 text-[12px] font-bold" style={styl} onClick={onZwaz}>Zważ</button>
+      <button type="button" className="min-h-11 rounded-lg px-2.5 py-1.5 text-[12px] font-bold" style={styl} onClick={onDodruk}>Etykieta</button>
     </span>
   )
 }

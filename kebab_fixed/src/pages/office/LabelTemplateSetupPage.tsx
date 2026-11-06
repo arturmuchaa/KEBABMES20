@@ -17,6 +17,8 @@ import { clientsApi, recipesApi, labelTemplatesApi } from '@/lib/apiClient'
 import { pdfFirstPageToPng } from '@/lib/pdfToImage'
 import type { FinishedUnitCard, LabelFieldPos, LabelSlotOffset, LabelPrintCalib, LabelTemplate } from '@/lib/api'
 import { SAMPLE_UNIT_QR, UNIT_QR_OPTIONS } from '@/features/labels/unitQr'
+import { A4_MM, mmToPercent, percentToMm, moveField } from '@/features/labels/studioGeometry'
+import { useStudioHistory } from '@/features/labels/useStudioHistory'
 import { buildVectorPdf } from './LabelPrintPage'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -106,6 +108,7 @@ function WysiwygTextMarker({
 
   return (
     <span
+      data-label-field={isGhost ? undefined : fieldKey}
       onClick={onClick ? (e) => { e.stopPropagation(); onClick() } : undefined}
       style={{
         position: 'absolute',
@@ -159,6 +162,7 @@ function WysiwygQrMarker({
 
   return (
     <img
+      data-label-field={isGhost ? undefined : 'qr'}
       src={qrDataUrl}
       alt="QR"
       onClick={onClick ? (e) => { e.stopPropagation(); onClick() } : undefined}
@@ -400,6 +404,26 @@ export function LabelTemplateSetupPage() {
   const [sampleQrUrl,     setSampleQrUrl]     = useState('')
   const [kind,            setKind]            = useState<'overlay' | 'zpl'>('overlay')
   const [zpl,             setZpl]             = useState('')
+  const [studio, setStudio] = useState(true)
+  const [showGrid, setShowGrid] = useState(false)
+  const [snap, setSnap] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const [locked, setLocked] = useState<Set<string>>(new Set())
+  const dragRef = useRef<{ key: string; startX: number; startY: number; pos: LabelFieldPos; moved: boolean } | null>(null)
+  const suppressClick = useRef(false)
+  const loadSequence = useRef(0)
+
+  const history = useStudioHistory(
+    { fieldPositions, slotFieldPositions, slotOffsets, printCalib, labelsPerSheet, backgroundData, backgroundPdf, kind, zpl },
+    snapshot => {
+      setFieldPositions(snapshot.fieldPositions); setSlotFieldPositions(snapshot.slotFieldPositions)
+      setSlotOffsets(snapshot.slotOffsets); setPrintCalib(snapshot.printCalib)
+      setLabelsPerSheet(snapshot.labelsPerSheet); setBackgroundData(snapshot.backgroundData)
+      setBackgroundPdf(snapshot.backgroundPdf); setKind(snapshot.kind); setZpl(snapshot.zpl)
+      setEditingSlot(s => Math.min(s, snapshot.labelsPerSheet - 1))
+    },
+    JSON.stringify([clientId, recipeId, templateLoaded]), dragging,
+  )
 
   const previewRef = useRef<HTMLDivElement>(null)
 
@@ -422,10 +446,14 @@ export function LabelTemplateSetupPage() {
 
   // Załaduj szablon gdy klient + receptura wybrane
   const loadTemplate = useCallback(async () => {
-    if (!clientId || !recipeId) return
+    const sequence = ++loadSequence.current
     setTemplateLoaded(false)
+    setSelectedField(null)
+    setLocked(new Set())
+    if (!clientId || !recipeId) return
     try {
       const res = await labelTemplatesApi.get(clientId, recipeId)
+      if (sequence !== loadSequence.current) return
       if (res.exists && res.template) {
         const tpl = res.template
         const perSheet = tpl.labelsPerSheet ?? 2
@@ -465,7 +493,9 @@ export function LabelTemplateSetupPage() {
         setEditingSlot(0)
       }
     } catch {
-      // Brak szablonu — to OK
+      if (sequence !== loadSequence.current) return
+      toast.error('Nie udało się wczytać szablonu. Zapis zablokowany — spróbuj ponownie.')
+      return
     }
     setTemplateLoaded(true)
   }, [clientId, recipeId])
@@ -518,7 +548,7 @@ export function LabelTemplateSetupPage() {
     if (!base) return undefined
     if (editingSlot === 0) return base
     const off = slotOffsets[editingSlot] ?? { dx: editingSlot * (100 / labelsPerSheet), dy: 0 }
-    return { ...base, x: Math.round((base.x + off.dx) * 10) / 10, y: Math.round((base.y + off.dy) * 10) / 10 }
+    return { ...base, x: base.x + off.dx, y: base.y + off.dy }
   }
 
   // Czy pole ma RĘCZNE nadpisanie na aktywnym slocie (>0).
@@ -534,6 +564,11 @@ export function LabelTemplateSetupPage() {
 
   // Zapis pozycji pola na aktywnym slocie (slot 0 → baza; slot>0 → nadpisanie).
   function writePos(fieldKey: string, next: LabelFieldPos) {
+    const current = activePos(fieldKey)
+    if (studio && current && locked.has(`${editingSlot}:${fieldKey}`)) {
+      next = { ...next, x: current.x, y: current.y }
+    }
+    if (current && Object.keys({ ...current, ...next }).every(key => current[key as keyof LabelFieldPos] === next[key as keyof LabelFieldPos])) return
     if (editingSlot === 0) {
       setFieldPositions(prev => ({ ...prev, [fieldKey]: next }))
     } else {
@@ -546,15 +581,18 @@ export function LabelTemplateSetupPage() {
 
   // Kliknięcie na podgląd — ustaw pozycję wybranego pola na aktywnej etykiecie
   function handlePreviewClick(e: React.MouseEvent<HTMLDivElement>) {
+    if (suppressClick.current) { suppressClick.current = false; return }
     if (!selectedField || !backgroundData) return
     const rect = e.currentTarget.getBoundingClientRect()
     const x = ((e.clientX - rect.left) / rect.width) * 100
     const y = ((e.clientY - rect.top) / rect.height) * 100
     const defaultSize = FIELDS.find(f => f.key === selectedField)?.defaultSize ?? 8
     const existing = activePos(selectedField)
+    const position = studio ? moveField({ x: 0, y: 0 }, x, y, snap ? 1 : 0)
+      : { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 }
     writePos(selectedField, {
-      x: Math.round(x * 10) / 10,
-      y: Math.round(y * 10) / 10,
+      ...existing,
+      ...position,
       size: existing?.size ?? defaultSize,
       fontFamily: existing?.fontFamily,
       bold: existing?.bold,
@@ -616,7 +654,62 @@ export function LabelTemplateSetupPage() {
     writePos(fieldKey, { ...cur, [axis]: value })
   }
 
+  function startDrag(e: React.PointerEvent<HTMLDivElement>) {
+    if (!studio || e.button !== 0) return
+    const key = (e.target as HTMLElement).closest<HTMLElement>('[data-label-field]')?.dataset.labelField
+    if (!key) return
+    const pos = activePos(key)
+    if (!pos) return
+    setSelectedField(key)
+    if (locked.has(`${editingSlot}:${key}`)) return
+    e.preventDefault()
+    e.currentTarget.focus()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    dragRef.current = { key, startX: e.clientX, startY: e.clientY, pos, moved: false }
+    setDragging(true)
+  }
+
+  function moveDrag(e: React.PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current
+    if (!drag) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    if (Math.abs(e.clientX - drag.startX) + Math.abs(e.clientY - drag.startY) < 2 && !drag.moved) return
+    drag.moved = true
+    const position = moveField(drag.pos, (e.clientX - drag.startX) / rect.width * 100,
+      (e.clientY - drag.startY) / rect.height * 100, snap ? 1 : 0)
+    writePos(drag.key, { ...drag.pos, ...position })
+  }
+
+  function endDrag(e: React.PointerEvent<HTMLDivElement>) {
+    if (!dragRef.current) return
+    suppressClick.current = true
+    dragRef.current = null
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
+    setDragging(false)
+    // If pointercancel emits no click, do not swallow the next independent click.
+    window.setTimeout(() => { suppressClick.current = false }, 0)
+  }
+
+  function studioKeys(e: React.KeyboardEvent) {
+    if (!studio || (e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"]')) return
+    const command = e.ctrlKey || e.metaKey
+    if (command && ['z', 'y'].includes(e.key.toLowerCase())) {
+      e.preventDefault()
+      if (e.key.toLowerCase() === 'y' || e.shiftKey) history.redo(); else history.undo()
+      return
+    }
+    const axis = e.key === 'ArrowLeft' || e.key === 'ArrowRight' ? 'x' : 'y'
+    if (selectedField && e.key.startsWith('Arrow')) {
+      e.preventDefault()
+      const pos = activePos(selectedField)
+      if (!pos) return
+      const direction = e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 1
+      handlePositionChange(selectedField, axis, mmToPercent(percentToMm(pos[axis], axis) + direction * (e.shiftKey ? 1 : 0.1), axis))
+    }
+  }
+
   async function handleSave() {
+    if (!templateLoaded || dragging) return
     if (!clientId || !recipeId) {
       toast.error('Wybierz klienta i recepturę')
       return
@@ -681,7 +774,7 @@ export function LabelTemplateSetupPage() {
   const isReady    = Boolean(clientId && recipeId)
 
   return (
-    <div className="min-h-screen w-full bg-slate-50 animate-fade-in">
+    <div className="min-h-screen w-full bg-slate-50 animate-fade-in" onKeyDown={studioKeys}>
       {/* Pasek nawigacji — zawsze widoczny, łatwy powrót do dalszej pracy */}
       <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-2.5 backdrop-blur lg:px-8">
         <button
@@ -690,9 +783,13 @@ export function LabelTemplateSetupPage() {
         >
           <ArrowLeft size={16} /> Szablony etykiet
         </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" disabled={dragging} onClick={() => setStudio(s => !s)}>
+            {studio ? 'Układ klasyczny' : 'MES Label Studio'}
+          </Button>
         <Button
           onClick={handleSave}
-          disabled={saving || !clientId || !recipeId}
+          disabled={saving || !clientId || !recipeId || !templateLoaded || dragging}
           size="sm"
           className="gap-2"
         >
@@ -701,9 +798,10 @@ export function LabelTemplateSetupPage() {
             : <Save size={14} />}
           Zapisz szablon
         </Button>
+        </div>
       </div>
 
-      <div className="mx-auto max-w-6xl space-y-5 px-4 py-5 lg:px-8">
+      <div className={`mx-auto space-y-5 px-4 py-5 lg:px-8 ${studio ? 'max-w-[1800px]' : 'max-w-6xl'}`}>
 
       {/* Nagłówek */}
       <Card>
@@ -712,7 +810,7 @@ export function LabelTemplateSetupPage() {
             <Tag size={18} />
           </div>
           <div>
-            <CardTitle>Konfiguracja szablonu etykiety</CardTitle>
+            <CardTitle>{studio ? 'MES Label Studio · PDF / A4' : 'Konfiguracja szablonu etykiety'}</CardTitle>
             <CardDescription>
               Ustaw tło etykiety i pozycje pól dla kombinacji klient + receptura.
             </CardDescription>
@@ -720,6 +818,10 @@ export function LabelTemplateSetupPage() {
         </CardHeader>
       </Card>
 
+      <details open={!studio || !isReady || kind === 'zpl'} className="rounded-lg border bg-background p-3">
+        <summary className="cursor-pointer text-sm font-semibold">
+          Projekt: {clientName || 'wybierz klienta'} · {recipeName || 'wybierz recepturę'} · {kind === 'overlay' ? 'PDF / A4' : 'ZPL'}
+        </summary>
       {/* Wybór klienta + receptury */}
       <Card>
         <CardContent className="pt-5 space-y-3">
@@ -812,8 +914,12 @@ export function LabelTemplateSetupPage() {
         </CardContent>
       </Card>
 
-      {isReady && kind === 'overlay' && (
+      </details>
+
+      {isReady && templateLoaded && kind === 'overlay' && (
         <>
+          <details open={!studio || !backgroundData} className="rounded-lg border bg-background p-3">
+            <summary className="cursor-pointer text-sm font-semibold">Tło PDF / obraz i próbny wydruk A4 · rozwiń ustawienia</summary>
           {/* Wgranie tła */}
           <Card>
             <CardContent className="pt-5 space-y-3">
@@ -875,6 +981,8 @@ export function LabelTemplateSetupPage() {
             </CardContent>
           </Card>
 
+          </details>
+
           {/* Panel pozycjonowania */}
           <Card>
             <CardContent className="pt-5">
@@ -888,7 +996,16 @@ export function LabelTemplateSetupPage() {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,600px)] gap-5">
+               {studio && (
+                 <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 p-2 text-xs">
+                   <Button size="sm" variant="outline" disabled={!history.canUndo} onClick={history.undo}>Cofnij</Button>
+                   <Button size="sm" variant="outline" disabled={!history.canRedo} onClick={history.redo}>Ponów</Button>
+                   <label className="flex items-center gap-1"><input type="checkbox" checked={showGrid} onChange={e => setShowGrid(e.target.checked)} /> Siatka 5 mm</label>
+                   <label className="flex items-center gap-1"><input type="checkbox" checked={snap} onChange={e => setSnap(e.target.checked)} /> Przyciąganie 1 mm</label>
+                   <span>Strzałki: 0,1 mm · Shift: 1 mm · Ctrl+Z / Ctrl+Y · przewijanie obszaru po powiększeniu</span>
+                 </div>
+               )}
+               <div className={`grid grid-cols-1 gap-5 ${studio ? 'xl:grid-cols-[220px_minmax(0,1fr)_300px]' : 'lg:grid-cols-[1fr_minmax(0,600px)]'}`}>
 
                 {/* Lista pól */}
                 <div className="space-y-2 order-2 lg:order-1">
@@ -924,7 +1041,13 @@ export function LabelTemplateSetupPage() {
                   <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2">
                     Wybierz pole → kliknij na podgląd
                   </div>
-                  {FIELDS.map(f => (
+                  {studio ? FIELDS.map(f => (
+                    <button key={f.key} type="button" aria-pressed={selectedField === f.key}
+                      onClick={() => setSelectedField(f.key)}
+                      className={`flex w-full items-center justify-between rounded border px-3 py-2 text-left text-sm ${selectedField === f.key ? 'border-brand bg-surface-3 font-semibold' : 'bg-background'}`}>
+                      <span>{f.label}</span><span className="text-xs">{activePos(f.key) ? 'Na arkuszu' : 'Dodaj'}</span>
+                    </button>
+                  )) : FIELDS.map(f => (
                     <FieldRow
                       key={f.key}
                       fieldKey={f.key}
@@ -951,8 +1074,9 @@ export function LabelTemplateSetupPage() {
                       max={20}
                       value={labelsPerSheet}
                       onChange={e => {
-                        const n = Math.max(1, Math.min(20, Number(e.target.value)))
+                        const n = Math.max(1, Math.min(20, Math.trunc(Number(e.target.value))))
                         setLabelsPerSheet(n)
+                        setEditingSlot(slot => Math.min(slot, n - 1))
                         // Aktualizuj slotOffsets: zachowaj istniejące, dopełnij domyślnymi
                         setSlotOffsets(prev => {
                           const defaults = defaultSlotOffsets(n)
@@ -968,19 +1092,25 @@ export function LabelTemplateSetupPage() {
                 </div>
 
                 {/* Podgląd A4 z zoomem i duchami */}
-                <div className="order-1 lg:order-2">
+                <div className="order-1 min-w-0 lg:order-2">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground flex-1">
                       Podgląd arkusza A4
                     </span>
                     {/* Kontrolka powiększenia */}
                     <div className="flex items-center gap-1.5">
+                      {studio && <button className="rounded border px-2 py-1 text-xs" onClick={() => {
+                        const container = previewRef.current?.parentElement
+                        if (!container) return
+                        setZoom(Math.min(4, Math.max(0.5, Math.min((container.clientWidth - 32) / BASE_PREVIEW_WIDTH,
+                          (window.innerHeight * 0.7 - 32) / (BASE_PREVIEW_WIDTH * 297 / 210)))))
+                      }}>Dopasuj</button>}
                       <span className="text-[10px] text-muted-foreground font-semibold">Powiększenie</span>
                       <button
                         className="w-6 h-6 rounded border border-border bg-background hover:bg-muted flex items-center justify-center disabled:opacity-40"
                         title="Zmniejsz"
-                        disabled={zoom <= 1}
-                        onClick={() => setZoom(z => Math.max(1, Math.round((z - 0.25) * 100) / 100))}
+                        disabled={zoom <= 0.5}
+                        onClick={() => setZoom(z => Math.max(0.5, Math.round((z - 0.25) * 100) / 100))}
                       >
                         <ZoomOut size={12} />
                       </button>
@@ -1010,19 +1140,31 @@ export function LabelTemplateSetupPage() {
                       maxHeight: '70vh',
                       border: '1.5px solid #e2e8f0',
                       borderRadius: 8,
-                      background: backgroundData ? undefined : '#f8fafc',
+                      background: studio ? '#e2e8f0' : (backgroundData ? undefined : '#f8fafc'),
                     }}
                   >
                     {/* Element podglądu — szerokość = BASE * zoom, wysokość wynika z aspect-ratio A4 */}
                     <div
                       ref={previewRef}
                       onClick={handlePreviewClick}
+                      tabIndex={studio ? 0 : undefined}
+                      role={studio ? 'group' : undefined}
+                      aria-label="Obszar roboczy etykiety A4"
+                      onPointerDown={startDrag}
+                      onPointerMove={moveDrag}
+                      onPointerUp={endDrag}
+                      onPointerCancel={endDrag}
+                      onLostPointerCapture={endDrag}
                       style={{
                         width: `${previewW}px`,
                         aspectRatio: '210 / 297',
                         position: 'relative',
                         cursor: selectedField && backgroundData ? 'crosshair' : 'default',
                         flexShrink: 0,
+                        margin: studio ? '16px auto' : undefined,
+                        background: '#fff',
+                        boxShadow: studio ? '0 1px 8px #0f172a26' : undefined,
+                        touchAction: dragging ? 'none' : 'auto',
                       }}
                     >
                       {backgroundData ? (
@@ -1040,6 +1182,11 @@ export function LabelTemplateSetupPage() {
                             }}
                             draggable={false}
                           />
+                          {studio && showGrid && <div aria-hidden="true" style={{
+                            position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 9,
+                            backgroundImage: 'linear-gradient(to right, #64748b55 1px, transparent 1px), linear-gradient(to bottom, #64748b55 1px, transparent 1px)',
+                            backgroundSize: `${previewW * 5 / 210}px ${previewW * 5 / 210}px`,
+                          }} />}
 
                           {/* WYSIWYG markery pól — wszystkie sloty. Aktywna etykieta = solidne,
                               klikalne markery; pozostałe to półprzezroczyste duchy. Pola z ręcznym
@@ -1113,10 +1260,43 @@ export function LabelTemplateSetupPage() {
                     </div>
                   </div>
                 </div>
+                {studio && (
+                  <aside className="order-3 space-y-3 rounded-lg border bg-muted/20 p-3" aria-label="Właściwości pola">
+                    <h2 className="text-sm font-semibold">Właściwości · etykieta {editingSlot + 1}</h2>
+                    {selectedField ? (() => {
+                      const f = FIELDS.find(item => item.key === selectedField)!
+                      const pos = activePos(f.key)
+                      const lockKey = `${editingSlot}:${f.key}`
+                      return <>
+                        <FieldRow fieldKey={f.key} label={f.label} pos={pos} isSelected
+                          onSelect={() => {}} onSizeChange={size => handleSizeChange(f.key, size)}
+                          onFontFamilyChange={family => handleFontFamilyChange(f.key, family)}
+                          onBoldChange={bold => handleBoldChange(f.key, bold)} onClear={() => handleClearField(f.key)}
+                          onNudge={handleNudge} onPositionChange={handlePositionChange} />
+                        {pos && <>
+                          <div className="grid grid-cols-2 gap-2">
+                            {(['x', 'y'] as const).map(axis => <label key={axis} className="text-xs">
+                              {axis.toUpperCase()} (mm)
+                              <Input type="number" min={0} max={A4_MM[axis]} step={0.1}
+                                disabled={locked.has(lockKey)} value={Number(percentToMm(pos[axis], axis).toFixed(3))}
+                                onChange={e => { if (e.target.value !== '' && Number.isFinite(e.target.valueAsNumber)) handlePositionChange(f.key, axis, mmToPercent(e.target.valueAsNumber, axis)) }} />
+                            </label>)}
+                          </div>
+                          <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={locked.has(lockKey)} onChange={e => setLocked(previous => {
+                            const next = new Set(previous); if (e.target.checked) next.add(lockKey); else next.delete(lockKey); return next
+                          })} /> Zablokuj edycję pozycji w tej sesji</label>
+                        </>}
+                        <p className="text-xs text-muted-foreground">Współrzędne mm dotyczą arkusza A4 przed kalibracją. Zapis nadal używa zgodnych pozycji procentowych. Końcowy wynik sprawdź w próbnym PDF.</p>
+                      </>
+                    })() : <p className="text-sm text-muted-foreground">Wybierz pole z listy lub kliknij je na arkuszu. Możesz przeciągać pola albo wpisać współrzędne.</p>}
+                  </aside>
+                )}
               </div>
             </CardContent>
           </Card>
 
+          <details open={!studio} className="rounded-lg border bg-background p-3">
+            <summary className="cursor-pointer text-sm font-semibold">Zaawansowane dopasowanie · offsety etykiet, kalibracja, skala i przycinanie</summary>
           {/* Korekta położenia etykiet 2+ */}
           {labelsPerSheet > 1 && (
             <Card>
@@ -1321,6 +1501,8 @@ export function LabelTemplateSetupPage() {
             </CardContent>
           </Card>
 
+          </details>
+
           {/* Zapis */}
           <div className="flex items-center justify-end gap-3 pb-6">
             <Button variant="outline" onClick={goBack} className="gap-2">
@@ -1328,7 +1510,7 @@ export function LabelTemplateSetupPage() {
             </Button>
             <Button
               onClick={handleSave}
-              disabled={saving || !clientId || !recipeId}
+              disabled={saving || !clientId || !recipeId || !templateLoaded || dragging}
               className="gap-2"
             >
               {saving

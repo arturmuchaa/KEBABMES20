@@ -121,8 +121,8 @@ def test_zamowienie_w_toku_dalej_odswieza_dokument(db):
     from app.services.hdi_service import generate_hdi
     _zamowienie(status="confirmed")
 
-    # Brak produkcji i zapasu → build_hdi protestuje, ale NIE zamrożeniem.
+    # New contract: no scans -> conflict, never an order-derived document.
     with pytest.raises(HTTPException) as e:
         generate_hdi("o1")
-    assert e.value.status_code == 400
+    assert e.value.status_code == 409
     assert "zrealizowane" not in (e.value.detail or "").lower()

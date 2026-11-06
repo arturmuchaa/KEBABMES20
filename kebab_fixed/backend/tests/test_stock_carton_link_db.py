@@ -25,6 +25,7 @@ from app.services.stock_carton_match_service import suggestions_for_order
 from app.services.stock_cartons_service import create_stock_carton, scan_unit_into_carton
 from app.utils.unit_codes import unit_qr
 from tests.test_finalize_loading_db import _firma, _klient, _pojazd, _receptura, _zamowienie
+from tests.partial_loading_helpers import finalize_loading
 
 BATCH = "080926 500"
 
@@ -437,7 +438,7 @@ def test_bez_skanera_karton_z_wyrobu_na_stanie_przypisany_bez_ruchow(db):
     assert wynik["result"] == "SUCCESS" and wynik["total_qty"] == 2 and wynik["total_kg"] == 60.0
     assert pallets_service.scan(f"SCARTON|{a['id']}", "loaded", vehicle_id="v1")["result"] == "ALREADY_SCANNED"
     assert _fg_i_ruchy() == stan0
-    zam = loading_service.finalize_loading("v1", ["o1"], expected_ids=[a["id"]])["orders"][0]
+    zam = finalize_loading("v1", ["o1"], expected_ids=[a["id"]])["orders"][0]
     assert zam["pozycje"] == [{"stock_id": "f1", "batch_no": BATCH, "szt": 2, "kg_per_unit": 30.0}]
     assert query_one("SELECT shipped_at FROM stock_cartons WHERE id=%s", (a["id"],))["shipped_at"]
     assert _fg_i_ruchy() == stan0                  # stan zdejmie dopiero WZ biura

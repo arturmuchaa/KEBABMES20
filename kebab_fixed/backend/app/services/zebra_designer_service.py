@@ -8,6 +8,7 @@ from app.logging_config import get_logger
 from app.utils.ids import cuid
 from app.services.zebra_labels_service import _zpl_escape, unit_zpl_values
 from app.services.label_templates_service import client_key_candidates
+from app.services.label_unit_selection import select_existing_units, unique_unit_qrs, one_copy, validate_template_binding, selected_unit_ids, bounded_unit_zpl
 
 logger = get_logger(__name__)
 
@@ -136,25 +137,33 @@ def _design_dict_from_row(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def render_units(client_id: str, recipe_id: str, plan_line_id: str) -> Dict[str, Any]:
+def render_units(client_id: str, recipe_id: str, plan_line_id: str, unit_ids: str | None = None) -> Dict[str, Any]:
+    client_keys = client_key_candidates(client_id)
     row = query_one(
         "SELECT * FROM zebra_label_designs WHERE client_id = ANY(%s) AND recipe_id=%s",
-        (client_key_candidates(client_id), recipe_id),
+        (client_keys, recipe_id),
     )
     if not row:
         return {"ok": False, "reason": "Brak projektu etykiety Zebra"}
     recipe = query_one("SELECT * FROM recipes WHERE id=%s", (recipe_id,)) or {}
+    ids = selected_unit_ids(unit_ids)
     units = query_all(
-        """SELECT qr_code, batch_no, produced_date, weight_kg, client_name, product_type_id
-           FROM finished_units WHERE plan_line_id=%s ORDER BY qr_seq""",
-        (plan_line_id,),
+        """SELECT id, qr_code, batch_no, produced_date, weight_kg, client_name, product_type_id, recipe_id
+           FROM finished_units WHERE plan_line_id=%s AND (%s::text[] IS NULL OR id=ANY(%s))
+           ORDER BY qr_seq,id LIMIT 1001""",
+        (plan_line_id, ids, ids),
     )
+    units = select_existing_units(units, unit_ids)
+    validate_template_binding(units, client_keys, recipe_id)
     if not units:
         return {"ok": False, "reason": "Brak sztuk do druku"}
     design = _design_dict_from_row(row)
-    blocks = [design_to_zpl(design, unit_zpl_values(u, recipe)) for u in units]
-    return {"ok": True, "zpl": "\n".join(blocks), "count": len(blocks)}
+    if not any(el.get("type") == "qr" and el.get("value") == "[[QR]]" and not el.get("gf") for el in design["elements"]):
+        return {"ok": False, "reason": "Dodaj dynamiczny kod QR z wartością [[QR]] przed drukiem produkcyjnym"}
+    if not unique_unit_qrs(units):
+        return {"ok": False, "reason": "Brak unikalnych identyfikatorów QR sztuk — druk zablokowany"}
+    return bounded_unit_zpl(design_to_zpl(design, unit_zpl_values(u, recipe)) for u in units)
 
 
 def render_sample(design: Dict[str, Any]) -> Dict[str, Any]:
-    return {"ok": True, "zpl": design_to_zpl(design, _SAMPLE), "count": 1}
+    return {"ok": True, "zpl": one_copy(design_to_zpl(design, _SAMPLE)), "count": 1}

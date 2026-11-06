@@ -237,6 +237,8 @@ def _limity_fakturowane(order_id: str) -> Dict[Klucz, int]:
     linie = query_all(
         "SELECT recipe_id, kg_per_unit, product_type_id, packaging_id, qty, qty_invoice "
         "FROM client_order_lines WHERE order_id=%s", (order_id,))
+    from app.services import shipment_documents as shipment
+    linie = shipment.lines_for(order_id, linie)
     if not linie:
         raise HTTPException(404, "Zamówienie nie ma pozycji")
     if any(l.get("qty_invoice") is None for l in linie):
@@ -379,7 +381,7 @@ def build_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
         """SELECT pl.qty_done, pl.kg_per_unit, pl.recipe_id, pl.recipe_name,
                   pl.product_type_id, pl.packaging_id,
                   pl.product_type_name, pl.batch_allocation, pl.seasoned_batch_no,
-                  pl.seasoned_batch_nos, pl.progress_updated_at
+                  pl.seasoned_batch_nos, pl.progress_updated_at, pl.packaging_name
            FROM production_plan_lines pl
            JOIN production_plans pp ON pp.id = pl.plan_id
            WHERE pl.client_order_id=%s AND COALESCE(pl.qty_done,0) > 0
@@ -395,6 +397,12 @@ def build_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
     portions = stock_portions_for_order(
         order_id, order.get("order_no") or "", order_lines,
         produced_by_key_from_plan_lines(lines))
+    from app.services import shipment_documents as shipment
+    actual = shipment.current(order_id)
+    if actual:
+        lines = []
+        portions = actual["portions"]
+        order_lines = actual["lines"]
 
     recipe_ids = sorted(
         {l.get("recipe_id") for l in lines if l.get("recipe_id")}
@@ -439,8 +447,10 @@ def build_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
     if scope == ZAKRES_FV:
         ordered_qty = sum(int(ln.get("qty_invoice") or 0) for ln in query_all(
             "SELECT qty_invoice FROM client_order_lines WHERE order_id=%s", (order_id,)))
+        if actual:
+            ordered_qty = sum(int(ln.get("qty_invoice") or 0) for ln in actual["lines"])
     else:
-        ordered_qty = sum(int(ln.get("qty") or 0) for ln in order_lines)
+        ordered_qty = sum(int(ln.get("ordered_qty", ln.get("qty")) or 0) for ln in order_lines)
     incomplete = ordered_qty > 0 and total_qty < ordered_qty
 
     header, lang = _hdi_header(client, order.get("client_name", ""))
@@ -573,8 +583,19 @@ def _zachowaj_numer_auta(nowy: Dict[str, Any], stary: Any) -> Dict[str, Any]:
     return naglowek
 
 
-def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
+from app.services import shipment_documents as shipment
+
+
+@shipment.shipment_operation
+def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC, *,
+                 preliminary: bool = False) -> Dict[str, Any]:
     scope = _sprawdz_zakres(scope)
+    # Wyjątek dotyczy WYŁĄCZNIE jawnie wybranego HDI wstępnego. WM/WZ/CMR
+    # i komplet dokumentów nadal wymagają skanów. Bez migracji: znacznik jest
+    # częścią zapisanego nagłówka, więc trafia także na wydruk i PDF.
+    if preliminary and scope != ZAKRES_CALOSC:
+        raise HTTPException(400, "HDI wstępne przed załadunkiem wystawiamy na całość")
+    actual = shipment.current(order_id)
     # Numer HDI jest STAŁY per zamówienie/wydanie. Jeśli dokument dla tego
     # zamówienia już istnieje, NIE nabijamy kolejnego numeru — zwracamy ten sam.
     # Dopóki status to 'wstepny', odświeżamy jego treść (stan produkcji mógł się
@@ -587,8 +608,25 @@ def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
     existing = query_one(
         "SELECT id, number, status, incomplete, totals, header FROM hdi_documents "
         "WHERE order_id=%s AND COALESCE(scope,%s)=%s "
-        "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1",
-        (order_id, ZAKRES_CALOSC, scope))
+        "AND COALESCE(status,'')<>'anulowany' AND loading_id IS NOT DISTINCT FROM %s ORDER BY created_at LIMIT 1",
+        (order_id, ZAKRES_CALOSC, scope, shipment.scope_id()))
+
+    # Pierwszy zakończony kurs przejmuje numer wstępnego HDI, ale NIGDY jego
+    # ilości/partie. Przeliczamy je niżej z zapisu skanów. Kolejne kursy mają
+    # osobne numery; historycznych HDI bez znacznika nie przepinamy.
+    if not preliminary and actual and actual.get("loading_id") and not existing:
+        existing = query_one(
+            "SELECT id, number, status, incomplete, totals, header FROM hdi_documents "
+            "WHERE order_id=%s AND COALESCE(scope,%s)=%s AND loading_id IS NULL "
+            "AND status='wstepny' AND header->>'preliminary'='true' "
+            "AND NOT EXISTS (SELECT 1 FROM loading_orders WHERE order_id=%s AND loading_id<>%s) "
+            "ORDER BY created_at LIMIT 1",
+            (order_id, ZAKRES_CALOSC, scope, order_id, actual["loading_id"]))
+    old_header = (existing or {}).get("header") or {}
+    if isinstance(old_header, str):
+        old_header = json.loads(old_header)
+    was_preliminary = (old_header.get("preliminary") is True
+                       and (existing or {}).get("status") == "wstepny")
 
     # Zamówienie ZREALIZOWANE (albo anulowane) — dokument jest zamknięty.
     # Towar wyjechał, papier z nim pojechał; ponowne „Generuj" tylko go
@@ -597,16 +635,45 @@ def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
     zamowienie = query_one("SELECT status FROM client_orders WHERE id=%s", (order_id,))
     if not zamowienie:
         raise HTTPException(404, "Zamówienie nie znalezione")
+    if preliminary:
+        if (zamowienie.get("status") or "") in ("done", "cancelled"):
+            raise HTTPException(409, "Zamówienie jest zamknięte — nie wystawiamy HDI wstępnego")
+        if actual or query_one(
+                "SELECT loading_id AS id FROM loading_orders WHERE order_id=%s "
+                "UNION ALL SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s "
+                "AND COALESCE(status,'')<>'anulowany' LIMIT 1", (order_id, order_id)):
+            raise HTTPException(409, "Załadunek lub wydanie już istnieje — wybierz HDI z załadunku")
+        if existing and (existing["status"] != "wstepny" or not was_preliminary):
+            raise HTTPException(409, "Istniejącego HDI nie można zastąpić dokumentem wstępnym")
     if (zamowienie.get("status") or "") in ("done", "cancelled"):
+        # Pełny pierwszy kurs może już zamknąć zamówienie. Tylko jego jawny
+        # dokument wstępny wolno wówczas przeliczyć, nigdy wydany wcześniej HDI.
+        finalize_preliminary = (zamowienie.get("status") == "done" and was_preliminary
+                                and actual and actual.get("loading_id"))
         if not existing:
             raise HTTPException(
                 400, "Zamówienie jest już zamknięte — nowego HDI nie wystawiamy")
-        return {"id": existing["id"], "number": existing["number"],
-                "status": existing["status"], "frozen": True, "scope": scope,
-                "incomplete": bool(existing.get("incomplete")),
-                "totals": existing.get("totals") or {}}
+        if not finalize_preliminary:
+            return {"id": existing["id"], "number": existing["number"],
+                    "status": existing["status"], "frozen": True, "scope": scope,
+                    "incomplete": bool(existing.get("incomplete")),
+                    "totals": existing.get("totals") or {}}
 
+    if existing and not was_preliminary and (not actual or actual.get("loading_id") or existing["status"] != "wstepny"):
+        return {**existing, "scope": scope, "frozen": True}
+    if not preliminary:
+        shipment.require_current(order_id)
     data = build_hdi(order_id, scope)
+    # W trakcie skanowania nadal jest to wersja wstępna. Znacznik znika
+    # dopiero po przeliczeniu z zapisanego kursu, nie po pierwszym skanie.
+    if preliminary or (was_preliminary and not (actual or {}).get("loading_id")):
+        data["header"]["preliminary"] = True
+    elif was_preliminary and actual and actual.get("loading_id"):
+        course = query_one("SELECT finished_at FROM loadings WHERE id=%s", (actual["loading_id"],))
+        if course and course.get("finished_at"):
+            # Wystawienie dziś nie oznacza wysyłki dziś — po jutrzejszym
+            # załadunku zachowaj datę wystawienia, wpisz osobno datę wysyłki.
+            data["header"]["shipment_date"] = _fmt_date(_pd_iso(course["finished_at"]))
     if existing:
         if existing["status"] == "wstepny":
             naglowek = _zachowaj_numer_auta(data["header"], existing.get("header"))
@@ -615,11 +682,11 @@ def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
                     """UPDATE hdi_documents
                        SET client_name=%s, language=%s, incomplete=%s,
                            header=%s::jsonb, items=%s::jsonb, totals=%s::jsonb,
-                           scope=%s
+                           scope=%s, loading_id=%s
                        WHERE id=%s""",
                     (data["client_name"], data["language"], data["incomplete"],
                      json.dumps(naglowek), json.dumps(data["items"]),
-                     json.dumps(data["totals"]), scope, existing["id"]))
+                     json.dumps(data["totals"]), scope, shipment.scope_id(), existing["id"]))
         logger.info("hdi.reused", extra={"hdi_id": existing["id"], "number": existing["number"]})
         return {"id": existing["id"], "number": existing["number"], "status": existing["status"],
                 "scope": scope, "incomplete": data["incomplete"], "totals": data["totals"]}
@@ -636,8 +703,8 @@ def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
             calosc = cx_query_one(conn,
                 "SELECT number, seq, year_month FROM hdi_documents WHERE order_id=%s "
                 "AND COALESCE(scope,%s)=%s AND COALESCE(status,'')<>'anulowany' "
-                "ORDER BY created_at LIMIT 1",
-                (order_id, ZAKRES_CALOSC, ZAKRES_CALOSC))
+                "AND loading_id IS NOT DISTINCT FROM %s ORDER BY created_at LIMIT 1",
+                (order_id, ZAKRES_CALOSC, ZAKRES_CALOSC, shipment.scope_id()))
             if not calosc:
                 raise HTTPException(
                     400, "Najpierw wystaw HDI na całość — HDI do faktury nosi jego numer z /1")
@@ -662,8 +729,8 @@ def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
         raced = cx_query_one(conn,
             "SELECT id, number, status FROM hdi_documents WHERE order_id=%s "
             "AND COALESCE(scope,%s)=%s AND COALESCE(status,'')<>'anulowany' "
-            "ORDER BY created_at LIMIT 1",
-            (order_id, ZAKRES_CALOSC, scope))
+            "AND loading_id IS NOT DISTINCT FROM %s ORDER BY created_at LIMIT 1",
+            (order_id, ZAKRES_CALOSC, scope, shipment.scope_id()))
         if raced:
             logger.info("hdi.raced", extra={"hdi_id": raced["id"], "number": raced["number"],
                                             "zakres": scope})
@@ -678,6 +745,7 @@ def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
             (hid, number, seq, ym, order_id, data["client_name"], data["language"],
              data["incomplete"], json.dumps(data["header"]), json.dumps(data["items"]),
              json.dumps(data["totals"]), today.strftime("%d.%m.%Y"), scope, now_iso()))
+        cx_execute(conn, "UPDATE hdi_documents SET loading_id=%s WHERE id=%s", (shipment.scope_id(), hid))
     logger.info("hdi.generated", extra={"hdi_id": hid, "number": number, "zakres": scope})
     return {"id": hid, "number": number, "status": "wstepny", "scope": scope,
             "incomplete": data["incomplete"], "totals": data["totals"]}

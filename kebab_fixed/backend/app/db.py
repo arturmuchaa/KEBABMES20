@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import threading
 from contextlib import contextmanager
+from contextvars import ContextVar
+from functools import wraps
+from uuid import uuid4
 from typing import Any, Dict, Iterator, List, Optional, Sequence
 
 import psycopg2
@@ -22,6 +25,25 @@ logger = get_logger(__name__)
 
 _pool_lock = threading.Lock()
 _pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
+_atomic_connection: ContextVar[Any] = ContextVar("mes_atomic_connection", default=None)
+
+
+def atomic_operation(function):
+    """Opt-in unit of work for composed synchronous service operations.
+
+    Only decorated operations share their connection with nested helpers.
+    Existing callers retain their original transaction boundaries. A failed
+    document workflow rolls back its documents, numbers AND stock movements.
+    """
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        with transaction() as conn:
+            token = _atomic_connection.set(conn)
+            try:
+                return function(*args, **kwargs)
+            finally:
+                _atomic_connection.reset(token)
+    return wrapped
 
 
 def init_pool() -> None:
@@ -94,6 +116,20 @@ def transaction() -> Iterator[psycopg2.extensions.connection]:
     Commits on clean exit, rolls back on any exception, and always
     releases the connection back to the pool.
     """
+    shared = _atomic_connection.get()
+    if shared is not None:
+        # Savepoints preserve callers that intentionally catch a nested error
+        # (e.g. optional HDI); they never commit the enclosing operation.
+        savepoint = "nested_" + uuid4().hex
+        cx_execute(shared, f"SAVEPOINT {savepoint}")
+        try:
+            yield shared
+        except Exception:
+            cx_execute(shared, f"ROLLBACK TO SAVEPOINT {savepoint}")
+            raise
+        finally:
+            cx_execute(shared, f"RELEASE SAVEPOINT {savepoint}")
+        return
     pool = _get_pool()
     conn = pool.getconn()
     committed = False

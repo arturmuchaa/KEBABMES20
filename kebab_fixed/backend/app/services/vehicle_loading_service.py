@@ -26,6 +26,7 @@ from fastapi import HTTPException
 from app.db import (cx_execute, cx_query_all, cx_query_one, query_all,
                     query_one, transaction)
 from app.logging_config import get_logger
+from app.services.clients_service import client_short_name_sql
 from app.utils.ids import cuid
 
 logger = get_logger(__name__)
@@ -210,11 +211,12 @@ def vehicle_state(vehicle_id: str) -> Dict[str, Any]:
     with transaction() as conn:
         zamowienia = cx_query_all(
             conn,
-            """SELECT vlo.order_id AS id, vlo.position,
-                      o.order_no, o.client_name, o.delivery_date,
-                      o.status AS order_status
+            f"""SELECT vlo.order_id AS id, vlo.position, vlo.color_index,
+                      o.order_no, o.client_name, COALESCE(o_cs.short_name, '') AS client_short_name,
+                      o.delivery_date, o.status AS order_status
                  FROM vehicle_loading_orders vlo
                  JOIN client_orders o ON o.id = vlo.order_id
+                 {client_short_name_sql('o')}
                 WHERE vlo.vehicle_id = %s
                 ORDER BY vlo.position, vlo.created_at""",
             (vehicle_id,))
@@ -307,6 +309,11 @@ def vehicle_state(vehicle_id: str) -> Dict[str, Any]:
                 "ok": w["ok"], "weighed_at": w["weighed_at"],
             } for w in wazenia
         }
+        positions = cx_query_all(conn,
+            'SELECT * FROM cold_storage_positions WHERE pallet_id=ANY(%s) OR carton_id=ANY(%s)',
+            ([p['id'] for p in palety], [p['id'] for p in palety])) if palety else []
+        locations = {('order' if r['pallet_id'] else 'stock', r['pallet_id'] or r['carton_id']):
+                     {'slot': r['slot'], 'rotation': r['rotation'], 'revision': r['revision']} for r in positions}
 
     wg_palety: Dict[str, List[Dict[str, Any]]] = {}
     for poz in pozycje:
@@ -320,6 +327,7 @@ def vehicle_state(vehicle_id: str) -> Dict[str, Any]:
         p["items"] = wg_palety.get(p["id"], [])
         kind = "stock" if p.get("scan_code", "").startswith("SCARTON|") else "order"
         p["weighing"] = wg_wazenia.get((kind, p["id"]))
+        p['location'] = locations.get((kind, p['id'])) if p.get('status') == 'cold_storage' else None
         # `loaded` liczy się TYLKO na TYM aucie. Paleta tego samego zamówienia
         # stojąca na innym samochodzie nie jest postępem tego załadunku.
         p["on_this_vehicle"] = (

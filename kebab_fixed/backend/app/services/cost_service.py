@@ -104,8 +104,10 @@ def get_averages(window: Optional[str] = None) -> Dict:
 
     d = query_one(
         f"""SELECT COUNT(*) AS rows,
-                  SUM(kg_meat) AS meat, SUM(kg_backs) AS backs,
-                  SUM(kg_bones) AS bones, SUM(kg_quarter) AS quarter,
+                  SUM(kg_meat) AS meat,
+                  SUM(kg_backs) FILTER (WHERE settlement_stage IS NULL) AS backs,
+                  SUM(kg_bones) FILTER (WHERE settlement_stage IS NULL) AS bones,
+                  SUM(kg_quarter) AS quarter,
                   AVG(NULLIF(yield_pct, 0)) AS avg_yield
            FROM deboning_entries
            WHERE kg_quarter > 0
@@ -114,6 +116,8 @@ def get_averages(window: Optional[str] = None) -> Dict:
     )
     # Zbiorcze ważenie ubocznych (batch_byproducts) — grzbiety/kości ważone
     # NA PARTIĘ na wadze najazdowej, nie per wpis; bez tego %% wychodziły 0.
+    # Per-worker settlements also populate this reporting aggregate. Do not
+    # count their entry-level weights a second time (filtered above).
     bp = query_one(
         f"""SELECT COALESCE(SUM(backs_kg),0) AS backs, COALESCE(SUM(bones_kg),0) AS bones
            FROM batch_byproducts

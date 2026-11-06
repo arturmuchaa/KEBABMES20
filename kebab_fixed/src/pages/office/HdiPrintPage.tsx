@@ -437,6 +437,14 @@ export function HdiPrintPage() {
           }
         </div>
 
+        {h.preliminary === true && (
+          <div data-testid="hdi-preliminary" style={{ border: '1px solid #000', padding: '4px 6px', marginBottom: '4px', textAlign: 'center' }}>
+            <b>HDI WSTĘPNE / PRELIMINARY HDI</b><br />
+            Przed załadunkiem — ilości i partie wymagają potwierdzenia skanowaniem.<br />
+            Before loading — quantities and batches must be confirmed by scanning.
+          </div>
+        )}
+
         {/* ── Numer + data ── */}
         <table className="meta-table" style={{ marginBottom: '2px' }}>
           <tbody>
@@ -613,7 +621,7 @@ export function HdiPrintPage() {
         {/* ── Stopka: data + duże pole na podpis i pieczęć ── */}
         <div className="signoff">
           <div className="ship-row">
-            <div><b>{bi('ship')}:</b> {doc.issueDate}</div>
+            <div><b>{bi('ship')}:</b> {h.preliminary === true ? '—' : (h.shipment_date || doc.issueDate)}</div>
           </div>
           <div className="sig-box">
             <span className="sig-box-label">{bi('stamp')}</span>

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Printer, Truck, AlertTriangle, Check } from 'lucide-react'
-import { zaladunkiApi } from '@/lib/api'
+import { zaladunkiApi, type ShipmentCoverage, type ShipmentInvoiceData } from '@/lib/api'
+import { ShipmentWarning } from '@/components/ShipmentWarning'
+import { ShipmentInvoiceSummary } from '@/components/ShipmentInvoiceSummary'
 import { CmrDaneTransportu, DOMYSLNE_DANE_TRANSPORTU,
          type DaneTransportu } from '@/components/cmr/CmrDaneTransportu'
 import { fmtKg } from '@/lib/utils'
@@ -29,6 +31,8 @@ type Pozycja = {
   wz: Dok[]
   hdi: Dok[]
   cmr: Dok[]
+  coverage?: ShipmentCoverage
+  invoice_data?: ShipmentInvoiceData
 }
 
 /** Decyzja biura dla jednego odbiorcy: całość na fakturę albo podział,
@@ -156,6 +160,15 @@ export function ZaladunekDrukPage() {
       </div>
 
       {blad && <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800">{blad}</div>}
+      {pozycje.filter(p => p.coverage?.complete === false).map(p => <section key={p.order_id} aria-label={`Braki ${p.client_name}`}>
+        <h2 className="font-semibold">{p.client_name} · {p.order_no}</h2>
+        <ShipmentWarning coverage={p.coverage} />
+        <p className="text-sm">Na dokumentach tego kursu: {p.zaladowano.reduce((s, x) => s + x.szt, 0)} szt. / {fmtKg(p.kg_zaladowane, 1)} kg.</p>
+      </section>)}
+      {pozycje.filter(p => p.invoice_data).map(p => <section key={p.order_id}>
+        <h2 className="font-semibold">{p.client_name} · {p.order_no}</h2>
+        <ShipmentInvoiceSummary data={p.invoice_data} />
+      </section>)}
 
       {/* ── Kurs czeka na BIURO ────────────────────────────────────────
           Skan tylko zapisał, co wyjechało; papiery wystawia biuro, bo
@@ -290,6 +303,12 @@ export function ZaladunekDrukPage() {
                 <Papier key={d.id} do={`/office/cmr/${d.id}/druk`}
                   etykieta={d.scope === 'fv' ? 'CMR do faktury' : 'CMR na drogę'} numer={d.number} />
               ))}
+              {p.wz.some(d => d.doc_series === 'WM' || !d.split_scope) && (
+                <Link className="inline-flex min-h-10 items-center rounded border px-3 text-sm underline"
+                  to={`/office/rozliczenie-dostawy/${encodeURIComponent(p.order_id)}?loading_id=${encodeURIComponent(id || '')}`}>
+                  Rozliczenie tego kursu
+                </Link>
+              )}
               {p.wz.length + p.hdi.length + p.cmr.length === 0 && (
                 <span className="text-sm text-muted-foreground">Brak wystawionych dokumentów</span>
               )}

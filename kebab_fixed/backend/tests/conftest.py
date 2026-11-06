@@ -23,7 +23,11 @@ if TEST_DATABASE_URL:
 
 # Tabele czyszczone przed każdym testem integracyjnym (CASCADE łapie zależne).
 _TRUNCATE = [
-    "warehouse_events", "cold_storage_weighings", "dispatches",
+    # Append-only history has no FK to mutable production rows on purpose.
+    # Reset it explicitly, ONLY in the guarded isolated test database.
+    "label_print_events", "label_print_job_items", "label_print_jobs",
+    "label_template_revisions", "label_templates", "zebra_label_designs",
+    "warehouse_events", "cold_storage_weighings", "cold_storage_blocked_slots", "dispatches",
     "orphan_pallets", "pallet_label_aliases",
     # Nośniki zwrotne — od ruchów w stronę partnerów (FK), żeby CASCADE
     # nie zostawił sierot po dokumentach.

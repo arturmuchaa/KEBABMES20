@@ -51,6 +51,7 @@
  * ekran jest tym, co się zapisuje, tak samo jak jest tym, co się wystawia.
  */
 import { useEffect, useRef, useState } from 'react'
+import { ShipmentInvoiceSummary } from '@/components/ShipmentInvoiceSummary'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import '../order-planning.css'
 import { X } from 'lucide-react'
@@ -672,18 +673,17 @@ export function SplitDialog({ orderId, onClose, kgCalosc, orderNo, clientName }:
                 // Ostrzeżenie, nie blokada: zakład wysyła to, co wyprodukował.
                 <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">
                   <div className="font-semibold">
-                    Papiery opisują o {fmtKgTrim(documents.pokrycie.kg_braku)} kg więcej,
-                    niż wyjechało.
+                     Wydanie częściowe — {fmtKgTrim(documents.pokrycie.kg_braku)} kg pozostaje do realizacji.
                   </div>
                   <div className="mt-1 text-[11.5px]">
                     WZ wewnętrzny (WM) obejmuje <b>{fmtKgTrim(documents.pokrycie.kg_wydane)}</b> kg
-                    — tyle znalazło pokrycie w magazynie. WZ dla klienta i CMR do faktury liczą
-                    się z zamówienia (<b>{fmtKgTrim(documents.pokrycie.kg_zamowienia)}</b> kg),
-                    więc opisują też towar, który nie wyjechał. Sprawdź dostawę, zanim faktura
-                    pójdzie do Subiekta.
+                     — tyle potwierdzono w załadunku. WZ klienta i część fakturowana dzielą
+                     wyłącznie ten towar, nie pełne zamówienie (<b>{fmtKgTrim(documents.pokrycie.kg_zamowienia)}</b> kg).
+                     Fakturę w Subiekcie wystaw według danych tego kursu, bez brakujących sztuk.
                   </div>
                 </div>
               )}
+              <ShipmentInvoiceSummary data={documents.invoice_data} />
               <DocRow label="WZ wewnętrzny (WM)" doc={documents.wm} typ="wz" />
               <DocRow label="WZ dla klienta" doc={documents.wz} typ="wz" />
               {(documents.cmr ?? []).map((c, i) => (

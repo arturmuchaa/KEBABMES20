@@ -355,7 +355,8 @@ def saldo_na_dokument(wz_id: str) -> Dict[str, Any]:
     }
 
 
-def rozliczenie_dostawy(order_id: str, ceny: Dict[str, float]) -> Dict[str, Any]:
+def rozliczenie_dostawy(order_id: str, ceny: Dict[str, float],
+                        loading_id: Optional[str] = None) -> Dict[str, Any]:
     """Kartka dla klienta: CAŁA dostawa plus zaległość z poprzednich.
 
     Źródłem jest dokument NA CAŁOŚĆ (seria WM, `split_scope='calosc'`), bo
@@ -382,13 +383,23 @@ def rozliczenie_dostawy(order_id: str, ceny: Dict[str, float]) -> Dict[str, Any]
     # Zamówienia sprzed 24.09.2026 mają jeden zwykły WZ bez `split_scope`
     # i on też opisuje całość — dlatego dopuszczamy go jawnie, zamiast
     # wymagać serii WM.
-    doc = query_one(
-        "SELECT number, lines, issued_date FROM wz_documents "
+    dokumenty = query_all(
+        "SELECT id, number, lines, issued_date, loading_id FROM wz_documents "
         "WHERE source_type='order' AND source_id=%s "
         "  AND COALESCE(status,'')<>'anulowany' "
         "  AND (COALESCE(split_scope,'') = 'calosc' OR split_scope IS NULL) "
-        "ORDER BY (COALESCE(split_scope,'') = 'calosc') DESC, created_at LIMIT 1",
+        "ORDER BY (COALESCE(split_scope,'') = 'calosc') DESC, created_at",
         (order_id,))
+    wybrane = dokumenty
+    if loading_id:
+        kurs = query_one("SELECT wz_id FROM loading_orders WHERE order_id=%s AND loading_id=%s",
+                         (order_id, loading_id))
+        if not kurs:
+            raise HTTPException(404, "Zamówienie nie należy do tego kursu")
+        wybrane = [d for d in dokumenty if d.get("loading_id") == loading_id or d["id"] == kurs.get("wz_id")]
+    if len(wybrane) > 1 or (wybrane and not wybrane[0].get("loading_id") and len(dokumenty) > 1):
+        raise HTTPException(409, "Kilka dokumentów dostawy — wybierz konkretny kurs. Historycznych dokumentów bez przypisania nie rozliczamy przez zgadywanie.")
+    doc = wybrane[0] if wybrane else None
     if not doc:
         raise HTTPException(
             400,
@@ -413,8 +424,9 @@ def rozliczenie_dostawy(order_id: str, ceny: Dict[str, float]) -> Dict[str, Any]
     # dopiero integracja z Subiektem, która da fakturze `source_id`.
     moje_dokumenty = {
         r["id"] for r in query_all(
-            "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s",
-            (order_id,))
+            "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s "
+            "AND loading_id IS NOT DISTINCT FROM %s",
+            (order_id, doc.get("loading_id")))
     }
     wczesniejsze = [o for o in karta["obciazenia"]
                     if o.get("source_id") not in moje_dokumenty]
@@ -427,6 +439,7 @@ def rozliczenie_dostawy(order_id: str, ceny: Dict[str, float]) -> Dict[str, Any]
         "waluta": karta["waluta"],
         "order_no": zam["order_no"],
         "dokument": doc["number"],
+        "loading_id": doc.get("loading_id") or loading_id,
         "data_dostawy": doc["issued_date"],
         "policzono": datetime.now().isoformat(timespec="minutes"),
     })

@@ -24,6 +24,24 @@ beforeEach(() => { localStorage.clear(); vi.useFakeTimers() })
 afterEach(() => { vi.useRealTimers(); delete window.BrowserPrint })
 
 describe('wspólny transport Zebra', () => {
+  it('claims a durable job only after preflight, under the lock, before any label bytes', async () => {
+    const device = printer()
+    const beforeSend = vi.fn(async () => {
+      expect(device.sendThenRead).toHaveBeenCalled()
+      expect(device.send).not.toHaveBeenCalled()
+    })
+    const label = zebraMediaTestZpl('50x80')
+    await sendZpl(device, label, { autoCalibrate: false, beforeSend })
+    expect(beforeSend).toHaveBeenCalledOnce()
+    expect(vi.mocked(device.send).mock.calls[0][0]).toBe(label)
+  })
+  it('a rejected durable claim sends no label bytes', async () => {
+    const device = printer()
+    await expect(sendZpl(device, zebraMediaTestZpl('50x80'), {
+      beforeSend: async () => { throw new Error('job already claimed') },
+    })).rejects.toThrow('already claimed')
+    expect(device.send).not.toHaveBeenCalled()
+  })
   it('zachowuje tekst błędu USB i nie ponawia niepewnego wydruku', async () => {
     const device = printer()
     device.send = vi.fn((_data, _ok, fail) => fail('USB write failed: device disconnected'))

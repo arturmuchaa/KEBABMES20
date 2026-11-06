@@ -18,8 +18,8 @@ def save(dto: SaveDesignRequest):
 
 
 @router.get("/render")
-def render(client_id: str = Query(""), recipe_id: str = Query(""), plan_line_id: str = Query("")):
-    return svc.render_units(client_id, recipe_id, plan_line_id)
+def render(client_id: str = Query(""), recipe_id: str = Query(""), plan_line_id: str = Query(""), unit_ids: str | None = Query(None)):
+    return svc.render_units(client_id, recipe_id, plan_line_id, unit_ids)
 
 
 @router.post("/render-sample")

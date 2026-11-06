@@ -61,6 +61,8 @@ def _map_deboning_entry(row: Dict) -> Dict:
         "e2Count": row.get("e2_count"),
         "weighMode": row.get("weigh_mode"),
         "status": row.get("status") or "complete",
+        "settlementStage": row.get("settlement_stage"),
+        "settlementException": row.get("settlement_exception"),
         "completedAt": str(row.get("completed_at") or "") or None,
         "createdAt": str(row.get("created_at") or ""),
     }
@@ -1114,6 +1116,9 @@ def create_deboning_entry(
                 f"{batch.get('status')} — rozbiór niemożliwy",
             )
 
+        from app.services.take_settlement_service import require_legacy_batch
+        require_legacy_batch(conn, batch["id"])
+
         expiry_err = validate_batch_expiry(batch.get("expiry_date"))
         if expiry_err:
             raise HTTPException(400, expiry_err)
@@ -1436,6 +1441,9 @@ def weigh_part_deboning_take(entry_id: str, dto) -> Dict:
         )
         if not entry:
             raise HTTPException(404, "Pobranie nie znalezione")
+        from app.services.take_settlement_service import require_legacy_batch, require_legacy_entry
+        require_legacy_entry(entry)
+        require_legacy_batch(conn, entry["raw_batch_id"])
         if (entry.get("status") or "complete") != "pending":
             raise HTTPException(409, "Pobranie już domknięte lub nie jest pobraniem")
 
@@ -1506,6 +1514,11 @@ def create_deboning_take(dto) -> Dict:
             )
         if not batch:
             raise HTTPException(404, f"Partia nie znaleziona (raw_batch_id={raw_batch_id!r})")
+        mode = batch.get("deboning_mode")
+        if getattr(dto, "per_worker", False) and mode is None:
+            from app.services.take_settlement_service import batch_mode
+            mode = batch_mode(conn, batch["id"])
+            cx_execute(conn, "UPDATE raw_batches SET deboning_mode=%s WHERE id=%s", (mode, batch["id"]))
         if batch.get("status") != "active":
             raise HTTPException(
                 400,
@@ -1549,6 +1562,8 @@ def create_deboning_take(dto) -> Dict:
             (batch["id"], worker_id, session_id, meat_type),
         )
         if existing:
+            if existing.get("settlement_stage") not in (None, "meat"):
+                raise HTTPException(409, "Najpierw dokończ rozliczenie pracownika — grzbiety i kości są już ważone")
             entry = cx_execute_returning(
                 conn,
                 "UPDATE deboning_entries SET kg_quarter = kg_quarter + %s, "
@@ -1610,11 +1625,15 @@ def create_deboning_take(dto) -> Dict:
                 "deboning.take.created", extra={"entry_id": entry_id, "kg_taken": kg_taken}
             )
 
+        if mode == "worker":
+            cx_execute(conn, "UPDATE deboning_entries SET settlement_stage=COALESCE(settlement_stage,'meat') WHERE id=%s", (entry["id"],))
+            entry["settlement_stage"] = entry.get("settlement_stage") or "meat"
+
     _auto_finish_exhausted(batch["id"], after["kg_available"] if after else None)
     return _map_deboning_entry(entry)  # type: ignore[arg-type]
 
 
-def update_deboning_take(entry_id: str, dto) -> Dict:
+def update_deboning_take(entry_id: str, dto, by_subject: str = "") -> Dict:
     """Edycja OTWARTEGO pobrania (czeka na zważenie): zmiana kg pobranej
     ćwiartki. Różnica koryguje stan partii i ruch magazynowy OUT."""
     new_kg = float(dto.kg_taken)
@@ -1643,9 +1662,23 @@ def update_deboning_take(entry_id: str, dto) -> Dict:
         )
         if not entry:
             raise HTTPException(404, "Pobranie nie znalezione")
+        settling = bool(entry.get("settlement_stage")) and bool(cx_query_one(
+            conn, "SELECT 1 FROM deboning_settlement_weighings WHERE entry_id=%s LIMIT 1", (entry_id,)))
+        if settling:
+            # Pomyłka w ilości pobrania po rozpoczęciu rozliczenia: tylko kodem
+            # serwisowym; tolerancja ±1% przelicza się od nowej masy.
+            from app.services import take_settlement_service as ts
+            ts.require_service_code(getattr(dto, "service_code", None))
         if entry.get("raw_batch_id") != batch.get("id"):
             raise HTTPException(409, "Wpis zmienił partię w trakcie — spróbuj ponownie")
-        if (entry.get("status") or "complete") != "pending":
+        # Rozliczone pobranie pracownika (mięso → grzbiety → kości): pomyłka w ilości
+        # pobrania wychodzi często dopiero na bilansie — poprawka kodem serwisowym,
+        # bez usuwania zważonych frakcji (hala 2026-11-06: 300 kg zgłoszone, pobrane 315).
+        settled = entry.get("settlement_stage") == "done" and entry.get("status") == "complete"
+        if settled and not settling:
+            from app.services import take_settlement_service as ts
+            ts.require_service_code(getattr(dto, "service_code", None))
+        if (entry.get("status") or "complete") != "pending" and not settled:
             raise HTTPException(409, "Edycja możliwa tylko dla pobrania czekającego na zważenie")
 
         old_kg = float(entry.get("kg_quarter") or 0)
@@ -1665,11 +1698,25 @@ def update_deboning_take(entry_id: str, dto) -> Dict:
                 f"{round(kg_available, 2)} kg",
             )
 
-        updated = cx_execute_returning(
-            conn,
-            "UPDATE deboning_entries SET kg_quarter=%s, kg_remainder=%s WHERE id=%s RETURNING *",
-            (new_kg, new_kg, entry_id),
-        )
+        if settled:
+            meat = float(entry.get("kg_meat") or 0)
+            updated = cx_execute_returning(
+                conn,
+                "UPDATE deboning_entries SET kg_quarter=%s, kg_remainder=%s, yield_pct=%s WHERE id=%s RETURNING *",
+                (new_kg, max(0.0, new_kg - meat), round(meat / new_kg * 100, 2), entry_id),
+            )
+            # Raport ubocznych liczy % od sumy ćwiartek rozliczonych pobrań partii.
+            cx_execute(conn, """UPDATE batch_byproducts SET
+                quarter_kg=COALESCE((SELECT SUM(kg_quarter) FROM deboning_entries WHERE raw_batch_id=%s AND status='complete'),0),
+                backs_pct=ROUND(backs_kg / NULLIF((SELECT SUM(kg_quarter) FROM deboning_entries WHERE raw_batch_id=%s AND status='complete'),0)*100,2),
+                bones_pct=ROUND(bones_kg / NULLIF((SELECT SUM(kg_quarter) FROM deboning_entries WHERE raw_batch_id=%s AND status='complete'),0)*100,2)
+                WHERE raw_batch_id=%s""", (batch["id"], batch["id"], batch["id"], batch["id"]))
+        else:
+            updated = cx_execute_returning(
+                conn,
+                "UPDATE deboning_entries SET kg_quarter=%s, kg_remainder=%s WHERE id=%s RETURNING *",
+                (new_kg, new_kg, entry_id),
+            )
         after = cx_execute_returning(
             conn,
             "UPDATE raw_batches SET kg_available = GREATEST(0, COALESCE(kg_available,0) - %s) "
@@ -1687,6 +1734,22 @@ def update_deboning_take(entry_id: str, dto) -> Dict:
             create_stock_movement(
                 conn, product_type="raw", batch_id=batch["id"], qty=new_kg,
                 movement_type="OUT", source_type="deboning", source_id=entry_id,
+            )
+
+        if settling or settled:
+            changes: Dict = {"kgQuarter": {"przed": old_kg, "po": new_kg}}
+            if settled:
+                from app.services import take_settlement_service as ts
+                total = float(entry.get("kg_meat") or 0) + float(entry.get("kg_backs") or 0) + float(entry.get("kg_bones") or 0)
+                before, after_bal = ts.mass_balance(old_kg, total, 0, 0), ts.mass_balance(new_kg, total, 0, 0)
+                changes["bilans"] = {"sumaKg": total, "przedPct": round(before["balancePct"], 2), "poPct": round(after_bal["balancePct"], 2),
+                                     "wTolerancjiPo": after_bal["withinTolerance"]}
+            cx_execute(
+                conn,
+                "INSERT INTO deboning_entry_corrections (id, entry_id, by_subject, reason, changes) VALUES (%s,%s,%s,%s,%s)",
+                (cuid(), entry_id, by_subject or "kiosk",
+                 "Zmiana ilości pobrania kodem serwisowym" + (" (po rozliczeniu)" if settled else ""),
+                 json.dumps(changes, ensure_ascii=False)),
             )
 
     logger.info(
@@ -1708,6 +1771,9 @@ def complete_deboning_take(entry_id: str, dto, by: str = "") -> Dict:
         )
         if not entry:
             raise HTTPException(404, "Pobranie nie znalezione")
+        from app.services.take_settlement_service import require_legacy_batch, require_legacy_entry
+        require_legacy_entry(entry)
+        require_legacy_batch(conn, entry["raw_batch_id"])
         if (entry.get("status") or "complete") != "pending":
             raise HTTPException(409, "Pobranie już domknięte lub nie jest pobraniem")
 
@@ -1852,6 +1918,8 @@ def update_deboning_entry(entry_id: str, dto: DeboningEntryUpdate, by_subject: s
         )
         if not existing:
             raise HTTPException(404, "Wpis rozbioru nie znaleziony")
+        from app.services.take_settlement_service import require_legacy_entry
+        require_legacy_entry(existing)
 
         if existing.get("session_id"):
             session_row = cx_query_one(
@@ -2010,7 +2078,7 @@ def _slad_usuniecia_cx(conn, entry, zapisz_slad: bool,
 
 def delete_deboning_entry(entry_id: str, office_correction: bool = False,
                           by_subject: str = "", reason: str = "",
-                          hall_correction: bool = False) -> Dict:
+                          hall_correction: bool = False, service_code: str = "") -> Dict:
     """Cofnięcie wpisu rozbioru (przycisk „Cofnij" na HMI, usunięcie z biura).
 
     Odwraca w JEDNEJ transakcji wszystko, co utworzył create_deboning_entry:
@@ -2053,6 +2121,17 @@ def delete_deboning_entry(entry_id: str, office_correction: bool = False,
         )
         if not entry:
             raise HTTPException(404, "Wpis rozbioru nie znaleziony")
+        # Pobranie z rozliczeniem pracownika (mięso → grzbiety → kości): z hali
+        # tylko kodem serwisowym, z biura z powodem. Bez kodu/biura — jak dotąd blokada.
+        settlement_cancel = bool(entry.get("settlement_stage")) and (
+            entry.get("status") == "complete"
+            or bool(cx_query_one(conn, "SELECT 1 FROM deboning_settlement_weighings WHERE entry_id=%s LIMIT 1", (entry_id,))))
+        if settlement_cancel:
+            from app.services import take_settlement_service as ts
+            if not office_correction:
+                if not hall_correction:
+                    raise HTTPException(409, "Pobranie ma rozliczenie pracownika — usuń je z rozpiski pracownika kodem serwisowym")
+                ts.require_service_code(service_code)
         if entry.get("raw_batch_id") != peek.get("raw_batch_id"):
             raise HTTPException(409, "Wpis zmienił partię w trakcie — spróbuj ponownie")
 
@@ -2069,6 +2148,12 @@ def delete_deboning_entry(entry_id: str, office_correction: bool = False,
             session_err = validate_session_writable(session_row)
             if session_err:
                 raise HTTPException(400, session_err)
+
+        if settlement_cancel:
+            from app.services import take_settlement_service as ts
+            ts.cancel_settlement_entry(conn, entry, by_subject, reason or "Usunięte na hali kodem serwisowym")
+            logger.info("deboning.settlement_take.cancelled", extra={"entry_id": entry_id})
+            return {"ok": True, "id": entry_id}
 
         # Storno POBRANIA (pending): odwraca fazę 1 — oddaje surowiec, kasuje
         # ruch OUT i wiersz. Brak ABP do odwracania, ALE częściowe ważenia
@@ -2207,6 +2292,8 @@ def change_deboning_entry_batch(
         )
         if not entry:
             raise HTTPException(404, "Wpis rozbioru nie znaleziony")
+        from app.services.take_settlement_service import require_legacy_entry, require_legacy_batch
+        require_legacy_entry(entry)
         if (entry.get("status") or "complete") != "complete":
             raise HTTPException(
                 400, "Zmiana partii możliwa tylko dla zakończonego wpisu"
@@ -2236,6 +2323,7 @@ def change_deboning_entry_batch(
         )
         if not new_batch:
             raise HTTPException(404, "Docelowa partia surowca nie znaleziona")
+        require_legacy_batch(conn, new_batch["id"])
         new_batch_no = new_batch.get("internal_batch_no")
 
         kg_quarter = float(entry.get("kg_quarter") or 0)
@@ -2440,6 +2528,8 @@ def correct_deboning_entry(
         )
         if not entry:
             raise HTTPException(404, "Wpis rozbioru nie znaleziony")
+        from app.services.take_settlement_service import require_legacy_entry
+        require_legacy_entry(entry)
 
         changes: Dict[str, Any] = {}
 

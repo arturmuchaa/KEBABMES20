@@ -1,6 +1,6 @@
 # Znane, HISTORYCZNE rozjazdy stanu partii z księgą ruchów.
 #
-# Powstały przed 19.08.2026, gdy korekta wagi dostawy nie księgowała różnicy
+# Pierwsze dwa powstały przed 19.08.2026, gdy korekta wagi dostawy nie księgowała różnicy
 # (poprawione commitem „korekta wagi ćwiartki domyka księgę"). Zostają tu jako
 # tło, żeby próba generalna alarmowała o NOWYCH rozjazdach, a nie krzyczała
 # przy każdym wdrożeniu o tym samym.
@@ -9,3 +9,4 @@
 # Skasuj wiersz, gdy rozjazd zostanie domknięty ruchem korygującym.
 452   75.0   przyjęcie w księdze 4680 kg, na dostawie 4605 kg (korekta wagi bez ruchu)
 466   -5.0   ruchy o 5 kg niższe niż przyjęcie (korekta wagi bez ruchu)
+679   30.0   potwierdzony PRZED wdrożeniem 1.0.23 (2026-11-04): stan 0, księga raw 30; identyczny na kodzie produkcyjnym 4065dee3 i kandydacie; do wyjaśnienia, bez korekty danych

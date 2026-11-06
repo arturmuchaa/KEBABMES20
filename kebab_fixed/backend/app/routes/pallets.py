@@ -19,6 +19,7 @@ def finalize_loading(body: dict, request: Request):
         plate=body.get("plate") or "",
         request_id=body.get("request_id") or None,
         expected_ids=body.get("expected_ids"),
+        partial_confirmation=body.get("partial_confirmation") if isinstance(body.get("partial_confirmation"), str) else None,
     )
 
 

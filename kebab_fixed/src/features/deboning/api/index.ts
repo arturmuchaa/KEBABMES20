@@ -34,12 +34,13 @@ export interface DeboningApi {
   createTake(dto: CreateDeboningTakeDto): Promise<DeboningEntry>
   completeTake(entryId: string, dto: CompleteDeboningTakeDto): Promise<DeboningEntry>
   weighPart(entryId: string, dto: CompleteDeboningTakeDto): Promise<DeboningEntry>
-  updateTake(entryId: string, kgTaken: number): Promise<DeboningEntry>
+  /** `serviceCode` — wymagany przez serwer, gdy rozliczenie pobrania już ruszyło. */
+  updateTake(entryId: string, kgTaken: number, serviceCode?: string): Promise<DeboningEntry>
   updateEntry(entryId: string, dto: UpdateDeboningEntryDto): Promise<DeboningEntry>
   deleteEntry(entryId: string): Promise<{ ok: boolean; id: string }>
   /** Usunięcie z rozpiski pracownika na HMI — omija okno 15 minut, nie omija
    *  zmiany zamkniętej/zatwierdzonej ani blokad fizycznych. */
-  hallDeleteEntry(entryId: string, operator: string): Promise<{ ok: boolean; id: string }>
+  hallDeleteEntry(entryId: string, operator: string, serviceCode?: string): Promise<{ ok: boolean; id: string }>
 
   // Agregacje
   getSessionSummary(sessionId: string): Promise<SessionSummary>
@@ -90,10 +91,10 @@ export const deboningApi: DeboningApi = {
   createTake:  (dto)       => entriesStore.createTake(dto),
   completeTake:(id, dto)   => entriesStore.completeTake(id, dto),
   weighPart:   (id, dto)   => entriesStore.weighPart(id, dto),
-  updateTake:  (id, kg)    => entriesStore.updateTake(id, { kgTaken: kg }),
+  updateTake:  (id, kg, serviceCode) => entriesStore.updateTake(id, serviceCode ? { kgTaken: kg, serviceCode } : { kgTaken: kg }),
   updateEntry: (id, dto)   => entriesStore.update(id, dto),
   deleteEntry: (id)        => entriesStore.remove(id),
-  hallDeleteEntry: (id, operator) => entriesStore.hallDelete(id, operator),
+  hallDeleteEntry: (id, operator, serviceCode) => entriesStore.hallDelete(id, operator, serviceCode),
 
   getSessionSummary: async (sessionId) => {
     const session = await sessionsStore.byId(sessionId)

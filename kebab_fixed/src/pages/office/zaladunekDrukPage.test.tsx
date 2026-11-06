@@ -62,6 +62,8 @@ describe('papiery kursu', () => {
     expect(screen.getByText('HDI do faktury')).toBeTruthy()
     expect(screen.getByText('CMR na drogę')).toBeTruthy()
     expect(screen.getByText('CMR do faktury')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Rozliczenie tego kursu' }).getAttribute('href'))
+      .toBe('/office/rozliczenie-dostawy/o1?loading_id=k1')
   })
 
   it('rozjazd widać ZANIM biuro wydrukuje', async () => {

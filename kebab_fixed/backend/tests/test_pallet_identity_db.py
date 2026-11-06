@@ -127,6 +127,50 @@ def test_undo_does_not_allow_deleting_scan_history(db):
     assert query_one("SELECT COUNT(*) n FROM pallet_scans WHERE pallet_id=%s", (b["id"],))["n"] == 2
 
 
+def test_yalcin_p2_30x30_to_25x30_after_freezer_undo_keeps_label_and_history(db):
+    execute("INSERT INTO client_orders(id,order_no,status) VALUES ('o1','YALCIN/Z/2/10/26','confirmed')")
+    execute("INSERT INTO client_order_lines(id,order_id,qty,kg_per_unit,total_kg) VALUES ('l1','o1',30,30,900)")
+    service.save_pallets("o1", [_new(30)])
+    service.save_pallets("o1", [])  # P1 number is retired, not reused.
+    p2 = service.save_pallets("o1", [_new(30)])[0]
+    assert p2["pallet_no"] == 2
+    service.scan("PAL|o1|2", "cold_storage", operator="magazyn")
+    service.scan("PAL|o1|2", "undo", operator="korekta")
+    history = query_all("SELECT * FROM pallet_scans WHERE pallet_id=%s ORDER BY scanned_at,id", (p2["id"],))
+    execute("UPDATE client_order_lines SET qty=25,total_kg=750 WHERE id='l1'")
+
+    saved = service.save_pallets("o1", [_dto(p2, items=[{"order_line_id": "l1", "qty": 25}])])[0]
+
+    for field in ("id", "pallet_no", "carton_no", "created_at"):
+        assert saved[field] == p2[field]
+    assert saved["status"] == "created"
+    assert service.lookup("PAL|o1|2")["total_qty"] == 25
+    assert service.lookup("PAL|o1|2")["total_kg"] == 750
+    assert query_all("SELECT * FROM pallet_scans WHERE pallet_id=%s ORDER BY scanned_at,id", (p2["id"],)) == history
+    assert query_all("SELECT id FROM stock_movements") == []
+    service.scan("PAL|o1|2", "cold_storage")
+    assert service.lookup("PAL|o1|2")["total_qty"] == 25
+
+
+@pytest.mark.parametrize("status", ["cold_storage", "loaded", "shipped"])
+def test_content_correction_requires_pallet_back_on_hall(db, status):
+    a, b, c = _seed()
+    execute("UPDATE order_pallets SET status=%s WHERE id=%s", (status,b["id"]))
+    with pytest.raises(HTTPException):
+        service.save_pallets("o1", [_dto(a), _dto(b, items=[{"order_line_id": "l1", "qty": 15}]), _dto(c)])
+    assert service.lookup("PAL|o1|2")["total_qty"] == 20
+
+
+def test_content_correction_never_silently_detaches_qr_units(db):
+    a, b, c = _seed()
+    service.scan("PAL|o1|2", "cold_storage")
+    service.scan("PAL|o1|2", "undo")
+    execute("INSERT INTO finished_units(id,qr_code,order_id,pallet_id,weight_kg,status) VALUES ('tracked','UNIT|tracked','o1',%s,25,'packed')", (b["id"],))
+    with pytest.raises(HTTPException, match="sztuki QR"):
+        service.save_pallets("o1", [_dto(a), _dto(b, items=[{"order_line_id": "l1", "qty": 15}]), _dto(c)])
+    assert query_one("SELECT pallet_id,status FROM finished_units WHERE id='tracked'") == {"pallet_id": b["id"], "status": "packed"}
+
+
 def test_save_waits_for_scan_and_validates_locked_state(db, monkeypatch):
     a, b, c = _seed()
     reached = Event()

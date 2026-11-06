@@ -631,14 +631,8 @@ describe('SplitDialog', () => {
     expect(screen.queryByText(/przepadn/i)).toBeNull()
   })
 
-  // ── Krótka dostawa: papier opisuje więcej, niż wyjechało ───────────────
-  //
-  // WM opisuje FAKTYCZNE pokrycie z magazynu, a WZ dla klienta i CMR do
-  // faktury liczą się z ZAMÓWIENIA. Przy niedoborze suma papieru przekracza
-  // to, co wyjechało z zakładu. Backend melduje to w `pokrycie`; to jest
-  // ostatnia chwila, gdy ktokolwiek może to zobaczyć przed odjazdem auta
-  // (review końcowy, I3 — decyzja kontrolera: ostrzec, nie blokować).
-  it('pokazuje, o ile kilogramow papier przekracza to, co wyjechalo', async () => {
+  // Partial dispatch: warn about the outstanding order, NEVER inflated paper.
+  it('pokazuje brak pozostający do realizacji bez doliczania go do dokumentów', async () => {
     dokumenty.fn.mockResolvedValue({
       ...KOMPLET,
       pokrycie: { pelne: false, kg_wydane: 775, kg_zamowienia: 800, kg_braku: 25 },
@@ -646,7 +640,8 @@ describe('SplitDialog', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
     await doKompletu()
 
-    expect(screen.getByText(/o 25 kg więcej/i)).toBeTruthy()
+    expect(screen.getByText(/25 kg pozostaje do realizacji/i)).toBeTruthy()
+    expect(screen.getByText(/wyłącznie ten towar, nie pełne zamówienie/i)).toBeTruthy()
     expect(screen.getByText(/775/)).toBeTruthy()
     expect(screen.getByText(/800/)).toBeTruthy()
   })
@@ -660,7 +655,7 @@ describe('SplitDialog', () => {
     await doKompletu()
 
     expect(screen.getByText('WM/1/09/2026')).toBeTruthy()
-    expect(screen.queryByText(/więcej, niż wyjechało/i)).toBeNull()
+    expect(screen.queryByText(/pozostaje do realizacji/i)).toBeNull()
   })
 
   it('starszy backend bez pola pokrycie nie wywraca okna', async () => {

@@ -103,6 +103,68 @@ describe('PDF etykiet — rozmiar w edytorze = rozmiar na A4', () => {
     expect(boxes[1].x).toBeCloseTo(105 + 2 + (126 - 105) * 0.98, 5)
   })
 
+  it('historyczny dodruk drugiej sztuki zachowuje jej slot i nie drukuje QR sąsiada', async () => {
+    const tpl = await fixture(734.52, 1039.56)
+    tpl.printCalib = { scale: 98.7654321, dxMm: 2.123456789, dyMm: -1.123456789 }
+    tpl.slotFieldPositions = { '1': { qr: { x: 60.123456789, y: 70.987654321, size: 40 } } }
+    const originalBox = images(await render(tpl), 0)[1]
+    const unit = units[1]
+    await buildVectorPdf(tpl, [unit], 2, 365, { [unit.id]: await QRCode.toDataURL(unit.qrCode, UNIT_QR_OPTIONS) }, 'HALAL-001', [{ sheet: 0, slot: 1 }])
+    const replay = await PDFDocument.load(await result.arrayBuffer())
+    expect(replay.getPageCount()).toBe(1)
+    const boxes = images(replay, 0)
+    expect(boxes).toHaveLength(1)
+    expect(boxes[0]).toEqual(originalBox)
+  })
+
+  it('wybrane sztuki z różnych arkuszy nie są przepakowywane do pierwszego slotu', async () => {
+    const tpl = await fixture(210 * mm, 297 * mm)
+    const chosen = [units[1], units[2]]
+    const qrMap = Object.fromEntries(await Promise.all(chosen.map(async u => [u.id, await QRCode.toDataURL(u.qrCode, UNIT_QR_OPTIONS)])))
+    await buildVectorPdf(tpl, chosen, 2, 365, qrMap, '', [{ sheet: 0, slot: 1 }, { sheet: 1, slot: 0 }])
+    const replay = await PDFDocument.load(await result.arrayBuffer())
+    expect(replay.getPageCount()).toBe(2)
+    expect(images(replay, 0)).toHaveLength(1)
+    expect(images(replay, 1)).toHaveLength(1)
+    expect(images(replay, 0)[0].x).toBeCloseTo(210 * (0.051 + 0.475), 5)
+    expect(images(replay, 1)[0].x).toBeCloseTo(210 * 0.051, 5)
+  })
+
+  it.each([false, true])('historyczny slot zachowuje fit / fitStretch=%s i kwadratowy QR', async fitStretch => {
+    // Synthetic decoded pixels isolate crop geometry; pdf-lib/fonts/QR encoding
+    // and inspection of the resulting PDF operators are real.
+    const pixels = new Uint8ClampedArray(100 * 100 * 4).fill(255)
+    for (let y = 20; y < 80; y++) for (let x = 10; x < 90; x++) {
+      const i = (y * 100 + x) * 4
+      pixels[i] = pixels[i + 1] = pixels[i + 2] = 0
+    }
+    vi.stubGlobal('Image', class {
+      naturalWidth = 100; naturalHeight = 100
+      onload?: () => void
+      set src(_value: string) { queueMicrotask(() => this.onload?.()) }
+    })
+    vi.stubGlobal('document', { createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: () => ({ data: pixels }) }) }) })
+    const tpl = await fixture(734.52, 1039.56)
+    tpl.backgroundData = 'synthetic-crop-pixels'
+    tpl.printCalib = { fit: true, fitStretch, scale: 98, dxMm: 1.23, dyMm: -0.45 }
+    tpl.slotFieldPositions = { '1': { qr: { x: 60.123456789, y: 70, size: 40 } } }
+    const originalBox = images(await render(tpl), 0)[1]
+    const unit = units[1]
+    await buildVectorPdf(tpl, [unit], 2, 365, { [unit.id]: await QRCode.toDataURL(unit.qrCode, UNIT_QR_OPTIONS) }, '', [{ sheet: 2, slot: 1 }])
+    const replay = await PDFDocument.load(await result.arrayBuffer())
+    expect(images(replay, 0)).toEqual([originalBox])
+    expect(originalBox.width).toBeCloseTo(40 / 0.8 * 0.98, 5)
+    expect(originalBox.height).toBeCloseTo(originalBox.width, 5)
+    expect(replay.getPage(0).getWidth() / mm).toBeCloseTo(210, 5)
+  })
+
+  it('przerwane składanie nie udostępnia URL nieaktualnego PDF', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    await expect(buildVectorPdf(await fixture(400, 500), units, 2, 365, {}, '', undefined, controller.signal)).rejects.toThrow('Przerwano')
+    expect(URL.createObjectURL).not.toHaveBeenCalled()
+  })
+
   it('próbny QR ma gęstość rzeczywistej sztuki i własny prefix testowy', () => {
     const sample = QRCode.create(SAMPLE_UNIT_QR, UNIT_QR_OPTIONS)
     const real = QRCode.create(units[0].qrCode, UNIT_QR_OPTIONS)

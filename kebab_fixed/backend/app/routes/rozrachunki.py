@@ -6,7 +6,7 @@ w całości `#REF!`.
 from datetime import date
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from app.services import rozrachunki_service as svc
 
@@ -83,4 +83,7 @@ def dostawa(order_id: str, body: Dict[str, Any]):
     Ceny za kilogram przychodzą per GRUPA (`{"KIRMIZI": 3.20, ...}`), bo tak
     je wypisuje biuro: na oryginale 3,20 / 3,40 / 3,20 na jednej dostawie.
     """
-    return svc.rozliczenie_dostawy(order_id, body.get("ceny") or {})
+    loading_id = body.get("loading_id") or None
+    if loading_id is not None and not isinstance(loading_id, str):
+        raise HTTPException(400, "Nieprawidłowy identyfikator kursu")
+    return svc.rozliczenie_dostawy(order_id, body.get("ceny") or {}, loading_id=loading_id)

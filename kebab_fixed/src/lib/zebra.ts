@@ -202,6 +202,9 @@ interface ZebraPrintOptions {
   /** Test ręczny ma sprawdzić wybraną rolkę, bez automatycznej zmiany profilu. */
   autoCalibrate?: boolean
   onStatus?: (text: string) => void
+  /** Durable single-send claim, under the printer lock and AFTER preflight.
+   * A rejected/unknown claim must prevent sending any label bytes. */
+  beforeSend?: () => Promise<void>
 }
 
 async function preparePrint(device: ZebraDevice, io: ZebraConnection, zpl: string, options: ZebraPrintOptions): Promise<string> {
@@ -231,7 +234,9 @@ async function preparePrint(device: ZebraDevice, io: ZebraConnection, zpl: strin
 
 export function sendZpl(device: ZebraDevice, zpl: string, options: ZebraPrintOptions = {}): Promise<void> {
   return withZebraPrinter(device, async io => {
-    await io.send(isPrint(zpl) ? await preparePrint(device, io, zpl, options) : zpl)
+    const payload = isPrint(zpl) ? await preparePrint(device, io, zpl, options) : zpl
+    await options.beforeSend?.()
+    await io.send(payload)
   })
 }
 
@@ -239,7 +244,7 @@ export function sendThenReadZpl(device: ZebraDevice, zpl: string): Promise<strin
   return withZebraPrinter(device, io => io.read(zpl))
 }
 
-export async function sendZplJobs(device: ZebraDevice, jobs: readonly string[], options: ZebraPrintOptions & {
+export async function sendZplJobs(device: ZebraDevice, jobs: readonly string[], options: Omit<ZebraPrintOptions, 'beforeSend'> & {
   delayMs?: number
   onProgress?: (sent: number, total: number) => void
 } = {}): Promise<void> {
