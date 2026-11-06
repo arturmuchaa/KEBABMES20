@@ -357,3 +357,21 @@ describe('diagnoseOverage — dlaczego wyszło za dużo', () => {
     expect(diagnoseOverage(218, 0, 0)).toBeNull()
   })
 })
+
+describe('etykieta z rozliczenia pobrania (hala 2026-11-06)', () => {
+  it('prints by itself only at exactly 200 kg — no ±0.5 kg', async () => {
+    const { isSettlementAutoLabel } = await import('./meatPallet')
+    expect(isSettlementAutoLabel(200)).toBe(true)
+    expect(isSettlementAutoLabel(200.0)).toBe(true)
+    expect(isSettlementAutoLabel(199.5)).toBe(false)
+    expect(isSettlementAutoLabel(200.5)).toBe(false)
+    expect(isSettlementAutoLabel(100)).toBe(false)
+  })
+  it('a b/s take goes on its own meat lot and the 200 kg target', async () => {
+    const { quickPalletDraft } = await import('./meatPallet')
+    const d = quickPalletDraft({ netKg: 200, containers: 10, batchNo: '694', lotNo: '694-BS', targetKg: 200,
+      carrierLabel: 'wózek 6,0', carrierKg: 6, operator: 'X', productionDate: '2026-11-06', expiryDate: '2026-11-13' })!
+    expect(d.lots).toEqual([{ lotNo: '694-BS', kg: 200 }])
+    expect(d.targetKg).toBe(200)
+  })
+})

@@ -55,7 +55,7 @@ import { buildBatchMeatSummary } from '@/features/deboning/batchMeatSummary'
 import { lotProgress } from '@/features/deboning/meatPallet'
 import type { MeatStock } from '@/types'
 import { BulkWeighingWizard } from '@/features/deboning/BulkWeighingWizard'
-import { QUICK_TARGET_KG, quickPalletDraft, withinTolerance } from '@/features/deboning/meatPallet'
+import { QUICK_TARGET_KG, SETTLEMENT_AUTO_LABEL_KG, isSettlementAutoLabel, quickPalletDraft, withinTolerance } from '@/features/deboning/meatPallet'
 import { meatPalletLabelZpl } from '@/features/deboning/meatPalletLabelZpl'
 import { getDevices, sendZpl, probeBrowserPrint } from '@/lib/zebra'
 import { getProductionDate } from '@/features/deboning/utils'
@@ -1129,54 +1129,64 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const quickReady = !!selBatch && weighing.netKg > 0 && scale.stable && !ponadPartie
     && withinTolerance(weighing.netKg, QUICK_TARGET_KG)
 
-  /** Zapisz słupek i wydrukuj etykietę — jedno dotknięcie, bez kreatora. */
-  async function handleQuickLabel() {
-    if (!selBatch || weighing.netKg <= 0) return
-    setQuickBusy(true)
+  /** Zapisz słupek mięsa (paleta z lotu partii) i wydrukuj jego etykietę. Zwraca true po wydruku. */
+  async function printMeatPalletLabel(o: { batch: RawBatch; lotNo?: string; netKg: number; containers: number; cartTare: number | null; targetKg?: number }) {
     try {
       // Termin z lotu mięsa tej partii; gdy lotu nie ma (świeże pobranie
       // jeszcze niezapisane) — termin ćwiartki, żeby etykieta nie wyszła pusta.
-      let expiry = selBatch.expiryDate ?? ''
+      let expiry = o.batch.expiryDate ?? ''
       try {
         const lots = await meatStockApi.list()
-        const lot = lots.data.find(m => m.lotNo === selBatch.internalBatchNo)
+        const lot = lots.data.find(m => m.lotNo === (o.lotNo || o.batch.internalBatchNo))
         if (lot?.expiryDate) expiry = lot.expiryDate
       } catch { /* brak sieci nie może blokować etykiety */ }
 
       const draft = quickPalletDraft({
-        netKg: weighing.netKg,
-        containers: e2Count,
-        batchNo: selBatch.internalBatchNo,
-        carrierLabel: cartTareTotal ? `wózek ${fmtKg(cartTareTotal, 1)}` : 'bez wózka',
-        carrierKg: cartTareTotal ?? 0,
+        netKg: o.netKg,
+        containers: o.containers,
+        batchNo: o.batch.internalBatchNo,
+        lotNo: o.lotNo,
+        targetKg: o.targetKg,
+        carrierLabel: o.cartTare ? `wózek ${fmtKg(o.cartTare, 1)}` : 'bez wózka',
+        carrierKg: o.cartTare ?? 0,
         operator: loggedInUser?.name ?? '',
         productionDate: getProductionDate(),
         expiryDate: expiry,
       })
-      if (!draft) { showToast('Brak partii albo wagi — etykieta nie powstała', 'err'); return }
+      if (!draft) { showToast('Brak partii albo wagi — etykieta nie powstała', 'err'); return false }
 
       const zapisana = await meatPalletsApi.create(draft)
       const { default: def, list } = await getDevices()
       const dev = def ?? list[0]
-      if (!dev) throw new Error('Nie znaleziono drukarki etykiet')
+      if (!dev) throw new Error(`Słupek ${zapisana.palletNo} zapisany, ale nie znaleziono drukarki etykiet`)
       await sendZpl(dev, meatPalletLabelZpl({
         palletNo: zapisana.palletNo,
         netKg: draft.kgNet,
         containers: draft.containers,
         productionDate: draft.productionDate,
         expiryDate: draft.expiryDate,
-        // Szybka etykieta zawsze idzie z JEDNEJ partii — tej zaznaczonej na
-        // ekranie — więc jej daty uboju i przyjęcia są jednoznaczne.
-        slaughterDate: selBatch.slaughterDate,
-        receivedDate:  selBatch.receivedDate,
+        // Etykieta idzie z JEDNEJ partii, więc daty uboju i przyjęcia są jednoznaczne.
+        slaughterDate: o.batch.slaughterDate,
+        receivedDate:  o.batch.receivedDate,
         lots: draft.lots,
       }))
       meatStockData.refetch()
-      showToast(`Etykieta ${zapisana.palletNo} — ${fmtKg(draft.kgNet, 1)} kg z partii ${selBatch.internalBatchNo}`)
+      showToast(`Etykieta ${zapisana.palletNo} — ${fmtKg(draft.kgNet, 1)} kg z partii ${o.batch.internalBatchNo}`)
+      return true
     } catch (e: any) {
       const probe = await probeBrowserPrint()
       showToast(probe.ok ? (e?.message || 'Nie udało się wydrukować etykiety')
         : (probe.reason ?? 'Brak połączenia z drukarką'), 'err')
+      return false
+    }
+  }
+
+  /** Zapisz słupek i wydrukuj etykietę — jedno dotknięcie, bez kreatora. */
+  async function handleQuickLabel() {
+    if (!selBatch || weighing.netKg <= 0) return
+    setQuickBusy(true)
+    try {
+      await printMeatPalletLabel({ batch: selBatch, netKg: weighing.netKg, containers: e2Count, cartTare: cartTareTotal })
     } finally {
       setQuickBusy(false)
     }
@@ -1256,10 +1266,18 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     }
     if (!tileKind || !canSaveTile || fix) return false
     const kind = tileKind, kg = tileNet
+    const label = { containers: e2Count, cartTare: cartTareTotal, s: tileSt }
     const err = await tile.weigh(tileMeasurement(kind, ''))
     if (err) { showToast(err, 'err'); return false }
     showToast(`Zapisano ${SETTLEMENT_LABEL[kind].toLowerCase()}: ${fmtKg(kg, 1)} kg`)
     afterTileWrite()
+    // Mięso równe 200 kg = gotowy słupek: etykieta od razu (mięso jest już na locie partii),
+    // operator nie wjeżdża drugi raz po zważeniu grzbietów i kości. Druk w tle — nie blokuje dalej.
+    const batch = label.s ? ((batchData.data?.data ?? []) as RawBatch[]).find(b => b.id === label.s!.rawBatchId) : undefined
+    if (kind === 'meat' && autoMode && batch && isSettlementAutoLabel(kg)) {
+      void printMeatPalletLabel({ batch, netKg: kg, containers: label.containers, cartTare: label.cartTare,
+        lotNo: label.s!.meatType === 'bs' ? `${batch.internalBatchNo}-BS` : undefined, targetKg: SETTLEMENT_AUTO_LABEL_KG })
+    }
     return true
   }
 
