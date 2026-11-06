@@ -19,6 +19,8 @@ import { wariant } from '../../warianty'
 import { DoZrobieniaPanel } from './warianty/DoZrobienia'
 import { wierszeMiesa, type SeasonedLite } from './miesoPrzyprawione'
 import { ETAP } from '../../shell/etapy'
+import { ZatwierdzeniaPanel } from './zatwierdzenia/Zatwierdzenia'
+import type { PlanZ, SesjaLite } from './zatwierdzenia/model'
 
 /** Wariant Pulpitu do porównania: A — „Wymaga uwagi”, B — „Do zrobienia teraz” (te same słowa co kolumna „Dalej”). */
 const W = wariant('pulpit')
@@ -29,7 +31,7 @@ interface PlanLite { id: string; planNo: string; planDate: string; status: strin
 /**
  * Pulpit zakładu — te same źródła co stary pulpit (DashboardPage): zamówienia,
  * wyrób gotowy, plany produkcji, mięso przyprawione, sesje i kontrole HACCP
- * do potwierdzenia, kursy do wydruku. Tylko odczyt; zatwierdzenia — faza 5.
+ * do potwierdzenia, kursy do wydruku. Zatwierdzenia pracy hali — panel „Do zatwierdzenia przez biuro”.
  */
 export function Dashboard({ active, setCtx, setCmds }: { active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void }) {
   const app = useApp()
@@ -72,6 +74,8 @@ export function Dashboard({ active, setCtx, setCmds }: { active: boolean; setCtx
       {/* Kolejność = pytania biura rano: co się dzieje → co się pali i na kiedy → co wyjeżdża i co się robi → surowiec. */}
       <div className="dash">
         <ProcessPanel open={open} ext={ext} />
+        <ZatwierdzeniaPanel sesje={(pendingRes.data ?? []) as SesjaLite[]} plany={(plansRes.data ?? []) as unknown as PlanZ[]} dzis={`${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, '0')}-${String(TODAY.getDate()).padStart(2, '0')}`}
+          onZmiana={() => { void pendingRes.refetch(); void plansRes.refetch(); void seasonedRes.refetch() }} />
         {W === 'B' ? <DoZrobieniaPanel open={open} pending={ext.pending} haccp={ext.haccp} kursy={ext.kursy} /> : <AttentionPanel open={open} ext={ext} />}
         <DuePanel open={open} />
         <ShipmentsPanel kursy={ext.kursy} />
@@ -260,7 +264,6 @@ function AttentionPanel({ open, ext }: { open: Open; ext: Ext }) {
       acts: dzialania.slice(0, 2),
     })
   }
-  if (ext.pending > 0) items.push({ key: 'sesje', level: 'warn', title: `${ext.pending} ${odm(ext.pending, 'sesja produkcyjna czeka', 'sesje produkcyjne czekają', 'sesji produkcyjnych czeka')} na potwierdzenie`, detail: 'Bez potwierdzenia biura raport dzienny jest niepełny. Potwierdź je w starym MES (Realizacja produkcji).', tags: [], acts: [{ label: 'Realizacja produkcji', run: () => app.openModule('realizacja') }] })
   if (ext.haccp > 0) items.push({ key: 'haccp', level: 'warn', title: `${ext.haccp} ${odm(ext.haccp, 'dostawa', 'dostawy', 'dostaw')} bez kompletu kontroli HACCP`, detail: 'Ostatnie 14 dni. Uzupełnij w Przyjęciach surowca — widok „Bez HACCP”, zakładka Kontrola HACCP.', tags: [], acts: [{ label: 'Uzupełnij kontrolę', run: () => app.openModule('przyjecia') }] })
   for (const k of ext.kursy.filter(k => k.rozjazd || k.doWystawienia)) {
     items.push({ key: `kurs-${k.id}`, level: k.rozjazd ? 'crit' : 'info', title: `Kurs ${k.plate || '—'} · ${k.klienci.join(', ')}`, detail: k.rozjazd ? 'Rozjazd między dokumentem a załadunkiem — sprawdź przed wydrukiem.' : 'Załadunek zakończony, papiery do wystawienia.', tags: [], acts: [{ label: 'Papiery kursu', run: () => app.openKurs(k.id, k.plate) }] })

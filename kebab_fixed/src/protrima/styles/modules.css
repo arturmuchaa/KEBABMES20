@@ -715,3 +715,15 @@ div.pstage { cursor: default; }
 .waz-h { display: flex; align-items: center; gap: 8px; }
 .waz-h.ok { color: var(--ok-ink); }
 .waz-h.warn { color: var(--warn-ink); }
+
+/* ─── Pulpit: Do zatwierdzenia przez biuro (praca hali do domknięcia) ─────── */
+.dash .p-zatw { grid-column: 1 / -1; }
+.zatw-lista { display: flex; flex-direction: column; }
+.zatw-it { display: grid; grid-template-columns: 20px minmax(140px, auto) minmax(0, 1fr) auto auto; align-items: center; gap: 12px;
+  padding: 9px 16px; border-top: 1px solid var(--line-soft); box-shadow: inset 3px 0 0 transparent; }
+.zatw-it:first-child { border-top: 0; }
+.zatw-it.zalegla { box-shadow: inset 3px 0 0 var(--warn); }
+.zatw-it .zi-ico { color: var(--ink-3); display: inline-flex; }
+.zatw-it .zi-t { font-weight: 600; color: var(--ink-1); white-space: nowrap; }
+.zatw-it .zi-d { color: var(--ink-3); font-size: var(--fs-sm); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tbl tr.row-warn td { background: color-mix(in srgb, var(--warn-tint) 55%, transparent); }

@@ -3688,6 +3688,17 @@ function mapPlanLine(raw: any) {
   }
 }
 
+export function mapTabletEntries(raw: any): Array<{ planLineId: string; qty: number; kgPerUnit: number; workerNames: string[] }> {
+  let v = raw
+  if (typeof v === 'string') { try { v = JSON.parse(v) } catch { v = [] } }
+  return (Array.isArray(v) ? v : []).map((e: any) => ({
+    planLineId:  e.plan_line_id ?? e.planLineId ?? '',
+    qty:         Number(e.qty ?? 0),
+    kgPerUnit:   Number(e.kg_per_unit ?? e.kgPerUnit ?? 0),
+    workerNames: Array.isArray(e.worker_names ?? e.workerNames) ? (e.worker_names ?? e.workerNames) : [],
+  }))
+}
+
 function mapPlan(raw: any): any {
   return {
     id:                 raw.id          ?? '',
@@ -3700,6 +3711,8 @@ function mapPlan(raw: any): any {
     createdAt:          raw.created_at  ?? raw.createdAt  ?? '',
     tabletFinishedAt:   raw.tablet_finished_at  ?? raw.tabletFinishedAt  ?? null,
     officeConfirmedAt:  raw.office_confirmed_at ?? raw.officeConfirmedAt ?? null,
+    // Wpisy z tabletu czekające na potwierdzenie biura (office-confirm tworzy z nich wyrób gotowy).
+    tabletPendingEntries: mapTabletEntries(raw.tablet_pending_entries ?? raw.tabletPendingEntries),
     lines:              (raw.lines ?? []).map(mapPlanLine),
   }
 }
