@@ -13,7 +13,8 @@ from app.services import deboning_service as svc
 from app.services import batch_byproducts_service as byproducts_svc
 from app.services import settings_service
 from app.services import take_settlement_service as settlement
-from app.models.deboning_settlement import SettlementWeighing, SettlementAdvance, SettlementReopen, SettlementFinish
+from app.services import byproduct_pallet_check_service as pallet_checks
+from app.models.deboning_settlement import SettlementWeighing, SettlementAdvance, SettlementReopen, SettlementFinish, ByproductPalletCheck
 
 router = APIRouter(tags=["deboning"])
 
@@ -266,6 +267,17 @@ def settlement_batch_mode(batch_id: str):
     from app.db import transaction
     with transaction() as conn:
         return {"mode": settlement.batch_mode(conn, batch_id)}
+
+
+@router.post("/api/deboning/byproduct-pallet-checks")
+def create_byproduct_pallet_check(dto: ByproductPalletCheck, request: Request):
+    """Whole pallet of backs/bones weighed for information — never changes stock."""
+    return pallet_checks.create(dto, _subject_of(request))
+
+
+@router.get("/api/deboning/byproduct-pallet-checks")
+def list_byproduct_pallet_checks(days: int = 7):
+    return {"checks": pallet_checks.recent(days)}
 
 
 @router.post("/api/deboning/takes/{entry_id}/settlement/start")

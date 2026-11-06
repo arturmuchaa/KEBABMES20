@@ -25,6 +25,7 @@ import { SettlementSummaryCard } from '@/features/deboning/SettlementSummaryCard
 import { SettlementBalancePanel } from '@/features/deboning/SettlementBalancePanel'
 import { SettlementExceptionModal } from '@/features/deboning/SettlementExceptionModal'
 import { ServiceCodeModal } from '@/features/deboning/ServiceCodeModal'
+import { ByproductPalletCheckModal } from '@/features/deboning/ByproductPalletCheckModal'
 import { SERVICE_CODE } from '@/features/deboning/ServiceMenu'
 import { SETTLEMENT_LABEL, SETTLEMENT_STAGES, type TakeSettlement, type SettlementInitial, type SettlementKind, type SettlementStage } from '@/features/deboning/settlement'
 import type { RawBatch, User } from '@/types'
@@ -796,6 +797,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [operatorModal, setOperatorModal] = useState(false)
   // Ważenie zbiorcze mięsa: kompletowanie równych palet dla masowni.
   const [bulkOpen, setBulkOpen] = useState(false)
+  // Paleta grzbietów/kości z wielu pobrań — ważenie informacyjne, stan bez zmian.
+  const [palletCheckOpen, setPalletCheckOpen] = useState(false)
   // Szybka etykieta słupka (100 kg) wprost z panelu ważenia.
   const [quickBusy, setQuickBusy] = useState(false)
   // Kafel zakończonej partii prowadził WYŁĄCZNIE do ubocznych — nie dało się
@@ -2569,6 +2572,19 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
         )
       })()}
 
+      {palletCheckOpen && (
+        <ByproductPalletCheckModal scale={scale} cartTares={cartTares} vars={VARS}
+          productionDate={getProductionDate()} defaultBatchId={selBatch?.id}
+          batches={(() => {
+            // Aktywne partie + partie, z których dziś rozliczano pobrania (grzbiety leżą jeszcze na hali).
+            const all = (batchData.data?.data ?? []) as RawBatch[]
+            const ids = new Set([...allActiveBatches.map(b => b.id),
+              ...completeEntries.filter(e => e.settlementStage === 'done').map(e => e.rawBatchId)])
+            return all.filter(b => ids.has(b.id))
+          })()}
+          onClose={() => setPalletCheckOpen(false)} />
+      )}
+
       {codeAsk && (
         <ServiceCodeModal title={codeAsk.title} detail={codeAsk.detail} confirmLabel={codeAsk.confirmLabel}
           danger={codeAsk.danger} vars={VARS} onCancel={() => setCodeAsk(null)} run={codeAsk.run} />
@@ -2677,7 +2693,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
       <header className="flex-shrink-0 h-[76px] flex items-center gap-5 px-6" style={{ background: 'var(--barBg)', borderBottom: '1px solid var(--line)' }}>
         <div>
           <div className="font-extrabold text-xl leading-none uppercase" style={{ letterSpacing: '-.01em' }}>Rozbiór</div>
-          <div className="hmi-v10-mono text-[10px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.14em' }}>
+          <div className="hmi-v10-mono text-[10px] font-bold uppercase whitespace-nowrap" style={{ color: 'var(--mut)', letterSpacing: '.08em' }}>
             {session.sessionDate} · {buildLabel}
           </div>
         </div>
@@ -2718,6 +2734,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           className="h-9 px-4 text-[13px] font-bold flex items-center gap-2 flex-shrink-0"
           style={{ border: '1px solid var(--line)', color: 'var(--ink)', borderRadius: 8, background: 'var(--panel)' }}>
           <Layers size={15} /> Ważenie zbiorcze
+        </button>
+        <button type="button" onClick={() => setPalletCheckOpen(true)}
+          className="h-9 px-3 text-[13px] font-bold flex items-center gap-1.5 flex-shrink-0"
+          style={{ border: '1px solid var(--line)', color: 'var(--ink)', borderRadius: 8, background: 'var(--panel)' }}>
+          <Printer size={15} /> Paleta grzbiety/kości
         </button>
         <button type="button" onClick={handleFinishBatch}
           className="h-9 px-4 text-[13px] font-bold flex items-center gap-2 flex-shrink-0"

@@ -356,3 +356,27 @@ def test_settled_take_amount_fixed_with_service_code_keeps_the_weighings(db, mon
     assert trace['by_subject'] == 'MARCIN' and trace['changes']['kgQuarter'] == {'przed': 300.0, 'po': 315.0}
     assert trace['changes']['bilans']['sumaKg'] == 318 and trace['changes']['bilans']['wTolerancjiPo'] is True
     assert float(query_one("SELECT kg_available FROM meat_stock WHERE lot_no='901'")['kg_available']) == 205
+
+
+def test_byproduct_pallet_check_is_information_only(db):
+    """Workers stack their backs on one pallet; weighing it never receives them a second time."""
+    from app.models.deboning_settlement import ByproductPalletCheck
+    from app.services import byproduct_pallet_check_service as checks
+    seed(); a = take('w1', kg=150); svc.start(a)
+    weigh(a, 'meat', 100); advance(a, 'meat'); weigh(a, 'backs', 28); advance(a, 'backs'); weigh(a, 'bones', 22); advance(a, 'bones'); svc.finish(a)
+    b = take('w2', kg=150); svc.start(b)
+    weigh(b, 'meat', 100); advance(b, 'meat'); weigh(b, 'backs', 29); advance(b, 'backs'); weigh(b, 'bones', 21); advance(b, 'bones'); svc.finish(b)
+    stock_before = float(query_one("SELECT COALESCE(SUM(kg),0) kg FROM byproduct_lots")['kg'])
+    moves_before = query_one("SELECT COUNT(*) n FROM stock_movements")['n']
+    dto = ByproductPalletCheck(requestId='pallet-check-1', kind='backs', rawBatchIds=['settle-batch'],
+                               kgNet=56.5, kgGross=82.5, tareKg=18, tareLabel='H1', tareE2Kg=8, e2Count=4, weighMode='auto')
+    rec = checks.create(dto, 'MARCIN')
+    assert rec['kgNet'] == 56.5 and rec['workersKg'] == 57 and rec['batches'][0]['rawBatchNo'] == '901'
+    assert checks.create(dto, 'MARCIN')['id'] == rec['id']                 # retry → same record
+    assert query_one("SELECT COUNT(*) n FROM byproduct_pallet_checks")['n'] == 1
+    assert float(query_one("SELECT COALESCE(SUM(kg),0) kg FROM byproduct_lots")['kg']) == stock_before
+    assert query_one("SELECT COUNT(*) n FROM stock_movements")['n'] == moves_before
+    assert [c['id'] for c in checks.recent(7)] == ['pallet-check-1']
+    with pytest.raises(HTTPException) as err:
+        checks.create(ByproductPalletCheck(requestId='pallet-check-2', kind='backs', rawBatchIds=['nope'], kgNet=10, weighMode='manual', reason='Waga zajęta'))
+    assert err.value.status_code == 404
