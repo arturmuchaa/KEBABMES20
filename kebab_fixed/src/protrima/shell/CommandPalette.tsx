@@ -41,8 +41,8 @@ function Podswietl({ t, words }: { t: string; words: string[] }) {
 
 const ZAMKNIETYCH = 3
 
-export function CommandPalette({ orders, stock, onClose, openOrder, openModule, newOrder, newReception, gotoStock, gotoOrders, toggleTheme, toggleNav, showShortcuts }: {
-  orders: Order[]; stock: StockPos[]; onClose: () => void; openOrder: (id: string) => void; openModule: (k: string) => void
+export function CommandPalette({ orders, stock, modulDostepny = () => true, onClose, openOrder, openModule, newOrder, newReception, gotoStock, gotoOrders, toggleTheme, toggleNav, showShortcuts }: {
+  orders: Order[]; stock: StockPos[]; modulDostepny?: (key: string) => boolean; onClose: () => void; openOrder: (id: string) => void; openModule: (k: string) => void
   newOrder: () => void; newReception: () => void; gotoStock: (id: string) => void; gotoOrders: (cmd: Omit<OrdersCmd, 'n'>) => void
   toggleTheme: () => void; toggleNav: () => void; showShortcuts: () => void
 }) {
@@ -77,11 +77,11 @@ export function CommandPalette({ orders, stock, onClose, openOrder, openModule, 
       // Po partii i recepturze — nie po kliencie (to byłby drugi raz te same zamówienia).
       text: norm(`${p.batch} ${p.recipe} ${p.product}`),
     })),
-    ...ALL_MODULES.map((md): Cmd => {
+    ...ALL_MODULES.filter(md => modulDostepny(md.key)).map((md): Cmd => {
       const I = md.icon
       return { id: `m-${md.key}`, group: 'Moduły', icon: <I size={16} />, label: md.label, run: () => openModule(md.key), text: norm(md.label) }
     }),
-  ], [orders, stock, openOrder, openModule, newOrder, newReception, gotoStock, toggleTheme, toggleNav, showShortcuts])
+  ], [orders, stock, modulDostepny, openOrder, openModule, newOrder, newReception, gotoStock, toggleTheme, toggleNav, showShortcuts])
 
   const words = useMemo(() => norm(q.trim()).split(/\s+/).filter(Boolean), [q])
   const results = useMemo<Cmd[]>(() => {

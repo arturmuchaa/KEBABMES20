@@ -5,7 +5,7 @@ import {
   Clock, Car, UserCog, SlidersHorizontal, Palette, Handshake,
 } from 'lucide-react'
 
-export interface ModuleDef { key: string; label: string; icon: LucideIcon; info?: string[] }
+export interface ModuleDef { key: string; label: string; icon: LucideIcon; info?: string[]; /** Tylko konto administratora (stary MES: Użytkownicy, Audyt). */ admin?: boolean }
 export interface AreaDef { key: string; label: string; icon: LucideIcon; modules: ModuleDef[] }
 
 /**
@@ -56,7 +56,7 @@ export const AREAS: AreaDef[] = [
     { key: 'pracownicy', label: 'Pracownicy', icon: Users, info: ['Kartoteki pracowników'] },
     { key: 'czas-pracy', label: 'Czas pracy i rozliczenia', icon: Clock, info: ['Godziny pracy, rozliczenia, paski'] },
     { key: 'pojazdy', label: 'Pojazdy i przewoźnicy', icon: Car, info: ['Samochody, przewoźnicy, kierowcy'] },
-    { key: 'uzytkownicy', label: 'Użytkownicy i uprawnienia', icon: UserCog, info: ['Konta, role, dziennik audytu'] },
+    { key: 'uzytkownicy', label: 'Użytkownicy i uprawnienia', icon: UserCog, info: ['Konta, role, dziennik audytu'], admin: true },
     { key: 'ustawienia', label: 'Ustawienia zakładu', icon: SlidersHorizontal, info: ['Dane firmy, numeracje, drukarki'] },
   ] },
 ]
@@ -66,6 +66,11 @@ export const PINNED = ['zamowienia', 'plan-produkcji', 'magazyn-wg', 'wysylki']
 /** Moduły z własnym ekranem w PROTRIMA. Pozostałe działają na razie w starym MES (zaślepka z drogowskazem). */
 export const W_PROTRIMA = new Set(['pulpit', 'zamowienia', 'przyjecia', 'magazyn-wg'])
 export const wProtrima = (key: string) => W_PROTRIMA.has(key)
+
+/** Czy konto o tej roli widzi i otwiera moduł. Serwer i tak pilnuje uprawnień — tu chodzi o to,
+ *  żeby biuro nie dostawało ekranów, które odmówią mu dostępu. */
+export const dostepnyDla = (key: string, rola: 'admin' | 'office' | null | undefined) =>
+  !ALL_MODULES.find(m => m.key === key)?.admin || rola === 'admin'
 
 /** Gdzie część pracy danego modułu da się już zrobić w PROTRIMA — drogowskaz na zaślepce. */
 export const JUZ_W_PROTRIMA: Record<string, Array<{ co: string; gdzie: string; idz: { modul: string; widok?: string } }>> = {

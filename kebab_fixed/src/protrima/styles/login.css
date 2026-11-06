@@ -41,3 +41,7 @@
 .login-haslo { position: relative; display: flex; }
 .login-haslo .field { flex: 1; padding-right: 44px; }
 .login-haslo .btn.icon { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); }
+
+/* Zmiana hasła w oknie (menu konta) — pola jedno pod drugim, jak na ekranie logowania. */
+.haslo-form { display: flex; flex-direction: column; gap: 8px; min-width: min(360px, 80vw); }
+.haslo-form .btn.primary { margin-top: 6px; align-self: flex-start; }

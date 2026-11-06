@@ -16,7 +16,7 @@ export interface MenuDef { key: string; label: string; access: string; items: Me
 
 // ─── Pas 1: pasek tytułu — znak, szukaj, konto, przyciski okna ──────────────
 // Menu stoi w osobnym pasku POD znakiem (właściciel 30.10.2026: „tak jak było”).
-export function TitleBar({ onPalette, onLogout }: { onPalette: () => void; onLogout: () => void }) {
+export function TitleBar({ onPalette, onLogout, onZmienHaslo }: { onPalette: () => void; onLogout: () => void; onZmienHaslo?: () => void }) {
   const { user } = useAuth()
   const [menu, setMenu] = useState<Element | null>(null)
   const name = user?.name ?? '—'
@@ -38,7 +38,7 @@ export function TitleBar({ onPalette, onLogout }: { onPalette: () => void; onLog
         <button className="tb-btn" data-tip={`Zalogowano: ${name}`} aria-label="Konto użytkownika" aria-haspopup="menu" onClick={e => { const t = e.currentTarget; setMenu(m => m === t ? null : t) }}>
           <span className="avatar">{initials || '?'}</span><span className="who hide-m"><b>{name}</b><small>{user?.role === 'admin' ? 'Administrator' : 'Biuro'}</small></span><ChevronDown size={14} />
         </button>
-        {menu && <Menu anchor={menu} align="right" onClose={() => setMenu(null)} items={[{ header: name }, { label: 'Wyloguj', onSelect: onLogout }]} />}
+        {menu && <Menu anchor={menu} align="right" onClose={() => setMenu(null)} items={[{ header: name }, ...(onZmienHaslo ? [{ label: 'Zmień hasło…', onSelect: onZmienHaslo }] : []), { sep: true }, { label: 'Wyloguj', onSelect: onLogout }]} />}
         {jestTauri() && <div className="win" aria-label="Przyciski okna">
           <button onClick={() => okno('minimize')} aria-label="Minimalizuj" data-tip="Minimalizuj"><Minus size={16} /></button>
           <button onClick={() => okno('toggleMaximize')} aria-label="Maksymalizuj" data-tip="Maksymalizuj"><Square size={13} /></button>

@@ -3710,6 +3710,12 @@ export const operatorsApi = {
     get<{ id: string; name: string }[]>(`/auth/operators?department=${encodeURIComponent(department)}`),
 }
 
+// ─── Konto biura: zmiana własnego hasła (też wymuszona flagą must_change_password) ───
+export const kontoApi = {
+  zmienHaslo: (oldPassword: string, newPassword: string) =>
+    post<{ ok: boolean }>('/auth/change-password', { old_password: oldPassword, new_password: newPassword }),
+}
+
 // ─── Materiały dnia produkcyjnego (folia stretch) ─────────────
 export interface DayMaterialMove { kind: 'pobranie' | 'zwrot'; qty: number; at: string; by: string }
 export interface DayMaterial {

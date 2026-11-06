@@ -4,8 +4,9 @@ import { AppCtx, type AppApi, type Cmd, type MenuItem, type OrdersCmd, type Pane
 import { TitleBar, MenuBar, MainToolbar, TabStrip, Nav, StatusBar, type MenuDef, type ToolItem, type WTab } from './shell/Chrome'
 import { CommandPalette } from './shell/CommandPalette'
 import { useAktualizacja } from './shell/aktualizacja'
+import { ZmianaHasla } from './shell/ZmianaHasla'
 import { useStaleFunkcje } from './shell/staleFunkcje'
-import { moduleDef } from './shell/modules'
+import { moduleDef, dostepnyDla } from './shell/modules'
 import { useOrders } from './data/store'
 import { computeMetrics } from './data/model'
 import { Dashboard } from './modules/dashboard/Dashboard'
@@ -60,7 +61,8 @@ export function App() {
 function Shell() {
   const appRef = useRef<HTMLDivElement>(null)
   const { orders, stock, refresh } = useOrders()
-  const { logout } = useAuth()
+  const { logout, user } = useAuth()
+  const rola = user?.role
   const [vp, setVp] = useState(measure)
   useEffect(() => {
     const on = () => setVp(measure())
@@ -150,9 +152,11 @@ function Shell() {
   }, [])
   const openModule = useCallback((key: string) => {
     if (key === 'pulpit') { setActive('pulpit'); return }
+    // Moduły administratora ukryte w menu i palecie; skrót z innego miejsca też ich nie otworzy.
+    if (!dostepnyDla(key, rola)) return
     const m = moduleDef(key)
     openTab({ id: key, kind: 'module', key, title: m?.label ?? key, icon: key === 'system' ? Palette : m?.icon })
-  }, [openTab])
+  }, [openTab, rola])
   const openOrder = useCallback((id: string) => {
     const o = orders.find(x => x.id === id)
     if (!o) return
@@ -239,6 +243,7 @@ function Shell() {
   // W trakcie pracy nowa wersja tylko sygnalizowana — instalacja na żądanie (restart programu).
   const akt = useAktualizacja()
   const [aktOkno, setAktOkno] = useState(false)
+  const [hasloOkno, setHasloOkno] = useState(false)
   const demo = useCallback((title: string, detail = W_STARYM_MES) => toast({ kind: 'info', title, detail }), [toast])
 
   const modCmds = cmdMap[active] ?? []
@@ -355,7 +360,7 @@ function Shell() {
       { sep: true }, { header: 'To stanowisko' },
       { label: 'Drukarka etykiet…', icon: <Printer size={15} />, onSelect: () => setDrukarka(true) },
       { sep: true }, { header: 'Administracja' },
-      goMod('pracownicy', 'Pracownicy', Users), goMod('czas-pracy', 'Czas pracy i rozliczenia', Clock), goMod('pojazdy', 'Pojazdy i przewoźnicy', Car), goMod('uzytkownicy', 'Użytkownicy i uprawnienia', UserCog), goMod('ustawienia', 'Ustawienia zakładu', SlidersHorizontal),
+      goMod('pracownicy', 'Pracownicy', Users), goMod('czas-pracy', 'Czas pracy i rozliczenia', Clock), goMod('pojazdy', 'Pojazdy i przewoźnicy', Car), ...(dostepnyDla('uzytkownicy', rola) ? [goMod('uzytkownicy', 'Użytkownicy i uprawnienia', UserCog)] : []), goMod('ustawienia', 'Ustawienia zakładu', SlidersHorizontal),
     ] },
     { key: 'okno', label: 'Okno', access: 'o', items: [
       ...tabs.map((t, i) => ({ label: t.title, checked: t.id === active, kbd: i < 9 ? `Ctrl+${i + 1}` : undefined, onSelect: () => setActive(t.id) } as MenuItem)),
@@ -433,7 +438,7 @@ function Shell() {
 
   const app = (
     <div ref={appRef} className="app" style={vp.scaled ? { transform: `scale(${vp.scale})`, width: vp.lw, height: vp.lh } : undefined}>
-      <TitleBar onPalette={() => setPalette(true)} onLogout={() => { logout() }} />
+      <TitleBar onPalette={() => setPalette(true)} onLogout={() => { logout() }} onZmienHaslo={() => setHasloOkno(true)} />
       <MenuBar menus={menus} />
       <MainToolbar items={toolItems} />
       <Nav current={currentKey} onOpen={openModule} badges={badges} collapsed={navCollapsed} onToggle={toggleNav} />
@@ -449,7 +454,7 @@ function Shell() {
         nowaWersja={akt.wersja} onNowaWersja={() => setAktOkno(true)} />
       <TooltipLayer />
       <Toasts items={toasts} dismiss={id => setToasts(ts => ts.filter(t => t.id !== id))} />
-      {palette && <CommandPalette orders={orders} stock={stock} onClose={() => setPalette(false)} openOrder={openOrder} openModule={openModule}
+      {palette && <CommandPalette orders={orders} stock={stock} modulDostepny={k => dostepnyDla(k, rola)} onClose={() => setPalette(false)} openOrder={openOrder} openModule={openModule}
         newOrder={newOrder} newReception={newReception} gotoStock={gotoStock} gotoOrders={gotoOrders} toggleTheme={toggleTheme} toggleNav={toggleNav} showShortcuts={() => setShortcuts(true)} />}
       {cmrId && <CmrDialog orderId={cmrId} orderNo={orders.find(o => o.id === cmrId)?.no ?? ''} onClose={() => setCmrId(null)} />}
       {kompIds && <ListaKompletacjiDialog orderIds={kompIds} onClose={() => setKompIds(null)} />}
@@ -457,6 +462,9 @@ function Shell() {
       {drukarka && <DrukarkaDialog onClose={() => setDrukarka(false)} />}
       {drukId && <ZamowienieDrukDialog orderId={drukId} onClose={() => setDrukId(null)} />}
       {shortcuts && <ShortcutsDialog onClose={() => setShortcuts(false)} />}
+      {hasloOkno && <Dialog title="Zmień hasło" onClose={() => setHasloOkno(false)}>
+        <ZmianaHasla onDone={() => { setHasloOkno(false); toast({ kind: 'ok', title: 'Hasło zmienione', detail: 'Przy następnym logowaniu użyj nowego hasła.' }) }} />
+      </Dialog>}
       {aktOkno && akt.wersja && <Dialog title={`Nowa wersja PROTRIMA ${akt.wersja}`} onClose={() => setAktOkno(false)}
         footer={<><button className="btn" onClick={() => setAktOkno(false)}>Później</button>
           <button className="btn primary" disabled={akt.instaluje} onClick={() => void akt.instaluj()}>{akt.instaluje ? 'Instaluję…' : 'Zainstaluj teraz'}</button></>}>

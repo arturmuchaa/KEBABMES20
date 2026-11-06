@@ -6,6 +6,7 @@ import { Logo } from './brand/Logo'
 import { jestTauri } from './okno'
 import { PROBA } from './proba'
 import { Logowanie } from './shell/Logowanie'
+import { ZmianaHasla } from './shell/ZmianaHasla'
 
 /**
  * Korzeń PROTRIMA: strażnik buildu → logowanie → aplikacja.
@@ -44,6 +45,8 @@ function Bramka() {
   if (loading) return <div className="login-wrap"><div className="login-card"><Logo height={30} /><p className="muted">{PROBA ? 'Łączenie z serwerem próby…' : 'Łączenie z serwerem…'}</p></div></div>
   if (!user) return <Logowanie />
   if (user.kind !== 'office') return <Logowanie blad="To konto operatora hali. PROTRIMA jest dla biura — zaloguj się kontem biurowym." />
+  // Nowe konto albo reset hasła przez administratora — najpierw własne hasło (stary MES: /zmiana-hasla).
+  if (user.must_change_password) return <ZmianaHasla wymuszona />
   return <OrdersProvider><App /></OrdersProvider>
 }
 
