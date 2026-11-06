@@ -1671,7 +1671,14 @@ def update_deboning_take(entry_id: str, dto, by_subject: str = "") -> Dict:
             ts.require_service_code(getattr(dto, "service_code", None))
         if entry.get("raw_batch_id") != batch.get("id"):
             raise HTTPException(409, "Wpis zmienił partię w trakcie — spróbuj ponownie")
-        if (entry.get("status") or "complete") != "pending":
+        # Rozliczone pobranie pracownika (mięso → grzbiety → kości): pomyłka w ilości
+        # pobrania wychodzi często dopiero na bilansie — poprawka kodem serwisowym,
+        # bez usuwania zważonych frakcji (hala 2026-11-06: 300 kg zgłoszone, pobrane 315).
+        settled = entry.get("settlement_stage") == "done" and entry.get("status") == "complete"
+        if settled and not settling:
+            from app.services import take_settlement_service as ts
+            ts.require_service_code(getattr(dto, "service_code", None))
+        if (entry.get("status") or "complete") != "pending" and not settled:
             raise HTTPException(409, "Edycja możliwa tylko dla pobrania czekającego na zważenie")
 
         old_kg = float(entry.get("kg_quarter") or 0)
@@ -1691,11 +1698,25 @@ def update_deboning_take(entry_id: str, dto, by_subject: str = "") -> Dict:
                 f"{round(kg_available, 2)} kg",
             )
 
-        updated = cx_execute_returning(
-            conn,
-            "UPDATE deboning_entries SET kg_quarter=%s, kg_remainder=%s WHERE id=%s RETURNING *",
-            (new_kg, new_kg, entry_id),
-        )
+        if settled:
+            meat = float(entry.get("kg_meat") or 0)
+            updated = cx_execute_returning(
+                conn,
+                "UPDATE deboning_entries SET kg_quarter=%s, kg_remainder=%s, yield_pct=%s WHERE id=%s RETURNING *",
+                (new_kg, max(0.0, new_kg - meat), round(meat / new_kg * 100, 2), entry_id),
+            )
+            # Raport ubocznych liczy % od sumy ćwiartek rozliczonych pobrań partii.
+            cx_execute(conn, """UPDATE batch_byproducts SET
+                quarter_kg=COALESCE((SELECT SUM(kg_quarter) FROM deboning_entries WHERE raw_batch_id=%s AND status='complete'),0),
+                backs_pct=ROUND(backs_kg / NULLIF((SELECT SUM(kg_quarter) FROM deboning_entries WHERE raw_batch_id=%s AND status='complete'),0)*100,2),
+                bones_pct=ROUND(bones_kg / NULLIF((SELECT SUM(kg_quarter) FROM deboning_entries WHERE raw_batch_id=%s AND status='complete'),0)*100,2)
+                WHERE raw_batch_id=%s""", (batch["id"], batch["id"], batch["id"], batch["id"]))
+        else:
+            updated = cx_execute_returning(
+                conn,
+                "UPDATE deboning_entries SET kg_quarter=%s, kg_remainder=%s WHERE id=%s RETURNING *",
+                (new_kg, new_kg, entry_id),
+            )
         after = cx_execute_returning(
             conn,
             "UPDATE raw_batches SET kg_available = GREATEST(0, COALESCE(kg_available,0) - %s) "
@@ -1715,12 +1736,20 @@ def update_deboning_take(entry_id: str, dto, by_subject: str = "") -> Dict:
                 movement_type="OUT", source_type="deboning", source_id=entry_id,
             )
 
-        if settling:
+        if settling or settled:
+            changes: Dict = {"kgQuarter": {"przed": old_kg, "po": new_kg}}
+            if settled:
+                from app.services import take_settlement_service as ts
+                total = float(entry.get("kg_meat") or 0) + float(entry.get("kg_backs") or 0) + float(entry.get("kg_bones") or 0)
+                before, after_bal = ts.mass_balance(old_kg, total, 0, 0), ts.mass_balance(new_kg, total, 0, 0)
+                changes["bilans"] = {"sumaKg": total, "przedPct": round(before["balancePct"], 2), "poPct": round(after_bal["balancePct"], 2),
+                                     "wTolerancjiPo": after_bal["withinTolerance"]}
             cx_execute(
                 conn,
                 "INSERT INTO deboning_entry_corrections (id, entry_id, by_subject, reason, changes) VALUES (%s,%s,%s,%s,%s)",
-                (cuid(), entry_id, by_subject or "kiosk", "Zmiana ilości pobrania kodem serwisowym",
-                 json.dumps({"kgQuarter": {"przed": old_kg, "po": new_kg}}, ensure_ascii=False)),
+                (cuid(), entry_id, by_subject or "kiosk",
+                 "Zmiana ilości pobrania kodem serwisowym" + (" (po rozliczeniu)" if settled else ""),
+                 json.dumps(changes, ensure_ascii=False)),
             )
 
     logger.info(

@@ -330,3 +330,29 @@ def test_take_amount_fixed_with_service_code_after_settlement_started(db, monkey
     trace = query_one('SELECT by_subject, changes FROM deboning_entry_corrections WHERE entry_id=%s', (entry,))
     assert trace['by_subject'] == 'MARCIN' and trace['changes']['kgQuarter'] == {'przed': 300.0, 'po': 250.0}
     _ledger_ok()
+
+
+def test_settled_take_amount_fixed_with_service_code_keeps_the_weighings(db, monkeypatch):
+    """ANATOLII 2026-11-06: declared 300 kg, settled 318 kg with an exception, really took 315 kg."""
+    from app.models.deboning import DeboningTakeUpdate
+    monkeypatch.setenv('KIOSK_SERVICE_CODE', '4321')
+    seed(400); entry = take(kg=300); svc.start(entry)
+    weigh(entry, 'meat', 205); advance(entry, 'meat'); weigh(entry, 'backs', 60); advance(entry, 'backs')
+    weigh(entry, 'bones', 53); advance(entry, 'bones')
+    svc.finish(entry, 'operator', exception_code='4321', exception_reason='Inne — wyjaśnię w biurze')
+    with pytest.raises(HTTPException) as err: deb.update_deboning_take(entry, DeboningTakeUpdate(kgTaken=315))
+    assert err.value.status_code == 400
+    with pytest.raises(HTTPException) as err: deb.update_deboning_take(entry, DeboningTakeUpdate(kgTaken=200, serviceCode='4321'))
+    assert 'zważono już' in err.value.detail
+    deb.update_deboning_take(entry, DeboningTakeUpdate(kgTaken=315, serviceCode='4321'), 'MARCIN')
+    row = query_one('SELECT kg_quarter, kg_meat, kg_backs, kg_bones, kg_remainder, yield_pct, status FROM deboning_entries WHERE id=%s', (entry,))
+    assert float(row['kg_quarter']) == 315 and float(row['kg_meat']) == 205 and float(row['kg_backs']) == 60 and row['status'] == 'complete'
+    assert float(row['kg_remainder']) == 110 and float(row['yield_pct']) == 65.08
+    assert float(query_one("SELECT kg_available FROM raw_batches WHERE id='settle-batch'")['kg_available']) == 85
+    raw_moves = float(query_one("SELECT SUM(qty) AS kg FROM stock_movements WHERE product_type='raw'")['kg'])
+    assert raw_moves == -315
+    assert float(query_one("SELECT quarter_kg FROM batch_byproducts WHERE raw_batch_id='settle-batch'")['quarter_kg']) == 315
+    trace = query_one("SELECT by_subject, changes FROM deboning_entry_corrections WHERE entry_id=%s AND reason LIKE 'Zmiana ilości%%'", (entry,))
+    assert trace['by_subject'] == 'MARCIN' and trace['changes']['kgQuarter'] == {'przed': 300.0, 'po': 315.0}
+    assert trace['changes']['bilans']['sumaKg'] == 318 and trace['changes']['bilans']['wTolerancjiPo'] is True
+    assert float(query_one("SELECT kg_available FROM meat_stock WHERE lot_no='901'")['kg_available']) == 205

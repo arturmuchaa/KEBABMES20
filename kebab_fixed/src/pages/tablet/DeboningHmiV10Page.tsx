@@ -2405,7 +2405,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
             <div>
               <div className="font-extrabold text-xl leading-tight">Pobranie — {takeEdit.entry.workerName}</div>
               <div className="text-sm font-semibold mt-0.5" style={{ color: 'var(--mut)' }}>
-                Partia {takeEdit.entry.rawBatchNo} · {takeEdit.entry.settlementStage ? 'rozliczenie w toku' : 'czeka na zważenie mięsa'} · zmiana kodem serwisowym
+                Partia {takeEdit.entry.rawBatchNo} · {takeEdit.entry.settlementStage === 'done' ? 'rozliczone — ważenia zostają' : takeEdit.entry.settlementStage ? 'rozliczenie w toku' : 'czeka na zważenie mięsa'} · zmiana kodem serwisowym
               </div>
             </div>
             <div className="flex items-baseline gap-2 justify-center py-1">
@@ -2541,7 +2541,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                     <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>ćw</span>{fmtKg(e.kgTaken, 1)}</span>
                     <span className="hmi-v10-mono text-sm text-right"><span className="text-[9px] uppercase mr-1" style={{ color: 'var(--mut)' }}>mię</span>{fmtKg(e.kgMeat, 1)}</span>
                     <span className="hmi-v10-mono text-sm font-bold text-right" style={{ color: yieldInk(e.yieldPct) }}>{fmtPct(e.yieldPct, 1)}</span>
-                    {e.settlementStage ? <span className="text-[10px] font-bold text-center leading-tight" style={{ color: 'var(--mut)' }}>rozliczone<br />— usuń i zważ</span>
+                    {e.settlementStage ? <button type="button" onClick={() => { setTakeEdit({ entry: e, value: String(e.kgTaken) }); setWorkerDetail(null); setEditEntryId(null) }}
+                        className="h-9 text-xs font-bold" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--accent)' }}>Pobranie</button>
                       : <button type="button" onClick={() => startEditEntry(e)} className="h-9 text-xs font-bold" style={{ borderRadius: 8, border: '1px solid var(--line)', color: 'var(--accent)' }}>Edytuj</button>}
                     {/* Usunięcie działa na KAŻDYM wpisie otwartej zmiany, nie
                         tylko w oknie „Cofnij" — operator prostuje pomyłkę
