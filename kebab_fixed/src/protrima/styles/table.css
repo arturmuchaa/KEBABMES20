@@ -34,6 +34,8 @@
 /* Identyfikator w tabeli (numer zamówienia, data, rejestracja): do lewej jak nagłówek, cyfry równe, ≥ 13,5 px. */
 .tbl td.tnum { font-variant-numeric: tabular-nums; text-align: left; font-size: max(var(--fs-md), var(--fs-id)); }
 .tbl td.code, .tbl td .code.id { font-size: var(--fs-id); letter-spacing: 0; color: var(--ink-1); }
+/* Numer, po którym się szuka (partia w Wyrobie gotowym) — jedyny wyróżniony element wiersza. */
+.tbl td.id-no { font-weight: 500; }
 .tbl tfoot td { position: sticky; bottom: 0; background: var(--surface-alt); border-top: 1px solid var(--line); border-bottom: 0; font-weight: 600; z-index: 1; }
 
 /* pole wyboru */

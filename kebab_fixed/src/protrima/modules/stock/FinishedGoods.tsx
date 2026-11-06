@@ -10,6 +10,7 @@ import { PoprawWyrobDialog, blokadaPoprawki } from './PoprawWyrob'
 import { useDock } from '../../shell/useDock'
 import { StanDlaKlientaDialog, klientPozycji, WOLNE } from './StanDlaKlienta'
 import { SzkieletWierszy } from '../../ui/Szkielet'
+import { klientPrzydzialu, kolumnyZWartoscia } from './wiersz'
 import { Pusto } from '../../ui/Pusto'
 import { useApi } from '@/hooks/useApi'
 import { stockCartonsApi, type StockCarton } from '@/lib/api'
@@ -28,7 +29,7 @@ type SortCol = 'product' | 'batch' | 'prod' | 'bb' | 'qty' | 'kg'
 
 const SHORT_DAYS = 14
 const TABS: Array<{ key: Tab; label: string }> = [
-  { key: 'details', label: 'Szczegóły' }, { key: 'alloc', label: 'Zamówienia' }, { key: 'cartons', label: 'Lokalizacja' },
+  { key: 'details', label: 'Szczegóły' }, { key: 'alloc', label: 'Kto czeka' }, { key: 'cartons', label: 'Lokalizacja' },
   { key: 'moves', label: 'Ruchy magazynowe' }, { key: 'trace', label: 'Śledzenie partii' },
 ]
 
@@ -94,7 +95,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const VIEWS: Array<{ key: View; label: string; tip: string; test: (r: Row) => boolean }> = [
     { key: 'all', label: 'Wszystko', tip: 'Cały wyrób gotowy na stanie', test: () => true },
     { key: 'free', label: 'Wolne', tip: 'Wiersz magazynu bez numeru zamówienia', test: r => !r.p.orderNo && r.p.status !== 'blocked' },
-    { key: 'allocated', label: 'Ze stemplem', tip: 'Wiersz magazynu ze stemplem zamówienia z produkcji', test: r => !!r.p.orderNo },
+    { key: 'allocated', label: 'Przydzielone', tip: 'Przydzielone do zamówienia (stempel zamówienia z produkcji)', test: r => !!r.p.orderNo },
     { key: 'pallet', label: 'Na paletach', tip: 'Spakowane na palety wydania', test: r => r.p.status === 'pallet' },
     { key: 'blocked', label: 'Zablokowane', tip: 'Blokada jakościowa', test: r => r.p.status === 'blocked' },
     { key: 'short', label: 'Krótka data', tip: `Przydatność ≤ ${SHORT_DAYS} dni (API nie podaje jeszcze daty przydatności)`, test: r => { const d = daysLeft(r.p); return d !== null && d <= SHORT_DAYS } },
@@ -179,7 +180,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const tot = visible.reduce((a, r) => ({ qty: a.qty + r.p.qty, kg: a.kg + posKg(r.p), free: a.free + (!r.p.orderNo && r.p.status !== 'blocked' ? posKg(r.p) : 0), alloc: a.alloc + (r.p.orderNo ? posKg(r.p) : 0), cart: a.cart + r.p.cartons.length }), { qty: 0, kg: 0, free: 0, alloc: 0, cart: 0 })
   useEffect(() => {
     if (!active || widok !== 'wyrob') return
-    setCtx(<><span>Widoczne <b>{visible.length}</b> poz. · <b>{kg(tot.kg)}</b> · ze stemplem <b>{kg(tot.alloc)}</b> · bez stempla <b>{kg(tot.free)}</b></span>
+    setCtx(<><span>Widoczne <b>{visible.length}</b> poz. · <b>{kg(tot.kg)}</b> · przydzielone <b>{kg(tot.alloc)}</b> · wolne <b>{kg(tot.free)}</b></span>
       <span className="hint hide-m"><span className="kbd">↑</span><span className="kbd">↓</span> wybór <span className="kbd">Alt+1…5</span> zakładki</span></>)
   }, [active, visible.length, tot.kg, tot.alloc, tot.free, setCtx, widok])
   useEffect(() => {
@@ -219,7 +220,9 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
     stock.forEach(p => m.set(klientPozycji(p), (m.get(klientPozycji(p)) ?? 0) + 1))
     return [...m.entries()].sort((a, b) => a[0] === WOLNE ? 1 : b[0] === WOLNE ? -1 : a[0].localeCompare(b[0], 'pl'))
   }, [stock])
-  const COLS = 12
+  // Przydatność i Plan same „—” w całym widoku zabierały ~250 px — pokazujemy je, gdy jest choć jedna wartość.
+  const kol = useMemo(() => kolumnyZWartoscia(visible.map(r => r.p)), [visible])
+  const COLS = 10 + Number(kol.przydatnosc) + Number(kol.plan)
 
   const widoki = (
     <div className="seg" role="group" aria-label="Widoki magazynu">
@@ -300,8 +303,8 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
                 {thSort('product', 'Wyrób')}
                 {thSort('batch', 'Partia')}
                 {thSort('prod', 'Produkcja', 'hide-s')}
-                {thSort('bb', 'Przydatność')}
-                <th className="hide-m">Plan</th>
+                {kol.przydatnosc && thSort('bb', 'Przydatność')}
+                {kol.plan && <th className="hide-m">Plan</th>}
                 {thSort('qty', 'Ilość', 'num')}
                 {thSort('kg', 'Masa', 'num')}
                 <th className="num hide-m">Kartony</th>
@@ -324,19 +327,19 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
                       {g.label && <tr className="grp"><td colSpan={COLS}><span className="gwrap">
                         <button onClick={() => setCollapsed(s => { const n = new Set(s); n.has(g.key) ? n.delete(g.key) : n.add(g.key); return n })} aria-expanded={!isCol}>{isCol ? <ChevronRight size={15} /> : <ChevronDown size={15} />}{g.label}</button>
                         <span className="gmeta">{g.rows.length} {g.rows.length === 1 ? 'partia' : 'partie'} · {num(gq.qty)} szt. · {kg(gq.kg)}</span>
-                        {gq.free > 0 ? <span className="gmeta accent-ink">wolne {gq.free} szt.</span> : gq.blk ? null : <span className="gmeta">wszystko ze stemplem</span>}
+                        {gq.free > 0 ? <span className="gmeta accent-ink">wolne {gq.free} szt.</span> : gq.blk ? null : <span className="gmeta">wszystko przydzielone</span>}
                         {gq.blk > 0 && <span className="gmeta crit-ink">zablokowane {gq.blk} szt.</span>}
                       </span></td></tr>}
-                      {!isCol && g.rows.map((r, i) => <StockRow key={r.p.id} r={r} zebra={i % 2 === 1} sel={sel === r.p.id} checked={checked.has(r.p.id)}
+                      {!isCol && g.rows.map((r, i) => <StockRow key={r.p.id} r={r} kol={kol} wgWyrobu={groupBy === 'product'} zebra={i % 2 === 1} sel={sel === r.p.id} checked={checked.has(r.p.id)}
                         onClick={() => select(r.p.id)} onCheck={() => toggleCheck(r.p.id)} onOrder={() => r.order && app.gotoOrders({ select: r.order.id, tab: 'coverage', view: 'active' })} />)}
                     </React.Fragment>
                   )
                 })}
               </tbody>
               {visible.length > 0 && <tfoot><tr>
-                <td className="cb" /><td className="al" /><td colSpan={2}>Razem — {visible.length} poz.</td><td className="hide-s" /><td /><td className="hide-m" />
+                <td className="cb" /><td className="al" /><td colSpan={2}>Razem — {visible.length} poz.</td><td className="hide-s" />{kol.przydatnosc && <td />}{kol.plan && <td className="hide-m" />}
                 <td className="num">{num(tot.qty)} <span className="sub">szt.</span></td><td className="num">{kg(tot.kg)}</td><td className="num hide-m">{tot.cart}</td>
-                <td colSpan={2}><span className="muted" style={{ fontWeight: 500 }}>ze stemplem {kg(tot.alloc)} · bez stempla {kg(tot.free)}</span></td>
+                <td colSpan={2}><span className="muted" style={{ fontWeight: 500 }}>przydzielone {kg(tot.alloc)} · wolne {kg(tot.free)}</span></td>
               </tr></tfoot>}
             </table>
           </div>
@@ -391,7 +394,9 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
 /** Do kartonu magazynowego idzie wolny wyrób: bez numeru zamówienia, bez blokady, ze sztukami na stanie. */
 const wolnaDoKartonu = (p?: StockPos | null) => !!p && !p.orderNo && p.status !== 'blocked' && p.qty > 0
 
-const StockRow = React.memo(function StockRow({ r, zebra, sel, checked, onClick, onCheck, onOrder }: { r: Row; zebra: boolean; sel: boolean; checked: boolean; onClick: () => void; onCheck: () => void; onOrder: () => void }) {
+const StockRow = React.memo(function StockRow({ r, kol, wgWyrobu, zebra, sel, checked, onClick, onCheck, onOrder }: {
+  r: Row; kol: { przydatnosc: boolean; plan: boolean }; wgWyrobu: boolean; zebra: boolean; sel: boolean; checked: boolean; onClick: () => void; onCheck: () => void; onOrder: () => void
+}) {
   const { p, order } = r
   const dl = daysLeft(p)
   const short = dl !== null && dl <= SHORT_DAYS
@@ -401,18 +406,19 @@ const StockRow = React.memo(function StockRow({ r, zebra, sel, checked, onClick,
     <tr data-id={p.id} className={`row${zebra ? ' zebra' : ''}${sel ? ' sel' : ''}${checked ? ' checked' : ''}`} aria-selected={sel} onClick={onClick}>
       <td className="cb" onClick={e => e.stopPropagation()}><input type="checkbox" className="cbx" checked={checked} onChange={onCheck} aria-label={`Zaznacz ${p.batch}`} /></td>
       <td className="al">{level && <span className={`alert-ico ${level}`} data-tip={tip}><FlagIcon level={level} /></span>}</td>
-      <td className="ell" style={{ maxWidth: 260 }}><b>{p.recipe}</b> {p.kgPerUnit} kg<span className="sub hide-m">{p.product}</span></td>
-      <td className="code">{p.batch}</td>
+      {/* Grupa „według wyrobu” ma recepturę i gramaturę w nagłówku — w wierszu zostaje to, co je różni: rodzaj. */}
+      <td className="ell" style={{ maxWidth: 260 }}>{wgWyrobu ? <span className="muted">{p.product}</span> : <><b>{p.recipe}</b> {p.kgPerUnit} kg<span className="sub hide-m">{p.product}</span></>}</td>
+      <td className="code id-no">{p.batch}</td>
       <td className="num hide-s">{fmtDate(p.prodDate)}</td>
-      <td>{p.bestBefore ? <span className={`due${short ? ' over' : ''}`}><span className="rel num">{fmtDate(p.bestBefore)}</span><span className="abs">{dl} dni</span></span> : <span className="faint" data-tip="API wyrobu gotowego nie podaje daty przydatności">—</span>}</td>
-      <td className="hide-m ell code" style={{ maxWidth: 200 }}>{p.planNo ?? <span className="faint">—</span>}</td>
-      <td className="num"><b>{num(p.qty)}</b> <span className="sub">szt.</span></td>
-      <td className="num">{kg(posKg(p))}</td>
+      {kol.przydatnosc && <td>{p.bestBefore ? <span className={`due${short ? ' over' : ''}`}><span className="rel num">{fmtDate(p.bestBefore)}</span><span className="abs">{dl} dni</span></span> : <span className="faint" data-tip="Brak daty przydatności">—</span>}</td>}
+      {kol.plan && <td className="hide-m ell code" style={{ maxWidth: 200 }}>{p.planNo ?? <span className="faint">—</span>}</td>}
+      <td className="num">{num(p.qty)} <span className="sub">szt.</span></td>
+      <td className="num">{num(posKg(p))} <span className="sub">kg</span></td>
       <td className="num hide-m">{p.cartons.length}</td>
-      <td>{order ? <button className="accent-ink" style={{ fontWeight: 500 }} onClick={e => { e.stopPropagation(); onOrder() }} data-tip={`${order.no} · ${order.client.name}\nwyjazd ${relDay(order.delivery)}`}>{order.no}<span className="sub">{order.client.name.split(' ')[0]}</span></button>
-        : p.orderNo ? <span data-tip="Zamówienie zamknięte albo spoza listy">{p.orderNo}<span className="sub">{p.clientName}</span></span>
+      <td>{order ? <button className="accent-ink" onClick={e => { e.stopPropagation(); onOrder() }} data-tip={`${order.no} · ${order.client.name}\nwyjazd ${relDay(order.delivery)}`}>{order.no}{klientPrzydzialu(order.no, order.client.name) && <span className="sub">{klientPrzydzialu(order.no, order.client.name)}</span>}</button>
+        : p.orderNo ? <span data-tip={`Zamówienie zamknięte albo spoza listy${p.clientName ? ` · ${p.clientName}` : ''}`}>{p.orderNo}{klientPrzydzialu(p.orderNo, p.clientName) && <span className="sub">{klientPrzydzialu(p.orderNo, p.clientName)}</span>}</span>
         : p.status === 'blocked' ? <span className="faint">—</span> : <span className="muted">wolne</span>}</td>
-      <td><span className={`pst ${p.status === 'pallet' ? 'packed' : p.status === 'blocked' ? 'created' : 'cold'}`}>{p.status === 'blocked' && <Lock size={13} />}{STOCK_STATUS[p.status]}{p.palletNo ? ` ${p.palletNo}` : ''}</span></td>
+      <td><span className={`pst ${p.status === 'pallet' ? 'packed' : p.status === 'blocked' ? 'blok' : 'norm'}`}>{p.status === 'blocked' && <Lock size={13} />}{STOCK_STATUS[p.status]}{p.palletNo ? ` ${p.palletNo}` : ''}</span></td>
     </tr>
   )
 })
@@ -476,7 +482,7 @@ function StockDetail({ r, tab, onTab, maxed, onMax, onClose, candidates, onFix }
               <div className="box ov-card ov-notes"><h4>Przydział</h4>
                 {order && line ? <dl className="kv"><dt>Zamówienie</dt><dd className="strong">{order.no}</dd><dt>Klient</dt><dd>{order.client.name}</dd><dt>Pozycja</dt><dd>poz. {line.lp} · {line.qty} szt. zamówione</dd><dt>Wyjazd</dt><dd>{relDay(order.delivery)}</dd></dl>
                   : p.orderNo ? <dl className="kv"><dt>Zamówienie</dt><dd className="strong">{p.orderNo}</dd><dt>Klient</dt><dd>{p.clientName ?? '—'}</dd></dl>
-                  : <p className="muted">{p.status === 'blocked' ? 'Zablokowane — bez przydziału.' : candidates.length ? `Wolne. Pasuje do braków w ${candidates.length} ${candidates.length === 1 ? 'zamówieniu' : 'zamówieniach'} — zakładka Przydział.` : 'Wolne. Żadne otwarte zamówienie nie ma braku tego wyrobu.'}</p>}
+                  : <p className="muted">{p.status === 'blocked' ? 'Zablokowane — bez przydziału.' : candidates.length ? `Wolne. Pasuje do braków w ${candidates.length} ${candidates.length === 1 ? 'zamówieniu' : 'zamówieniach'} — zakładka Kto czeka.` : 'Wolne. Żadne otwarte zamówienie nie ma braku tego wyrobu.'}</p>}
               </div>
             </div>
           </>}

@@ -265,6 +265,9 @@ div.pstage { cursor: default; }
 .pst.created { color: var(--ink-3); }
 .pst.packing { color: var(--ink-1); }
 .pst.packed, .pst.cold { color: var(--ink-1); }
+/* Stan wyrobu gotowego: norma („Na stanie”) cicha, wyjątki mówią głośniej — blokada na czerwono z kłódką. */
+.pst.norm { color: var(--ink-3); font-weight: 400; }
+.pst.blok { color: var(--crit-ink); }
 .pst.loaded, .pst.shipped { color: var(--ok-ink); }
 
 .side { display: flex; flex-direction: column; gap: 12px; position: sticky; top: 0; }

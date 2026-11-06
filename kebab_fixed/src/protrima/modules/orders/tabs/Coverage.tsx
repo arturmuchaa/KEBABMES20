@@ -77,7 +77,7 @@ export function CoverageTab({ order }: { order: Order }) {
       </div>
 
       {suggestions.length > 0 && <>
-        <div className="sect-h"><h3>Wyrób bez zamówienia tego samego rodzaju</h3><span className="sub">bez stempla zamówienia na wierszu magazynu · najstarsza produkcja pierwsza</span></div>
+        <div className="sect-h"><h3>Wolny wyrób tego samego rodzaju</h3><span className="sub">nieprzydzielony do żadnego zamówienia · najstarsza produkcja pierwsza</span></div>
         <div className="box">
           <table className="tbl">
             <thead><tr><th>Wyrób w magazynie</th><th>Partia</th><th>Produkcja</th><th className="hide-m">Klient na wierszu</th><th className="num">Sztuk</th><th className="num">Brakuje w poz.</th></tr></thead>
