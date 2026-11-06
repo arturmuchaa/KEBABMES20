@@ -32,7 +32,7 @@ const dzienZIso = (iso: string) => new Date(`${iso}T00:00:00`)
  * Nowe zamówienie / edycja zamówienia — karta robocza. Zapis przez
  * clientOrdersApi.create/update (ten sam DTO co stary MES), potem odświeżenie
  * listy z serwera. Ręka nie schodzi z klawiatury: wybór z listy przenosi kursor
- * do następnego pola: ilość (szt.) → gramatura (kg); Enter w gramaturze — do ilości następnej pozycji,
+ * do następnego pola: ilość (szt.) → gramatura (kg); Enter albo Tab w gramaturze — do ilości następnej pozycji,
  * która ma już rodzaj, recepturę i tuleję z poprzedniej.
  * Ctrl+Enter = główne polecenie (jak „Przyjmij dostawę” w przyjęciu): nowe i szkic —
  * „Zapisz i potwierdź”, potwierdzone — „Zapisz zmiany”. Ctrl+S = „Zapisz szkic”.
@@ -103,12 +103,27 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
     el?.focus(); el?.select?.()
   }), [])
   const skocz = useCallback((i: number, pole: PoleWiersza) => fokus(`${tabId}-${pole}-${i}`), [tabId, fokus])
+  // Skok szt → kg → szt następnej pozycji od razu, gdy pole już jest (zwykle jest: wpis w kg przerysował wiersz).
+  // Przez klatkę opóźnienia szybko wpisana cyfra lądowała w starym polu (Chromium: „8 Enter 1,25 Enter 9” → kg „1,259”).
+  const skoczTeraz = (i: number, pole: PoleWiersza) => {
+    const el = document.getElementById(`${tabId}-${pole}-${i}`) as HTMLInputElement | null
+    if (el) { el.focus(); el.select?.() } else skocz(i, pole)
+  }
   // Enter w gramaturze (albo uwagach): brakuje czegoś — wracamy do tego pola; komplet — SZTUKI następnej pozycji
   // (rodzaj, receptura i tuleja przechodzą z poprzedniej — właściciel 5.11.2026: „po kg na szt, nie na recepturę ani uwagi”).
   const poEnter = (i: number) => {
     const brak = pierwszyBrak(wiersze[i])
     if (brak) skocz(i, brak)
-    else skocz(i + 1, 'q')
+    else skoczTeraz(i + 1, 'q')
+  }
+  // Tab w kg i w uwagach KOMPLETNEJ pozycji — od razu sztuki następnej (właściciel 6.11.2026: „po szt i kg Tab —
+  // od razu szt następnej pozycji”). W niekompletnej albo pustej pozycji Tab zostaje zwykły: skok do braku pod Tab
+  // dawał pętlę (Receptura → … → kg → Receptura) i „martwy” Tab w pustym kg — do braku prowadzi Enter.
+  // Tab w sztukach zwykły (następne pole to kg), Shift+Tab — zwykły powrót. Ctrl/Alt to skróty, nie nawigacja.
+  const dalejKlawisz = (i: number) => (e: React.KeyboardEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return
+    if (e.key === 'Enter') { e.preventDefault(); poEnter(i); return }
+    if (e.key === 'Tab' && !e.shiftKey && pierwszyBrak(wiersze[i]) === null) { e.preventDefault(); skoczTeraz(i + 1, 'q') }
   }
   const addLine = () => {
     if (nastepny) { skocz(f.lines.length, 'q'); return }
@@ -293,7 +308,7 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
           </div>
           {menuDni.anchor && <Menu anchor={menuDni.anchor} items={dniMenu} onClose={menuDni.close} />}
 
-          <div className="sect-h"><h3>Pozycje</h3><span className="sub"><span className="hide-m">Kilka liter i Enter — wybór i następne pole · </span>Enter po kg — sztuki następnej pozycji z tym samym rodzajem, recepturą i tuleją{podpowiedz && ` · ${podpowiedz}`}</span>
+          <div className="sect-h"><h3>Pozycje</h3><span className="sub"><span className="hide-m">Kilka liter i Enter — wybór i następne pole · </span>Enter albo Tab po kg — sztuki następnej pozycji z tym samym rodzajem, recepturą i tuleją{podpowiedz && ` · ${podpowiedz}`}</span>
             <div className="tools"><button className="btn sm" onClick={addLine} disabled={!!blokada}><Plus size={15} />Dodaj pozycję</button></div></div>
           <div className="box">
             <table className="tbl editor-tbl">
@@ -322,14 +337,14 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
                           onChange={v => setLine(i, { packagingId: v })} onDalej={() => skocz(i, 'q')} /></td>
                         <td className="num"><input id={id('q')} className={`field num w-num${errors[`q${i}`] ? ' invalid' : ''}`} inputMode="numeric" placeholder="0" value={l.qty} disabled={!!blokada} aria-label={`Ilość sztuk, pozycja ${i + 1}`}
                           onChange={e => setLine(i, { qty: e.target.value })}
-                          onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); skocz(i, 'k') } }} /> <span className="sub">szt.</span></td>
+                          onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); skoczTeraz(i, 'k') } }} /> <span className="sub">szt.</span></td>
                         <td className="num"><input id={id('k')} className={`field num w-num${errors[`k${i}`] ? ' invalid' : ''}`} inputMode="decimal" placeholder="0" value={l.kgPerUnit} disabled={!!blokada} aria-label={`Gramatura kg, pozycja ${i + 1}`}
                           onChange={e => setLine(i, { kgPerUnit: e.target.value })}
-                          onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); poEnter(i) } }} /> <span className="sub">kg</span></td>
+                          onKeyDown={dalejKlawisz(i)} /> <span className="sub">kg</span></td>
                         <td className="num">{num(l.qty) > 0 && num(l.kgPerUnit) > 0 ? kg(num(l.qty) * num(l.kgPerUnit)) : <span className="faint">—</span>}</td>
                         <td className="hide-m"><input id={id('u')} className="field" value={l.notes} disabled={!!blokada} aria-label={`Uwagi, pozycja ${i + 1}`}
                           onChange={e => setLine(i, { notes: e.target.value })}
-                          onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); poEnter(i) } }} /></td>
+                          onKeyDown={dalejKlawisz(i)} /></td>
                         <td>{!nowy && <button className="btn ghost icon sm" style={{ width: 28 }} disabled={!!blokada} onClick={() => (l.id ? setUsunIdx(i) : removeLine(i))} aria-label={`Usuń pozycję ${i + 1}`}><Trash2 size={15} /></button>}</td>
                       </tr>
                       {/* Kolumna Uwagi znika na laptopie (hide-m) — wiersz błędu musi mieć tyle samo kolumn, inaczej tabela dostaje pustą kolumnę z prawej. */}

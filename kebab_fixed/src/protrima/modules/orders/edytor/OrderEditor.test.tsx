@@ -96,6 +96,61 @@ describe('OrderEditor', () => {
       detail: '2 poz. · 140 szt. · 1\u00a0150 kg. Potwierdź je w panelu zamówienia.' })
   })
 
+  it('Tab w kg (i w uwagach) jak Enter — od razu sztuki następnej pozycji; Tab w sztukach i Shift+Tab bez zmian', async () => {
+    // Właściciel 6.11.2026: „po wpisaniu szt i kg po kliknięciu Tab przechodziło do następnej pozycji od razu do szt i kg”.
+    mount()
+    await wybierz('Rodzaj, pozycja 1', 'udo', /KEBAB UDO/)
+    await wybierz('Receptura, pozycja 1', 'bey', /BEYAZ/)
+    await wybierz('Tuleja, pozycja 1', 'met', /METAL 65CM/)
+    typ('Ilość sztuk, pozycja 1', '100')
+    // Tab w sztukach — zwykły (przeglądarka sama idzie do kg, następnego pola w wierszu).
+    expect(fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 'Tab' })).toBe(true)
+    typ('Gramatura kg, pozycja 1', '7,5')
+    // Tab w kg: nasz skok (domyślny Tab wyłączony — inaczej kursor poszedłby w Uwagi / Usuń / Rodzaj).
+    expect(fireEvent.keyDown(pole('Gramatura kg, pozycja 1'), { key: 'Tab' })).toBe(false)
+    // Od razu, bez czekania na klatkę — szybko wpisana cyfra po Tab nie może dopisać się do kg (weryfikacja w Chromium: „1,259”).
+    expect(document.activeElement).toBe(pole('Ilość sztuk, pozycja 2'))
+    typ('Ilość sztuk, pozycja 2', '40'); typ('Gramatura kg, pozycja 2', '10')
+    // Shift+Tab — zwykły powrót, bez skoku.
+    expect(fireEvent.keyDown(pole('Gramatura kg, pozycja 2'), { key: 'Tab', shiftKey: true })).toBe(true)
+    expect(fireEvent.keyDown(pole('Gramatura kg, pozycja 2'), { key: 'Tab' })).toBe(false)
+    await waitFor(() => expect(document.activeElement).toBe(pole('Ilość sztuk, pozycja 3')))
+    expect(pole('Receptura, pozycja 3').value).toBe('BEYAZ')
+    // Pusty wiersz „następna pozycja”: zwykły Tab — inaczej kursor krążyłby szt ↔ kg i nie dało się wyjść z tabeli.
+    expect(fireEvent.keyDown(pole('Gramatura kg, pozycja 3'), { key: 'Tab' })).toBe(true)
+    expect(fireEvent.keyDown(pole('Uwagi, pozycja 3'), { key: 'Tab' })).toBe(true)
+    // Uwagi: Tab też prowadzi do sztuk następnej pozycji.
+    expect(fireEvent.keyDown(pole('Uwagi, pozycja 1'), { key: 'Tab' })).toBe(false)
+    await waitFor(() => expect(document.activeElement).toBe(pole('Ilość sztuk, pozycja 2')))
+  })
+
+  it('Tab w niekompletnej albo pustej pozycji — zwykły (bez pętli i bez „martwego” Tab); Enter prowadzi do braku', async () => {
+    // Weryfikacja w Chromium: skok do braku pod Tab dawał pętlę (Receptura → … → kg → Receptura) i Tab bez ruchu w pustym kg.
+    mount()
+    await waitFor(() => expect(pole('Gramatura kg, pozycja 1')).toBeTruthy())
+    expect(fireEvent.keyDown(pole('Gramatura kg, pozycja 1'), { key: 'Tab' })).toBe(true)
+    await wybierz('Rodzaj, pozycja 1', 'udo', /KEBAB UDO/)
+    typ('Ilość sztuk, pozycja 1', '5')
+    expect(fireEvent.keyDown(pole('Gramatura kg, pozycja 1'), { key: 'Tab' })).toBe(true)
+    typ('Gramatura kg, pozycja 1', '20')
+    expect(fireEvent.keyDown(pole('Gramatura kg, pozycja 1'), { key: 'Tab' })).toBe(true)
+    expect(fireEvent.keyDown(pole('Uwagi, pozycja 1'), { key: 'Tab' })).toBe(true)
+    fireEvent.keyDown(pole('Gramatura kg, pozycja 1'), { key: 'Enter' })
+    await waitFor(() => expect(document.activeElement).toBe(pole('Receptura, pozycja 1')))
+  })
+
+  it('Enter po kg też przenosi od razu — szybko wpisana cyfra trafia do sztuk następnej pozycji, nie do kg', async () => {
+    mount()
+    await wybierz('Rodzaj, pozycja 1', 'udo', /KEBAB UDO/)
+    await wybierz('Receptura, pozycja 1', 'bey', /BEYAZ/)
+    typ('Ilość sztuk, pozycja 1', '8')
+    fireEvent.keyDown(pole('Ilość sztuk, pozycja 1'), { key: 'Enter' })
+    expect(document.activeElement).toBe(pole('Gramatura kg, pozycja 1'))
+    typ('Gramatura kg, pozycja 1', '1,25')
+    fireEvent.keyDown(pole('Gramatura kg, pozycja 1'), { key: 'Enter' })
+    expect(document.activeElement).toBe(pole('Ilość sztuk, pozycja 2'))
+  })
+
   it('Enter w gramaturze niekompletnej pozycji wraca do brakującego pola', async () => {
     mount()
     await wybierz('Rodzaj, pozycja 1', 'udo', /KEBAB UDO/)
