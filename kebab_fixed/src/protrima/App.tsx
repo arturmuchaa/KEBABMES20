@@ -57,7 +57,7 @@ export function App() {
 
 function Shell() {
   const appRef = useRef<HTMLDivElement>(null)
-  const { orders, refresh } = useOrders()
+  const { orders, stock, refresh } = useOrders()
   const { logout } = useAuth()
   const [vp, setVp] = useState(measure)
   useEffect(() => {
@@ -443,8 +443,8 @@ function Shell() {
       <StatusBar ctx={ctx[active]} density={density} onDensity={() => setDensityOverride(density === 'compact' ? 'comfortable' : 'compact')} />
       <TooltipLayer />
       <Toasts items={toasts} dismiss={id => setToasts(ts => ts.filter(t => t.id !== id))} />
-      {palette && <CommandPalette orders={orders} onClose={() => setPalette(false)} openOrder={openOrder} openModule={openModule}
-        newOrder={newOrder} toggleTheme={toggleTheme} toggleNav={toggleNav} showShortcuts={() => setShortcuts(true)} />}
+      {palette && <CommandPalette orders={orders} stock={stock} onClose={() => setPalette(false)} openOrder={openOrder} openModule={openModule}
+        newOrder={newOrder} newReception={newReception} gotoStock={gotoStock} gotoOrders={gotoOrders} toggleTheme={toggleTheme} toggleNav={toggleNav} showShortcuts={() => setShortcuts(true)} />}
       {cmrId && <CmrDialog orderId={cmrId} orderNo={orders.find(o => o.id === cmrId)?.no ?? ''} onClose={() => setCmrId(null)} />}
       {kompIds && <ListaKompletacjiDialog orderIds={kompIds} onClose={() => setKompIds(null)} />}
       {kartki && <KartkiPaletDialog orderId={kartki.orderId} palletNos={kartki.nos} onClose={() => setKartki(null)} />}

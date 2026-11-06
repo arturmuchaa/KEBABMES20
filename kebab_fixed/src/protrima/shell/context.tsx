@@ -4,7 +4,7 @@ import { X, CheckCircle2, Info, AlertTriangle, Check } from 'lucide-react'
 export type ViewKey = 'active' | 'urgent' | 'risk' | 'ready' | 'drafts' | 'closed'
 export type DetailTab = 'overview' | 'lines' | 'production' | 'coverage' | 'pallets' | 'shipping' | 'documents' | 'history'
 
-export interface OrdersCmd { n: number; view?: ViewKey; select?: string; tab?: DetailTab; bucket?: string }
+export interface OrdersCmd { n: number; view?: ViewKey; select?: string; tab?: DetailTab; bucket?: string; /** Tekst wyszukiwarki listy (np. z palety Ctrl+K). */ q?: string }
 
 export interface Toast { id: number; title: string; detail?: string; kind?: 'ok' | 'info' | 'warn' }
 

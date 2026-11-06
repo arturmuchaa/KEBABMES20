@@ -31,7 +31,7 @@ export function TitleBar({ onPalette, onLogout }: { onPalette: () => void; onLog
       </div>
       <div className="tb-center" data-tauri-drag-region>
         <button className="search-trigger" onClick={onPalette} aria-label="Szukaj lub wykonaj polecenie (Ctrl+K)">
-          <Search size={15} /><span>Szukaj zamówienia, klienta, wyrobu, partii, polecenia…</span><span className="kbd">Ctrl K</span>
+          <Search size={15} /><span>Szukaj zamówienia, klienta, partii wyrobu, polecenia…</span><span className="kbd">Ctrl K</span>
         </button>
       </div>
       <div className="tb-right">

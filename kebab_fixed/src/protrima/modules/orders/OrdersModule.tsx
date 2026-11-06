@@ -67,6 +67,7 @@ export function OrdersModule({ cmd, active, setCtx, setCmds }: { cmd: OrdersCmd;
     if (cmd.bucket) { setQ(''); setClients([]); setRecipes([]) }
     if (cmd.select) { setSel(cmd.select); setQ(''); setClients([]); setRecipes([]); setBucket(null) }
     if (cmd.tab) setTab(cmd.tab)
+    if (cmd.q) setQ(cmd.q)
   }, [cmd])
 
   const counts = useMemo(() => Object.fromEntries(VIEWS.map(v => [v.key, rows.filter(v.test).length])), [rows])

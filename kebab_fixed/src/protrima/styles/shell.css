@@ -251,10 +251,20 @@
 .palette .pin input { flex: 1; height: 48px; border: 0; background: transparent; font-size: 15px; outline: none; }
 .palette .res { max-height: 420px; overflow: auto; padding: 6px; }
 .palette .grp { padding: 8px 10px 4px; font-size: var(--fs-xs); color: var(--ink-3); font-weight: 600; }
-.palette .it { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: var(--r-sm); text-align: left; }
+/* Wynik jako siatka: ikona · numer i nazwa · (stan · termin · masa) — masy stoją w jednej kolumnie. */
+.palette { width: min(760px, calc(100vw - 32px)); }
+.palette .it { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: var(--r-sm); text-align: left; }
+.palette .it.wiersz { grid-template-columns: 16px minmax(0, 1fr) minmax(0, 190px) 78px 84px; }
 .palette .it[aria-selected="true"] { background: var(--accent-tint); }
-.palette .it .s { color: var(--ink-3); font-size: var(--fs-sm); margin-left: auto; white-space: nowrap; }
+.palette .it .g { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette .it .g b { font-weight: 600; }
+.palette .it .sb { color: var(--ink-2); }
+.palette .it .c { color: var(--ink-3); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.palette .it .c.num { text-align: right; }
+.palette .it.zamk .g b { font-weight: 500; color: var(--ink-2); }
+.palette .it .s { color: var(--ink-3); font-size: var(--fs-sm); white-space: nowrap; }
 .palette .it svg { color: var(--ink-3); flex: none; }
+.palette mark { background: none; color: var(--accent-ink); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
 .palette .foot { display: flex; gap: 14px; padding: 8px 14px; border-top: 1px solid var(--line-soft); font-size: var(--fs-xs); color: var(--ink-3); }
 
 /* ─── Okna dialogowe ──────────────────────────────────────────────────── */
