@@ -160,7 +160,9 @@ export const takeSettlementApi = {
   advance: (id: string, stage: SettlementKind, overrideYield = false) => post<TakeSettlement>(`${settlementPath(id)}/advance`, { stage, overrideYield }),
   reopen: (id: string, stage: SettlementKind) => post<TakeSettlement>(`${settlementPath(id)}/reopen`, { stage }),
   correct: (id: string, weighingId: string, dto: SettlementMeasurement) => post<TakeSettlement>(`${settlementPath(id)}/weighings/${encodeURIComponent(weighingId)}/correct`, dto),
-  finish: (id: string) => post<TakeSettlement>(`${settlementPath(id)}/finish`, {}),
+  /** Outside the tolerance: the manager's code + reason (checked by the server). */
+  finish: (id: string, exception?: { code: string; reason: string }) =>
+    post<TakeSettlement>(`${settlementPath(id)}/finish`, exception ? { exceptionCode: exception.code, exceptionReason: exception.reason } : {}),
 }
 
 /** Pobierz PDF endpointu dokumentów (HDI/WZ/CMR) Z SESJĄ. Zwykły <a href> /
@@ -872,6 +874,7 @@ export const deboningEntriesApi = {
   updateTake: (id: string, dto: any) => patch<any>(`/deboning/takes/${id}`, {
     ...toSnake(dto),
     kgTaken: dto.kgTaken,
+    ...(dto.serviceCode ? { serviceCode: dto.serviceCode } : {}),
   }),
   // completeTake — domknięcie pobrania mięsem
   completeTake: (id: string, dto: any) => post<any>(`/deboning/takes/${id}/complete`, {
@@ -912,8 +915,9 @@ export const deboningEntriesApi = {
   // hallDelete — usunięcie z rozpiski pracownika na HMI. Omija okno 15 minut,
   // ale nie zmianę zamkniętą/zatwierdzoną ani blokad fizycznych. Powodu nie
   // wymaga (ekran dotykowy), operator idzie do śladu jako `by_subject`.
-  hallDelete: (id: string, operator: string) =>
-    post<{ ok: boolean; id: string }>(`/deboning/entries/${id}/hall-delete`, { operator }),
+  // serviceCode: pobranie z rozliczeniem pracownika usuwa się z hali tylko kodem serwisowym.
+  hallDelete: (id: string, operator: string, serviceCode?: string) =>
+    post<{ ok: boolean; id: string }>(`/deboning/entries/${id}/hall-delete`, serviceCode ? { operator, serviceCode } : { operator }),
   corrections: (id: string) =>
     get<{ corrections: EntryCorrection[] }>(`/deboning/entries/${id}/corrections`)
       .then(r => r?.corrections ?? []),

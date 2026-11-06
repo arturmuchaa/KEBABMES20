@@ -13,7 +13,7 @@ from app.services import deboning_service as svc
 from app.services import batch_byproducts_service as byproducts_svc
 from app.services import settings_service
 from app.services import take_settlement_service as settlement
-from app.models.deboning_settlement import SettlementWeighing, SettlementAdvance, SettlementReopen
+from app.models.deboning_settlement import SettlementWeighing, SettlementAdvance, SettlementReopen, SettlementFinish
 
 router = APIRouter(tags=["deboning"])
 
@@ -294,8 +294,9 @@ def correct_settlement(entry_id: str, weighing_id: str, dto: SettlementWeighing,
 
 
 @router.post("/api/deboning/takes/{entry_id}/settlement/finish")
-def finish_settlement(entry_id: str, request: Request):
-    return settlement.finish(entry_id, _subject_of(request))
+def finish_settlement(entry_id: str, request: Request, dto: SettlementFinish = SettlementFinish()):
+    return settlement.finish(entry_id, _subject_of(request),
+                             exception_code=dto.exception_code, exception_reason=dto.exception_reason)
 
 
 @router.post("/api/deboning/takes/{entry_id}/weigh-part")
@@ -305,8 +306,10 @@ def weigh_part_deboning_take(entry_id: str, dto: DeboningTakeComplete):
 
 
 @router.patch("/api/deboning/takes/{entry_id}")
-def update_deboning_take(entry_id: str, dto: DeboningTakeUpdate):
-    return svc.update_deboning_take(entry_id, dto)
+def update_deboning_take(entry_id: str, dto: DeboningTakeUpdate, request: Request):
+    subject = getattr(request.state, "subject", None) or {}
+    by = str(subject.get("username") or subject.get("id") or "")
+    return svc.update_deboning_take(entry_id, dto, by)
 
 
 @router.patch("/api/deboning/entries/{entry_id}")
@@ -396,7 +399,10 @@ def hall_delete_deboning_entry(entry_id: str, body: dict, request: Request):
         (body or {}).get("operator")
         or subject.get("username") or subject.get("id") or ""
     )
-    return svc.delete_deboning_entry(entry_id, hall_correction=True, by_subject=by)
+    return svc.delete_deboning_entry(
+        entry_id, hall_correction=True, by_subject=by,
+        service_code=str((body or {}).get("serviceCode") or ""),
+    )
 
 
 @router.get("/api/deboning/entries/{entry_id}/corrections")

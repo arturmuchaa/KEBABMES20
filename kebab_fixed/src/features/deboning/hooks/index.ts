@@ -208,7 +208,7 @@ export function useDeboningEntries(sessionId: string | null) {
   }, [createTakeMutation, refetch])
 
   const updateTakeMutation = useMutation(
-    ({ id, kg }: { id: string; kg: number }) => deboningApi.updateTake(id, kg)
+    ({ id, kg, code }: { id: string; kg: number; code?: string }) => deboningApi.updateTake(id, kg, code)
   )
 
   // Edycja otwartego pobrania (kg ćwiartki) — tylko przy otwartej sesji.
@@ -216,11 +216,12 @@ export function useDeboningEntries(sessionId: string | null) {
     entryId: string,
     kgTaken: number,
     session: ProductionSession | null,
+    serviceCode?: string,
   ): Promise<string | null> => {
     if (session?.status !== 'open') return 'Edycja możliwa tylko przy otwartej sesji'
     if (kgTaken <= 0) return 'Ilość pobranej ćwiartki musi być > 0'
     try {
-      await updateTakeMutation.mutate({ id: entryId, kg: kgTaken })
+      await updateTakeMutation.mutate({ id: entryId, kg: kgTaken, code: serviceCode })
       refetch()
       return null
     } catch (e) {
@@ -310,12 +311,13 @@ export function useDeboningEntries(sessionId: string | null) {
     entryId: string,
     operator: string,
     session: ProductionSession | null,
+    serviceCode?: string,
   ): Promise<string | null> => {
     if (session?.status !== 'open') {
       return 'Usuwanie możliwe tylko przy otwartej zmianie'
     }
     try {
-      await deboningApi.hallDeleteEntry(entryId, operator)
+      await deboningApi.hallDeleteEntry(entryId, operator, serviceCode)
       refetch()
       return null
     } catch (e) {

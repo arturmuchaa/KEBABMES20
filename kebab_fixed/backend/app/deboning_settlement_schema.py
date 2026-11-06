@@ -3,6 +3,8 @@
 DDL = [
     "ALTER TABLE raw_batches ADD COLUMN IF NOT EXISTS deboning_mode TEXT",
     "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS settlement_stage TEXT",
+    # Closed outside ±1% with the manager's code: reason, who, when and the numbers.
+    "ALTER TABLE deboning_entries ADD COLUMN IF NOT EXISTS settlement_exception JSONB",
     """CREATE TABLE IF NOT EXISTS deboning_settlement_weighings (
         id TEXT PRIMARY KEY,
         entry_id TEXT NOT NULL REFERENCES deboning_entries(id),

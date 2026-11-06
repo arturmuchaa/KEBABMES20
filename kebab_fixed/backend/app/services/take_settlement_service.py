@@ -5,6 +5,7 @@ enter stock once on settlement. batch_byproducts is their reporting aggregate,
 NOT a second stock receipt. Nominal input discrepancy is never invented stock.
 """
 import json
+import os
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -17,6 +18,11 @@ from app.utils.ids import cuid
 from app.utils.stock import create_stock_movement
 
 TOLERANCE_PCT = 1
+
+
+def _manager_code():
+    # The hall's service code (same as the kiosk service menu); checked HERE, not only on the panel.
+    return os.environ.get("KIOSK_SERVICE_CODE", "0099")
 STAGES = ("meat", "backs", "bones", "balance", "done")
 
 
@@ -240,7 +246,7 @@ def correct(entry_id, weighing_id, dto: SettlementWeighing, subject=""):
         return _state(conn, entry)
 
 
-def finish(entry_id, subject=""):
+def finish(entry_id, subject="", exception_code=None, exception_reason=None):
     with transaction() as conn:
         entry = _locked(conn, entry_id)
         if entry.get("settlement_stage") == "done":
@@ -250,15 +256,33 @@ def finish(entry_id, subject=""):
         state = _state(conn, entry)
         if entry["settlement_stage"] != "balance":
             raise HTTPException(409, "Zakończ ważenie mięsa, grzbietów i kości")
+        exception = None
         if not state["withinTolerance"]:
-            raise HTTPException(400, f"Bilans poza tolerancją ±{TOLERANCE_PCT}%: różnica {state['differenceKg']:.2f} kg; dopuszczalne ±{state['toleranceKg']:.2f} kg")
+            if exception_code is None:
+                raise HTTPException(400, f"Bilans poza tolerancją ±{TOLERANCE_PCT}%: różnica {state['differenceKg']:.2f} kg; dopuszczalne ±{state['toleranceKg']:.2f} kg. Popraw ważenia albo zatwierdź z wyjątkiem (wymaga kodu kierownika i powodu)")
+            if exception_code != _manager_code():
+                raise HTTPException(403, "Błędny kod kierownika — rozliczenie nie zostało zatwierdzone")
+            reason = (exception_reason or "").strip()
+            if len(reason) < 3:
+                raise HTTPException(400, "Podaj powód zatwierdzenia poza tolerancją")
+            exception = {
+                "reason": reason, "by": subject or "kiosk", "at": datetime.now(timezone.utc).isoformat(),
+                "kgTaken": float(entry["kg_quarter"]), "totalKg": state["totalKg"],
+                "differenceKg": round(state["differenceKg"], 3), "toleranceKg": round(state["toleranceKg"], 3),
+                "balancePct": round(state["balancePct"], 2),
+            }
+            # Same audit trail as the yield override; the weights stay exactly as measured.
+            cx_execute(conn, "INSERT INTO deboning_entry_corrections (id, entry_id, by_subject, reason, changes) VALUES (%s,%s,%s,%s,%s)",
+                       (cuid(), entry_id, subject or "kiosk", f"Zatwierdzenie bilansu poza tolerancją (kod kierownika): {reason}",
+                        json.dumps(exception, ensure_ascii=False)))
         meat, backs, bones = (state[k] for k in ("meatKg", "backsKg", "bonesKg"))
         cx_execute(conn, """UPDATE deboning_entries SET status='complete', settlement_stage='done',
             completed_at=now(), kg_meat=%s, kg_backs=%s, kg_bones=%s,
             kg_remainder=%s, yield_pct=%s, kg_gross=NULL, tare_cart_kg=NULL,
-            tare_e2_kg=NULL, e2_count=NULL WHERE id=%s""",
+            tare_e2_kg=NULL, e2_count=NULL, settlement_exception=%s WHERE id=%s""",
             (meat, backs, bones, max(0, float(entry["kg_quarter"]) - meat),
-             round(meat / float(entry["kg_quarter"]) * 100, 2), entry_id))
+             round(meat / float(entry["kg_quarter"]) * 100, 2),
+             json.dumps(exception, ensure_ascii=False) if exception else None, entry_id))
         batch_id = entry["raw_batch_id"]
         cx_execute(conn, """INSERT INTO batch_byproducts (raw_batch_id, raw_batch_no, quarter_kg, operator, finished_at)
             VALUES (%s,%s,0,%s,NULL) ON CONFLICT (raw_batch_id) DO NOTHING""", (batch_id, entry["raw_batch_no"], subject))
@@ -289,3 +313,76 @@ def finish(entry_id, subject=""):
     batch = query_one("SELECT kg_available FROM raw_batches WHERE id=%s", (batch_id,))
     deboning._auto_finish_exhausted(batch_id, batch["kg_available"])
     return result
+
+
+def require_service_code(code):
+    """Hall-side change of a settled/settling take: the same code as the manager exception."""
+    if not code:
+        raise HTTPException(400, "Ta zmiana wymaga kodu serwisowego")
+    if str(code) != _manager_code():
+        raise HTTPException(403, "Błędny kod serwisowy — nic nie zmieniono")
+
+
+def cancel_settlement_entry(conn, entry, by_subject="", reason=""):
+    """Removes a per-worker take (open or settled) as if it had never been taken.
+
+    Called inside delete_deboning_entry's transaction, with the batch and the
+    entry already locked. Follows the existing undo convention (rows and their
+    movements go, kilograms go back), with physical guards: meat already used
+    or reserved, backs/bones already issued. The full snapshot (weighings,
+    exception) stays in deboning_entry_corrections.
+    """
+    eid = entry["id"]
+    weighings = cx_query_all(conn, "SELECT * FROM deboning_settlement_weighings WHERE entry_id=%s ORDER BY weighed_at, id FOR UPDATE", (eid,))
+    meat = deboning._sum_take_weighings(conn, eid)
+    if meat > 0:
+        suffix = deboning.MEAT_TYPES[entry.get("meat_type") or "zs"][2]
+        lot = cx_query_one(conn, "SELECT * FROM meat_stock WHERE lot_no=%s FOR UPDATE", (entry["raw_batch_no"] + suffix,))
+        free = float(lot["kg_available"] or 0) - float(lot.get("kg_reserved") or 0) if lot else 0
+        if free + 0.001 < meat:
+            raise HTTPException(409, "Mięso z tego pobrania już zużyte lub zarezerwowane — usunięcie wymaga wyjaśnienia w biurze")
+        if float(lot["kg_initial"] or 0) - meat <= 0.001:
+            cx_execute(conn, "DELETE FROM meat_stock WHERE id=%s", (lot["id"],))
+        else:
+            cx_execute(conn, "UPDATE meat_stock SET kg_initial=kg_initial-%s, kg_available=GREATEST(0, kg_available-%s) WHERE id=%s",
+                       (meat, meat, lot["id"]))
+    settled = entry.get("status") == "complete"
+    if settled:
+        lots = cx_query_all(conn, "SELECT * FROM byproduct_lots WHERE deboning_entry_id=%s FOR UPDATE", (eid,))
+        if any(l["status"] != "open" or l.get("destination") or l.get("disposed_at") for l in lots):
+            raise HTTPException(409, "Grzbiety lub kości z tego pobrania już wydane — usunięcie niemożliwe")
+        cx_execute(conn, "DELETE FROM byproduct_lots WHERE deboning_entry_id=%s", (eid,))
+        for kind in ("backs", "bones"):
+            kg = float(entry.get(f"kg_{kind}") or 0)
+            cx_execute(conn, f"""UPDATE batch_byproducts SET {kind}_kg=GREATEST(0, COALESCE({kind}_kg,0)-%s),
+                {kind}_pallets=COALESCE((SELECT jsonb_agg(p) FROM jsonb_array_elements(COALESCE({kind}_pallets,'[]'::jsonb)) p
+                                         WHERE p->>'entryId' IS DISTINCT FROM %s), '[]'::jsonb)
+                WHERE raw_batch_id=%s""", (kg, eid, entry["raw_batch_id"]))
+    cx_execute(conn, "UPDATE raw_batches SET kg_available=COALESCE(kg_available,0)+%s WHERE id=%s",
+               (float(entry["kg_quarter"]), entry["raw_batch_id"]))
+    correction_ids = [rev["requestId"] for w in weighings for rev in (w.get("corrections") or []) if rev.get("requestId")]
+    cx_execute(conn, """DELETE FROM stock_movements WHERE source_id=%s
+        AND source_type IN ('deboning','deboning_correction','deboning_settlement')""", (eid,))
+    if correction_ids:
+        cx_execute(conn, "DELETE FROM stock_movements WHERE source_type='deboning_settlement_correction' AND source_id = ANY(%s)", (correction_ids,))
+    snapshot = {"usuniety": {
+        "sessionNo": entry.get("session_no"), "rawBatchNo": entry.get("raw_batch_no"),
+        "worker": entry.get("worker_name"), "kgQuarter": float(entry.get("kg_quarter") or 0),
+        "kgMeat": meat, "kgBacks": float(entry.get("kg_backs") or 0), "kgBones": float(entry.get("kg_bones") or 0),
+        "status": entry.get("status"), "stage": entry.get("settlement_stage"),
+        "exception": entry.get("settlement_exception"),
+        "weighings": [{"id": w["id"], "kind": w["kind"], "kgNet": float(w["kg_net"]),
+                       "weighMode": w["weigh_mode"], "weighedAt": w["weighed_at"].isoformat()} for w in weighings],
+    }}
+    cx_execute(conn, "INSERT INTO deboning_entry_corrections (id, entry_id, by_subject, reason, changes) VALUES (%s,%s,%s,%s,%s)",
+               (cuid(), eid, by_subject or "kiosk", (reason or "Usunięte kodem serwisowym").strip(),
+                json.dumps(snapshot, ensure_ascii=False, default=str)))
+    cx_execute(conn, "DELETE FROM deboning_settlement_weighings WHERE entry_id=%s", (eid,))
+    cx_execute(conn, "DELETE FROM deboning_take_weighings WHERE entry_id=%s", (eid,))
+    cx_execute(conn, "DELETE FROM deboning_entries WHERE id=%s", (eid,))
+    if settled:
+        cx_execute(conn, """UPDATE batch_byproducts SET
+            quarter_kg=COALESCE((SELECT SUM(kg_quarter) FROM deboning_entries WHERE raw_batch_id=%s AND status='complete'),0),
+            backs_pct=ROUND(backs_kg / NULLIF(quarter_kg,0)*100,2),
+            bones_pct=ROUND(bones_kg / NULLIF(quarter_kg,0)*100,2)
+            WHERE raw_batch_id=%s""", (entry["raw_batch_id"], entry["raw_batch_id"]))

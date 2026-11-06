@@ -64,6 +64,8 @@ export interface DeboningEntry {
   /** Suma porcji z częściowych ważeń (tylko pending; complete ma sumę w kgMeat). */
   readonly kgMeatWeighed?: number
   readonly settlementStage?: 'meat' | 'backs' | 'bones' | 'balance' | 'done' | null
+  /** Closed outside ±1% with the manager's code — reason, who, numbers. */
+  readonly settlementException?: { reason: string; by: string; at: string; differenceKg: number; toleranceKg: number; balancePct: number } | null
 }
 
 export interface CreateDeboningEntryDto {
