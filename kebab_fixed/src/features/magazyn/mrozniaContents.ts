@@ -52,3 +52,22 @@ export function freezerTileSummary(lines: PozycjaSkladu[]) {
     }))],
   }
 }
+
+export type FreezerTileLine = { key: string; text: string; qty: string; recipe: string; tube: string | null }
+/** One tile row per item as the hall says it: "20×40kg KIRMIZI", the tube only
+ * when it is not standard ("METAL 80cm"; unknown names shown as given). Equal
+ * items (same recipe, weight and tube) are added up into one row. */
+export function freezerTileLines(lines: PozycjaSkladu[]): FreezerTileLine[] {
+  const rows = new Map<string, { key: string; tube: string | null; qty: number; kg: number; recipe: string }>()
+  for (const p of lines) {
+    const t = freezerTube(p.packagingName)
+    const tube = t.nonstandard ? tubeLabel(p.packagingName!) : t.cm === null ? (p.packagingName?.trim() || null) : null
+    const recipe = p.recipeName.trim() || 'Brak receptury'
+    const k = `${recipe}|${p.kgPerUnit}|${tube ?? ''}`
+    const row = rows.get(k)
+    if (row) row.qty += p.qty
+    else rows.set(k, { key: k, tube, qty: p.qty, kg: p.kgPerUnit, recipe })
+  }
+  return [...rows.values()].map(r => ({ key: r.key, tube: r.tube, qty: `${r.qty}×${kgTxt(r.kg)}`, recipe: r.recipe,
+    text: `${r.qty}×${kgTxt(r.kg)}kg ${r.recipe}` }))
+}

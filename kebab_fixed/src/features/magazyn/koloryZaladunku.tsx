@@ -3,14 +3,14 @@ import type { VehicleStateOrder } from '@/lib/api'
 // Soft fills that still differ at a glance; the darker edge is the side bar on a tile.
 // Green remains the search/scan signal. K-number also works without colour vision.
 const PALETTE = [
-  ['Błękit', '#3b6fb6', '#dce8f8'],
-  ['Morela', '#b26a2c', '#fbe4ce'],
-  ['Lawenda', '#7c5cc0', '#e9e0fa'],
-  ['Turkus', '#2a8577', '#d4efe9'],
-  ['Róż', '#b5506f', '#f8dce5'],
-  ['Oliwka', '#6c8726', '#e6efcd'],
-  ['Piasek', '#94741f', '#f3e8c8'],
-  ['Indygo', '#4c59a0', '#dfe3f4'],
+  ['Błękit', '#2f6db5', '#d9e7f9'],
+  ['Morela', '#c26a24', '#fde2c6'],
+  ['Lawenda', '#7653c2', '#e8defa'],
+  ['Turkus', '#14857a', '#cdeee8'],
+  ['Róż', '#c2476f', '#fadae4'],
+  ['Oliwka', '#5f8a1c', '#e2efc6'],
+  ['Miód', '#a77a08', '#f7e6b8'],
+  ['Indygo', '#3f4fb0', '#dbe0f7'],
 ] as const
 
 export type KolorZaladunku = { index: number; label: string; name: string; edge: string; fill: string }

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { PlanMrozniDane } from '@/lib/api'
 import { PlanMrozni } from './PlanMrozni'
-import { clientLabel, findFreezerCartons, freezerTileSummary, freezerTube, tubeLabel } from './mrozniaContents'
+import { clientLabel, findFreezerCartons, freezerTileLines, freezerTileSummary, freezerTube, tubeLabel } from './mrozniaContents'
 import { kolorZaladunku } from './koloryZaladunku'
 
 const api = vi.hoisted(() => ({ read: vi.fn(), save: vi.fn(), block: vi.fn(), unblock: vi.fn(), swap: vi.fn() }))
@@ -41,8 +41,8 @@ describe('okno mroźni z czytelnymi stałymi kafelkami', () => {
       expect(floor.getByRole('button', { name: new RegExp(`Karton ${100 + 2 * i} ·`) }).dataset.loadingColor).toBe(String(i))
     }
     expect(floor.getByRole('button', { name: /Karton 999 ·/ }).dataset.loadingColor).toBeUndefined()
-    expect(screen.getByRole('button', { name: /K5.*YALCIN.*Z\/5/ }).textContent).toContain('W mroźni: 2 · bez położenia: 1')
-    click(/K5.*YALCIN.*Z\/5/)
+    expect(screen.getByRole('button', { name: /YALCIN.*Z\/5 ·/ }).textContent).toContain('W mroźni: 2 · bez położenia: 1')
+    click(/YALCIN.*Z\/5 ·/)
     expect(floor.getByRole('button', { name: /Karton 108 ·/ }).dataset.dimmed).toBeUndefined()
     expect(floor.getByRole('button', { name: /Karton 100 ·/ }).dataset.dimmed).toBe('true')
     click('Bez miejsca (1)')
@@ -106,8 +106,11 @@ describe('okno mroźni z czytelnymi stałymi kafelkami', () => {
     render(<PlanMrozni onZamknij={vi.fn()} />)
     const tile = within(await screen.findByRole('button', { name: /B1 · Karton/ }))
     expect(await tile.findByText('YALCIN')).toBeTruthy()
-    expect(tile.getByText('BEYAZ / KIRMIZI / YAPRAK')).toBeTruthy()
+    // One row per item as the hall says it; the tube only when not standard (small font).
+    const rows = [...document.querySelectorAll('[data-slot="B1"] .mroznia-tile-line')].map(e => e.textContent)
+    expect(rows).toEqual(['12×15kg BEYAZ', '6×15kg KIRMIZI METAL 80cm', '2×25kg YAPRAK PAPIER 100cm'])
     expect(tile.getByText('METAL 80cm')).toBeTruthy()
+    expect(tile.getByText('2')).toBeTruthy()   // carton number (small)
     expect(tile.getByText('PAPIER 100cm')).toBeTruthy()
     expect(tile.queryByText(/65/)).toBeNull()
     expect(tile.queryByText(/niestandard/i)).toBeNull()
@@ -270,4 +273,16 @@ it('skrót mieszanego kartonu nie przypisuje pierwszej receptury lub tulei do ca
   expect(clientLabel({ clientName: '' })).toBe('MAGAZYN')
   expect(freezerTube('METAL 65')).toEqual({ cm: 65, nonstandard: false })
   expect(freezerTube('Folia stretch')).toEqual({ cm: null, nonstandard: false })
+})
+
+
+it('tile rows: equal items add up, standard tubes stay silent, odd tubes keep their full name', () => {
+  expect(freezerTileLines([
+    { qty: 10, kgPerUnit: 30, recipeName: 'KIRMIZI', productTypeName: 'INDYK', packagingName: 'METAL 80' },
+    { qty: 10, kgPerUnit: 35, recipeName: 'KIRMIZI', productTypeName: 'INDYK', packagingName: 'METAL 80CM' },
+    { qty: 5, kgPerUnit: 40, recipeName: 'KIRMIZI', productTypeName: 'INDYK', packagingName: 'METAL 65CM' },
+    { qty: 15, kgPerUnit: 40, recipeName: 'KIRMIZI', productTypeName: 'INDYK', packagingName: 'METAL 65CM' },
+  ]).map(l => [l.text, l.tube])).toEqual([
+    ['10×30kg KIRMIZI', 'METAL 80cm'], ['10×35kg KIRMIZI', 'METAL 80cm'], ['20×40kg KIRMIZI', null],
+  ])
 })

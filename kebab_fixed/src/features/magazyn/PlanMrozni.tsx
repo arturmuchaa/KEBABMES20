@@ -6,8 +6,8 @@ import { HMI_VARS } from '@/features/hmi-theme/vars'
 import { ZawartoscMrozni } from './ZawartoscMrozni'
 import { KlawiaturaHmi } from './KlawiaturaHmi'
 import { locationText, positioned } from './mrozniaSlots'
-import { clientLabel, compactCartonNo, findFreezerCartons, freezerTileSummary } from './mrozniaContents'
-import { ZnacznikZamowienia, type ZamowienieKolorowe } from './koloryZaladunku'
+import { clientLabel, compactCartonNo, findFreezerCartons, freezerTileLines, freezerTileSummary } from './mrozniaContents'
+import type { ZamowienieKolorowe } from './koloryZaladunku'
 import './plan-mrozni.css'
 
 export type CelMrozni = Pick<KartonNaPlanie, 'kind' | 'id' | 'cartonNo'>
@@ -16,33 +16,40 @@ const TITLE = 'Rzut mroźni'
 type Editor = { carton: KartonNaPlanie; manual?: never } | { carton?: never; manual: { slot: string; revision: string | null } }
 type Panel = 'none' | 'carton' | 'unplaced'
 
-/** Give each tile's recipe only the whole lines that fit beside the client name and
- * tube tags, so nothing is ever cut through the middle of a line. If not even one
- * line is left (long name + two tubes on a small panel), the recipe keeps one line
- * and the tube row is trimmed to whole tags; the detail panel shows everything. */
+/** Each tile shows whole item rows only. A tight tile first gets the smaller
+ * type; rows that still do not fit are folded into "+N" beside the address
+ * (the detail panel always lists everything). Never a row cut mid-line. */
 function fitTiles(grid: HTMLElement) {
-  grid.querySelectorAll<HTMLElement>('.mroznia-tile.is-carton').forEach(tile => {
-    const recipe = tile.querySelector<HTMLElement>('.mroznia-tile-recipe')
-    const tubes = tile.querySelector<HTMLElement>('.mroznia-tile-tubes')
-    if (!recipe) return
-    recipe.style.removeProperty('-webkit-line-clamp'); recipe.style.removeProperty('max-height')
-    tubes?.style.removeProperty('max-height')
-    const cs = getComputedStyle(tile)
-    const inner = tile.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
-    const gap = parseFloat(cs.rowGap) || 0
-    const line = parseFloat(getComputedStyle(recipe).lineHeight) || 15
-    let used = 0
-    for (const child of Array.from(tile.children) as HTMLElement[]) if (child !== recipe) used += child.offsetHeight + gap
-    const lines = Math.floor((inner - used) / line)
-    const keep = Math.max(1, Math.min(lines, 3))
-    recipe.style.setProperty('-webkit-line-clamp', String(keep))
-    recipe.style.setProperty('max-height', `${keep * line}px`)
-    if (lines < 1 && tubes) {
-      const tag = (tubes.firstElementChild as HTMLElement | null)?.offsetHeight ?? 14
-      const room = inner - (used - tubes.offsetHeight - gap) - line - gap
-      tubes.style.setProperty('max-height', `${Math.max(0, Math.floor((room + 2) / (tag + 2)) * (tag + 2) - 2)}px`)
+  const tiles = Array.from(grid.querySelectorAll<HTMLElement>('.mroznia-tile.is-carton'))
+  const fit = (tile: HTMLElement, forceTight: boolean) => {
+    const list = tile.querySelector<HTMLElement>('.mroznia-tile-lines')
+    const more = tile.querySelector<HTMLElement>('.mroznia-tile-more')
+    if (!list) return false
+    const rows = Array.from(list.children) as HTMLElement[]
+    const measure = () => {
+      rows.forEach(r => { r.style.display = ''; r.style.removeProperty('-webkit-line-clamp'); r.classList.remove('is-clamped') })
+      const room = list.clientHeight
+      let used = 0, shown = 0
+      for (const r of rows) { if (used + r.offsetHeight > room + 0.5) break; used += r.offsetHeight; shown++ }
+      return { room, shown }
     }
-  })
+    tile.classList.toggle('is-tight', forceTight)
+    let { room, shown } = measure()
+    if (!forceTight && shown < rows.length) { tile.classList.add('is-tight'); ({ room, shown } = measure()) }
+    if (shown === 0 && rows.length) {
+      // Not even one whole row: keep the first one, clamped to the lines that fit.
+      const lh = parseFloat(getComputedStyle(rows[0]).lineHeight) || 13
+      rows[0].classList.add('is-clamped')
+      rows[0].style.setProperty('-webkit-line-clamp', String(Math.max(1, Math.floor((room + 0.5) / lh))))
+      shown = 1
+    }
+    rows.slice(shown).forEach(r => { r.style.display = 'none' })
+    if (more) { more.hidden = shown >= rows.length; more.textContent = `+${rows.length - shown}` }
+    return tile.classList.contains('is-tight')
+  }
+  const tight = tiles.filter(t => fit(t, false)).length
+  // One type size across the plan when many tiles need the small one: calmer to read.
+  if (tiles.length && tight / tiles.length >= 0.3) tiles.forEach(t => fit(t, true))
 }
 
 /** The 1.0.22 window with its fixed named places A–I / 1–7, all 63 always in view.
@@ -81,7 +88,10 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
     if (!grid || typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(() => fitTiles(grid))
     ro.observe(grid)
-    return () => ro.disconnect()
+    // Type metrics change when the web font arrives: fit again, or tiles stay needlessly small.
+    let live = true
+    void document.fonts?.ready.then(() => { if (live) fitTiles(grid) })
+    return () => { live = false; ro.disconnect() }
   }, [plan === null])
 
   const odswiez = useCallback(async () => {
@@ -310,7 +320,7 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
       </div>
       <div className="mroznia-sheet-meta">
         <span>Karton <b className="hmi-v10-mono">{selected.cartonNo}</b></span>
-        {order ? <span className="flex items-center gap-2"><ZnacznikZamowienia color={order.color} /> {order.orderNo}</span>
+        {order ? <span className="flex items-center gap-2"><span className="mroznia-swatch" aria-hidden /> {order.orderNo}</span>
           : selected.orderNo ? <span>{selected.orderNo}</span> : null}
         <span className={positioned(selected.location) ? '' : 'mroznia-sheet-warn'}>{locationText(selected.location)}</span>
       </div>
@@ -356,7 +366,7 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
           return <button type="button" key={o.id} aria-pressed={activeOrder === o.id} disabled={!!editor || !!swapFrom || zapis}
             onClick={() => { setOrderFilter(activeOrder === o.id ? '' : o.id); search('') }} className="mroznia-chip"
             style={{ '--order-fill': o.color.fill, '--order-edge': o.color.edge } as CSSProperties}>
-            <ZnacznikZamowienia color={o.color} />
+            <span className="mroznia-swatch" aria-hidden />
             <span className="mroznia-chip-text"><b>{o.clientShortName || o.clientName}</b><span>{o.orderNo} · {cartons.length} szt.</span></span>
             <span className="sr-only">W mroźni: {cartons.length} · bez położenia: {cartons.filter(c => !positioned(c.location)).length}</span>
           </button>
@@ -376,37 +386,42 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
               const locked = disabled || (!!editor?.carton && (!!b || (!!c && !own)))
                 || (!!editor?.manual && place !== editor.manual.slot) || (!!swapFrom && (!c || key(c) === key(swapFrom)))
               const order = c && loadingOrder(c), color = order?.color
-              const summary = c && freezerTileSummary(c.lines)
+              const items = c ? freezerTileLines(c.lines) : []
               const label = c ? clientLabel(c) : ''
               const found = !!c && highlight(c)
               const dimmed = !!c && !editor && ((!!needle && !matches(c)) || (!swapFrom && !inOrder(c)))
+              // Loading: the cartons still to go onto this truck pulse gently (one order when filtered).
+              const pulse = !!zaladunek && !!order && !editor && !swapFrom && !needle && (!activeOrder || order.id === activeOrder)
               const kind = c ? 'is-carton' : b ? 'is-manual' : 'is-free'
               return <button type="button" key={place} data-slot={place} disabled={!!locked} aria-pressed={active}
-                aria-label={`${place} · ${c ? `Karton ${c.cartonNo} · ${label}` : b ? `zajęte · ${b.description}` : 'wolne'}${order ? ` · ${color!.label} · ${order.orderNo}` : ''}`}
+                aria-label={`${place} · ${c ? `Karton ${c.cartonNo} · ${label}` : b ? `zajęte · ${b.description}` : 'wolne'}${order ? ` · do załadunku · ${order.orderNo}` : ''}`}
                 ref={el => { if (c) { if (el) mapTiles.current.set(key(c), el); else mapTiles.current.delete(key(c)) } }}
                 data-highlighted={found ? 'true' : 'false'} data-loading-color={color?.index} data-dimmed={dimmed ? 'true' : undefined}
                 onClick={() => { if (editor?.carton) setSlot(place); else if (!editor) { if (c) pokaz(c); else recznie(place) } }}
-                className={`mroznia-tile ${kind} ${color ? 'is-order' : ''} ${active ? 'is-active' : ''} ${found ? 'mroznia-found' : ''}`}
+                className={`mroznia-tile ${kind} ${color ? 'is-order' : ''} ${pulse ? 'is-loading' : ''} ${active ? 'is-active' : ''} ${found ? 'mroznia-found' : ''}`}
                 style={color ? { '--order-fill': color.fill, '--order-edge': color.edge } as CSSProperties : undefined}>
                 <span className="mroznia-tile-top">
                   <b className="mroznia-tile-address">{place}</b>
-                  {color ? <b className="mroznia-tile-order">{color.label}</b> : null}
+                  {c ? <span className="mroznia-tile-more" hidden aria-hidden /> : null}
                   {c ? <span className="mroznia-tile-no hmi-v10-mono">{compactCartonNo(c.cartonNo)}</span> : null}
+                  {c?.orderNo ? <span className="mroznia-tile-orderno hmi-v10-mono">{c.orderNo}</span> : null}
                 </span>
-                {c && summary ? <>
+                {c ? <>
                   <b className={`mroznia-tile-client ${label.length > 11 || label.split(/\s+/).some(w => w.length > 7) ? 'is-long' : ''}`}>{label}</b>
-                  <span className="mroznia-tile-recipe">{summary.recipe}</span>
-                  {summary.tubeLabels.length ? <span className="mroznia-tile-tubes">
-                    {summary.tubeLabels.map(t => <span key={t} className="mroznia-tube">{t}</span>)}
-                  </span> : null}
-                </> : b ? <>
-                  <b className="mroznia-tile-manual">{b.description}</b>
-                  <span className="mroznia-tile-foot">towar ręcznie</span>
-                </> : <span className="mroznia-tile-foot">{active ? 'wybrane' : 'wolne'}</span>}
+                  <span className="mroznia-tile-lines">
+                    {items.map(it => <span key={it.key} className="mroznia-tile-line">
+                      {it.qty}<span className="mroznia-kg">kg</span> {it.recipe}{it.tube ? <> <span className="mroznia-tube">{it.tube}</span></> : null}
+                    </span>)}
+                  </span>
+                </> : b ? <b className="mroznia-tile-manual">{b.description}</b> : null}
               </button>
             }))}
           </div>
-          <div className="mroznia-door"><span aria-hidden>▲</span> Drzwi mroźnicze · wejście ↑</div>
+          {/* Doors as in the room: after two places from the left (A, B), as wide as two (C, D);
+              the five places to the right are beside the wall, not the doorway. */}
+          <div className="mroznia-door" style={{ gridTemplateColumns: `repeat(${plan.columns.length}, minmax(0, 1fr))` }}>
+            <span className="mroznia-door-gap" style={{ gridColumn: '3 / span 2' }}><span aria-hidden>▲</span> Drzwi mroźnicze</span>
+          </div>
         </div>
         {sheet}
         {blad || komunikat ? <div className="mroznia-toasts">
