@@ -797,6 +797,10 @@ _DDL: list[str] = [
     )""",
     # Bazy utworzone przed dodaniem idle-timeoutu sesji mogą nie mieć kolumny.
     "ALTER TABLE sessions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ",
+    # Tokeny sesji jako sha256 (app/services/auth_service.py, _skrot). Jawne tokeny sprzed zmiany
+    # → skróty; wiersze już w formacie skrótu (64 hex) zostają — idempotentne. Gdyby ta instrukcja
+    # się nie wykonała, resolve_session i tak przenosi starą sesję na skrót przy pierwszym użyciu.
+    "UPDATE sessions SET token = encode(sha256(convert_to(token, 'UTF8')), 'hex') WHERE token !~ '^[0-9a-f]{64}$'",
 
     # ── Przyprawione: rozdzielenie partii per (produkt + surowiec + dzień) ──
     "ALTER TABLE seasoned_meat ADD COLUMN IF NOT EXISTS production_day date DEFAULT CURRENT_DATE",

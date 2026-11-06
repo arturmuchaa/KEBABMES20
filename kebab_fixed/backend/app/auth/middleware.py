@@ -31,9 +31,11 @@ async def auth_middleware(request: Request, call_next):
     if required == "public":
         return await call_next(request)
 
-    # Token renderowania PDF (headless chrome) — dostęp do stron danych dla wydruku
+    # Token renderowania PDF (headless chrome) — TYLKO odczyt danych strony wydruku.
+    # Wcześniej przepuszczał każdą metodę (DELETE też) przez czas ważności tokenu (próba
+    # PROTRIMA, 30.10.2026); zapis zawsze wymaga zwykłej sesji.
     rtok = request.headers.get("x-render-token") or request.query_params.get("render_token")
-    if rtok and verify_render_token(rtok):
+    if rtok and request.method in ("GET", "HEAD") and verify_render_token(rtok):
         return await call_next(request)
 
     subject = auth_service.resolve_session(_bearer(request))

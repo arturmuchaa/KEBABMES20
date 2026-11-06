@@ -1,7 +1,9 @@
 """Uwierzytelnianie: użytkownicy biura, operatorzy (workers), sesje."""
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import secrets
 from datetime import datetime, timezone
 
@@ -22,13 +24,23 @@ def _new_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+# Tokeny sesji leżą w bazie jako sha256 (64 znaki hex), klient wysyła sam token.
+# Wcześniej tabela trzymała tokeny jawnie — każda kopia bazy (backup, próba) była kopią
+# aktywnych sesji wszystkich kont i kiosków (znalezione w próbie PROTRIMA, 30.10.2026).
+_SKROT = re.compile(r"[0-9a-f]{64}")
+
+
+def _skrot(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def _create_session(subject_type: str, subject_id: str, label: str) -> str:
     token = _new_token()
     ts = now_iso()
     execute(
         "INSERT INTO sessions (token, subject_type, subject_id, label, created_at, last_seen, expires_at) "
         "VALUES (%s,%s,%s,%s,%s,%s,%s)",
-        (token, subject_type, subject_id, label, ts, ts, next_expiry(_now())),
+        (_skrot(token), subject_type, subject_id, label, ts, ts, next_expiry(_now())),
     )
     return token
 
@@ -97,17 +109,27 @@ def login_pin(worker_id: str, pin: str, label: str = "") -> dict:
 
 # ── Sesja → podmiot ──
 def resolve_session(token: str) -> dict | None:
-    s = query_one("SELECT * FROM sessions WHERE token=%s", (token,))
-    if not s:
+    if not token:
         return None
+    klucz = _skrot(token)
+    s = query_one("SELECT * FROM sessions WHERE token=%s", (klucz,))
+    if not s:
+        # Sesja sprzed skrótów (jawny token w bazie) — przechodzi na skrót przy pierwszym
+        # użyciu, więc nikt nie zostaje wylogowany (także kioski), nawet gdy migracja zbiorcza
+        # w app/migrations.py nie zadziałała. Wiersz w formacie skrótu NIE jest tokenem:
+        # skrót skopiowany z bazy nie może otworzyć sesji.
+        s = query_one("SELECT * FROM sessions WHERE token=%s", (token,))
+        if not s or _SKROT.fullmatch(s["token"] or ""):
+            return None
+        execute("UPDATE sessions SET token=%s WHERE token=%s", (klucz, token))
     now = _now()
     if is_expired(s.get("expires_at"), now):
-        execute("DELETE FROM sessions WHERE token=%s", (token,))
+        execute("DELETE FROM sessions WHERE token=%s", (klucz,))
         return None
     # Sliding expiration: każde użycie przesuwa wygaśnięcie o pełny TTL.
     execute(
         "UPDATE sessions SET last_seen=%s, expires_at=%s WHERE token=%s",
-        (now_iso(), next_expiry(now), token),
+        (now_iso(), next_expiry(now), klucz),
     )
     if s["subject_type"] == "office":
         u = query_one("SELECT * FROM app_users WHERE id=%s", (s["subject_id"],))
@@ -121,7 +143,10 @@ def resolve_session(token: str) -> dict | None:
 
 
 def logout(token: str) -> None:
-    execute("DELETE FROM sessions WHERE token=%s", (token,))
+    if not token:
+        return
+    # Skrót (sesje nowe) i jawny token (sesja sprzed skrótów, jeszcze nieużyta po zmianie).
+    execute("DELETE FROM sessions WHERE token IN (%s, %s)", (_skrot(token), token))
 
 
 def change_password(subject: dict, old: str, new: str) -> None:
