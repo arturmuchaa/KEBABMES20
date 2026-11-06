@@ -51,12 +51,15 @@
         "http://91.98.105.107:8080/api/desktop-updates/protrima/latest.json"
       ],
       "dangerousInsecureTransportProtocol": true,
-      "dialog": false
+      "dialog": false,
+      "windows": {
+        "installMode": "quiet"
+      }
     }
   },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "targets": [
       "nsis"
     ],

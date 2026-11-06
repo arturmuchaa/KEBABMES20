@@ -6,6 +6,7 @@ import { ProbaZnacznik } from '../kopia'
 import { PROBA } from '../proba'
 import { FlagIcon } from '../ui/Glyphs'
 import { ETAPY_ZAKLADU } from './etapy'
+import { useAktualizacja } from './aktualizacja'
 
 /** Odpowiedź serwera na złe dane („Nieprawidłowe dane logowania”, 401) — po ludzku, z najczęstszą przyczyną. */
 const ZLE_DANE = /nieprawidłowe dane logowania|HTTP 401|unauthori[sz]ed/i
@@ -18,6 +19,8 @@ export function Logowanie({ blad: bladZewn }: { blad?: string }) {
   const [busy, setBusy] = useState(false)
   const [pokaz, setPokaz] = useState(false)
   const [caps, setCaps] = useState(false)
+  // Na ekranie logowania nic nie jest jeszcze wpisane — nowa wersja instaluje się sama (program się zrestartuje).
+  const akt = useAktualizacja({ auto: true })
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -67,6 +70,8 @@ export function Logowanie({ blad: bladZewn }: { blad?: string }) {
         </span>
         {caps && <div className="note warn"><FlagIcon level="warn" size={15} /><div>Włączony Caps Lock</div></div>}
         {blad && <div className="note crit" role="alert">{blad}</div>}
+        {akt.instaluje && <div className="note info" role="status"><FlagIcon level="info" size={15} /><div>Instaluję nową wersję PROTRIMA {akt.wersja}… Program uruchomi się ponownie.</div></div>}
+        {akt.blad && <div className="note warn"><FlagIcon level="warn" size={15} /><div>Nie udało się zainstalować wersji {akt.wersja}: {akt.blad}. Możesz pracować na obecnej.</div></div>}
         <button className="btn primary" type="submit" disabled={busy}>{busy ? 'Logowanie…' : 'Zaloguj'}</button>
       </form>
     </div>

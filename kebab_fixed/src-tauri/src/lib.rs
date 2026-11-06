@@ -115,6 +115,57 @@ async fn apply_update_now(_app: tauri::AppHandle) -> Result<String, String> {
 }
 
 
+// PROTRIMA (program biura) — aktualizacja z własnego kanału
+// (/api/desktop-updates/protrima/latest.json, endpoint w tauri.protrima.conf.json).
+// Decyzję „kiedy" podejmuje front (src/protrima/shell/aktualizacja.ts): na ekranie
+// logowania instaluje od razu, w trakcie pracy tylko sygnalizuje — kiosk restartuje się
+// sam, biuro mogłoby stracić niezapisane zamówienie. Komparator „INNA wersja" (nie tylko
+// nowsza), jak w kiosku: przywrócenie starszej wersji na serwerze dociera do biura.
+// Poza buildem `protrima` polecenia nic nie robią (stary MES ma własny updater z dialogiem).
+#[tauri::command]
+async fn protrima_aktualizacja(_app: tauri::AppHandle) -> Result<Option<String>, String> {
+    #[cfg(feature = "protrima")]
+    {
+        let updater = _app
+            .updater_builder()
+            .version_comparator(|current, update| update.version.to_string() != current.to_string())
+            .build()
+            .map_err(|e| e.to_string())?;
+        let update = updater.check().await.map_err(|e| e.to_string())?;
+        Ok(update.map(|u| u.version.clone()))
+    }
+    #[cfg(not(feature = "protrima"))]
+    {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+async fn protrima_zainstaluj(_app: tauri::AppHandle) -> Result<String, String> {
+    #[cfg(feature = "protrima")]
+    {
+        let updater = _app
+            .updater_builder()
+            .version_comparator(|current, update| update.version.to_string() != current.to_string())
+            .build()
+            .map_err(|e| e.to_string())?;
+        match updater.check().await.map_err(|e| e.to_string())? {
+            Some(update) => {
+                update
+                    .download_and_install(|_, _| {}, || {})
+                    .await
+                    .map_err(|e| format!("Aktualizacja nie powiodła się: {e}"))?;
+                _app.restart();
+            }
+            None => Ok("Brak nowej wersji.".into()),
+        }
+    }
+    #[cfg(not(feature = "protrima"))]
+    {
+        Ok("Dostępne tylko w PROTRIMA.".into())
+    }
+}
+
 // Druk strony w oknie desktopowym.
 //
 // `window.print()` z JavaScriptu w WebView2 nie robi NIC — operator musial
@@ -136,7 +187,8 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![windows_logoff, scale_diagnose, scale_tare,
                                 doser_dose,
-                                apply_update_now, scan_document, scanner_diagnose,
+                                apply_update_now, protrima_aktualizacja, protrima_zainstaluj,
+                                scan_document, scanner_diagnose,
                                 open_last_scan, open_document, print_page])
         .on_window_event(|_window, _event| {
             // Kiosk: operator nie może zamknąć okna (Alt+F4 / żądania zamknięcia ignorowane).

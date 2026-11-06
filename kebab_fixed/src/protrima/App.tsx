@@ -3,6 +3,7 @@ import { LayoutGrid, ShoppingCart, FilePlus2, Palette, Package, Printer, LogOut,
 import { AppCtx, type AppApi, type Cmd, type MenuItem, type OrdersCmd, type PanelWybor, type Toast, Toasts, TooltipLayer, Dialog } from './shell/context'
 import { TitleBar, MenuBar, MainToolbar, TabStrip, Nav, StatusBar, type MenuDef, type ToolItem, type WTab } from './shell/Chrome'
 import { CommandPalette } from './shell/CommandPalette'
+import { useAktualizacja } from './shell/aktualizacja'
 import { useStaleFunkcje } from './shell/staleFunkcje'
 import { moduleDef } from './shell/modules'
 import { useOrders } from './data/store'
@@ -26,6 +27,7 @@ import { computeMetrics as metryki } from './data/model'
 import { Placeholder } from './modules/misc/Placeholder'
 import { DesignSystem } from './modules/misc/DesignSystem'
 import { Logo } from './brand/Logo'
+import { FlagIcon } from './ui/Glyphs'
 import { useAuth } from '@/features/auth/AuthContext'
 import { PROBA, W_STARYM_MES } from './proba'
 import { ProbaZnacznik } from './kopia'
@@ -234,6 +236,9 @@ function Shell() {
   const [palette, setPalette] = useState(false)
   const [shortcuts, setShortcuts] = useState(false)
   const [about, setAbout] = useState(false)
+  // W trakcie pracy nowa wersja tylko sygnalizowana — instalacja na żądanie (restart programu).
+  const akt = useAktualizacja()
+  const [aktOkno, setAktOkno] = useState(false)
   const demo = useCallback((title: string, detail = W_STARYM_MES) => toast({ kind: 'info', title, detail }), [toast])
 
   const modCmds = cmdMap[active] ?? []
@@ -440,7 +445,8 @@ function Shell() {
           ))}
         </div>
       </main>
-      <StatusBar ctx={ctx[active]} density={density} onDensity={() => setDensityOverride(density === 'compact' ? 'comfortable' : 'compact')} />
+      <StatusBar ctx={ctx[active]} density={density} onDensity={() => setDensityOverride(density === 'compact' ? 'comfortable' : 'compact')}
+        nowaWersja={akt.wersja} onNowaWersja={() => setAktOkno(true)} />
       <TooltipLayer />
       <Toasts items={toasts} dismiss={id => setToasts(ts => ts.filter(t => t.id !== id))} />
       {palette && <CommandPalette orders={orders} stock={stock} onClose={() => setPalette(false)} openOrder={openOrder} openModule={openModule}
@@ -451,6 +457,13 @@ function Shell() {
       {drukarka && <DrukarkaDialog onClose={() => setDrukarka(false)} />}
       {drukId && <ZamowienieDrukDialog orderId={drukId} onClose={() => setDrukId(null)} />}
       {shortcuts && <ShortcutsDialog onClose={() => setShortcuts(false)} />}
+      {aktOkno && akt.wersja && <Dialog title={`Nowa wersja PROTRIMA ${akt.wersja}`} onClose={() => setAktOkno(false)}
+        footer={<><button className="btn" onClick={() => setAktOkno(false)}>Później</button>
+          <button className="btn primary" disabled={akt.instaluje} onClick={() => void akt.instaluj()}>{akt.instaluje ? 'Instaluję…' : 'Zainstaluj teraz'}</button></>}>
+        <p>Program zainstaluje nową wersję i uruchomi się ponownie (zwykle kilkanaście sekund).</p>
+        <div className="note warn" style={{ marginTop: 8 }}><FlagIcon level="warn" size={15} /><div>Niezapisane zmiany w otwartych kartach (nowe zamówienie, przyjęcie, WZ) przepadną — zapisz je najpierw. Jeśli nie teraz, nowa wersja zainstaluje się sama przy następnym uruchomieniu, na ekranie logowania.</div></div>
+        {akt.blad && <div className="note crit" role="alert" style={{ marginTop: 8 }}>Nie udało się zainstalować: {akt.blad}</div>}
+      </Dialog>}
       {about && <Dialog title="O programie" onClose={() => setAbout(false)} footer={<button className="btn primary" onClick={() => setAbout(false)}>Zamknij</button>}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <Logo height={40} />

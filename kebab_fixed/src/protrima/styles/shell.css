@@ -238,6 +238,9 @@
 .statusbar .right { margin-left: auto; display: flex; gap: 14px; align-items: center; color: var(--ink-3); }
 .statusbar .hint { display: inline-flex; gap: 5px; align-items: center; }
 .statusbar .hint .kbd { height: 16px; font-size: 10.5px; }
+/* Nowa wersja na serwerze — kobalt (akcja), bez migania: sygnał, nie alarm. */
+.statusbar .sb-nowa { color: var(--accent-ink); font-weight: 500; }
+.statusbar .sb-nowa b { font-weight: 600; }
 .statusbar .conn { display: inline-flex; gap: 6px; align-items: center; }
 .statusbar .conn i { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-4); }
 

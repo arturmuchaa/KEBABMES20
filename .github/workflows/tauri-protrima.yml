@@ -1,10 +1,13 @@
-name: PROTRIMA — build produkcyjny, pilot (Windows, tylko artefakt)
+name: PROTRIMA — build produkcyjny i publikacja na kanał aktualizacji (Windows)
 
 # Build PRODUKCYJNEJ aplikacji biurowej PROTRIMA (pl.protrima.biuro), serwer zakładu :8080.
-# Pilot uruchamiania (od 30.10.2026): instaluje się OBOK starego MES (inny identyfikator),
-# pracuje na tej samej bazie. Niczego nie publikuje: brak kanału aktualizacji, brak GitHub
-# Release, brak sekretów podpisu — instalator jest wyłącznie artefaktem tego przebiegu.
-# Nowy instalator = podbicie "version" w src-tauri/tauri.protrima.conf.json + push gałęzi.
+# Instaluje się OBOK starego MES (inny identyfikator), pracuje na tej samej bazie.
+# Od 0.7.0 (6.11.2026): instalator podpisany (TAURI_SIGNING_*) i publikowany na kanał
+# /api/admin/desktop-updates/protrima/publish — komputery biura aktualizują się same
+# (na ekranie logowania od razu, w trakcie pracy na żądanie). Pierwsza instalacja 0.7.0
+# na komputerach z pilotem 0.6.x jest ręczna (0.6.x nie sprawdzały aktualizacji).
+# Nowa wersja = podbicie "version" w src-tauri/tauri.protrima.conf.json + push gałęzi.
+# Publikacja BEZ continue-on-error: nieopublikowana wersja ma świecić na czerwono.
 
 on:
   push:
@@ -58,7 +61,10 @@ jobs:
           $c = Get-Content src-tauri/tauri.protrima.conf.json -Raw | ConvertFrom-Json
           $bledy = @()
           if ($c.identifier -ne 'pl.protrima.biuro') { $bledy += "identifier = $($c.identifier) (ma być pl.protrima.biuro — obok starego MES)" }
-          if ($c.bundle.createUpdaterArtifacts) { $bledy += 'createUpdaterArtifacts musi być false (pilot bez kanału aktualizacji)' }
+          if (-not $c.bundle.createUpdaterArtifacts) { $bledy += 'createUpdaterArtifacts musi być true (podpis aktualizacji)' }
+          if ($c.plugins.updater.endpoints -notcontains 'http://91.98.105.107:8080/api/desktop-updates/protrima/latest.json') { $bledy += 'updater nie wskazuje kanału protrima' }
+          if ($c.plugins.updater.windows.installMode -ne 'quiet') { $bledy += 'updater bez installMode quiet (okno instalatora przy aktualizacji)' }
+          if ($c.bundle.windows.nsis.installMode -ne 'currentUser') { $bledy += 'NSIS musi być currentUser (perMachine = UAC, cicha aktualizacja padnie)' }
           if ($c.build.beforeBuildCommand -notmatch '--mode produkcja') { $bledy += 'build frontu bez --mode produkcja' }
           if ($c.app.security.csp -notmatch ':8080') { $bledy += 'CSP nie dopuszcza serwera zakładu (:8080)' }
           if ($c.app.security.csp -match ':8090') { $bledy += 'CSP dopuszcza serwer próby (:8090)' }
@@ -75,8 +81,11 @@ jobs:
       - name: Ikony PROTRIMA (tylko w tym przebiegu)
         run: npx tauri icon public/brand/PROTRIMA_ikona_1024px.png
 
-      - name: Build PROTRIMA (NSIS, bez podpisu aktualizacji)
+      - name: Build PROTRIMA (NSIS, podpisany pod cichą aktualizację)
         run: npx tauri build --target x86_64-pc-windows-msvc --config src-tauri/tauri.protrima.conf.json --features protrima
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Paczka wskazuje serwer zakładu, nie próbę
         shell: pwsh
@@ -98,14 +107,52 @@ jobs:
         id: meta
         shell: pwsh
         run: |
-          $exe = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe" | Select-Object -First 1
+          $c = Get-Content src-tauri/tauri.protrima.conf.json -Raw | ConvertFrom-Json
+          $bundle = "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis"
+          $exe = Get-ChildItem "$bundle/*.exe" | Select-Object -First 1
+          $sig = Get-ChildItem "$bundle/*.sig" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $exe) { Write-Host '##[error]Brak instalatora NSIS'; exit 1 }
-          "exe_path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
-          Write-Host "$($exe.Name) ($([math]::Round($exe.Length/1MB, 1)) MB)"
+          # Treści .sig (wieloliniowej) NIE przepuszczamy przez GITHUB_OUTPUT — tylko ścieżkę.
+          "version=$($c.version)"      >> $env:GITHUB_OUTPUT
+          "exe_path=$($exe.FullName)"  >> $env:GITHUB_OUTPUT
+          "exe_name=$($exe.Name)"      >> $env:GITHUB_OUTPUT
+          "sig_path=$(if ($sig) { $sig.FullName } else { '' })" >> $env:GITHUB_OUTPUT
+          Write-Host "$($exe.Name) ($([math]::Round($exe.Length/1MB, 1)) MB) | podpis: $(if ($sig) { $sig.Name } else { 'BRAK' })"
 
-      - name: Upload artefaktu
+      - name: Publikacja na kanał aktualizacji PROTRIMA
+        shell: pwsh
+        env:
+          KEBAB_UPDATER_ADMIN_TOKEN: ${{ secrets.KEBAB_UPDATER_ADMIN_TOKEN }}
+        run: |
+          $pub = 'http://91.98.105.107:8080/api/admin/desktop-updates/protrima/publish'
+          $tok = ("$env:KEBAB_UPDATER_ADMIN_TOKEN" -replace '[^\x21-\x7e]', '')
+          if ([string]::IsNullOrWhiteSpace($tok)) { Write-Host '##[error]Brak sekretu KEBAB_UPDATER_ADMIN_TOKEN — wersja nie trafi do biura'; exit 1 }
+          $sigPath = "${{ steps.meta.outputs.sig_path }}"
+          if ([string]::IsNullOrWhiteSpace($sigPath) -or -not (Test-Path $sigPath)) { Write-Host '##[error]Brak podpisu .sig (sekrety TAURI_SIGNING_*?) — updater odrzuciłby instalator'; exit 1 }
+          $SIGNATURE = (Get-Content $sigPath -Raw).Trim()
+          $VERSION = "${{ steps.meta.outputs.version }}"
+          $FILENAME = "${{ steps.meta.outputs.exe_name }}"
+          $EXE_PATH = "${{ steps.meta.outputs.exe_path }}"
+          $PUB_DATE = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ" -AsUTC)
+          $NOTES = "PROTRIMA $VERSION"
+          # ${pub} w klamrach OBOWIĄZKOWO (goła zmienna przy "?" gubi część URL-a — patrz tauri-magazyn.yml).
+          $URL = "${pub}?version=$([uri]::EscapeDataString($VERSION))&signature=$([uri]::EscapeDataString($SIGNATURE))&filename=$([uri]::EscapeDataString($FILENAME))&notes=$([uri]::EscapeDataString($NOTES))&pub_date=$([uri]::EscapeDataString($PUB_DATE))"
+          Write-Host "Publikuję $FILENAME (v$VERSION) -> $pub"
+          try {
+            $resp = Invoke-RestMethod -Uri $URL -Method Post -Headers @{ 'X-Admin-Token' = $tok } -InFile $EXE_PATH -ContentType 'application/octet-stream'
+            Write-Host "Publikacja OK: $($resp | ConvertTo-Json -Compress -Depth 5)"
+          } catch {
+            Write-Host "##[error]Publikacja nie powiodła się: $($_.Exception.Message)"
+            if ($_.ErrorDetails) { Write-Host "Szczegóły: $($_.ErrorDetails.Message)" }
+            exit 1
+          }
+
+      - name: Upload artefaktu (kopia instalatora i podpisu)
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: PROTRIMA-Windows
-          path: ${{ steps.meta.outputs.exe_path }}
+          path: |
+            ${{ steps.meta.outputs.exe_path }}
+            ${{ steps.meta.outputs.sig_path }}
           retention-days: 30

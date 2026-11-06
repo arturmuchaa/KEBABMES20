@@ -221,7 +221,11 @@ export function Nav({ current, onOpen, badges, collapsed, onToggle }: {
 }
 
 // ─── Pasek stanu ──────────────────────────────────────────────────────────
-export function StatusBar({ ctx, density, onDensity }: { ctx: React.ReactNode; density: 'comfortable' | 'compact'; onDensity: () => void }) {
+export function StatusBar({ ctx, density, onDensity, nowaWersja, onNowaWersja }: {
+  ctx: React.ReactNode; density: 'comfortable' | 'compact'; onDensity: () => void
+  /** Wersja PROTRIMA czekająca na serwerze — instalacja na żądanie (restart). */
+  nowaWersja?: string | null; onNowaWersja?: () => void
+}) {
   return (
     <footer className="statusbar">
       <ProbaZnacznik />
@@ -231,6 +235,7 @@ export function StatusBar({ ctx, density, onDensity }: { ctx: React.ReactNode; d
       <span className="right">
         <Stamp />
         <button className="hint" onClick={onDensity} data-tip="Gęstość dobierana do rozdzielczości. Kliknij, aby przełączyć ręcznie.">Gęstość: <b style={{ color: 'var(--ink-2)', fontWeight: 600 }}>{density === 'compact' ? 'kompaktowa' : 'komfortowa'}</b></button>
+        {nowaWersja && <button className="hint sb-nowa" onClick={onNowaWersja} data-tip="Kliknij, aby zainstalować teraz. Bez tego zainstaluje się przy następnym uruchomieniu.">Nowa wersja <b>{nowaWersja}</b></button>}
         <span className="hide-m">PROTRIMA {__PROTRIMA_VERSION__}{PROBA ? ' · próba' : ''}</span>
       </span>
     </footer>
