@@ -67,7 +67,8 @@ def test_complete_flow_preserves_real_weights_and_does_not_invent_loss_stock(db)
     assert all(r['deboning_entry_id'] == entry and r['containers_available'] == 5 for r in lots)
     assert float(query_one("SELECT SUM(qty) AS kg FROM stock_movements WHERE product_type='byproduct'")['kg']) == 99
     assert bp.get('settle-batch')['backsKg'] == 55
-    assert bp.pending() == []  # no invitation to weigh the same bones collectively
+    # The batch is fully taken and settled: a green "dismantled" tile, never an invitation to weigh collectively.
+    assert [(t['mode'], t['balanced']) for t in bp.pending()] == [('worker', True)]
     day = date.today().isoformat()
     stats = deb.deboning_stats(day, day)
     assert stats['summary']['kgBacks'] == 55
@@ -380,3 +381,15 @@ def test_byproduct_pallet_check_is_information_only(db):
     with pytest.raises(HTTPException) as err:
         checks.create(ByproductPalletCheck(requestId='pallet-check-2', kind='backs', rawBatchIds=['nope'], kgNet=10, weighMode='manual', reason='Waga zajęta'))
     assert err.value.status_code == 404
+
+
+def test_finished_worker_batch_shows_as_green_dismantled_tile_today(db):
+    """695 2026-11-06: after the last take the batch vanished instead of turning green like 693."""
+    seed(600); entry = take(); svc.start(entry); ready(entry); svc.finish(entry)
+    assert bp.pending() == []                       # quarters left → still the active tile, no invitation
+    bp.finish_batch('settle-batch', 'operator')
+    tiles = bp.pending()
+    assert len(tiles) == 1 and tiles[0]['rawBatchNo'] == '901'
+    assert tiles[0]['mode'] == 'worker' and tiles[0]['balanced'] is True and tiles[0]['missingKg'] == 0
+    execute("UPDATE batch_byproducts SET finished_at = now() - interval '1 day' WHERE raw_batch_id='settle-batch'")
+    assert bp.pending() == []                       # the next day it is gone, like a weighed legacy batch

@@ -284,6 +284,26 @@ const PendingBatchTile = memo(function PendingBatchTile({ rec, onOpen }: {
   // Obie frakcje coś mają, ale bilans masy się nie domyka (połowa zważona
   // w trakcie rozbioru) — kafel mówi wprost, ile kg ubocznych brakuje.
   if (need.length === 0 && !rec.balanced) need.push(`resztę (~${fmtKg(rec.missingKg ?? 0, 0)} kg)`)
+  // Partia per pracownik: zielona „rozebrana ✓” do końca dnia (jak partia zważona zbiorczo);
+  // dotknięcie = ważenie palety grzbietów/kości dla magazynu, nigdy ważenie zbiorcze.
+  if (rec.mode === 'worker') {
+    return (
+      <button type="button" onClick={onOpen}
+        className="flex flex-col justify-between text-left h-full flex-shrink-0 select-none"
+        style={{ width: 244, padding: '14px 18px', borderRadius: 12, background: '#F0FDF4', border: '1px dashed #86EFAC', color: 'var(--mut)' }}>
+        <div className="flex items-center justify-between gap-2">
+          <span className="hmi-v10-mono font-bold text-2xl leading-none" style={{ color: 'var(--ink)' }}>{rec.rawBatchNo}</span>
+          <span className="text-[10px] font-bold uppercase px-2 py-0.5" style={{ borderRadius: 6, background: '#DCFCE7', color: '#15803D', border: '1px solid #86EFAC', letterSpacing: '.06em' }}>rozebrana ✓</span>
+        </div>
+        <div className="text-[13px] font-bold uppercase mt-1" style={{ color: '#15803D', letterSpacing: '.03em' }}>
+          grzbiety {fmtKg(rec.backsKg ?? 0, 0)} · kości {fmtKg(rec.bonesKg ?? 0, 0)} kg
+        </div>
+        <div className="text-[12px] font-semibold" style={{ color: 'var(--mut)' }}>
+          ćwiartka {fmtKg(rec.quarterKg, 0)} kg · dotknij: paleta
+        </div>
+      </button>
+    )
+  }
   // Bilans domknięty: dzisiejsza partia NIE znika samoczynnie — zielony
   // kafel „zważona ✓", klik pozwala poprawić/doważyć.
   if (rec.balanced) {
@@ -804,6 +824,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const [bulkOpen, setBulkOpen] = useState(false)
   // Paleta grzbietów/kości z wielu pobrań — ważenie informacyjne, stan bez zmian.
   const [palletCheckOpen, setPalletCheckOpen] = useState(false)
+  const [palletBatchId, setPalletBatchId] = useState<string | null>(null)
   // Szybka etykieta słupka (100 kg) wprost z panelu ważenia.
   const [quickBusy, setQuickBusy] = useState(false)
   // Kafel zakończonej partii prowadził WYŁĄCZNIE do ubocznych — nie dało się
@@ -833,7 +854,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   )
 
   // Ważenie ubocznych: prompt po zakończeniu partii + otwarty kreator.
-  const [finishPrompt, setFinishPrompt] = useState<{ batch: RawBatch; record: BatchByproducts } | null>(null)
+  const [finishPrompt, setFinishPrompt] = useState<{ batch: RawBatch; record: BatchByproducts; worker?: boolean } | null>(null)
   // Modal listy dzisiejszych ważeń frakcji (klik w kafelek dolnego paska).
   const [byprodModal, setByprodModal] = useState<'backs' | 'bones' | null>(null)
   const [wizard, setWizard] = useState<{ batch: RawBatch; record: BatchByproducts } | null>(null)
@@ -1766,7 +1787,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     if (pendingTakes.some(p => (p as any).rawBatchId === b.id)) return
     setSelBatch(prev => (prev?.id === b.id ? null : prev)) // wyczerpana — operator wybierze następną
     byproductsApi.finish(b.id, loggedInUser?.name)
-      .then(rec => { byproductsData.refetch(); setFinishPrompt({ batch: b, record: rec }) })
+      .then(async rec => {
+        byproductsData.refetch()
+        const worker = await takeSettlementApi.mode(b.id).then(m => m.mode === 'worker').catch(() => false)
+        setFinishPrompt({ batch: b, record: rec, worker })
+      })
       // Backend i tak sam zakańcza wyczerpaną partię (gwarancja serwerowa) —
       // tu tylko informacja, że prompt ważenia nie wyskoczył.
       .catch(() => showToast(`Partia ${b.internalBatchNo} wyczerpana — zważ uboczne z szarego kafla`, 'err'))
@@ -1996,7 +2021,11 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     if (Number(b.kgAvailable) > 0.5 || byproductsByBatch.has(b.id)) return
     setSelBatch(prev => (prev?.id === b.id ? null : prev))
     byproductsApi.finish(b.id, loggedInUser?.name)
-      .then(rec => { byproductsData.refetch(); setFinishPrompt({ batch: b, record: rec }) })
+      .then(async rec => {
+        byproductsData.refetch()
+        const worker = await takeSettlementApi.mode(b.id).then(m => m.mode === 'worker').catch(() => false)
+        setFinishPrompt({ batch: b, record: rec, worker })
+      })
       .catch(() => {})
   }
 
@@ -2268,10 +2297,24 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
             <div className="flex items-center gap-4">
               <div className="w-14 h-14 flex items-center justify-center flex-shrink-0" style={{ borderRadius: 12, background: 'var(--successSoft)', border: '1px solid var(--successLine)', color: 'var(--success)' }}><Check size={26} /></div>
               <div>
-                <h3 className="font-extrabold text-xl">Partia {finishPrompt.batch.internalBatchNo} zakończona</h3>
-                <p className="text-sm" style={{ color: 'var(--mut)' }}>Zważyć teraz grzbiety i kości, czy później?</p>
+                <h3 className="font-extrabold text-xl">Partia {finishPrompt.batch.internalBatchNo} {finishPrompt.worker ? 'rozebrana ✓' : 'zakończona'}</h3>
+                <p className="text-sm" style={{ color: 'var(--mut)' }}>{finishPrompt.worker
+                  ? 'Grzbiety i kości zważone przy pobraniach pracowników. Kafel partii zostaje zielony do końca dnia.'
+                  : 'Zważyć teraz grzbiety i kości, czy później?'}</p>
               </div>
             </div>
+            {finishPrompt.worker ? (
+            <div className="flex flex-col gap-3">
+              <button type="button" onClick={() => { setFinishPrompt(null); byproductsData.refetch() }}
+                className="h-14 text-base font-bold flex items-center justify-center gap-3" style={{ borderRadius: 10, background: 'var(--accent)', color: '#fff' }}>
+                <Check size={20} /> OK
+              </button>
+              <button type="button" onClick={() => { const id = finishPrompt.batch.id; setFinishPrompt(null); setPalletBatchId(id); setPalletCheckOpen(true) }}
+                className="h-12 text-base font-bold" style={{ borderRadius: 10, border: '1px solid var(--line)', color: 'var(--ink)' }}>
+                Zważ paletę grzbietów / kości
+              </button>
+            </div>
+            ) : (
             <div className="flex flex-col gap-3">
               <button type="button" onClick={() => openWizard(finishPrompt.batch)}
                 className="h-14 text-base font-bold flex items-center justify-center gap-3" style={{ borderRadius: 10, background: 'var(--accent)', color: '#fff' }}>
@@ -2286,6 +2329,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                 Wpisz ręcznie (awaryjnie)
               </button>
             </div>
+            )}
           </div>
         </div>
       )}
@@ -2604,7 +2648,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
 
       {palletCheckOpen && (
         <ByproductPalletCheckModal scale={scale} cartTares={cartTares} vars={VARS}
-          productionDate={getProductionDate()} defaultBatchId={selBatch?.id}
+          productionDate={getProductionDate()} defaultBatchId={palletBatchId ?? selBatch?.id}
           batches={(() => {
             // Aktywne partie + partie, z których dziś rozliczano pobrania (grzbiety leżą jeszcze na hali).
             const all = (batchData.data?.data ?? []) as RawBatch[]
@@ -2612,7 +2656,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
               ...completeEntries.filter(e => e.settlementStage === 'done').map(e => e.rawBatchId)])
             return all.filter(b => ids.has(b.id))
           })()}
-          onClose={() => setPalletCheckOpen(false)} />
+          onClose={() => { setPalletCheckOpen(false); setPalletBatchId(null) }} />
       )}
 
       {codeAsk && (
@@ -2765,7 +2809,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           style={{ border: '1px solid var(--line)', color: 'var(--ink)', borderRadius: 8, background: 'var(--panel)' }}>
           <Layers size={15} /> Ważenie zbiorcze
         </button>
-        <button type="button" onClick={() => setPalletCheckOpen(true)}
+        <button type="button" onClick={() => { setPalletBatchId(null); setPalletCheckOpen(true) }}
           className="h-9 px-3 text-[13px] font-bold flex items-center gap-1.5 flex-shrink-0"
           style={{ border: '1px solid var(--line)', color: 'var(--ink)', borderRadius: 8, background: 'var(--panel)' }}>
           <Printer size={15} /> Paleta grzbiety/kości
@@ -2832,7 +2876,9 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
           .filter(p => !allActiveBatches.some(b => b.id === p.rawBatchId))
           .map(p => (
             <PendingBatchTile key={p.rawBatchId} rec={p}
-              onOpen={() => setWyborKafla({ batchId: p.rawBatchId, batchNo: p.rawBatchNo })} />
+              onOpen={() => p.mode === 'worker'
+                ? (setPalletBatchId(p.rawBatchId), setPalletCheckOpen(true))
+                : setWyborKafla({ batchId: p.rawBatchId, batchNo: p.rawBatchNo })} />
           ))}
       </div>
 
