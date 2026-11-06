@@ -126,3 +126,25 @@ describe('useTileSettlement', () => {
     expect(takeSettlementApi.finish).toHaveBeenCalledWith('take-1', { code: '1111', reason: 'Inne — wyjaśnię w biurze' })
   })
 })
+
+describe('useTileSettlement — mięso zważone razem z pobraniem', () => {
+  it('saves the meat once when the tile opens and reports it to the page', async () => {
+    const s0 = state({ stage: 'meat', meatKg: 0, backsKg: 0, bonesKg: 0, totalKg: 0, weighings: [] })
+    vi.mocked(takeSettlementApi.weigh).mockResolvedValue(state({ stage: 'meat', meatKg: 200, backsKg: 0, bonesKg: 0, totalKg: 200 }))
+    const onInitialResult = vi.fn()
+    const { result } = renderHook(() => useTileSettlement({ onInitialResult }))
+    await act(async () => { result.current.open(s0, { kgNet: 200, kgGross: 221.5, tareCartKg: 5.5, tareE2Kg: 16, e2Count: 8, weighMode: 'auto' }) })
+    await act(async () => { await Promise.resolve() })
+    expect(takeSettlementApi.weigh).toHaveBeenCalledTimes(1)
+    expect(onInitialResult).toHaveBeenCalledWith(null, expect.objectContaining({ kind: 'meat', kgNet: 200, tareCartKg: 5.5, e2Count: 8 }))
+  })
+
+  it('reports a refused immediate meat weighing instead of hiding it', async () => {
+    vi.mocked(takeSettlementApi.weigh).mockRejectedValueOnce(Object.assign(new Error('Suma mięsa przekracza pobranie — sprawdź tarę'), { status: 400 }))
+    const onInitialResult = vi.fn()
+    const { result } = renderHook(() => useTileSettlement({ onInitialResult }))
+    await act(async () => { result.current.open(state({ stage: 'meat', meatKg: 0, weighings: [] }), { kgNet: 400, weighMode: 'manual' }) })
+    await act(async () => { await Promise.resolve() })
+    expect(onInitialResult).toHaveBeenCalledWith('Suma mięsa przekracza pobranie — sprawdź tarę', expect.objectContaining({ kgNet: 400 }))
+  })
+})
