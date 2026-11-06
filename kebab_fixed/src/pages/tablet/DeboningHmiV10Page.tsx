@@ -347,7 +347,7 @@ const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount
   disabled?: boolean
   onSelect: (w: User) => void; onLongPress: (w: User) => void
 }) {
-  const initials = worker.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+  const label = workerTileLabel(worker.name)
   // Przytrzymanie (0,5 s) = szczegóły/edycja pracownika; krótkie dotknięcie = wybór.
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const longRef = useRef(false)
@@ -366,8 +366,9 @@ const WorkerTileV10 = memo(function WorkerTileV10({ worker, selected, entryCount
         color: selected ? '#fff' : disabled ? 'var(--mut)' : 'var(--ink)',
         opacity: disabled ? 0.5 : blocked ? 0.55 : 1,
       }}>
-      <span className="font-extrabold text-3xl leading-none">{initials}</span>
-      <span className="text-sm font-semibold leading-tight text-center truncate w-full">{worker.name}</span>
+      {/* Duże imię, pod nim mniejszy numer pracownika — bez skrótu z liter („I8” mylił się w oczach, hala 2026-11-06). */}
+      <span className="font-extrabold leading-tight text-center w-full line-clamp-2 break-words text-[22px]">{label.name}</span>
+      {label.no ? <span className="hmi-v10-mono font-bold leading-none text-lg" style={{ opacity: 0.8 }}>{label.no}</span> : null}
       {pendingKg != null ? (
         <span className="text-[10px] font-bold uppercase text-center leading-tight px-1 py-0.5 w-full"
           style={{ borderRadius: 6, background: selected ? 'rgba(255,255,255,.2)' : 'var(--ambSoft)', color: selected ? '#fff' : 'var(--amb)', letterSpacing: '.02em' }}>
@@ -543,6 +544,12 @@ const TakeProgressBarV10 = memo(function TakeProgressBarV10({ p, compact = false
     </div>
   )
 })
+
+/** „IVAN 8” → numer 8 + imię IVAN. Bez numeru na końcu — samo imię. */
+export function workerTileLabel(name: string): { no: string | null; name: string } {
+  const m = /^(.*\S)\s+(\d{1,3})$/.exec(name.trim())
+  return m ? { no: m[2], name: m[1] } : { no: null, name: name.trim() }
+}
 
 /** Kafelek podsumowania po zapisie — operator widzi na oko CO zapisał, bez
  * szukania w gęstej tabeli „Ostatnie wpisy". `meatKg: null` = tylko pobranie
@@ -2465,7 +2472,7 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
             <div className="w-[720px] max-w-[96vw] flex flex-col" style={{ maxHeight: '92vh', borderRadius: 16, background: 'var(--bg)', color: 'var(--ink)', border: '1px solid var(--line)', boxShadow: '0 30px 80px -30px rgba(0,0,0,.5)' }}>
               <div className="flex items-center gap-4 px-6 py-4 flex-shrink-0" style={{ borderBottom: '1px solid var(--line)', background: 'var(--panel)', borderTopLeftRadius: 16, borderTopRightRadius: 16 }}>
                 <span className="w-12 h-12 rounded-full flex items-center justify-center font-extrabold" style={{ background: 'var(--accent)', color: '#fff' }}>
-                  {workerDetail.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
+                  {workerTileLabel(workerDetail.name).no ?? workerDetail.name.trim().charAt(0).toUpperCase()}
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="font-extrabold text-xl leading-tight truncate">{workerDetail.name}</div>

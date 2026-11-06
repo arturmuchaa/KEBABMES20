@@ -45,3 +45,16 @@ def test_invalid_measurement_rejected(overrides):
 def test_auto_and_explicit_manual_measurements():
     assert measurement().kg_net == 100
     assert measurement(weighMode='manual', reason='Waga niedostępna').kg_net == 100
+
+
+def test_scale_measurement_must_subtract_cart_and_containers():
+    """Net from the scale = gross − carts − E2 × 2 kg; anything else is refused (2026-11-06 check)."""
+    import pytest
+    from pydantic import ValidationError
+    from app.models.deboning_settlement import SettlementWeighing
+    base = {'requestId': 'abcdefgh-1', 'kind': 'meat', 'weighMode': 'auto', 'kgGross': 132, 'tareCartKg': 12, 'tareE2Kg': 10, 'e2Count': 5}
+    assert SettlementWeighing(**base, kgNet=110).kg_net == 110          # two 6 kg carts + 5 E2
+    with pytest.raises(ValidationError, match='Netto nie zgadza'):
+        SettlementWeighing(**base, kgNet=154)                          # tare added instead of subtracted
+    with pytest.raises(ValidationError, match='Tara E2'):
+        SettlementWeighing(**{**base, 'tareE2Kg': 8}, kgNet=112)       # containers × 2 kg must match
