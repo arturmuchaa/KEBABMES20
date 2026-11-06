@@ -727,6 +727,8 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
   const pickCartTare = useCallback((w: number) => {
     if (w === 0) { setNoCart(true); setCartCounts({}); return }
     setNoCart(false)
+    // Wózek = zwykle 5 pojemników E2: start od 5, operator koryguje ± (hala 2026-11-06).
+    setE2Count(n => (n > 0 ? n : 5))
     setCartCounts(prev => {
       const key = String(w)
       const next = ((prev[key] ?? 0) + 1) % 4
@@ -1763,10 +1765,13 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
     )
     if (err) { showToast(err, 'err'); return }
     batchData.refetch()
+    const takenBy = selWorker
     setKgTaken(''); setKgMeat(''); setActive('taken'); setMeatManual(false); setMeatType('zs')
     setMeatDriveOff(DRIVE_OFF_IDLE)
+    // Pobranie zapisane — następny krok to wybór pracownika od zera, bez podświetlonego poprzedniego.
+    setSelWorker(null)
     showToast(`Pobrano ${fmtKg(taken, 1)} kg — czeka na zważenie`)
-    flashSaveSummary({ batchNo: selBatch.internalBatchNo, workerName: selWorker.name, takenKg: taken, meatKg: null, kind: 'taken' })
+    flashSaveSummary({ batchNo: selBatch.internalBatchNo, workerName: takenBy.name, takenKg: taken, meatKg: null, kind: 'taken' })
     // Pobranie NIE zakańcza partii, nawet gdy wyczerpało kg — mięso dopiero
     // przyjdzie na wagę. Zakończenie odpala się przy domknięciu OSTATNIEGO
     // pobrania (handleCompleteTake + gwarancja serwerowa).
@@ -2842,7 +2847,10 @@ export function DeboningHmiV10Page({ allowOperatorSwitch = false, guided = false
                       otherKindKg={st?.otherKindKg}
                       otherKind={meatType === 'bs' ? 'zs' : 'bs'}
                       blocked={st?.blocked}
-                      disabled={batchWaitingOnlyForMeat && st?.action === 'new'}
+                      // W trakcie ważenia pracownika pozostali są zablokowani (hala 2026-11-06) —
+                      // wyjście: ZATWIERDŹ albo PÓŹNIEJ / Anuluj; potem wybór od zera.
+                      disabled={(batchWaitingOnlyForMeat && st?.action === 'new')
+                        || (!!tileSt && tileSt.workerId !== w.id) || (!!resumeId && selWorker?.id !== w.id)}
                       onSelect={pickWorker}
                       onLongPress={(wk) => { setWorkerDetail(wk); setEditEntryId(null) }} />
                   )

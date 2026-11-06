@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { ByproductPalletCheckModal, palletCheckNet } from './ByproductPalletCheckModal'
+import { ByproductPalletCheckModal, defaultContainers, palletCheckNet } from './ByproductPalletCheckModal'
 import { byproductPalletChecksApi } from '@/lib/api'
 import { sendZpl } from '@/lib/zebra'
 import type { RawBatch } from '@/types'
@@ -14,6 +14,12 @@ const batches = [{ id: 'b695', internalBatchNo: '695' }, { id: 'b696', internalB
 const scale = { available: true, connected: true, stable: true, gross: 412.5, tare: vi.fn() }
 
 describe('paleta grzbietów/kości — ważenie informacyjne', () => {
+  it('containers start from 36 on an H1 pallet and 5 on a cart', () => {
+    expect(defaultContainers('pallet:H1', 0)).toBe(36)
+    expect(defaultContainers('cart:6', 36)).toBe(5)
+    expect(defaultContainers('none', 12)).toBe(12)
+  })
+
   it('net = gross − pallet − E2 × 2 kg', () => {
     expect(palletCheckNet(412.5, 18, 20)).toBe(354.5)
     expect(palletCheckNet(412.5, null, 20)).toBe(0)
@@ -27,7 +33,8 @@ describe('paleta grzbietów/kości — ważenie informacyjne', () => {
     render(<ByproductPalletCheckModal scale={scale} cartTares={[6]} batches={batches} defaultBatchId="b695" productionDate="2026-11-06" onClose={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: '696' }))
     fireEvent.click(screen.getAllByRole('button').find(b => b.textContent?.startsWith('H1'))!)
-    for (let i = 0; i < 20; i++) fireEvent.click(screen.getByRole('button', { name: 'Więcej pojemników' }))
+    expect(screen.getByText('36')).toBeTruthy()          // H1 starts from 36 containers
+    for (let i = 0; i < 16; i++) fireEvent.click(screen.getByRole('button', { name: 'Mniej pojemników' }))
     const save = screen.getByRole('button', { name: /ZAPISZ I DRUKUJ ETYKIETĘ — GRZBIETY 354,5 KG/ })
     await act(async () => { fireEvent.click(save) })
     const dto = vi.mocked(byproductPalletChecksApi.create).mock.calls[0][0]

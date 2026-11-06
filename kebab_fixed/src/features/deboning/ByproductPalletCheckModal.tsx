@@ -12,6 +12,12 @@ const KIND_LABEL = { backs: 'Grzbiety', bones: 'Kości' } as const
 type Kind = keyof typeof KIND_LABEL
 const newId = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`)
 
+/** Containers to start from when a tare is picked (hall 2026-11-06): an H1 pallet usually
+ * carries 36 E2, a cart 5; the operator adjusts with ± from there. "Bez" keeps the count. */
+export function defaultContainers(tareKey: string, current: number) {
+  return tareKey.startsWith('pallet:') ? 36 : tareKey.startsWith('cart:') ? 5 : current
+}
+
 /** Net of the pallet on the scale: gross − pallet/cart − E2 × 2 kg (0 when not ready). */
 export function palletCheckNet(gross: number, tareKg: number | null, e2Count: number) {
   if (tareKg == null) return 0
@@ -122,7 +128,7 @@ export function ByproductPalletCheckModal({ scale, cartTares, batches, defaultBa
           <span className="text-[11px] font-bold uppercase" style={{ color: 'var(--mut)', letterSpacing: '.08em' }}>Paleta / wózek</span>
           <div className="flex flex-wrap gap-2">
             {tares.map(t => (
-              <button key={t.key} type="button" aria-pressed={tareKey === t.key} onClick={() => setTareKey(t.key)}
+              <button key={t.key} type="button" aria-pressed={tareKey === t.key} onClick={() => { setTareKey(t.key); setE2Count(defaultContainers(t.key, e2Count)) }}
                 className="min-w-[96px] h-14 px-3 flex flex-col items-center justify-center" style={chip(tareKey === t.key)}>
                 <span className="font-extrabold text-lg leading-none">{t.title}</span>
                 <span className="text-[10px] font-bold uppercase opacity-80">{t.sub}</span>

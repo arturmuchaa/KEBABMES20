@@ -41,6 +41,7 @@ describe('SettlementBalancePanel (bilans na środku ekranu)', () => {
     expect(within(panel).getByText('Grzbiety')).toBeTruthy()
     expect(within(panel).getByText('Kości')).toBeTruthy()
     expect(within(panel).getByText('285,0 kg')).toBeTruthy()
+    expect(within(panel).getByLabelText('Procent mięsa z pobrania').textContent).toMatch(/66,7%/)
     expect(within(panel).getByRole('status').textContent).toMatch(/Brakuje 15,0 kg/)
     expect(within(panel).getByRole('status').textContent).toMatch(/\+1,5% \/ −0,5% = 298,5–304,5 kg/)
   })
