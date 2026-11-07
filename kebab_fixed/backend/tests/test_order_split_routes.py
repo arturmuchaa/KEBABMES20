@@ -129,6 +129,22 @@ def test_komplet_dzieli_kilogramy_miedzy_dokumenty(db):
     assert dane["cmr"][1]["payload"]["gross_kg"] == 300.0
 
 
+def test_komplet_CALOSC_NA_WZ_bez_dokumentow_do_faktury(db):
+    """Biuro 07.11.2026: „VATAN jedzie na WZ" — a komplet wymagał choćby 1 kg
+    na fakturze. Lustro „całości na fakturę" (tam nie ma WZ dla klienta): przy
+    0 kg na fakturę nie ma czego opisać HDI ani CMR do faktury. Zastępuje
+    dawną odmowę (b) „podział na 0 kg": tamta chroniła przed numerem HDI
+    spalonym przed wywrotką na CMR — teraz dokumentów do faktury po prostu nie ma."""
+    _przygotuj_z_podzialem(cel_kg=0.0)            # 800 kg całości, nic na fakturę
+    dane = route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=True))
+    assert dane["wm"]["kg"] == 800.0
+    assert dane["wz"]["kg"] == 800.0
+    assert dane["hdi_fv"] is None
+    assert float(dane["hdi_calosc"]["totals"]["kg"]) == 800.0
+    assert [c["scope"] for c in dane["cmr"]] == ["calosc"]
+    assert dane["cmr"][0]["payload"]["gross_kg"] == 800.0
+
+
 # ── Pokrycie: papier nie może opisywać więcej, niż wyjechało ──────
 #
 # `_sprawdz_gotowosc_do_kompletu` liczy sztuki z `client_order_lines`,
@@ -287,18 +303,6 @@ def test_komplet_bez_podzialu_nie_rusza_magazynu(db):
         route.wystaw_komplet("o1", route.KompletDokumentow())
     assert exc.value.status_code == 400
     assert "podziału" in exc.value.detail
-    _nic_nie_powstalo()
-
-
-def test_komplet_bez_sztuk_na_fakture_nie_rusza_magazynu(db):
-    """(b) Podział na 0 kg — bez tej bramki WM, WZ i HDI na całość powstawały,
-    a komplet wywracał się dopiero na „Brak towaru do umieszczenia na CMR",
-    czyli PO spaleniu numeru HDI."""
-    _przygotuj_z_podzialem(cel_kg=0.0)
-    with pytest.raises(HTTPException) as exc:
-        route.wystaw_komplet("o1", route.KompletDokumentow(hdi_fv=False))
-    assert exc.value.status_code == 400
-    assert "fakturę" in exc.value.detail
     _nic_nie_powstalo()
 
 

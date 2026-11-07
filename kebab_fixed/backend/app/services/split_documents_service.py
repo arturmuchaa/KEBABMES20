@@ -246,6 +246,14 @@ def _ma_czesc_niefakturowana(order_id: str) -> bool:
     return any(int(l.get("qty") or 0) - int(l.get("qty_invoice") or 0) > 0 for l in linie)
 
 
+def _ma_czesc_fakturowana(order_id: str) -> bool:
+    """Czy cokolwiek idzie na fakturę — HDI i CMR „do faktury" mają co opisać."""
+    linie = query_all(
+        "SELECT qty, qty_invoice FROM client_order_lines WHERE order_id=%s", (order_id,))
+    linie = shipment.lines_for(order_id, linie)
+    return any(int(l.get("qty_invoice") or 0) > 0 for l in linie or [])
+
+
 def _pozycje_niefakturowane(order: Dict[str, Any],
                             linie: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Pozycje WZ klienta: `qty - qty_invoice` z każdej linii zamówienia.
@@ -543,10 +551,11 @@ def _sprawdz_gotowosc_do_kompletu(order_id: str) -> None:
             400, "Zamówienie nie ma podziału na fakturę i WZ — najpierw zapisz podział.")
     na_fakture = sum(int(l.get("qty_invoice") or 0) for l in linie)
     na_wz = sum(int(l.get("qty") or 0) - int(l.get("qty_invoice") or 0) for l in linie)
-    if na_fakture <= 0:
-        raise HTTPException(
-            400, "Podział nie przewiduje ani jednej sztuki na fakturę — popraw podział "
-                 "albo wystaw zwykłe WZ na całość.")
+    # Lustro „całości na fakturę": całość na WZ (biuro 07.11.2026 — „VATAN jedzie
+    # na WZ", a komplet wymagał choćby 1 kg na fakturze). Dokumentów do faktury
+    # wtedy nie ma (`wystaw_komplet`), więc żaden numer się nie spali.
+    if na_fakture <= 0 and na_wz <= 0:
+        raise HTTPException(400, "Zamówienie nie ma żadnych sztuk do wystawienia.")
     # `na_wz == 0` NIE jest błędem: to odbiorca biorący wszystko na fakturę
     # (biuro, 12.09.2026 — „u NAZARA wszystko na fakturę, wtedy nie ma
     # problemu, drukujemy HDI i CMR na całość"). Powstaje wtedy WM na całe
@@ -630,14 +639,18 @@ def wystaw_komplet(order_id: str, forma_cmr: Dict[str, Any],
     # tam brak części niefakturowanej naprawdę znaczy pomyłkę.
     wz = wystaw_wz_klienta(order_id) if _ma_czesc_niefakturowana(order_id) else None
     hdi_calosc = hdi_service.generate_hdi(order_id)
+    # Całość na WZ: nic nie idzie na fakturę, więc HDI i CMR „do faktury" nie
+    # mają czego opisać (i odmówiłyby „Brak towaru") — tak jak WZ klienta wyżej.
+    ma_fv = _ma_czesc_fakturowana(order_id)
     hdi_do_faktury = hdi_service.generate_hdi(
-        order_id, scope=hdi_service.ZAKRES_FV) if hdi_fv else None
+        order_id, scope=hdi_service.ZAKRES_FV) if hdi_fv and ma_fv else None
     # Oba listy z JEDNEGO formularza: ten sam kierowca i to samo auto,
     # różni je wyłącznie zakres.
     cmr: List[Dict[str, Any]] = [
         cmr_service.generate_cmr(order_id, forma_cmr, scope=cmr_service.ZAKRES_CALOSC),
-        cmr_service.generate_cmr(order_id, forma_cmr, scope=cmr_service.ZAKRES_FV),
     ]
+    if ma_fv:
+        cmr.append(cmr_service.generate_cmr(order_id, forma_cmr, scope=cmr_service.ZAKRES_FV))
     pokrycie = _pokrycie_wysylki(order_id, float(wm.get("kg") or 0))
     if not pokrycie["pelne"]:
         logger.warning("podzial.komplet.niepelne_pokrycie",
