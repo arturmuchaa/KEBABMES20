@@ -378,6 +378,23 @@ def correct_deboning_entry(entry_id: str, dto: DeboningEntryCorrect, request: Re
     )
 
 
+@router.get("/api/deboning/deleted-entries")
+def list_deleted_deboning_entries(days: int = 14):
+    """Usunięte wpisy z kompletem wag (ślad usunięcia) — dla biura."""
+    from app.services import deboning_restore_service as restore
+    return {"data": restore.list_deleted(days)}
+
+
+@router.post("/api/deboning/deleted-entries/{entry_id}/restore")
+def restore_deleted_deboning_entry(entry_id: str, body: dict, request: Request):
+    """Przywrócenie usuniętego wpisu (także na innego pracownika) tą samą drogą co hala."""
+    from app.services import deboning_restore_service as restore
+    subject = getattr(request.state, "subject", None) or {}
+    by = str(subject.get("username") or subject.get("id") or "")
+    body = body or {}
+    return restore.restore(entry_id, str(body.get("workerId") or ""), str(body.get("reason") or ""), by)
+
+
 @router.post("/api/deboning/entries/{entry_id}/office-delete")
 def office_delete_deboning_entry(entry_id: str, body: dict, request: Request):
     """Usunięcie wpisu z BIURA — omija okno 15 minut, które pilnuje hali.

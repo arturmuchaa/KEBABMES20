@@ -129,6 +129,10 @@ def permission_for_path(path: str, method: str = "GET") -> str:
     # wyłącznie biuro. Zwykły DELETE (HMI, świeży wpis) zostaje przy „rozbior".
     if path.startswith("/api/deboning/entries/") and path.endswith("/office-delete"):
         return "office"
+    # Usunięte wpisy i ich przywracanie: ślad cudzego akordu i dopisanie pracy —
+    # wyłącznie biuro.
+    if path.startswith("/api/deboning/deleted-entries"):
+        return "office"
     # Usunięcie z HALI omija tylko okno 15 minut — zmiana zamknięta
     # i zatwierdzona blokuje dalej, więc operator nie sięgnie dnia domkniętego.
     # Operator musi móc skasować własną pomyłkę sprzed godziny bez biura.

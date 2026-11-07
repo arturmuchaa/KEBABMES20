@@ -2068,9 +2068,14 @@ def _slad_usuniecia_cx(conn, entry, zapisz_slad: bool,
              "usuniety": {
                  "sessionNo": entry.get("session_no"),
                  "rawBatchNo": entry.get("raw_batch_no"),
+                 "sessionId": entry.get("session_id"),
+                 "workerId": entry.get("worker_id"),
+                 "meatType": entry.get("meat_type") or "zs",
                  "worker": entry.get("worker_name"),
                  "kgQuarter": float(entry.get("kg_quarter") or 0),
                  "kgMeat": float(entry.get("kg_meat") or 0),
+                 "kgBacks": float(entry.get("kg_backs") or 0),
+                 "kgBones": float(entry.get("kg_bones") or 0),
              }
          }, ensure_ascii=False)),
     )
