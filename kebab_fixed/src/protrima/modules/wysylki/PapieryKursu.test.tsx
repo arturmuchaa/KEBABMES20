@@ -11,7 +11,7 @@ vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), zaladunkiAp
 const refresh = vi.fn(() => Promise.resolve())
 vi.mock('../../data/store', () => ({ useOrders: () => ({ refresh }) }))
 import { PapieryKursu } from './PapieryKursu'
-import { papieryPozycji, zamowieniaDoWystawienia, PUSTA_DECYZJA, type Kurs } from './kurs'
+import { papieryPozycji, zamowieniaDoWystawienia, wpiszKg, calosc, PUSTA_DECYZJA, type Kurs } from './kurs'
 
 const KURS: Kurs = {
   id: 'k1', plate: 'KOL47267', finished_at: '2026-10-30T07:08:40Z', printed_at: null,
@@ -28,12 +28,25 @@ afterEach(cleanup)
 beforeEach(() => { Object.values(api).forEach(f => f.mockReset()); pdf.mockClear(); refresh.mockClear(); api.get.mockResolvedValue(KURS); api.wystaw.mockResolvedValue({}) })
 
 describe('Papiery kursu — logika', () => {
-  it('całość = to, co wyjechało; podział: kg > 0 i nie więcej niż wyjechało; HDI do faktury domyślnie', () => {
+  it('nic nie wpisano = całość na fakturę; HDI do faktury domyślnie', () => {
     expect(zamowieniaDoWystawienia(KURS, {})).toEqual({ orders: [{ order_id: 'o1', cel_kg: 5200, invoice_no: '', hdi_fv: true }] })
-    expect(zamowieniaDoWystawienia(KURS, { o1: { ...PUSTA_DECYZJA, tryb: 'podzial', kgFv: '' } })).toEqual({ blad: 'ISSA DISTRIB: podaj kilogramy na fakturę.' })
-    expect(zamowieniaDoWystawienia(KURS, { o1: { ...PUSTA_DECYZJA, tryb: 'podzial', kgFv: '6000' } })).toMatchObject({ blad: expect.stringMatching(/więcej niż wyjechało/) })
-    expect(zamowieniaDoWystawienia(KURS, { o1: { tryb: 'podzial', kgFv: '3 000,5', fakturaNr: ' FV 1/10 ', hdiFv: false } }))
+  })
+  it('pola połączone: wpis na WZ liczy fakturę i odwrotnie (9000 → WZ 3000 = FV 6000)', () => {
+    const p = { ...KURS.pozycje[0], kg_zaladowane: 9000 }
+    expect(wpiszKg(p, PUSTA_DECYZJA, 'wz', '3000')).toMatchObject({ kgWz: '3000', kgFv: '6000' })
+    expect(wpiszKg(p, PUSTA_DECYZJA, 'fv', '2500,5')).toMatchObject({ kgFv: '2500,5', kgWz: '6499,5' })
+    expect(wpiszKg(p, PUSTA_DECYZJA, 'fv', '')).toMatchObject({ kgFv: '', kgWz: '' })
+  })
+  it('całość na WZ = 0 kg na fakturę, bez HDI i numeru faktury; więcej niż wyjechało — odmowa', () => {
+    const p = KURS.pozycje[0]
+    expect(zamowieniaDoWystawienia(KURS, { o1: { ...calosc(p, PUSTA_DECYZJA, 'wz'), fakturaNr: 'FV 1' } }))
+      .toEqual({ orders: [{ order_id: 'o1', cel_kg: 0, invoice_no: '', hdi_fv: false }] })
+    expect(zamowieniaDoWystawienia(KURS, { o1: wpiszKg(p, PUSTA_DECYZJA, 'fv', '6000') })).toMatchObject({ blad: expect.stringMatching(/więcej niż wyjechało/) })
+    expect(zamowieniaDoWystawienia(KURS, { o1: wpiszKg(p, PUSTA_DECYZJA, 'wz', '6000') })).toMatchObject({ blad: expect.stringMatching(/na WZ nie może iść więcej/) })
+    expect(zamowieniaDoWystawienia(KURS, { o1: { ...PUSTA_DECYZJA, kgFv: '-5', kgWz: '5205' } })).toMatchObject({ blad: expect.stringMatching(/ujemne/) })
+    expect(zamowieniaDoWystawienia(KURS, { o1: { ...wpiszKg(p, PUSTA_DECYZJA, 'fv', '3 000,5'), fakturaNr: ' FV 1/10 ', hdiFv: false } }))
       .toEqual({ orders: [{ order_id: 'o1', cel_kg: 3000.5, invoice_no: 'FV 1/10', hdi_fv: false }] })
+    expect(zamowieniaDoWystawienia(KURS, { o1: { ...PUSTA_DECYZJA, kgFv: 'abc', kgWz: '1' } })).toMatchObject({ blad: expect.stringMatching(/wpisz kilogramy/) })
   })
   it('dokumenty odbiorcy: WM, HDI na całość i do faktury, CMR — z adresami PDF', () => {
     const p = papieryPozycji(KURS.pozycje[1])
@@ -50,9 +63,10 @@ describe('Papiery kursu — ekran', () => {
     mount()
     expect(await screen.findByText('Do wystawienia · 1')).toBeTruthy()
     const karta = screen.getByLabelText('Odbiorca ISSA DISTRIB')
-    fireEvent.click(within(karta).getByRole('button', { name: 'Podział' }))
-    fireEvent.change(within(karta).getByLabelText('kg na fakturę, ISSA DISTRIB'), { target: { value: '4000' } })
-    expect(within(karta).getByText(/reszta 1\s?200 kg na WZ/)).toBeTruthy()
+    expect((within(karta).getByLabelText('kg na fakturę, ISSA DISTRIB') as HTMLInputElement).value).toBe('5200')
+    fireEvent.change(within(karta).getByLabelText('kg na WZ, ISSA DISTRIB'), { target: { value: '1200' } })
+    expect((within(karta).getByLabelText('kg na fakturę, ISSA DISTRIB') as HTMLInputElement).value).toBe('4000')
+    expect(within(karta).getByRole('button', { name: 'Podział' }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.change(within(karta).getByLabelText('Nr faktury, ISSA DISTRIB'), { target: { value: 'FV 11/10/2026' } })
     await waitFor(() => expect(screen.getByRole('option', { name: 'TRANS-POL, Kraków' })).toBeTruthy())
     fireEvent.change(screen.getByLabelText('Przewoźnik'), { target: { value: 'c1' } })
@@ -68,6 +82,21 @@ describe('Papiery kursu — ekran', () => {
     expect(orders).toEqual([{ order_id: 'o1', cel_kg: 4000, invoice_no: 'FV 11/10/2026', hdi_fv: true }])
     expect(transport).toMatchObject({ carrier_id: 'c1', plate: 'KOL47267', instructions: 'TRANSPORT MROŻNICZY -22' })
     expect(refresh).toHaveBeenCalled()
+  })
+
+  it('całość na WZ: bez pól faktury, w potwierdzeniu „bez dokumentów do faktury”, wysyła 0 kg', async () => {
+    mount()
+    const karta = await screen.findByLabelText('Odbiorca ISSA DISTRIB')
+    fireEvent.click(within(karta).getByRole('button', { name: 'Całość na WZ' }))
+    expect((within(karta).getByLabelText('kg na WZ, ISSA DISTRIB') as HTMLInputElement).value).toBe('5200')
+    expect((within(karta).getByLabelText('kg na fakturę, ISSA DISTRIB') as HTMLInputElement).value).toBe('0')
+    expect(within(karta).queryByLabelText('Nr faktury, ISSA DISTRIB')).toBeNull()
+    run('issue')
+    const dlg = await screen.findByRole('dialog')
+    expect(within(dlg).getByText(/na WZ — bez dokumentów do faktury/)).toBeTruthy()
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Wystaw komplet' }))
+    await waitFor(() => expect(api.wystaw).toHaveBeenCalledTimes(1))
+    expect(api.wystaw.mock.calls[0][1]).toEqual([{ order_id: 'o1', cel_kg: 0, invoice_no: '', hdi_fv: false }])
   })
 
   it('pobranie PDF pojedynczo i wszystkich; „wydrukowane” zablokowane, dopóki ktoś czeka na wystawienie', async () => {

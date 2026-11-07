@@ -7,8 +7,8 @@ import { FlagIcon } from '../../ui/Glyphs'
 import { carriersApi, downloadDocPdf, zaladunkiApi, type Carrier } from '@/lib/api'
 import { INSTRUKCJE_DOMYSLNE } from '../orders/dokumenty/Cmr'
 import {
-  PUSTA_DECYZJA, doWystawienia, kgNaFakture, papieryPozycji, zamowieniaDoWystawienia,
-  type Decyzja, type Kurs, type Transport,
+  PUSTA_DECYZJA, calosc, doWystawienia, kgNaFakture, kgNaWz, papieryPozycji, uklad, wpiszKg, zamowieniaDoWystawienia,
+  type Decyzja, type Kurs, type PozycjaKursu, type Transport,
 } from './kurs'
 
 const godz = (iso: string | null) => {
@@ -95,7 +95,6 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
   ], [czekajace.length, busy, wynik, wszystkiePapiery.length, kurs, wczytaj, onDone]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (active) setCmds(cmds) }, [cmds, setCmds, active])
 
-  const ustaw = (orderId: string, patch: Partial<Decyzja>) => setDecyzje(s => ({ ...s, [orderId]: { ...(s[orderId] ?? PUSTA_DECYZJA), ...patch } }))
   const wybierzPrzewoznika = (id: string) => setTransport(t => ({ ...t, carrier_id: id, plate: t.plate.trim() || (carriers?.find(c => c.id === id)?.defaultPlate ?? '') }))
 
   return (
@@ -108,29 +107,8 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
 
           {czekajace.length > 0 && <>
             <div className="sect-h"><h3><Truck size={16} style={{ verticalAlign: -3 }} /> Do wystawienia · {czekajace.length}</h3>
-              <span className="sub">przy każdym odbiorcy wybierz, ile idzie na fakturę — reszta pójdzie na WZ</span></div>
-            {czekajace.map(p => {
-              const d = decyzje[p.order_id] ?? PUSTA_DECYZJA
-              const naFv = kgNaFakture(p, d)
-              return (
-                <div key={p.order_id} className="box kurs-odb" aria-label={`Odbiorca ${p.client_name ?? ''}`}>
-                  <div className="ko-h"><b>{p.client_name || '—'}</b><span className="muted">{p.order_no}</span>
-                    <span className="ko-kg">wyjechało <b>{kg(p.kg_zaladowane)}</b> · {num(p.zaladowano.length)} poz.</span></div>
-                  <div className="ko-f">
-                    <div className="seg" role="group" aria-label={`Faktura — ${p.client_name ?? ''}`}>
-                      <button type="button" aria-pressed={d.tryb === 'calosc'} onClick={() => ustaw(p.order_id, { tryb: 'calosc' })}>Całość na fakturę</button>
-                      <button type="button" aria-pressed={d.tryb === 'podzial'} onClick={() => ustaw(p.order_id, { tryb: 'podzial' })}>Podział</button>
-                    </div>
-                    {d.tryb === 'podzial' && <label className="fld ko-kgfv"><span className="label">kg na fakturę</span>
-                      <input className="field num" inputMode="decimal" value={d.kgFv} placeholder="0" onChange={e => ustaw(p.order_id, { kgFv: e.target.value })} aria-label={`kg na fakturę, ${p.client_name ?? ''}`} />
-                      <span className="sub">reszta {kg(Math.max(0, p.kg_zaladowane - naFv))} na WZ</span></label>}
-                    <label className="fld"><span className="label">Nr faktury (CMR, pole 5)</span>
-                      <input className="field" value={d.fakturaNr} placeholder="FV 11/10/2026" onChange={e => ustaw(p.order_id, { fakturaNr: e.target.value })} aria-label={`Nr faktury, ${p.client_name ?? ''}`} /></label>
-                    <label className="ko-chk"><input type="checkbox" className="cbx" checked={d.hdiFv} onChange={e => ustaw(p.order_id, { hdiFv: e.target.checked })} />HDI także do faktury <span className="faint">(drugie, obok HDI na całość)</span></label>
-                  </div>
-                </div>
-              )
-            })}
+              <span className="sub">przy każdym odbiorcy wpisz kilogramy na fakturę albo na WZ — drugie pole policzy się samo</span></div>
+            {czekajace.map(p => <KartaOdbiorcy key={p.order_id} p={p} d={decyzje[p.order_id] ?? PUSTA_DECYZJA} zmien={d => setDecyzje(s => ({ ...s, [p.order_id]: d }))} />)}
             <div className="box ov-card">
               <h4>Dane na listy przewozowe (CMR) — wspólne dla kursu</h4>
               <div className="kurs-tr">
@@ -173,9 +151,62 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
       {pytanie && !('blad' in wynik) && <Dialog title="Wystawić komplet dokumentów?" icon={<FileText size={20} />} onClose={() => setPytanie(false)}
         footer={<><button className="btn" onClick={() => setPytanie(false)} data-autofocus>Wróć</button><button className="btn primary" disabled={!!busy} onClick={() => void wystaw()}>{busy === 'wystaw' ? 'Wystawianie…' : 'Wystaw komplet'}</button></>}>
         <p>Dla {wynik.orders.length} {wynik.orders.length === 1 ? 'odbiorcy' : 'odbiorców'} powstaną WM/WZ, HDI i CMR.</p>
-        <ul style={{ margin: 0, paddingLeft: 18 }}>{czekajace.map(p => { const d = decyzje[p.order_id] ?? PUSTA_DECYZJA; return <li key={p.order_id}><b>{p.client_name}</b>: {d.tryb === 'calosc' ? `całość ${kg(p.kg_zaladowane)} na fakturę` : `${kg(kgNaFakture(p, d))} na fakturę, reszta na WZ`}{d.hdiFv ? ' · HDI także do faktury' : ''}</li> })}</ul>
+        <ul style={{ margin: 0, paddingLeft: 18 }}>{czekajace.map(p => { const d = decyzje[p.order_id] ?? PUSTA_DECYZJA; return <li key={p.order_id}><b>{p.client_name}</b>: {opisUkladu(p, d)}{d.hdiFv && uklad(p, d) !== 'wz' ? ' · HDI także do faktury' : ''}</li> })}</ul>
         <div className="note warn"><FlagIcon level="warn" size={15} /><div>WZ wewnętrzny (WM) <b>zdejmie towar ze stanu magazynu</b> — do tej chwili towar wyjechał, ale magazyn go jeszcze pokazuje.</div></div>
       </Dialog>}
     </>
+  )
+}
+
+const opisUkladu = (p: PozycjaKursu, d: Decyzja) => {
+  const u = uklad(p, d)
+  if (u === 'fv') return `całość ${kg(p.kg_zaladowane)} na fakturę`
+  if (u === 'wz') return `całość ${kg(p.kg_zaladowane)} na WZ — bez dokumentów do faktury`
+  return `${kg(kgNaFakture(p, d))} na fakturę, ${kg(kgNaWz(p, d))} na WZ`
+}
+
+/**
+ * Jeden odbiorca kursu: szybki wybór (całość na fakturę / podział / całość na WZ)
+ * i dwa połączone pola kg — wpis w jednym przelicza drugie z tego, co wyjechało.
+ */
+function KartaOdbiorcy({ p, d, zmien }: { p: PozycjaKursu; d: Decyzja; zmien: (d: Decyzja) => void }) {
+  const kto = p.client_name ?? ''
+  const u = uklad(p, d)
+  const fv = kgNaFakture(p, d), wz = kgNaWz(p, d)
+  const pole = (x: string, n: number) => (x.trim() === '' && d.kgFv.trim() === '' && d.kgWz.trim() === '' ? String(n).replace('.', ',') : x)
+  const procFv = p.kg_zaladowane > 0 ? Math.min(100, Math.max(0, (fv / p.kg_zaladowane) * 100)) : 0
+  const ustaw = (patch: Partial<Decyzja>) => zmien({ ...d, ...patch })
+  return (
+    <div className="box kurs-odb" aria-label={`Odbiorca ${kto}`}>
+      <div className="ko-h"><b>{p.client_name || '—'}</b><span className="muted">{p.order_no}</span>
+        <span className="ko-kg">wyjechało <b>{kg(p.kg_zaladowane)}</b> · {num(p.zaladowano.length)} poz.</span></div>
+      <div className="ko-podzial">
+        <div className="seg" role="group" aria-label={`Faktura i WZ — ${kto}`}>
+          <button type="button" aria-pressed={u === 'fv'} onClick={() => zmien(calosc(p, d, 'fv'))}>Całość na fakturę</button>
+          <button type="button" aria-pressed={u === 'podzial'} onClick={() => { if (u !== 'podzial') zmien(wpiszKg(p, d, 'fv', String(Math.round(p.kg_zaladowane / 2)))) }}>Podział</button>
+          <button type="button" aria-pressed={u === 'wz'} onClick={() => zmien(calosc(p, d, 'wz'))}>Całość na WZ</button>
+        </div>
+        <label className="fld ko-kgpole"><span className="label">Na fakturę</span>
+          <span className="ko-in"><input className="field num" inputMode="decimal" value={pole(d.kgFv, p.kg_zaladowane)} onFocus={e => e.currentTarget.select()}
+            onChange={e => zmien(wpiszKg(p, d, 'fv', e.target.value))} aria-label={`kg na fakturę, ${kto}`} /><span className="unit">kg</span></span></label>
+        <label className="fld ko-kgpole"><span className="label">Na WZ</span>
+          <span className="ko-in"><input className="field num" inputMode="decimal" value={pole(d.kgWz, 0)} onFocus={e => e.currentTarget.select()}
+            onChange={e => zmien(wpiszKg(p, d, 'wz', e.target.value))} aria-label={`kg na WZ, ${kto}`} /><span className="unit">kg</span></span></label>
+        <div className="ko-pasek" aria-hidden>
+          <div className="ko-bar"><span className="ko-bar-fv" style={{ width: `${procFv}%` }} /></div>
+          <div className="ko-bar-l"><span>faktura {kg(fv)}</span><span>WZ {kg(wz)}</span></div>
+        </div>
+      </div>
+      <div className="ko-f">
+        {u !== 'wz'
+          ? <>
+            <label className="fld"><span className="label">Nr faktury (CMR, pole 5)</span>
+              <input className="field" value={d.fakturaNr} placeholder="FV 11/10/2026" onChange={e => ustaw({ fakturaNr: e.target.value })} aria-label={`Nr faktury, ${kto}`} /></label>
+            <label className="ko-chk"><input type="checkbox" className="cbx" checked={d.hdiFv} onChange={e => ustaw({ hdiFv: e.target.checked })} />HDI także do faktury <span className="faint">(drugie, obok HDI na całość)</span></label>
+          </>
+          : <span className="muted ko-nota">Całość na WZ: powstanie WZ dla klienta, HDI i CMR na całość — bez dokumentów do faktury.</span>}
+        {u === 'podzial' && <span className="faint ko-nota">Podział idzie pełnymi sztukami — na dokumentach może wyjść kilka kg inaczej.</span>}
+      </div>
+    </div>
   )
 }
