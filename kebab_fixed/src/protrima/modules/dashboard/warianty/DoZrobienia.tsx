@@ -94,7 +94,7 @@ export function DoZrobieniaPanel({ open, pending, haccp, kursy }: {
         <span>wyrób <b>{czekaWyrob}</b> {odm(czekaWyrob, 'zamówienie', 'zamówienia', 'zamówień')}{brakPilny > 0 && <span className="crit-ink"> ({brakPilny} z wyjazdem dziś/jutro lub po terminie)</span>}</span>
         <span>załadunek <b>{czekaAuto}</b></span>
         {wZaladunku > 0 && <span>w załadunku <b>{wZaladunku}</b></span>}
-        {pending > 0 && <span>sesje produkcji do potwierdzenia <b>{pending}</b> (stary MES)</span>}
+        {pending > 0 && <span>sesje hali do zatwierdzenia <b>{pending}</b> (panel wyżej)</span>}
       </div>
     </section>
   )

@@ -37,7 +37,7 @@ export function ZatwierdzeniaPanel({ sesje, plany, dzis, onZmiana }: { sesje: Se
             <span className="zi-t">{p.tytul}</span>
             <span className="zi-d">{dataPl(p.data)}{p.sesja?.endedAt ? ` · zakończona ${godz(p.sesja.endedAt)}` : ''}
               {p.plan && ` · ${num(porownaniePlanu(p.plan).suma.szt)} szt. z tabletu`}</span>
-            {p.zalegla && <span className="tag warn">zaległa</span>}
+            {p.zalegla ? <span className="tag warn">zaległa</span> : <span aria-hidden />}
             {p.rodzaj === 'sesja'
               ? <button className="btn sm" onClick={() => setSesja(p.sesja!)}><CheckCircle2 size={15} />Zatwierdź…</button>
               : <button className="btn sm primary" onClick={() => setPlan(p.plan!)}><CheckCircle2 size={15} />Sprawdź i potwierdź…</button>}
