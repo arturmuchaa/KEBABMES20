@@ -2528,8 +2528,21 @@ def correct_deboning_entry(
         )
         if not entry:
             raise HTTPException(404, "Wpis rozbioru nie znaleziony")
-        from app.services.take_settlement_service import require_legacy_entry
-        require_legacy_entry(entry)
+        old_taken = float(entry.get("kg_quarter") or 0)
+        old_meat = float(entry.get("kg_meat") or 0)
+        new_taken = float(kg_quarter) if kg_quarter is not None else old_taken
+        new_meat = float(kg_meat) if kg_meat is not None else old_meat
+        kg_changed = abs(new_taken - old_taken) > 0.001 or abs(new_meat - old_meat) > 0.001
+
+        # Pobranie z rozliczeniem pracownika: kilogramy są pomiarem z wagi
+        # (poprawia je tylko korekta ważenia), ale pracownik to przypisanie —
+        # prod 2026-11-07 pobranie na złym pracowniku dało się tylko usunąć.
+        if entry.get("settlement_stage"):
+            if kg_changed:
+                from app.services.take_settlement_service import require_legacy_entry
+                require_legacy_entry(entry)
+            if entry.get("status") != "complete":
+                raise HTTPException(409, "Pobranie jest w trakcie rozliczenia na hali — pracownika zmienisz po jego zakończeniu")
 
         changes: Dict[str, Any] = {}
 
@@ -2539,19 +2552,24 @@ def correct_deboning_entry(
             w = cx_query_one(conn, "SELECT id, name FROM workers WHERE id=%s", (worker_id,))
             if not w:
                 raise HTTPException(400, "Pracownik nie istnieje")
+            # Akord dnia już wypłaconego nie może się zmienić po cichu — ani u
+            # tego, komu wpis zabieramy, ani u tego, komu go dajemy.
+            for wid, wname in ((entry.get("worker_id"), entry.get("worker_name")), (w["id"], w["name"])):
+                if wid and cx_query_one(conn, "SELECT 1 FROM settled_days WHERE worker_id=%s "
+                                        "AND work_date=(%s::timestamptz AT TIME ZONE 'Europe/Warsaw')::date",
+                                        (wid, entry["created_at"])):
+                    raise HTTPException(409, f"Dzień wpisu jest już rozliczony w wypłacie pracownika {wname} — najpierw cofnij to rozliczenie")
             changes["worker"] = {"from": entry.get("worker_name") or "", "to": w["name"]}
             new_worker_id, new_worker_name = w["id"], w["name"]
 
-        old_taken = float(entry.get("kg_quarter") or 0)
-        old_meat = float(entry.get("kg_meat") or 0)
-        new_taken = float(kg_quarter) if kg_quarter is not None else old_taken
-        new_meat = float(kg_meat) if kg_meat is not None else old_meat
         if new_meat > new_taken:
             raise HTTPException(400, "kg mięsa nie może przekraczać pobranej ćwiartki")
 
         # Biuro dostaje te same twarde walidacje co HMI (incydent 2026-07-21:
         # tędy wjechało 97,0 kg na wpis z 154,5 kg zmierzonymi na wadze).
-        yield_err = validate_meat_yield(new_taken, new_meat)
+        # Sama zmiana pracownika nie ocenia uzysku na nowo (wpis mógł przejść
+        # furtką serwisową) — walidacja dotyczy zmienianych kilogramów.
+        yield_err = validate_meat_yield(new_taken, new_meat) if kg_changed else None
         if yield_err:
             raise HTTPException(400, yield_err)
         if abs(new_meat - old_meat) > 0.001:
@@ -2636,6 +2654,14 @@ def correct_deboning_entry(
             (new_worker_id, new_worker_name, new_taken, new_meat,
              kg_remainder, yield_pct, entry_id),
         )
+        if "worker" in changes:
+            # Ważenia grzbietów/kości niosą pracownika (dziennik ważeń, statystyki).
+            for kind in ("backs", "bones"):
+                cx_execute(conn, f"""UPDATE batch_byproducts SET {kind}_pallets=(
+                    SELECT COALESCE(jsonb_agg(CASE WHEN p->>'entryId' = %s
+                        THEN p || jsonb_build_object('workerId', %s::text, 'workerName', %s::text) ELSE p END), '[]'::jsonb)
+                    FROM jsonb_array_elements(COALESCE({kind}_pallets, '[]'::jsonb)) p)
+                    WHERE raw_batch_id=%s""", (entry_id, new_worker_id, new_worker_name, entry["raw_batch_id"]))
         cx_execute(
             conn,
             "INSERT INTO deboning_entry_corrections (id, entry_id, by_subject, reason, changes) "
