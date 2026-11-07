@@ -8,10 +8,11 @@
  */
 import type { StockCarton, StockCartonCreateDto } from '@/lib/api'
 import { formatCartonNo } from '@/lib/unitLocation'
-import { buildCartonLabelContent, cartonLabelTotalKg } from '@/features/labels/cartonLabelLines'
 import { zlozNazweWyrobu } from '@/features/wz/nazwaWyrobu'
+import { buildCartonLabelContent, cartonLabelTotalKg } from '@/features/labels/cartonLabelLines'
 import { num } from '@/features/orders/order-entry/model'
-import type { Kartka, OpcjeKartki } from '../../orders/druk/KartkiPalet'
+import type { Kartka } from '../../orders/druk/KartkiPalet'
+import { naglowekWLiniach, nazwaNaKartce, type OpcjeKartki } from '../../orders/druk/nazwaKartki'
 
 export const qrKartonu = (id: string) => `SCARTON|${id}`
 export const nrKartonu = (c: Pick<StockCarton, 'cartonNo'>) => formatCartonNo(c.cartonNo) || '—'
@@ -39,28 +40,41 @@ export function skladKartonu(c: StockCarton): string {
 export function kartkaKartonu(c: StockCarton, klientNa: (n: string) => string,
   recepturaNa: (k: { id?: string; name?: string }, recipeId: string | undefined, fallback: string) => string,
   opcje: OpcjeKartki = {}): Kartka {
-  const tryb = opcje.tryb ?? 'recipe'
-  const rodzajNa = opcje.rodzajNa ?? ((n: string) => n)
-  const klient = { id: c.clientId, name: c.clientName }
   const items = c.lines.length
     ? c.lines.map(l => {
-      const receptura = c.clientName ? recepturaNa(klient, l.recipeId, l.recipeName) : l.recipeName
-      const rodzaj = l.productTypeName ? rodzajNa(l.productTypeName) : ''
-      return {
-        qty: l.targetQty, kgPerUnit: l.kgPerUnit, packagingName: l.packagingName,
-        recipeName: tryb === 'recipe' ? receptura : tryb === 'type' ? (rodzaj || receptura) : zlozNazweWyrobu(rodzaj, receptura),
-      }
+      const n = nazwaNaKartce(l.productTypeName ? (opcje.rodzajNa ?? (x => x))(l.productTypeName) : '',
+        recepturaKartonu(c, l, recepturaNa), opcje)
+      return { qty: l.targetQty, kgPerUnit: l.kgPerUnit, packagingName: l.packagingName, recipeName: n.nazwa, rodzaj: n.rodzaj, receptura: n.receptura }
     })
     // Karton bez rozpisanych pozycji nie niesie id receptury — zostaje nazwa z receptury.
-    : [{ qty: c.targetQty, kgPerUnit: c.kgPerUnit, recipeName: c.recipeName, packagingName: c.packagingName }]
+    : [{ qty: c.targetQty, kgPerUnit: c.kgPerUnit, recipeName: c.recipeName, packagingName: c.packagingName, rodzaj: '', receptura: c.recipeName }]
   const { recipeHeader, lines } = buildCartonLabelContent(items)
   const szt = items.reduce((a, i) => a + i.qty, 0)
   return {
     palletNo: c.cartonNo ?? 0, qr: qrKartonu(c.id), cornerNo: nrKartonu(c),
     clientName: opcje.nazwa?.trim() || (c.clientName ? klientNa(c.clientName) : ''),
-    recipeHeader, mainLines: lines.length ? lines : [`${szt} SZT`], totalKg: cartonLabelTotalKg(items),
+    recipeHeader, headerLines: naglowekWLiniach(recipeHeader, items.filter(i => Number(i.kgPerUnit) > 0), opcje.tryb ?? 'recipe'),
+    mainLines: lines.length ? lines : [`${szt} SZT`], totalKg: cartonLabelTotalKg(items),
     orderNo: '', stopka: 'MAGAZYN',
   }
+}
+
+const recepturaKartonu = (c: StockCarton, l: StockCarton['lines'][number],
+  recepturaNa: (k: { id?: string; name?: string }, recipeId: string | undefined, fallback: string) => string) =>
+  (c.clientName ? recepturaNa({ id: c.clientId, name: c.clientName }, l.recipeId, l.recipeName) : l.recipeName)
+
+/** Rodzaje i receptury kartonu (przed zamianą) — do pól zamiany przy druku. */
+export function wyrobyKartonu(c: StockCarton,
+  recepturaNa: (k: { id?: string; name?: string }, recipeId: string | undefined, fallback: string) => string,
+  rodzajNa: (n: string) => string = n => n) {
+  const rodzaje = new Set<string>(), receptury = new Set<string>()
+  for (const l of c.lines) {
+    if (l.productTypeName) rodzaje.add(rodzajNa(l.productTypeName))
+    const r = recepturaKartonu(c, l, recepturaNa)
+    if (r) receptury.add(r)
+  }
+  if (!c.lines.length && c.recipeName) receptury.add(c.recipeName)
+  return { rodzaje: [...rodzaje].sort(), receptury: [...receptury].sort() }
 }
 
 // ─── Nowy karton ─────────────────────────────────────────────────────────

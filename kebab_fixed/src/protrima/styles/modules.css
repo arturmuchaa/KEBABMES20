@@ -740,3 +740,8 @@ div.pstage { cursor: default; }
 .zatw-it .zi-t { font-weight: 600; color: var(--ink-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .zatw-it .zi-d { color: var(--ink-3); font-size: var(--fs-sm); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .tbl tr.row-warn td { background: color-mix(in srgb, var(--warn-tint) 55%, transparent); }
+
+/* Kartki: zamiana rodzaju / receptury przy druku (pusta = nazwa z kartoteki). */
+.kp-zamiany { display: flex; flex-direction: column; gap: 6px; }
+.kp-zam { display: grid; grid-template-columns: 74px minmax(0, 1fr); align-items: center; gap: 8px; }
+.kp-zam-t { font-size: var(--fs-sm); color: var(--ink-3); }

@@ -31,7 +31,7 @@ vi.mock('@/lib/clientNames', () => ({ useClientNames: () => nazwy.klient, useCli
 const typy = vi.hoisted(() => ({ list: vi.fn(() => Promise.resolve([{ id: 't1', name: 'KEBAB UDO 100%', documentName: 'KEBAB UDO' }])) }))
 vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), productTypesApi: typy }))
 vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn((s: string) => Promise.resolve(`data:image/png;base64,${btoa(s)}`)) } }))
-import { KartkiPaletDialog, zbudujKartki } from './KartkiPalet'
+import { KartkiPaletDialog, zbudujKartki, naglowekWLiniach } from './KartkiPalet'
 
 const app = { toast: vi.fn() } as unknown as AppApi
 afterEach(cleanup)
@@ -68,6 +68,28 @@ describe('Kartki palet — nazwa i treść wybierane przy druku', () => {
   })
 })
 
+describe('Kartki palet — napis rodzaju i receptury zmieniany przy druku', () => {
+  const rodzajNa = (n: string) => (n === 'KEBAB UDO 100%' ? 'KEBAB UDO' : n)
+  const k = (opcje: Parameters<typeof zbudujKartki>[4]) => zbudujKartki(order, [1, 2], nazwy.klient, nazwy.receptura, { rodzajNa, ...opcje })
+  it('napis zamiast nazwy z kartoteki — w nagłówku i przy pozycjach; pusty = z kartoteki', () => {
+    const z = { rodzaj: { 'KEBAB UDO': 'DÖNER' }, receptura: { BEYAZ: 'WEISS', KIRMIZI: '  ' } }
+    expect(k({ tryb: 'recipe', zamiany: z })[0].recipeHeader).toBe('WEISS')
+    expect(k({ tryb: 'type', zamiany: z })[0].recipeHeader).toBe('DÖNER')
+    const oba = k({ tryb: 'type_recipe', zamiany: z })
+    expect(oba[0].recipeHeader).toBe('DÖNER WEISS')
+    expect(oba[1].mainLines).toEqual(expect.arrayContaining(['15 X 50KG DÖNER WEISS', '20 X 20KG 80CM DÖNER KIRMIZI']))
+  })
+  it('długa nazwa jednego wyrobu: rodzaj w jednej linii, receptura pod spodem; krótka i mieszana paleta — bez zmian', () => {
+    const dluga = k({ tryb: 'type_recipe', zamiany: { rodzaj: {}, receptura: { BEYAZ: 'BEYAZ AFIYET EXTRA' } } })
+    expect(dluga[0].headerLines).toEqual(['KEBAB UDO', 'BEYAZ AFIYET EXTRA'])
+    expect(dluga[1].headerLines).toBeUndefined() // dwie receptury na palecie — nagłówka nie ma
+    expect(k({ tryb: 'type_recipe' })[0].headerLines).toBeUndefined() // „KEBAB UDO BEYAZ” = 15 znaków, mieści się
+    expect(k({ tryb: 'recipe', zamiany: { rodzaj: {}, receptura: { BEYAZ: 'BEYAZ AFIYET EXTRA' } } })[0].headerLines).toBeUndefined()
+    // Powtórzenie zwinięte („KEBAB YAPRAK” + „YAPRAK”) zostaje jedną linią.
+    expect(naglowekWLiniach('KEBAB YAPRAK DÖNER', [{ rodzaj: 'KEBAB YAPRAK DÖNER', receptura: 'YAPRAK' }], 'type_recipe')).toBeUndefined()
+  })
+})
+
 describe('Kartki palet — okno', () => {
   const mount = (p: Partial<React.ComponentProps<typeof KartkiPaletDialog>> = {}) =>
     render(<AppCtx.Provider value={app}><KartkiPaletDialog orderId="o1" onClose={vi.fn()} {...p} /></AppCtx.Provider>)
@@ -93,6 +115,23 @@ describe('Kartki palet — okno', () => {
     expect((screen.getByLabelText('Nazwa klienta na kartce') as HTMLInputElement).value).toBe('POLAT WIEN')
     fireEvent.click(screen.getByRole('button', { name: 'Przywróć domyślne' }))
     await waitFor(() => expect(within(screen.getByTestId('kartka-1')).getByText('BEYAZ')).toBeTruthy())
+  })
+
+  it('napis receptury na kartce: pole na każdą recepturę z wybranych palet, podgląd od razu, pamiętany dla klienta', async () => {
+    const { unmount } = render(<AppCtx.Provider value={app}><KartkiPaletDialog orderId="o1" proba onClose={vi.fn()} /></AppCtx.Provider>)
+    const grupa = screen.getByRole('group', { name: 'Rodzaj i receptura na kartce' })
+    expect(within(grupa).getByText(/tylko wydruk/)).toBeTruthy()
+    expect(within(grupa).queryByLabelText(/zamiast rodzaj/)).toBeNull() // tryb „Receptura” — pól rodzaju nie ma
+    const pole = within(grupa).getByLabelText('Napis na kartce zamiast receptura BEYAZ') as HTMLInputElement
+    expect(pole.placeholder).toBe('BEYAZ')
+    fireEvent.change(pole, { target: { value: 'WEISS' } })
+    await waitFor(() => expect(within(screen.getByTestId('kartka-1')).getByText('WEISS')).toBeTruthy())
+    fireEvent.click(within(screen.getByRole('group', { name: 'Co pokazać na kartce' })).getByRole('button', { name: 'Rodzaj i receptura' }))
+    fireEvent.change(screen.getByLabelText('Napis na kartce zamiast rodzaj KEBAB UDO'), { target: { value: 'DÖNER' } })
+    await waitFor(() => expect(within(screen.getByTestId('kartka-1')).getByText('DÖNER WEISS')).toBeTruthy())
+    unmount()
+    render(<AppCtx.Provider value={app}><KartkiPaletDialog orderId="o1" proba onClose={vi.fn()} /></AppCtx.Provider>)
+    expect((screen.getByLabelText('Napis na kartce zamiast receptura BEYAZ') as HTMLInputElement).value).toBe('WEISS')
   })
 
   it('wybór palet: wskazane z zakładki Palety, przełączanie, liczba kartek = palety × 2', async () => {

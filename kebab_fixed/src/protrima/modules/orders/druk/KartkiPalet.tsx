@@ -11,7 +11,8 @@ import { useClientNames, useClientRecipeNames } from '@/lib/clientNames'
 import { buildCartonLabelContent, cartonLabelTotalKg, formatKgCompact } from '@/features/labels/cartonLabelLines'
 import { CARTON_QR_OPTIONS, palletQrPayload } from '@/features/labels/cartonQr'
 import { KOPII_NA_PALETE } from '@/features/labels/CartonLabel'
-import { zlozNazweWyrobu } from '@/features/wz/nazwaWyrobu'
+import { BEZ_ZAMIAN, TRYBY_NAZWY, naglowekWLiniach, nazwaNaKartce, type OpcjeKartki, type TrybNazwy, type Zamiany } from './nazwaKartki'
+export { BEZ_ZAMIAN, DLUGA_NAZWA, TRYBY_NAZWY, naglowekWLiniach, nazwaNaKartce, type OpcjeKartki, type TrybNazwy, type Zamiany } from './nazwaKartki'
 import { useApi } from '@/hooks/useApi'
 import { productTypesApi } from '@/lib/api'
 
@@ -27,6 +28,8 @@ export interface Kartka {
   cornerNo: string
   clientName: string
   recipeHeader: string | null
+  /** Długa nazwa jednego wyrobu w trybie „Rodzaj i receptura”: rodzaj w jednej linii, receptura pod nim. */
+  headerLines?: string[]
   mainLines: string[]
   totalKg: number
   orderNo: string
@@ -34,17 +37,20 @@ export interface Kartka {
   stopka?: string
 }
 
-/** Co stoi na kartce obok liczb: sama receptura (jak dotąd), sam rodzaj albo rodzaj z recepturą. */
-export type TrybNazwy = 'recipe' | 'type' | 'type_recipe'
-export const TRYBY_NAZWY: Array<{ v: TrybNazwy; t: string }> = [
-  { v: 'recipe', t: 'Receptura' }, { v: 'type', t: 'Rodzaj' }, { v: 'type_recipe', t: 'Rodzaj i receptura' },
-]
-export interface OpcjeKartki {
-  /** Nazwa klienta wpisana przy druku; pusta = nazwa z kartoteki. */
-  nazwa?: string
-  tryb?: TrybNazwy
-  /** Rodzaj pod nazwą z dokumentów („KEBAB MIX” zamiast „KEBAB MIX 95/5”). */
-  rodzajNa?: (productTypeName: string) => string
+/** Rodzaje i receptury (przed zamianą), które stoją na wskazanych paletach — do pól zamiany przy druku. */
+export function wyrobyPalet(order: Order, numery: number[],
+  recepturaNa: (c: { id?: string; name?: string }, recipeId: string | undefined, fallback: string) => string,
+  rodzajNa: (n: string) => string = n => n) {
+  const linie = new Map(order.lines.map(l => [l.id, l]))
+  const rodzaje = new Set<string>(), receptury = new Set<string>()
+  for (const p of order.pallets.filter(x => numery.includes(x.no))) for (const it of p.items) {
+    const l = linie.get(it.lineId)
+    if (!l) continue
+    if (l.product && l.product !== '—') rodzaje.add(rodzajNa(l.product))
+    const r = recepturaNa({ id: order.client.id, name: order.client.name }, l.recipeId, l.recipe ?? '')
+    if (r) receptury.add(r)
+  }
+  return { rodzaje: [...rodzaje].sort(), receptury: [...receptury].sort() }
 }
 
 /**
@@ -58,26 +64,20 @@ export function zbudujKartki(order: Order, numery: number[], klientNa: (n: strin
   recepturaNa: (c: { id?: string; name?: string }, recipeId: string | undefined, fallback: string) => string,
   opcje: OpcjeKartki = {}): Kartka[] {
   const linie = new Map(order.lines.map(l => [l.id, l]))
-  const tryb = opcje.tryb ?? 'recipe'
   const rodzajNa = opcje.rodzajNa ?? ((n: string) => n)
   const klient = opcje.nazwa?.trim() || klientNa(order.client.name)
   return numery.map(nr => order.pallets.find(p => p.no === nr)).filter((p): p is NonNullable<typeof p> => !!p).map(p => {
     const items = p.items.map(it => {
       const l = linie.get(it.lineId)
-      const receptura = recepturaNa({ id: order.client.id, name: order.client.name }, l?.recipeId, l?.recipe ?? '')
-      const rodzaj = l?.product && l.product !== '—' ? rodzajNa(l.product) : ''
-      return {
-        qty: it.qty, kgPerUnit: Number(l?.kgPerUnit ?? 0),
-        // Bez powtórzeń: „KEBAB YAPRAK” + „YAPRAK” → „KEBAB YAPRAK” (jak HDI i WZ).
-        recipeName: tryb === 'recipe' ? receptura : tryb === 'type' ? (rodzaj || receptura) : zlozNazweWyrobu(rodzaj, receptura),
-        packagingName: l?.packaging ?? '',
-      }
+      const n = nazwaNaKartce(l?.product && l.product !== '—' ? rodzajNa(l.product) : '',
+        recepturaNa({ id: order.client.id, name: order.client.name }, l?.recipeId, l?.recipe ?? ''), opcje)
+      return { qty: it.qty, kgPerUnit: Number(l?.kgPerUnit ?? 0), recipeName: n.nazwa, packagingName: l?.packaging ?? '', rodzaj: n.rodzaj, receptura: n.receptura }
     })
     const { recipeHeader, lines } = buildCartonLabelContent(items)
     const szt = items.reduce((a, i) => a + i.qty, 0)
     return {
       palletNo: p.no, qr: palletQrPayload(order.id, p.no), cornerNo: p.carton || `P${p.no}`,
-      clientName: klient, recipeHeader,
+      clientName: klient, recipeHeader, headerLines: naglowekWLiniach(recipeHeader, items.filter(i => i.kgPerUnit > 0), opcje.tryb ?? 'recipe'),
       // Paleta bez pozycji z wagą — sama liczba sztuk, żeby kartka nie wyszła pusta.
       mainLines: lines.length ? lines : [`${szt} SZT`], totalKg: cartonLabelTotalKg(items), orderNo: order.no,
     }
@@ -116,7 +116,7 @@ export function Strona({ k, qr, pt, onPt, proba }: { k: Kartka; qr: string; pt?:
       <div ref={boxRef} className="kp-box">
         <div ref={txtRef} className="kp-txt" style={{ fontSize: `${fit ?? MAX_PT}pt`, visibility: fit ? 'visible' : 'hidden' }}>
           {k.clientName && <div>{k.clientName}</div>}
-          {k.recipeHeader && <div>{k.recipeHeader}</div>}
+          {k.headerLines ? k.headerLines.map((l, i) => <div key={`h${i}`}>{l}</div>) : k.recipeHeader && <div>{k.recipeHeader}</div>}
           {k.mainLines.map((l, i) => <div key={i} className={i === 0 ? 'kp-first' : undefined}>{l}</div>)}
         </div>
       </div>
@@ -134,9 +134,15 @@ export function Strona({ k, qr, pt, onPt, proba }: { k: Kartka; qr: string; pt?:
 /** Treść kartki ustawiana przy druku; ostatni wybór dla klienta pamięta ten komputer. */
 export function useTrescKartki(clientId: string) {
   const klucz = `protrima.kartka.${clientId}`
-  const [tresc, setTresc] = useState<{ nazwa: string; tryb: TrybNazwy }>(() => {
-    try { const z = JSON.parse(localStorage.getItem(klucz) ?? 'null'); if (z && typeof z === 'object') return { nazwa: String(z.nazwa ?? ''), tryb: TRYBY_NAZWY.some(t => t.v === z.tryb) ? z.tryb : 'recipe' } } catch { /* brak pamięci — domyślne */ }
-    return { nazwa: '', tryb: 'recipe' }
+  const [tresc, setTresc] = useState<{ nazwa: string; tryb: TrybNazwy; zamiany: Zamiany }>(() => {
+    try {
+      const z = JSON.parse(localStorage.getItem(klucz) ?? 'null')
+      if (z && typeof z === 'object') {
+        const mapa = (m: unknown) => (m && typeof m === 'object' ? Object.fromEntries(Object.entries(m as Record<string, unknown>).map(([k, v]) => [k, String(v ?? '')])) : {})
+        return { nazwa: String(z.nazwa ?? ''), tryb: TRYBY_NAZWY.some(t => t.v === z.tryb) ? z.tryb : 'recipe', zamiany: { rodzaj: mapa(z.zamiany?.rodzaj), receptura: mapa(z.zamiany?.receptura) } }
+      }
+    } catch { /* brak pamięci — domyślne */ }
+    return { nazwa: '', tryb: 'recipe', zamiany: BEZ_ZAMIAN }
   })
   const ustawTresc = (p: Partial<typeof tresc>) => setTresc(t => {
     const n = { ...t, ...p }
@@ -144,6 +150,37 @@ export function useTrescKartki(clientId: string) {
     return n
   })
   return [tresc, ustawTresc] as const
+}
+
+export const maZamiany = (z: Zamiany) => Object.values(z.rodzaj).some(v => v.trim()) || Object.values(z.receptura).some(v => v.trim())
+
+/**
+ * Napis rodzaju i receptury na kartce — jak „Nazwa na kartce”: pusta = nazwa z kartoteki.
+ * Zmienia WYŁĄCZNIE wydruk (właściciel 07.11.2026: „nie zmienić rodzaj i recepturę, a zmienić
+ * nazwę wyświetlaną na kartce”) — zamówienie, kartoteka i dokumenty zostają bez zmian.
+ * Pokazuje tylko to, co tryb drukuje (receptura / rodzaj / oba).
+ */
+export function ZamianyNazw({ rodzaje, receptury, tryb, zamiany, onChange }: {
+  rodzaje: string[]; receptury: string[]; tryb: TrybNazwy; zamiany: Zamiany; onChange: (z: Zamiany) => void
+}) {
+  const wiersze = [
+    ...(tryb !== 'recipe' ? rodzaje.map(n => ({ co: 'rodzaj' as const, n, t: 'Rodzaj' })) : []),
+    ...(tryb !== 'type' ? receptury.map(n => ({ co: 'receptura' as const, n, t: 'Receptura' })) : []),
+  ]
+  if (!wiersze.length) return null
+  return (
+    <div className="kp-zamiany" role="group" aria-label="Rodzaj i receptura na kartce">
+      <span className="sub">Napis na kartce — tylko wydruk; zamówienie, kartoteka i dokumenty bez zmian</span>
+      {wiersze.map(w => (
+        <label key={`${w.co}-${w.n}`} className="kp-zam">
+          <span className="kp-zam-t">{w.t}</span>
+          <input className="field" value={zamiany[w.co][w.n] ?? ''} placeholder={w.n}
+            onChange={e => onChange({ ...zamiany, [w.co]: { ...zamiany[w.co], [w.n]: e.target.value } })}
+            aria-label={`Napis na kartce zamiast ${w.t.toLowerCase()} ${w.n}`} />
+        </label>
+      ))}
+    </div>
+  )
 }
 
 /** Rodzaj pod nazwą z dokumentów („KEBAB MIX” zamiast „KEBAB MIX 95/5”). */
@@ -210,8 +247,9 @@ export function KartkiPaletDialog({ orderId, palletNos, onClose, proba = import.
   const [tresc, ustawTresc] = useTrescKartki(order?.client.id ?? '')
   const rodzajNa = useRodzajNaDokumentach()
   const nazwaKartoteki = order ? klientNa(order.client.name) : ''
-  const kartki = useMemo(() => (order ? zbudujKartki(order, wybrane, klientNa, recepturaNa, { nazwa: tresc.nazwa, tryb: tresc.tryb, rodzajNa }) : []),
-    [order, wybrane, klientNa, recepturaNa, tresc.nazwa, tresc.tryb, rodzajNa])
+  const kartki = useMemo(() => (order ? zbudujKartki(order, wybrane, klientNa, recepturaNa, { nazwa: tresc.nazwa, tryb: tresc.tryb, rodzajNa, zamiany: tresc.zamiany }) : []),
+    [order, wybrane, klientNa, recepturaNa, tresc.nazwa, tresc.tryb, tresc.zamiany, rodzajNa])
+  const wyroby = useMemo(() => (order ? wyrobyPalet(order, wybrane, recepturaNa, rodzajNa) : { rodzaje: [], receptury: [] }), [order, wybrane, recepturaNa, rodzajNa])
   const { qr, ustawPt, gotowe, druk, drukuj, arkusz } = useDrukKartek(kartki, proba, `Kartki palet — ${order?.no ?? ''}`)
 
   if (!order) return null
@@ -235,7 +273,8 @@ export function KartkiPaletDialog({ orderId, palletNos, onClose, proba = import.
               <div className="seg kp-seg" role="group" aria-label="Co pokazać na kartce">
                 {TRYBY_NAZWY.map(t => <button key={t.v} type="button" aria-pressed={tresc.tryb === t.v} onClick={() => ustawTresc({ tryb: t.v })}>{t.t}</button>)}
               </div></div>
-            {(tresc.nazwa || tresc.tryb !== 'recipe') && <button className="btn sm ghost" style={{ alignSelf: 'flex-start' }} onClick={() => ustawTresc({ nazwa: '', tryb: 'recipe' })}>Przywróć domyślne</button>}
+            <ZamianyNazw rodzaje={wyroby.rodzaje} receptury={wyroby.receptury} tryb={tresc.tryb} zamiany={tresc.zamiany} onChange={zamiany => ustawTresc({ zamiany })} />
+            {(tresc.nazwa || tresc.tryb !== 'recipe' || maZamiany(tresc.zamiany)) && <button className="btn sm ghost" style={{ alignSelf: 'flex-start' }} onClick={() => ustawTresc({ nazwa: '', tryb: 'recipe', zamiany: BEZ_ZAMIAN })}>Przywróć domyślne</button>}
           </div>
           <span className="label">Palety</span>
           <div className="row-wrap" style={{ marginBottom: 6 }} role="group" aria-label="Palety do wydruku">

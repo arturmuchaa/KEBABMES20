@@ -7,8 +7,8 @@ import { BEZ_DRUKU_ETYKIET } from '../../../proba'
 import type { StockCarton } from '@/lib/api'
 import { useClientNames, useClientRecipeNames } from '@/lib/clientNames'
 import { KOPII_NA_PALETE } from '@/features/labels/CartonLabel'
-import { Strona, TRYBY_NAZWY, useDrukKartek, useRodzajNaDokumentach, useTrescKartki } from '../../orders/druk/KartkiPalet'
-import { kartkaKartonu, nrKartonu, skladKartonu } from './model'
+import { BEZ_ZAMIAN, Strona, TRYBY_NAZWY, ZamianyNazw, maZamiany, useDrukKartek, useRodzajNaDokumentach, useTrescKartki } from '../../orders/druk/KartkiPalet'
+import { kartkaKartonu, nrKartonu, skladKartonu, wyrobyKartonu } from './model'
 
 const SKALA_PODGLADU = 0.3
 
@@ -23,8 +23,9 @@ export function KartkaKartonuDialog({ karton, onClose, proba = import.meta.env.M
   const recepturaNa = useClientRecipeNames()
   const rodzajNa = useRodzajNaDokumentach()
   const [tresc, ustawTresc] = useTrescKartki(karton.clientId || 'magazyn')
-  const kartki = useMemo(() => [kartkaKartonu(karton, klientNa, recepturaNa, { nazwa: tresc.nazwa, tryb: tresc.tryb, rodzajNa })],
-    [karton, klientNa, recepturaNa, tresc.nazwa, tresc.tryb, rodzajNa])
+  const kartki = useMemo(() => [kartkaKartonu(karton, klientNa, recepturaNa, { nazwa: tresc.nazwa, tryb: tresc.tryb, rodzajNa, zamiany: tresc.zamiany })],
+    [karton, klientNa, recepturaNa, tresc.nazwa, tresc.tryb, tresc.zamiany, rodzajNa])
+  const wyroby = useMemo(() => wyrobyKartonu(karton, recepturaNa, rodzajNa), [karton, recepturaNa, rodzajNa])
   const { qr, ustawPt, gotowe, druk, drukuj, arkusz } = useDrukKartek(kartki, proba, `Kartka kartonu ${nrKartonu(karton)}`)
   const k = kartki[0]
   return (
@@ -46,7 +47,8 @@ export function KartkaKartonuDialog({ karton, onClose, proba = import.meta.env.M
               <div className="seg kp-seg" role="group" aria-label="Co pokazać na kartce">
                 {TRYBY_NAZWY.map(t => <button key={t.v} type="button" aria-pressed={tresc.tryb === t.v} onClick={() => ustawTresc({ tryb: t.v })}>{t.t}</button>)}
               </div></div>
-            {(tresc.nazwa || tresc.tryb !== 'recipe') && <button className="btn sm ghost" style={{ alignSelf: 'flex-start' }} onClick={() => ustawTresc({ nazwa: '', tryb: 'recipe' })}>Przywróć domyślne</button>}
+            <ZamianyNazw rodzaje={wyroby.rodzaje} receptury={wyroby.receptury} tryb={tresc.tryb} zamiany={tresc.zamiany} onChange={zamiany => ustawTresc({ zamiany })} />
+            {(tresc.nazwa || tresc.tryb !== 'recipe' || maZamiany(tresc.zamiany)) && <button className="btn sm ghost" style={{ alignSelf: 'flex-start' }} onClick={() => ustawTresc({ nazwa: '', tryb: 'recipe', zamiany: BEZ_ZAMIAN })}>Przywróć domyślne</button>}
           </div>
           <p className="muted" style={{ fontSize: 'var(--fs-sm)', margin: '8px 0 0' }}>{KOPII_NA_PALETE} kopie A4 (poziomo) — kod na kartce służy do skanowania sztuk do kartonu i wydania.</p>
         </div>
