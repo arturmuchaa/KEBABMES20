@@ -89,6 +89,15 @@ describe('Pulpit — zatwierdzenia biura', () => {
     expect(onZmiana).toHaveBeenCalled()
   })
 
+  it('ostatnia pozycja: po potwierdzeniu lista się odświeża i jest pusta — pytanie o resztę mięsa nadal widać', async () => {
+    api.plany.officeConfirm.mockResolvedValue({})
+    const wrap = (plany: PlanZ[]) => <AppCtx.Provider value={app as unknown as AppApi}><ZatwierdzeniaPanel sesje={[]} plany={plany} dzis="2026-11-06" onZmiana={() => r.rerender(wrap([]))} /></AppCtx.Provider>
+    const r = render(wrap([PLAN]))
+    fireEvent.click(screen.getByRole('button', { name: /Sprawdź i potwierdź/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Potwierdź i przyjmij na magazyn' }))
+    expect(await screen.findByLabelText('Zostało mięsa KIRMIZI (kg)')).toBeTruthy()
+  })
+
   it('odmowa serwera przy potwierdzeniu — jego słowa w oknie, nic nie znika', async () => {
     api.plany.officeConfirm.mockRejectedValue(new Error('Plan już potwierdzony'))
     mount({ sesje: [] })

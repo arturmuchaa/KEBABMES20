@@ -20,9 +20,15 @@ export function ZatwierdzeniaPanel({ sesje, plany, dzis, onZmiana }: { sesje: Se
   const lista = useMemo(() => doZatwierdzenia(sesje, plany, dzis), [sesje, plany, dzis])
   const [sesja, setSesja] = useState<SesjaLite | null>(null)
   const [plan, setPlan] = useState<PlanZ | null>(null)
-  if (lista.length === 0) return null
-  return (
-    <section className="panel p-zatw" aria-label="Do zatwierdzenia przez biuro">
+  // Okna żyją poza listą: po potwierdzeniu Pulpit odświeża dane i ostatnia pozycja znika z listy,
+  // a okno musi jeszcze zapytać o resztę mięsa (inaczej pytanie przepadało razem z panelem).
+  const okna = <>
+    {sesja && <SesjaDialog sesja={sesja} onClose={() => setSesja(null)} onDone={() => { setSesja(null); onZmiana() }} />}
+    {plan && <PlanDialog plan={plan} onClose={() => setPlan(null)} onDone={onZmiana} />}
+  </>
+  // Stały układ (lista, potem okna): przeniesienie okna w inne miejsce drzewa montuje je od nowa i gubi krok.
+  return (<>
+    {lista.length > 0 && <section className="panel p-zatw" aria-label="Do zatwierdzenia przez biuro">
       <div className="panel-h"><h2>Do zatwierdzenia przez biuro</h2><span className="sub">hala zakończyła — biuro domyka dzień i przyjmuje wyrób na magazyn</span></div>
       <div className="zatw-lista">
         {lista.map(p => (
@@ -38,10 +44,9 @@ export function ZatwierdzeniaPanel({ sesje, plany, dzis, onZmiana }: { sesje: Se
           </div>
         ))}
       </div>
-      {sesja && <SesjaDialog sesja={sesja} onClose={() => setSesja(null)} onDone={() => { setSesja(null); onZmiana() }} />}
-      {plan && <PlanDialog plan={plan} onClose={() => setPlan(null)} onDone={onZmiana} />}
-    </section>
-  )
+    </section>}
+    {okna}
+  </>)
 }
 
 function SesjaDialog({ sesja, onClose, onDone }: { sesja: SesjaLite; onClose: () => void; onDone: () => void }) {
