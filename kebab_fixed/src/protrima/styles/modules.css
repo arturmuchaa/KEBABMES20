@@ -745,3 +745,21 @@ div.pstage { cursor: default; }
 .kp-zamiany { display: flex; flex-direction: column; gap: 6px; }
 .kp-zam { display: grid; grid-template-columns: 74px minmax(0, 1fr); align-items: center; gap: 8px; }
 .kp-zam-t { font-size: var(--fs-sm); color: var(--ink-3); }
+
+/* ─── Rozbiór — korekty biura ─────────────────────────────────────────── */
+.rz { display: flex; flex-direction: column; gap: 12px; }
+.rz-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rz-search { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--ink-3); }
+.rz-search .field { width: 240px; }
+.rz-tbl tr.rz-partia { cursor: pointer; }
+.rz-link { font: inherit; color: inherit; font-weight: 600; }
+.rz-tbl tr.rz-sub > td { height: auto; padding: 0 0 10px 38px; background: var(--surface-alt); white-space: normal; }
+.rz-wpisy { background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-soft); border-radius: var(--r-md); }
+.rz-wpisy th { position: static; }
+.rz-akcje { display: flex; justify-content: flex-end; gap: 2px; }
+.rz-pad { padding: 10px 0; }
+.rz-wpis-info { padding: 8px 10px; border-radius: var(--r-md); background: var(--surface-alt); box-shadow: inset 0 0 0 1px var(--line-soft); margin-bottom: 10px; }
+.rz-wpis-info .muted { font-size: var(--fs-sm); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.rz-hist { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-soft); font-size: var(--fs-sm); }
+.rz-hist .label { display: inline-flex; align-items: center; gap: 5px; }
+.rz-hist-it { color: var(--ink-2); line-height: 1.4; }

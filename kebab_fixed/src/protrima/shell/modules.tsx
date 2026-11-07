@@ -29,7 +29,7 @@ export const AREAS: AreaDef[] = [
     { key: 'katalog', label: 'Katalog wyrobów', icon: Tags, info: ['Rodzaj × receptura × gramatura × opakowanie', 'Szablony etykiet i drukarki Zebra'] },
   ] },
   { key: 'produkcja', label: 'Produkcja', icon: Factory, modules: [
-    { key: 'rozbior', label: 'Rozbiór', icon: Scissors, info: ['Panel rozbioru i palety mięsa', 'Statystyki wydajności, kartoteka pracownika', 'Raport HACCP z rozbioru'] },
+    { key: 'rozbior', label: 'Rozbiór', icon: Scissors, info: ['Korekty biura: zmiana pracownika, usunięcie, przywrócenie', 'Statystyki wydajności, kartoteka pracownika (stary MES)', 'Raport HACCP z rozbioru (stary MES)'] },
     { key: 'masowanie', label: 'Masowanie', icon: Layers, info: ['Realizacja zleceń z tabletu', 'Partie M powiązane z surowcem R'] },
     { key: 'realizacja', label: 'Realizacja produkcji', icon: MonitorSmartphone, info: ['Tablet produkcyjny z rozliczeniem na pracownika', 'Potwierdzanie sesji przez biuro', 'Partie P i etykiety'] },
     { key: 'historia-prod', label: 'Historia produkcji', icon: History, info: ['Przebieg sesji, partii i zgłoszeń'] },
@@ -64,7 +64,7 @@ export const AREAS: AreaDef[] = [
 export const PINNED = ['zamowienia', 'plan-produkcji', 'magazyn-wg', 'wysylki']
 
 /** Moduły z własnym ekranem w PROTRIMA. Pozostałe działają na razie w starym MES (zaślepka z drogowskazem). */
-export const W_PROTRIMA = new Set(['pulpit', 'zamowienia', 'przyjecia', 'magazyn-wg'])
+export const W_PROTRIMA = new Set(['pulpit', 'zamowienia', 'przyjecia', 'magazyn-wg', 'rozbior'])
 export const wProtrima = (key: string) => W_PROTRIMA.has(key)
 
 /** Czy konto o tej roli widzi i otwiera moduł. Serwer i tak pilnuje uprawnień — tu chodzi o to,

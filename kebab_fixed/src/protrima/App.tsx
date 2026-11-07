@@ -14,6 +14,7 @@ import { OrdersModule } from './modules/orders/OrdersModule'
 import { OrderTab } from './modules/orders/OrderTab'
 import { FinishedGoods } from './modules/stock/FinishedGoods'
 import { PrzyjeciaModule } from './modules/przyjecia/PrzyjeciaModule'
+import { RozbiorModule } from './modules/rozbior/RozbiorModule'
 import { OrderEditor } from './modules/orders/edytor/OrderEditor'
 import { ZamowienieDrukDialog } from './modules/orders/druk/ZamowienieDruk'
 import { KartkiPaletDialog } from './modules/orders/druk/KartkiPalet'
@@ -431,6 +432,7 @@ function Shell() {
     if (t.key === 'zamowienia') return <OrdersModule cmd={ordersCmd} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'magazyn-wg') return <FinishedGoods cmd={stockCmd} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'przyjecia') return <PrzyjeciaModule cmd={recCmd} active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
+    if (t.key === 'rozbior') return <RozbiorModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'system') return <DesignSystem />
     const def = moduleDef(t.key)
     return def ? <Placeholder def={def} /> : null

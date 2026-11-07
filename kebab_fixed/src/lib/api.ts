@@ -948,6 +948,22 @@ export const deboningEntriesApi = {
     get<any[]>(`/deboning/entries?raw_batch_id=${encodeURIComponent(rawBatchId)}`)
       .then(r => r ?? []),
   traceability: (batchId: string) => get<any>(`/deboning/entries/trace/${batchId}`),
+  // Usunięte wpisy z kompletem wag (ślad usunięcia) — biuro widzi, co zniknęło, kto i dlaczego.
+  deleted: (days = 14) =>
+    get<{ data: DeletedDeboningEntry[] }>(`/deboning/deleted-entries?days=${days}`)
+      .then(r => r?.data ?? []),
+  // Przywrócenie usuniętego wpisu (także na innego pracownika) — ta sama droga co hala.
+  restore: (entryId: string, body: { workerId: string; reason: string }) =>
+    post<any>(`/deboning/deleted-entries/${encodeURIComponent(entryId)}/restore`, body),
+}
+
+/** Usunięty wpis rozbioru — ślad usunięcia z wagami (GET /deboning/deleted-entries). */
+export interface DeletedDeboningEntry {
+  id: string; entryId: string; deletedAt: string; bySubject: string; reason: string
+  workerName: string; rawBatchNo: string; sessionNo: string
+  kgQuarter: number; kgMeat: number; kgBacks: number; kgBones: number
+  settlement: boolean; workDate: string
+  restoredEntryId: string | null; restoredWorkerName: string | null; restorable: boolean
 }
 
 // Ważenie zbiorcze produktów ubocznych (grzbiety + kości) — po zakończeniu
