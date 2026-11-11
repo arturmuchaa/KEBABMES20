@@ -763,3 +763,43 @@ div.pstage { cursor: default; }
 .rz-hist { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line-soft); font-size: var(--fs-sm); }
 .rz-hist .label { display: inline-flex; align-items: center; gap: 5px; }
 .rz-hist-it { color: var(--ink-2); line-height: 1.4; }
+
+/* ─── Rozrachunki: lista kontrahentów (sumy → filtry → tabela) ─────────── */
+.rr { display: flex; flex-direction: column; gap: 12px; }
+.rr-sumy { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 1px; background: var(--line-soft); border-radius: var(--r-md); overflow: hidden; box-shadow: var(--e1); }
+.rr-sum { display: flex; flex-direction: column; gap: 3px; padding: 12px 16px; background: var(--surface); min-width: 0; }
+.rr-sum .k { font-size: var(--fs-sm); color: var(--ink-3); }
+.rr-sum .v { font-size: var(--fs-fig); font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--ink-1); line-height: 1.2; }
+.rr-sum .v.crit-ink { color: var(--crit-ink); }
+.rr-sum .v.ok-ink { color: var(--ok-ink); }
+.rr-sum .s { font-size: var(--fs-sm); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.rr-bar { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.rr-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.rr-chips .chip { padding: 0 10px; }
+.rr-chips .count { font-size: var(--fs-xs); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.rr-chips .count.crit { color: var(--crit-ink); font-weight: 600; }
+.rr-chips .count.warn { color: var(--warn-ink); font-weight: 600; }
+.rr-szukaj { margin-left: auto; flex: 0 1 300px; min-width: 200px; }
+.rr-tbl .rr-th { display: inline-flex; align-items: center; font: inherit; color: inherit; cursor: pointer; }
+.rr-tbl th:hover { color: var(--ink-1); background: var(--surface-sunk); }
+.rr-tbl th .sort { display: inline-flex; margin-left: 3px; color: var(--accent-ink); }
+.rr-tbl tbody tr.row:focus { outline: none; }
+.rr-tbl tbody tr.row:focus-visible td { background: var(--accent-tint); }
+.rr-tbl tbody tr.row:focus-visible td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.rr-tbl td.num { font-size: max(var(--fs-md), var(--fs-id)); }
+.rr-tbl td.rr-saldo { font-weight: 600; }
+.rr-nazwa { max-width: 340px; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--ink-1); }
+.rr-tbl tr.closed .rr-nazwa { color: var(--ink-3); font-weight: 500; }
+.rr-waluta { margin-left: 0; }
+.rr-dzwonek { display: inline-flex; vertical-align: -2px; margin-left: 6px; color: var(--warn-ink); }
+.rr-ostrz-b { flex: 1; min-width: 0; }
+.rr-ostrz-t { display: inline-flex; align-items: center; gap: 4px; font: inherit; color: inherit; cursor: pointer; }
+.rr-wz { margin-top: 8px; color: var(--ink-1); }
+.rr-wz .tbl { border-radius: var(--r-sm); box-shadow: var(--e1); }
+.rr-wz .tbl th { position: static; }
+.rr-wz-wybor { width: 300px; }
+.rr-wz-wybor .wybor { min-width: 240px; }
+.rr-wz-blad { white-space: normal; font-size: var(--fs-sm); margin-top: 2px; }
+.rr-nabywca { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.rr-karta-h { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.rr-karta-nazwa { font-size: var(--fs-xl); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

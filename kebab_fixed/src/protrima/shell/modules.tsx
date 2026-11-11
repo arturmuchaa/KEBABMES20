@@ -20,7 +20,7 @@ export const AREAS: AreaDef[] = [
     { key: 'kontrahenci', label: 'Kontrahenci', icon: Building2, info: ['Kartoteki odbiorców i dostawców', 'Pobieranie danych z GUS i VIES po NIP', 'Grupy kontrahentów i nazwy do WZ'] },
     { key: 'wysylki', label: 'Wysyłki i załadunki', icon: Truck, info: ['Kursy i załadunki skanowane kodem QR', 'Pojazdy, kierowcy, przewoźnicy', 'Wydruk dokumentów dla kierowcy'] },
     { key: 'dokumenty', label: 'Dokumenty WZ, CMR, HDI', icon: FileText, info: ['WZ, CMR z konfiguratorem układu, HDI', 'Podział wysyłki na fakturę i WZ', 'Rejestr wystawionych dokumentów'] },
-    { key: 'rozrachunki', label: 'Rozrachunki', icon: Wallet, info: ['Rozrachunki z klientami', 'Saldo pojemników zwrotnych'] },
+    { key: 'rozrachunki', label: 'Rozrachunki', icon: Wallet, info: ['Salda odbiorców z WZ i faktur', 'Wpłaty rozliczane od najstarszych', 'Wydruk salda dla klienta'] },
   ] },
   { key: 'planowanie', label: 'Planowanie', icon: CalendarRange, modules: [
     { key: 'plan-produkcji', label: 'Plan produkcji', icon: ClipboardList, info: ['Plan z importem pozycji zamówień', 'Rezerwacja mięsa przyprawionego z wielu partii', 'Zalecenia produkcyjne'] },
@@ -64,7 +64,7 @@ export const AREAS: AreaDef[] = [
 export const PINNED = ['zamowienia', 'plan-produkcji', 'magazyn-wg', 'wysylki']
 
 /** Moduły z własnym ekranem w PROTRIMA. Pozostałe działają na razie w starym MES (zaślepka z drogowskazem). */
-export const W_PROTRIMA = new Set(['pulpit', 'zamowienia', 'przyjecia', 'magazyn-wg', 'rozbior'])
+export const W_PROTRIMA = new Set(['pulpit', 'zamowienia', 'przyjecia', 'magazyn-wg', 'rozbior', 'rozrachunki'])
 export const wProtrima = (key: string) => W_PROTRIMA.has(key)
 
 /** Czy konto o tej roli widzi i otwiera moduł. Serwer i tak pilnuje uprawnień — tu chodzi o to,
