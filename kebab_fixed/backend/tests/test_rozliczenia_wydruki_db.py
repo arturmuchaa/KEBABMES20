@@ -7,8 +7,8 @@ import pytest
 
 from app.services.rozliczenia_service import (historia_okresu, karta, zestawienie,
                                               zestawienie_dla_wz)
-from tests.test_rozliczenia_odczyt_db import (DZIS, _faktura, _id_wz, _klient, _poz,  # noqa: F401
-                                              _wplata, przywroc_start, rojpak)
+from tests.test_rozliczenia_odczyt_db import (DZIS, _faktura, _id_wz, _klient, _otwarcie,  # noqa: F401
+                                              _poz, _wplata, przywroc_start, rojpak)
 from tests.test_rozliczenia_wz_db import _wz
 
 
@@ -36,6 +36,7 @@ def test_zestawienie_na_wczesniejszy_dzien(rojpak):
 
 
 def test_zestawienie_dla_wz_oznacza_pozycje_a_WM_to_None(rojpak):
+    _otwarcie(rojpak["cid"], "wz", 0, waluta="EUR")  # rozliczenia otwarte
     z = zestawienie_dla_wz("w3")
     assert [p["numer"] for p in z["wz"]["pozycje"] if p["ten_dokument"]] == ["WZ 02/11"]
 

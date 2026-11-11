@@ -1970,9 +1970,12 @@ _DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_rozl_dok_klient "
     "ON rozl_dokumenty(client_id, ksiega, data_dok)",
     # dokument_id bez FK: dokument może zniknąć, wpłata zostaje.
+    # Klucze do clients bez kaskady (RESTRICT): usunięcie kontrahenta nie może
+    # po cichu skasować jego wpłat, sald otwarcia ani dziennika — bazy sprzed
+    # tej zmiany poprawia _rozl_klucze_bez_kaskady().
     """CREATE TABLE IF NOT EXISTS rozl_wplaty (
         id TEXT PRIMARY KEY,
-        client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
         ksiega TEXT NOT NULL CHECK (ksiega IN ('wz','fv')),
         forma TEXT NOT NULL CHECK (forma IN ('gotowka','przelew')),
         kwota NUMERIC(14,2) NOT NULL CHECK (kwota > 0),
@@ -1990,7 +1993,7 @@ _DDL: list[str] = [
     "ON rozl_wplaty(client_id, ksiega, data)",
     # Saldo otwarcia ze znakiem: minus dług, plus nadpłata.
     """CREATE TABLE IF NOT EXISTS rozl_otwarcia (
-        client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
         ksiega TEXT NOT NULL CHECK (ksiega IN ('wz','fv')),
         kwota NUMERIC(14,2) NOT NULL DEFAULT 0,
         waluta TEXT NOT NULL,
@@ -2020,7 +2023,7 @@ _DDL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_rozl_hist_obiekt ON rozl_historia(obiekt, obiekt_id)",
     """CREATE TABLE IF NOT EXISTS rozl_dziennik (
         id TEXT PRIMARY KEY,
-        client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE RESTRICT,
         tresc TEXT NOT NULL,
         przypomnij DATE,
         odhaczono_at TIMESTAMPTZ,
@@ -2133,8 +2136,44 @@ def _run_migrations_locked() -> None:
     _strip_year_from_reception_no()
     _reconcile_deboning_ledger()
     _zapewnij_unikat_wz_seria()
+    _rozl_klucze_bez_kaskady()
     _backfill_vehicle_loading_orders()
     logger.info("migrations.done")
+
+
+_ROZL_TABELE_Z_KLIENTEM = ("rozl_wplaty", "rozl_otwarcia", "rozl_dziennik")
+
+
+def _rozl_klucze_bez_kaskady() -> None:
+    """Klucze obce rozl_wplaty / rozl_otwarcia / rozl_dziennik → clients
+    z ON DELETE RESTRICT zamiast CASCADE.
+
+    Tabele powstały najpierw z kaskadą — `CREATE TABLE IF NOT EXISTS` nie
+    poprawi istniejącej definicji, więc sprawdzamy `pg_constraint`: klucz
+    z inną akcją niż RESTRICT ('r') podmieniamy (DROP + ADD w jednej
+    transakcji, żeby tabela nie została bez klucza). Gdy wszystko jest już
+    RESTRICT — czysty no-op (migracje idą przy każdym starcie workera).
+    """
+    for tabela in _ROZL_TABELE_Z_KLIENTEM:
+        try:
+            klucze = query_all(
+                "SELECT conname, confdeltype FROM pg_constraint "
+                "WHERE conrelid = to_regclass(%s) AND contype = 'f' "
+                "  AND confrelid = 'clients'::regclass", (tabela,))
+            do_zmiany = [k["conname"] for k in klucze if k["confdeltype"] != "r"]
+            if not do_zmiany:
+                continue
+            with transaction() as conn:
+                for nazwa in do_zmiany:
+                    cx_execute(conn, f'ALTER TABLE {tabela} DROP CONSTRAINT "{nazwa}"')
+                cx_execute(
+                    conn,
+                    f'ALTER TABLE {tabela} ADD CONSTRAINT "{do_zmiany[0]}" '
+                    "FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE RESTRICT")
+            logger.info("migrations.rozl_fk_restrict", extra={"tabela": tabela})
+        except Exception as exc:
+            logger.warning("migrations.rozl_fk_restrict.failed",
+                           extra={"tabela": tabela, "error": str(exc)})
 
 
 def _zapewnij_unikat_wz_seria() -> None:

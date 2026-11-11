@@ -34,11 +34,26 @@ START_KEY = "rozliczenia_start"
 START_DOMYSLNY = date(2026, 11, 9)
 KTO_MES = "MES"
 
-# Rzutujemy tylko tekst w kształcie daty ISO — jedna literówka w polu daty
-# nie może wywrócić całej synchronizacji (taki WZ jest po prostu pomijany).
-_ISO = r"'^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$'"
-_DATA_WZ = (f"COALESCE(CASE WHEN w.release_date ~ {_ISO} THEN w.release_date::date END, "
-            f"CASE WHEN w.issued_date ~ {_ISO} THEN w.issued_date::date END)")
+# Rzutujemy tylko tekst, który jest PRAWDZIWĄ datą ISO — jedna literówka
+# w polu daty nie może wywrócić całej synchronizacji. Sam kształt nie
+# wystarcza: '2026-02-30' pasuje do wzorca, a `::date` na nim rzuca błąd
+# i kładzie cały moduł. Dlatego dzień porównujemy z długością miesiąca
+# (zagnieżdżony CASE: Postgres liczy wewnętrzny warunek dopiero, gdy
+# zewnętrzny przeszedł, więc `substr(...)::int` dostaje same cyfry).
+# Taki WZ jest jak WZ bez daty: nie trafia do księgi (zgłaszamy go w logu).
+_ISO = r"'^[1-9]\d{3}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$'"
+
+
+def _data_sql(kolumna: str) -> str:
+    return (f"CASE WHEN {kolumna} ~ {_ISO} THEN "
+            f"CASE WHEN substr({kolumna}, 9, 2)::int <= extract(day from "
+            f"(substr({kolumna}, 1, 7) || '-01')::date + interval '1 month' - interval '1 day') "
+            f"THEN {kolumna}::date END END")
+
+
+_DATA_WZ = f"COALESCE({_data_sql('w.release_date')}, {_data_sql('w.issued_date')})"
+# Data w kształcie ISO, ale niemożliwa (30.02) — do zgłoszenia w logu.
+_ZLA_DATA = (f"({_DATA_WZ} IS NULL AND (w.release_date ~ {_ISO} OR w.issued_date ~ {_ISO}))")
 
 
 # ── Blokada księgi WZ ──────────────────────────────────────────────────
@@ -191,6 +206,7 @@ def synchronizuj_wz() -> dict:
                        ON w.source_type = 'order' AND o.id = w.source_id
                 WHERE COALESCE(w.doc_series, 'WZ') = 'WZ'
                   AND ({_DATA_WZ} >= %s
+                       OR {_ZLA_DATA}
                        OR w.id IN (SELECT source_id FROM rozl_dokumenty
                                    WHERE zrodlo = 'mes_wz'))
                 ORDER BY w.id""",
@@ -198,6 +214,12 @@ def synchronizuj_wz() -> dict:
 
         for wz in dokumenty_wz:
             stary = istniejace.get(wz["id"])
+            if stary is None and wz["data_dok"] is None:
+                # Niemożliwa data (np. 30.02): nie zgadujemy — WZ czeka na
+                # poprawkę daty w dokumentach WZ, reszta księgi liczy się dalej.
+                logger.warning("rozliczenia.wz.zla_data",
+                               extra={"wz_id": wz["id"], "numer": wz["number"]})
+                continue
             if stary is None:
                 _dodaj(conn, wz, kartoteka)
                 wynik["dodane"] += 1

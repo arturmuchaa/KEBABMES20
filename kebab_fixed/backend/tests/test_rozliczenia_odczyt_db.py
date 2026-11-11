@@ -299,7 +299,10 @@ def test_faktura_korygujaca_zmniejsza_dlug(db):
     k = karta("k", dzis=DZIS)
 
     assert k["saldo"]["fv"] == -1500.0
-    assert [d["numer"] for d in k["dokumenty"]["fv"]] == ["FV/1"]
+    # Korekta nie znika z karty: ujemny wiersz księgi, z tym, co zmniejszyła.
+    assert [(d["numer"], d["kwota"], d["korekta"]) for d in k["dokumenty"]["fv"]] == [
+        ("KOR/1", -500.0, True), ("FV/1", 2000.0, False)]
+    assert k["dokumenty"]["fv"][0]["rozliczyla"] == [{"numer": "FV/1", "kwota": 500.0}]
 
 
 def test_dokument_w_innej_walucie_nie_wchodzi_do_sald(db):

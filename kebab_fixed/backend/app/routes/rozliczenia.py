@@ -96,6 +96,11 @@ def karta(client_id: str, od: str = Query(""), do: str = Query("")):
     return svc.karta(client_id, od=_data(od), do=_data(do))
 
 
+@router.get("/klient/{client_id}/historia-zmian")
+def historia_zmian(client_id: str, limit: int = Query(200)):
+    return svc.historia_zmian(client_id, limit=limit if isinstance(limit, int) else 200)
+
+
 @router.put("/klient/{client_id}/ustawienia")
 def ustaw_klienta(client_id: str, body: Dict[str, Any], request: Request):
     svc.ustaw_klienta(client_id, body, _kto(request))
