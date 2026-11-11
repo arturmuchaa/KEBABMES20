@@ -59,7 +59,9 @@ export function DrukSaldaDialog({ karta, onClose }: { karta: Karta; onClose: () 
           <Printer size={15} />{zapis.busy && ktory === 'podglad' ? 'Przygotowuję PDF…' : 'Podgląd / drukuj'}
         </button>
       </>}>
-      <Segment label="Rodzaj wydruku" value={rodzaj} opcje={RODZAJE} onChange={setRodzaj} />
+      <div className="fld"><span className="label">Co drukować</span>
+        <Segment label="Rodzaj wydruku" value={rodzaj} opcje={RODZAJE} onChange={setRodzaj} />
+      </div>
       {rodzaj === 'zestawienie'
         ? (
           <>

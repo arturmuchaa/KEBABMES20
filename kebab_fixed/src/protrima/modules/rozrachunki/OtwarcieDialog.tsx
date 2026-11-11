@@ -106,7 +106,9 @@ export function OtwarcieDialog({ karta, ksiega, onClose, onZapisano }: {
           return (
             <section key={ks} className="rr-otw-k" role="group" aria-label={`Saldo otwarcia — ${n}`}>
               <h3>{n}</h3>
-              <Segment label={`Kierunek ${n}`} value={s.kierunek} opcje={KIERUNKI} onChange={k => zmien(ks, { kierunek: k })} />
+              <div className="fld"><span className="label">Na początek dnia startu</span>
+                <Segment label={`Kierunek ${n}`} value={s.kierunek} opcje={KIERUNKI} onChange={k => zmien(ks, { kierunek: k })} />
+              </div>
               <div className="fld"><span className="label">Kwota ({w})</span>
                 <PoleKwoty label={`Kwota ${n}`} value={s.tekst} onChange={t => zmien(ks, { tekst: t })} waluta={w} blad={bladKwoty(ks)}
                   onEnter={zapisz} autofocus={ks === (ksiega ?? 'wz')} placeholder="0,00 — brak salda" />
