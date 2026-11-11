@@ -1922,6 +1922,116 @@ _DDL: list[str] = [
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS "
     "settlement_basis TEXT NOT NULL DEFAULT 'both'",
 
+    # ── Rozliczenia z odbiorcami (09.11.2026) ──
+    # Panel należności: dwie księgi (WZ / FV) liczone osobno, forma płatności
+    # niezależna od księgi. Dokumenty z MES, ręczne i (docelowo) z Subiekta
+    # w jednej tabeli; wpłaty, salda otwarcia, historia zmian i dziennik
+    # kontaktów osobno. Znak kwot: minus = klient winien, plus = nadpłata.
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS "
+    "rozl_termin_wz INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS "
+    "rozl_termin_fv INTEGER NOT NULL DEFAULT 7",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS "
+    "rozl_forma_wz TEXT NOT NULL DEFAULT 'gotowka'",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS "
+    "rozl_forma_fv TEXT NOT NULL DEFAULT 'przelew'",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS "
+    "rozl_notatka TEXT NOT NULL DEFAULT ''",
+    # client_id NULL = WZ bez kontrahenta (czeka na przypisanie).
+    """CREATE TABLE IF NOT EXISTS rozl_dokumenty (
+        id TEXT PRIMARY KEY,
+        client_id TEXT REFERENCES clients(id) ON DELETE SET NULL,
+        przypisano_recznie BOOLEAN NOT NULL DEFAULT false,
+        ksiega TEXT NOT NULL CHECK (ksiega IN ('wz','fv')),
+        zrodlo TEXT NOT NULL CHECK (zrodlo IN ('mes_wz','reczna','subiekt')),
+        source_id TEXT NOT NULL DEFAULT '',
+        external_id TEXT NOT NULL DEFAULT '',
+        numer TEXT NOT NULL,
+        data_dok DATE NOT NULL,
+        kwota NUMERIC(14,2) NOT NULL DEFAULT 0,
+        waluta TEXT NOT NULL DEFAULT 'PLN',
+        termin DATE NOT NULL,
+        termin_reczny BOOLEAN NOT NULL DEFAULT false,
+        forma TEXT NOT NULL DEFAULT 'przelew' CHECK (forma IN ('gotowka','przelew')),
+        stan_zrodla TEXT NOT NULL DEFAULT 'aktywny'
+            CHECK (stan_zrodla IN ('aktywny','czeka_na_ceny','anulowany')),
+        brak_vat BOOLEAN NOT NULL DEFAULT false,
+        uwagi TEXT NOT NULL DEFAULT '',
+        usuniety_at TIMESTAMPTZ,
+        usuniety_przez TEXT,
+        powod_usuniecia TEXT,
+        utworzono TIMESTAMPTZ NOT NULL DEFAULT now(),
+        utworzyl TEXT NOT NULL DEFAULT ''
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_rozl_dok_wz "
+    "ON rozl_dokumenty(source_id) WHERE zrodlo='mes_wz'",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_rozl_dok_fv "
+    "ON rozl_dokumenty(client_id, numer) WHERE ksiega='fv' AND usuniety_at IS NULL",
+    "CREATE INDEX IF NOT EXISTS idx_rozl_dok_klient "
+    "ON rozl_dokumenty(client_id, ksiega, data_dok)",
+    # dokument_id bez FK: dokument może zniknąć, wpłata zostaje.
+    """CREATE TABLE IF NOT EXISTS rozl_wplaty (
+        id TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        ksiega TEXT NOT NULL CHECK (ksiega IN ('wz','fv')),
+        forma TEXT NOT NULL CHECK (forma IN ('gotowka','przelew')),
+        kwota NUMERIC(14,2) NOT NULL CHECK (kwota > 0),
+        waluta TEXT NOT NULL,
+        data DATE NOT NULL,
+        dokument_id TEXT,
+        uwagi TEXT NOT NULL DEFAULT '',
+        usuniety_at TIMESTAMPTZ,
+        usuniety_przez TEXT,
+        powod_usuniecia TEXT,
+        utworzono TIMESTAMPTZ NOT NULL DEFAULT now(),
+        utworzyl TEXT NOT NULL DEFAULT ''
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_rozl_wpl_klient "
+    "ON rozl_wplaty(client_id, ksiega, data)",
+    # Saldo otwarcia ze znakiem: minus dług, plus nadpłata.
+    """CREATE TABLE IF NOT EXISTS rozl_otwarcia (
+        client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        ksiega TEXT NOT NULL CHECK (ksiega IN ('wz','fv')),
+        kwota NUMERIC(14,2) NOT NULL DEFAULT 0,
+        waluta TEXT NOT NULL,
+        zalegle_od DATE,
+        uwagi TEXT NOT NULL DEFAULT '',
+        zmieniono TIMESTAMPTZ NOT NULL DEFAULT now(),
+        zmienil TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (client_id, ksiega)
+    )""",
+    # Historia bez FK: przeżywa usunięcie klienta/dokumentu.
+    # obiekt: dokument|wplata|otwarcie|klient; akcja: dodano|kwota|termin|forma|
+    # uwagi|anulowano|usunieto|przypisano|wycena|zmiana.
+    """CREATE TABLE IF NOT EXISTS rozl_historia (
+        id TEXT PRIMARY KEY,
+        client_id TEXT,
+        obiekt TEXT NOT NULL,
+        obiekt_id TEXT NOT NULL DEFAULT '',
+        akcja TEXT NOT NULL,
+        opis TEXT NOT NULL DEFAULT '',
+        przed JSONB,
+        po JSONB,
+        powod TEXT NOT NULL DEFAULT '',
+        kto TEXT NOT NULL DEFAULT '',
+        kiedy TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_rozl_hist ON rozl_historia(client_id, kiedy)",
+    "CREATE INDEX IF NOT EXISTS idx_rozl_hist_obiekt ON rozl_historia(obiekt, obiekt_id)",
+    """CREATE TABLE IF NOT EXISTS rozl_dziennik (
+        id TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+        tresc TEXT NOT NULL,
+        przypomnij DATE,
+        odhaczono_at TIMESTAMPTZ,
+        kto TEXT NOT NULL DEFAULT '',
+        kiedy TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    # Data startu rozliczeń (saldo otwarcia = stan na początek tego dnia).
+    """INSERT INTO app_settings (key, value)
+       VALUES ('rozliczenia_start', '"2026-11-09"'::jsonb)
+       ON CONFLICT (key) DO NOTHING""",
+
     # ── Palety przeżywają usunięcie/anulowanie/zmianę zamówienia (07.10.2026) ──
     # Poczekalnia palet bez zamówienia (rozpis jako specyfikacja) i aliasy
     # starych kartek PAL|<zamówienie>|<nr> → paleta w nowym zamówieniu.

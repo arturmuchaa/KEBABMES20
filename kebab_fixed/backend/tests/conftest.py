@@ -29,6 +29,9 @@ _TRUNCATE = [
     "label_template_revisions", "label_templates", "zebra_label_designs",
     "warehouse_events", "cold_storage_weighings", "cold_storage_blocked_slots", "dispatches",
     "orphan_pallets", "pallet_label_aliases",
+    # Rozliczenia z odbiorcami: dokumenty i historia nie mają twardego FK do
+    # `clients` (SET NULL / brak FK), więc CASCADE ich nie sprząta.
+    "rozl_dokumenty", "rozl_historia",
     # Nośniki zwrotne — od ruchów w stronę partnerów (FK), żeby CASCADE
     # nie zostawił sierot po dokumentach.
     "container_movements", "container_docs", "container_partner_links", "container_partners",
