@@ -47,7 +47,11 @@ describe('Rozrachunki — lista kontrahentów', () => {
     // Kafelki sum: osobno PLN i EUR
     expect(screen.getByText('Należności EUR')).toBeTruthy()
     expect(screen.getByText('Należności PLN')).toBeTruthy()
-    expect(screen.getByText('Gotówka z WZ do odebrania')).toBeTruthy()
+    // Kafelek z dwiema walutami: każda kwota w całości (bez łamania w środku), mniejszy krój.
+    const gotowka = screen.getByText('Gotówka z WZ do odebrania').closest('.rr-sum') as HTMLElement
+    const kwoty = gotowka.querySelectorAll('.v .rr-kw')
+    expect([...kwoty].map(k => k.textContent)).toEqual(['2 400,00 zł', '8 409,50 €'])
+    expect(gotowka.querySelector('.v')?.className).toMatch(/multi/)
     expect(screen.getByText('Nadpłaty klientów')).toBeTruthy()
   })
 

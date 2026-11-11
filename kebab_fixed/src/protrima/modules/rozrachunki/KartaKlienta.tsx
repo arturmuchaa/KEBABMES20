@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Printer, Scale, Settings2, StickyNote, Trash2, Wallet } from 'lucide-react'
+import { AlertTriangle, Printer, Scale, Settings2, StickyNote, Trash2, Wallet } from 'lucide-react'
 import { useApp, Dialog } from '../../shell/context'
 import { FlagIcon } from '../../ui/Glyphs'
 import { Pusto } from '../../ui/Pusto'
@@ -8,7 +8,8 @@ import { useApi } from '@/hooks/useApi'
 import { rozliczeniaApi } from '@/lib/api'
 import { dataPl, kwota } from '@/features/rozliczenia/druk'
 import {
-  FORMA_SLOWEM, KLASA_TONU, OKRESY, dzisIso, etykietaStanu, kwotaSalda, mapujKarte, opisPlatnosci, rozliczyla, wOkresie, zakresOkresu,
+  FORMA_SLOWEM, KLASA_TONU, OKRESY, dzisIso, etykietaStanu, kwotaBezWaluty, kwotaSalda, mapujKarte, opisPlatnosci, rozliczyla, symbolWaluty,
+  wOkresie, zakresOkresu,
   znakSalda, type Dok, type Karta, type Ksiega, type Okres, type Wplata, type Zakres,
 } from './model'
 import { Dziennik } from './Dziennik'
@@ -24,9 +25,7 @@ export type RodzajOkna = 'wplata' | 'faktura' | 'otwarcie' | 'druk' | 'ustawieni
 export type Okno = { rodzaj: RodzajOkna; karta: Karta; ksiega?: Ksiega; dokumentId?: string }
 
 const KLUCZ_UKRYJ = 'protrima.rozrachunki.karta.ukryjZaplacone'
-const KLUCZ_OKRES = 'protrima.rozrachunki.karta.okres'
 const ETYKIETA_OKRESU: Record<Okres, string> = { wszystko: 'Wszystko', miesiac: 'Ten miesiąc', kwartal: 'Kwartał', rok: 'Rok', zakres: 'Od–do' }
-const czytajOkres = (): Okres => { const o = pamiec.czytaj(KLUCZ_OKRES) as Okres | null; return o && OKRESY.includes(o) ? o : 'wszystko' }
 const dni = (x: number) => (x === 1 ? '1 dzień' : `${x} dni`)
 
 /** Data w wierszu księgi: w bieżącym roku krótko (27.10), inaczej pełna. */
@@ -49,14 +48,14 @@ export function KartaKlienta({ clientId, onWroc, onOtworz, nazwa, wersja = 0 }: 
   const k = res.data
   const odswiez = () => { void res.refetch() }
   const [ukryj, setUkryjStan] = useState(() => pamiec.czytaj(KLUCZ_UKRYJ) === '1')
-  const [okres, setOkresStan] = useState<Okres>(czytajOkres)
+  // Okres zawsze od „Wszystko” (spec 8.2) — wybór nie przechodzi na kartę kolejnego klienta; „Ukryj zapłacone” jest zapamiętane.
+  const [okres, setOkres] = useState<Okres>('wszystko')
   const [od, setOd] = useState('')
   const [do_, setDo] = useState('')
   const [dokument, setDokument] = useState<string | null>(null)
   const [usunWplate, setUsunWplate] = useState<Wplata | null>(null)
 
   const setUkryj = (v: boolean) => { setUkryjStan(v); pamiec.zapisz(KLUCZ_UKRYJ, v ? '1' : null) }
-  const setOkres = (o: Okres) => { setOkresStan(o); pamiec.zapisz(KLUCZ_OKRES, o === 'wszystko' ? null : o) }
   const dzis = dzisIso()
   const zakres = zakresOkresu(okres, dzis, od, do_)
   const otworz = (rodzaj: RodzajOkna, extra: Partial<Okno> = {}) => { if (k) onOtworz({ rodzaj, karta: k, ...extra }) }
@@ -233,13 +232,15 @@ function Salda({ k }: { k: Karta }) {
 
 const KOLUMNY_KSIEGI = 8
 
-/** Strzałki przesuwają po wierszach tej samej tabeli, Enter/spacja otwiera dokument. */
+/** Strzałki, Home i End przesuwają po wierszach tej samej księgi, Enter/spacja otwiera dokument. */
 function naWierszu(e: React.KeyboardEvent<HTMLTableRowElement>, otworz: () => void) {
   if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); otworz(); return }
-  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
   e.preventDefault()
-  const cel = e.key === 'ArrowDown' ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling
-  if (cel instanceof HTMLElement && cel.tabIndex >= 0) cel.focus()
+  const wiersze = [...(e.currentTarget.parentElement?.querySelectorAll<HTMLElement>('tr[data-numer]') ?? [])]
+  const i = wiersze.indexOf(e.currentTarget)
+  const cel = e.key === 'Home' ? 0 : e.key === 'End' ? wiersze.length - 1 : e.key === 'ArrowDown' ? Math.min(i + 1, wiersze.length - 1) : Math.max(i - 1, 0)
+  wiersze[cel]?.focus()
 }
 
 function Ksiega({ k, ksiega, zakres, ukryj, rok, onDokument, onBezCen, onPokazWszystko, onDodaj }: {
@@ -254,6 +255,12 @@ function Ksiega({ k, ksiega, zakres, ukryj, rok, onDokument, onBezCen, onPokazWs
   const saldo = ksiega === 'wz' ? k.saldo.wz : k.saldo.fv
   const tytul = ksiega === 'wz' ? 'WZ' : 'Faktury'
   const opis = ksiega === 'wz' ? opisPlatnosci(k.klient.formaWz, k.klient.terminWz) : opisPlatnosci(k.klient.formaFv, k.klient.terminFv)
+  const sym = symbolWaluty(w)
+  // Jeden wiersz księgi w kolejności Tab (jak na liście kontrahentów) — Tab nie przechodzi przez całą historię.
+  const [kursor, setKursor] = useState<string | null>(null)
+  const ids = [...bezCen.map(c => c.id), ...docs.map(d => d.id)]
+  const aktywny = kursor && ids.includes(kursor) ? kursor : ids[0]
+  const tab = (id: string) => (id === aktywny ? 0 : -1)
   return (
     <section className="box rr-panel rr-ksiega" aria-label={`${tytul} — księga`}>
       <div className="rr-panel-h">
@@ -264,22 +271,22 @@ function Ksiega({ k, ksiega, zakres, ukryj, rok, onDokument, onBezCen, onPokazWs
       <div className="rr-przewin">
         <table className="tbl rr-tbl rr-dok-tbl" aria-label={ksiega === 'wz' ? 'Księga WZ' : 'Faktury'}>
           <thead><tr>
-            <th>Data</th><th>Numer</th><th className="num">Kwota</th><th className="num">Zapłacono</th><th className="num">Zostało</th>
+            <th>Data</th><th>Numer</th><th className="num">Kwota {sym}</th><th className="num">Zapłacono {sym}</th><th className="num">Zostało {sym}</th>
             <th>Termin</th><th>Stan</th><th>Uwagi</th>
           </tr></thead>
           <tbody>
             {bezCen.map(c => (
-              <tr key={c.id} className="row click rr-bez-cen" data-numer={c.numer} tabIndex={0} onClick={() => onBezCen(c.id)}
+              <tr key={c.id} className="row click rr-bez-cen" data-numer={c.numer} tabIndex={tab(c.id)} onFocus={() => setKursor(c.id)} onClick={() => onBezCen(c.id)}
                 onKeyDown={e => naWierszu(e, () => onBezCen(c.id))} aria-label={`${c.numer}, czeka na ceny`}>
                 <td className="tnum" title={dataPl(c.data)}>{dataWiersza(c.data, rok)}</td>
                 <td className="code id-no">{c.numer}</td>
                 <td className="num faint">—</td><td className="num faint">—</td><td className="num faint">—</td>
                 <td className="faint">—</td>
                 <td><span className="tag warn">czeka na ceny</span></td>
-                <td className="rr-uwagi muted" title="WZ wejdzie do salda, gdy dostanie ceny">bez kwoty, dopóki WZ nie ma cen</td>
+                <td className="rr-uwagi muted" title="WZ wejdzie do salda, gdy dostanie ceny">bez kwoty, dopóki nie ma cen</td>
               </tr>
             ))}
-            {docs.map(d => <WierszDokumentu key={d.id} d={d} waluta={w} rok={rok} onOtworz={() => onDokument(d)} />)}
+            {docs.map(d => <WierszDokumentu key={d.id} d={d} waluta={w} rok={rok} tabIndex={tab(d.id)} onFocus={() => setKursor(d.id)} onOtworz={() => onDokument(d)} />)}
             {docs.length === 0 && bezCen.length === 0 && (
               <tr><td colSpan={KOLUMNY_KSIEGI} className="docs-empty">
                 {wszystkie.length > 0
@@ -296,29 +303,36 @@ function Ksiega({ k, ksiega, zakres, ukryj, rok, onDokument, onBezCen, onPokazWs
   )
 }
 
-function WierszDokumentu({ d, waluta, rok, onOtworz }: { d: Dok; waluta: string; rok: string; onOtworz: () => void }) {
+const BEZ_VAT = 'bez VAT — sprawdź wycenę'
+
+function WierszDokumentu({ d, waluta, rok, tabIndex, onFocus, onOtworz }: {
+  d: Dok; waluta: string; rok: string; tabIndex: number; onFocus: () => void; onOtworz: () => void
+}) {
   const st = etykietaStanu(d.stan)
+  // Pigułka bez dopisku „· częściowo” — ten idzie do drugiej linii, żeby kolumna Stan była wąska.
+  const pig = etykietaStanu({ ...d.stan, czesciowo: false })
   const zaplacony = d.stan.kod === 'zaplacony'
   const poTerminie = d.stan.kod === 'po_terminie'
   return (
-    <tr className={`row click${zaplacony ? ' closed' : ''}${d.otwarcie ? ' rr-otwarcie' : ''}`} data-numer={d.numer} tabIndex={0}
-      onClick={onOtworz} onKeyDown={e => naWierszu(e, onOtworz)}
+    <tr className={`row click${zaplacony ? ' closed' : ''}${d.otwarcie ? ' rr-otwarcie' : ''}`} data-numer={d.numer} tabIndex={tabIndex}
+      onFocus={onFocus} onClick={onOtworz} onKeyDown={e => naWierszu(e, onOtworz)}
       aria-label={`${d.numer}, ${kwota(d.kwota, waluta)}, ${st.tekst}`}
       data-tip={d.otwarcie ? 'Saldo otwarcia — stan z arkusza na dzień startu; kliknij, żeby zmienić' : undefined}>
       <td className="tnum" title={dataPl(d.data)}>{dataWiersza(d.data, rok)}</td>
-      <td className={d.otwarcie ? 'rr-otwarcie-nr' : 'code id-no'}>{d.numer}</td>
-      <td className="num">{kwota(d.kwota, waluta)}</td>
-      <td className="num">{kwota(d.zaplacono, waluta)}</td>
-      <td className={`num${poTerminie ? ' crit-ink' : znakSalda(d.zostalo) === 0 ? ' faint' : ''}`}>{kwota(d.zostalo, waluta)}</td>
+      <td className={d.otwarcie ? 'rr-otwarcie-nr' : 'code id-no'}>{d.numer}
+        {/* W komórce numeru, nie w Uwagach — ostrzeżenie nie może wpaść do ucinanej kolumny. */}
+        {d.brakVat && <span className="tag warn rr-vat" role="img" aria-label={BEZ_VAT} data-tip={BEZ_VAT}><AlertTriangle size={13} /></span>}
+      </td>
+      <td className="num">{kwotaBezWaluty(d.kwota)}</td>
+      <td className="num">{kwotaBezWaluty(d.zaplacono)}</td>
+      <td className={`num${poTerminie ? ' crit-ink' : znakSalda(d.zostalo) === 0 ? ' faint' : ''}`}>{kwotaBezWaluty(d.zostalo)}</td>
       <td className="tnum" title={d.termin ? dataPl(d.termin) : undefined}>{dataWiersza(d.termin, rok)}</td>
-      <td>
-        <span className={`tag ${KLASA_TONU[st.ton]}`}>{st.tekst}</span>
-        {d.zamkniety && <span className="sub" title="Data zamknięcia (ostatnia wpłata)">{dataWiersza(d.zamkniety, rok)}</span>}
+      <td className="rr-stan">
+        <span className={`tag ${KLASA_TONU[pig.ton]}`}>{pig.tekst}</span>
+        {d.stan.czesciowo && <span className="rr-stan-2">częściowo</span>}
+        {d.zamkniety && <span className="rr-stan-2" title="Data zamknięcia (ostatnia wpłata)">zamknięta {dataWiersza(d.zamkniety, rok)}</span>}
       </td>
-      <td className="rr-uwagi" title={d.uwagi || undefined}>
-        {d.brakVat && <span className="tag warn" data-tip="Klient z polskim NIP, a na WZ nie ma stawki VAT — prawdopodobny błąd wyceny">bez VAT — sprawdź wycenę</span>}
-        {d.uwagi}
-      </td>
+      <td className="rr-uwagi" title={d.uwagi || undefined}>{d.uwagi}</td>
     </tr>
   )
 }
@@ -347,7 +361,7 @@ function Wplaty({ k, onUsun, onDodaj }: { k: Karta; onUsun: (w: Wplata) => void;
                     <td>{p.ksiega === 'wz' ? 'WZ' : 'FV'}{nr && <span className="sub" data-tip="Wpłata wskazana na ten dokument">→ {nr}</span>}</td>
                     <td>{FORMA_SLOWEM[p.forma] ?? p.forma}</td>
                     <td className="num">{kwota(p.kwota, w)}</td>
-                    <td className="rr-uwagi rr-rozliczyla" title={r}>{r || <span className="faint">—</span>}</td>
+                    <td className="rr-rozliczyla">{r || <span className="faint">—</span>}</td>
                     <td className="rr-uwagi" title={p.uwagi || undefined}>{p.uwagi || <span className="faint">—</span>}</td>
                     <td className="muted">{p.utworzyl || '—'}</td>
                     <td className="r">

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   etykietaStanu, filtruj, kwotaSalda, liczba, mapujKarte, mapujListe, mapujSzczegoly, opisPlatnosci, pigulka, podpowiedzKlienta,
-  rozliczyla, sortuj, uporzadkujDziennik, walutyPodsumowania, wOkresie, zakresOkresu,
+  rozliczyla, sortuj, symbolWaluty, uporzadkujDziennik, walutyPodsumowania, wOkresie, zakresOkresu,
   type Kontrahent, type Wplata,
 } from './model'
 import { SUROWA_KARTA, SUROWA_KARTA_PELNA, SUROWA_LISTA, SUROWY_DOKUMENT } from './daneTestowe'
@@ -212,5 +212,13 @@ describe('mapujSzczegoly — dokument z pokryciem i historią', () => {
     expect(s.historia).toEqual([{ akcja: 'termin', opis: 'FV 512/2026: termin płatności zmieniona z 2026-10-22 na 2026-10-25',
       powod: 'ustalenie z klientem', kto: 'Anna', kiedy: '2026-10-19T09:30:00' }])
     expect(mapujSzczegoly(null).pokrycie).toEqual([])
+  })
+})
+
+describe('symbolWaluty — waluta w nagłówku kolumny', () => {
+  it('€ i zł, nieznana — kod', () => {
+    expect(symbolWaluty('EUR')).toBe('€')
+    expect(symbolWaluty('PLN')).toBe('zł')
+    expect(symbolWaluty('CHF')).toBe('CHF')
   })
 })

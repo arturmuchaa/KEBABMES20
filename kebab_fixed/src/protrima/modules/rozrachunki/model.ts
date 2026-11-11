@@ -368,6 +368,9 @@ export function zakresOkresu(okres: Okres, dzis: string, od = '', do_ = ''): Zak
 
 export const wOkresie = (data: string, z: Zakres) => !z || ((!z.od || data >= z.od) && (!z.do || data <= z.do))
 
+/** Symbol waluty do nagłówka kolumny: `€`, `zł`, inna — kod. */
+export const symbolWaluty = (w: string) => kwota(0, w).split(' ').pop() ?? w
+
 /** Kwota bez symbolu waluty (`7 280,00`) — do opisów w wierszu, gdzie waluta jest w kolumnie obok. */
 export const kwotaBezWaluty = (x: number) => kwota(x, 'PLN').replace(/ zł$/, '')
 

@@ -289,17 +289,22 @@ function Sumy({ l }: { l: ListaRozliczen }) {
       })}
       <div className="rr-sum">
         <span className="k">Gotówka z WZ do odebrania</span>
-        <span className="v">{waluty.map(w => kwota(suma(w).gotowkaWz, w)).join(' · ')}</span>
+        <Kwoty className="v" kwoty={waluty.map(w => kwota(suma(w).gotowkaWz, w))} />
         <span className="s">niezapłacone WZ płatne gotówką</span>
       </div>
       <div className="rr-sum">
         <span className="k">Nadpłaty klientów</span>
-        <span className={`v${nadplaty.length ? ' ok-ink' : ''}`}>{nadplaty.length ? nadplaty.map(w => kwotaSalda(suma(w).nadplaty, w)).join(' · ') : kwota(0, waluty[0])}</span>
+        <Kwoty className={`v${nadplaty.length ? ' ok-ink' : ''}`} kwoty={nadplaty.length ? nadplaty.map(w => kwotaSalda(suma(w).nadplaty, w)) : [kwota(0, waluty[0])]} />
         <span className="s">{nadplacajacy ? `kontrahentów z nadpłatą: ${nadplacajacy}` : 'nikt nie ma nadpłaty'}</span>
       </div>
     </div>
   )
 }
+
+/** Kwoty w kilku walutach w jednym kafelku — każda w całości, przy dwóch mniejszy krój. */
+const Kwoty = ({ className, kwoty }: { className: string; kwoty: string[] }) => (
+  <span className={`${className}${kwoty.length > 1 ? ' multi' : ''}`}>{kwoty.map(k => <span key={k} className="rr-kw">{k}</span>)}</span>
+)
 
 /** WZ bez kontrahenta: nie liczą się do żadnego salda, dopóki biuro nie wskaże odbiorcy. */
 function PasekWzBezKontrahenta({ docs, onPrzypisano }: { docs: WzBezKontrahenta[]; onPrzypisano: () => void }) {

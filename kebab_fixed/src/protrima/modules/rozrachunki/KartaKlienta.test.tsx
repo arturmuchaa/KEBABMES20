@@ -64,32 +64,61 @@ describe('Rozrachunki — karta klienta', () => {
     const wz = ksiega('Księga WZ')
     expect(numery(wz)).toEqual(['WZ 30/11', 'WZ 02/11', 'WZ 21/10', 'Saldo otwarcia'])
     const w21 = wiersz(wz, 'WZ 21/10')
-    expect(within(w21).getByText('13 dni po terminie · częściowo').className).toMatch(/tag crit/)
-    expect(within(w21).getByText('bez VAT — sprawdź wycenę')).toBeTruthy()
-    expect(within(w21).getByText('3 120,00 €').className).toMatch(/crit-ink/)
+    // Pigułka bez dopisku, „częściowo” w drugiej linii komórki Stan.
+    expect(within(w21).getByText('13 dni po terminie').className).toMatch(/tag crit/)
+    expect(within(w21).getByText('częściowo').closest('td')).toBe(within(w21).getByText('13 dni po terminie').closest('td'))
+    // Ostrzeżenie bez VAT w komórce numeru (nigdy w ucinanej kolumnie Uwagi).
+    const vat = within(w21).getByLabelText('bez VAT — sprawdź wycenę')
+    expect(vat.closest('td')).toBe(within(w21).getByText('WZ 21/10').closest('td'))
+    expect(vat.getAttribute('data-tip')).toBe('bez VAT — sprawdź wycenę')
+    // Kwoty w księdze bez symbolu waluty — waluta w nagłówku kolumny.
+    expect(within(w21).getByText('3 120,00').className).toMatch(/crit-ink/)
+    expect(within(wz).getByRole('columnheader', { name: 'Kwota €' })).toBeTruthy()
+    expect(within(wz).getByRole('columnheader', { name: 'Zapłacono €' })).toBeTruthy()
+    expect(within(wz).getByRole('columnheader', { name: 'Zostało €' })).toBeTruthy()
     expect(wiersz(wz, 'Saldo otwarcia').className).toMatch(/rr-otwarcie/)
     expect(within(wiersz(wz, 'WZ 30/11')).getByText('czeka na ceny')).toBeTruthy()
     const fv = ksiega('Faktury')
     expect(numery(fv)).toEqual(['FV 553/2026', 'FV 541/2026', 'FV 528/2026', 'FV 512/2026'])
     expect(wiersz(fv, 'FV 512/2026').className).toMatch(/closed/)
     expect(within(wiersz(fv, 'FV 541/2026')).getByText('termin jutro').className).toMatch(/tag warn/)
+    expect(within(wiersz(fv, 'FV 512/2026')).getByText('zapłacona po 2 dniach')).toBeTruthy()
     // Dokument w innej walucie — wypisany, nie znika po cichu.
     expect(screen.getByText(/w innej walucie niż EUR/)).toBeTruthy()
     expect(screen.getByText(/FV 9\/2026/)).toBeTruthy()
   })
 
-  it('„Ukryj zapłacone” chowa zapłaconą FV 512/2026 i spłacone saldo otwarcia; wybór zapamiętany', async () => {
+  it('„Ukryj zapłacone” chowa zapłaconą FV 512/2026 i spłacone saldo otwarcia; wybór zapamiętany, okres nie', async () => {
     mount()
     await gotowe()
     expect(numery(ksiega('Faktury'))).toContain('FV 512/2026')
     fireEvent.click(screen.getByLabelText('Ukryj zapłacone'))
     expect(numery(ksiega('Faktury'))).not.toContain('FV 512/2026')
     expect(numery(ksiega('Księga WZ'))).not.toContain('Saldo otwarcia')
+    fireEvent.click(screen.getByRole('button', { name: 'Rok' }))
     cleanup()
     mount()
     await gotowe()
     expect((screen.getByLabelText('Ukryj zapłacone') as HTMLInputElement).checked).toBe(true)
     expect(numery(ksiega('Faktury'))).not.toContain('FV 512/2026')
+    // Okres zawsze od „Wszystko” (spec 8.2) — nie przechodzi na kartę kolejnego klienta.
+    expect(screen.getByRole('button', { name: 'Wszystko' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('wiersze księgi: tylko jeden w kolejności Tab, strzałki przesuwają kursor', async () => {
+    mount()
+    await gotowe()
+    const fv = ksiega('Faktury')
+    const tabowalne = () => within(fv).getAllByRole('row').filter(r => r.getAttribute('data-numer') && r.tabIndex === 0)
+    expect(tabowalne().map(r => r.getAttribute('data-numer'))).toEqual(['FV 553/2026'])
+    wiersz(fv, 'FV 553/2026').focus()
+    fireEvent.keyDown(wiersz(fv, 'FV 553/2026'), { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(wiersz(fv, 'FV 541/2026'))
+    expect(tabowalne().map(r => r.getAttribute('data-numer'))).toEqual(['FV 541/2026'])
+    fireEvent.keyDown(wiersz(fv, 'FV 541/2026'), { key: 'End' })
+    expect(document.activeElement).toBe(wiersz(fv, 'FV 512/2026'))
+    fireEvent.keyDown(wiersz(fv, 'FV 512/2026'), { key: 'Home' })
+    expect(document.activeElement).toBe(wiersz(fv, 'FV 553/2026'))
   })
 
   it('filtr „Ten miesiąc” zostawia FV 541 i 553, kafelki sald bez zmian', async () => {

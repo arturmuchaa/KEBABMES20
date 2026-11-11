@@ -772,6 +772,10 @@ div.pstage { cursor: default; }
 .rr-sum .v { font-size: var(--fs-fig); font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--ink-1); line-height: 1.2; }
 .rr-sum .v.crit-ink { color: var(--crit-ink); }
 .rr-sum .v.ok-ink { color: var(--ok-ink); }
+/* Kilka walut w jednym kafelku: mniejszy krój, każda kwota w całości (łamanie tylko między walutami). */
+.rr-sum .v.multi { font-size: var(--fs-xl); display: flex; flex-wrap: wrap; gap: 0 8px; }
+.rr-sum .v .rr-kw { white-space: nowrap; }
+.rr-sum .v.multi .rr-kw + .rr-kw::before { content: '·'; margin-right: 8px; color: var(--ink-3); }
 .rr-sum .s { font-size: var(--fs-sm); color: var(--ink-3); font-variant-numeric: tabular-nums; }
 .rr-bar { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
 .rr-chips { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -820,10 +824,12 @@ div.pstage { cursor: default; }
 .rr-przel { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); cursor: pointer; user-select: none; }
 .rr-bar-info { font-size: var(--fs-sm); }
 .rr-link { font: inherit; color: var(--accent-ink); text-decoration: underline; cursor: pointer; padding: 0; }
-.rr-ksiegi { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 12px; align-items: start; }
-/* Wpłaty mają więcej kolumn niż dziennik — szersza kolumna; na wąskim oknie jedno pod drugim. */
-.rr-dolne { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; align-items: start; }
-@media (max-width: 1280px) { .rr-dolne { grid-template-columns: minmax(0, 1fr); } }
+/* Minimum = szerokość całej tabeli księgi (bez przewijania w bok): gdy dwie się nie mieszczą, stają jedna pod drugą. */
+.rr-ksiegi { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 780px), 1fr)); gap: 12px; align-items: start; }
+/* Wpłaty (więcej kolumn) obok dziennika tylko, gdy cała tabela wpłat się mieści — inaczej jedno pod drugim. */
+.rr-dolne { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.rr-dolne > .rr-wplaty { flex: 3 1 860px; }
+.rr-dolne > .rr-dziennik { flex: 2 1 380px; }
 .rr-panel { display: flex; flex-direction: column; min-width: 0; }
 .rr-panel-h { display: flex; align-items: baseline; gap: 8px 12px; flex-wrap: wrap; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); }
 .rr-panel-h h3 { display: inline-flex; align-items: center; gap: 7px; font-size: var(--fs-lg); font-weight: 600; color: var(--ink-1); margin-right: auto; }
@@ -836,7 +842,12 @@ div.pstage { cursor: default; }
 .rr-dok-tbl th { position: static; }
 .rr-dok-tbl th, .rr-dok-tbl td { padding: 0 8px; }
 /* Uwagi biorą resztę szerokości i ucinają się wielokropkiem (pełny tekst w podpowiedzi), ale nie znikają. */
-.rr-dok-tbl td.rr-uwagi { max-width: 0; width: 100%; min-width: 140px; }
+.rr-dok-tbl td.rr-uwagi { max-width: 0; width: 100%; }
+.rr-dok-tbl td.rr-stan { padding-top: 4px; padding-bottom: 4px; }
+.rr-stan-2 { display: block; margin-top: 2px; font-size: var(--fs-sm); color: var(--ink-3); line-height: 1.2; }
+.rr-vat { margin-left: 6px; height: 20px; padding: 0 4px; vertical-align: -1px; cursor: help; }
+.rr-vat svg { flex: none; }
+.rr-dok-tbl td.rr-rozliczyla { white-space: normal; min-width: 200px; padding-top: 4px; padding-bottom: 4px; line-height: 1.35; }
 .rr-dok-tbl th:first-child, .rr-dok-tbl th:last-child { border-radius: 0; }
 .rr-tbl tbody tr.click { cursor: pointer; }
 .rr-tbl tbody tr.rr-otwarcie td { background: var(--accent-tint-2); }
@@ -846,7 +857,6 @@ div.pstage { cursor: default; }
 .rr-tbl tbody tr.rr-bez-cen td { background: var(--surface-alt); }
 .rr-uwagi { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
 .rr-uwagi .tag { margin-right: 6px; }
-.rr-rozliczyla { max-width: 320px; }
 .rr-dziennik-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px 2px; }
 .rr-dziennik-form > .field { flex: 1 1 240px; min-width: 0; }
 .rr-przypomnij { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); }
