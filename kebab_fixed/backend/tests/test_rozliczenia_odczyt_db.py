@@ -7,6 +7,7 @@ zapisu powstają w osobnym zadaniu. Testy DB — bez TEST_DATABASE_URL skip.
 from __future__ import annotations
 
 from datetime import date, timedelta
+from decimal import Decimal
 
 import pytest
 
@@ -192,7 +193,8 @@ def test_lista_rozliczony_i_klient_bez_niczego(db):
     assert wynik["kontrahenci"][0]["najblizszy_termin_dni"] is None
 
 
-def test_lista_kolejnosc_najstarsza_potem_saldo(db):
+def test_lista_kolejnosc_najstarsza_potem_saldo(db, przywroc_start):
+    ustaw_date_startu(date(2026, 10, 1), "admin")
     _klient("a")
     _klient("b")
     _klient("c")
@@ -385,3 +387,33 @@ def test_dokument_nieznany_404(db):
     with pytest.raises(HTTPException) as e:
         dokument("nie-ma")
     assert e.value.status_code == 404
+
+
+# ── Data startu i stan na dzień ─────────────────────────────────────────
+
+def test_pozycje_sprzed_startu_nie_licza_sie(rojpak):
+    ustaw_date_startu(date(2026, 10, 28), "admin")
+
+    k = karta(rojpak["cid"], dzis=DZIS)
+
+    assert [d["numer"] for d in k["dokumenty"]["wz"]] == ["WZ 05/11", "WZ 02/11"]
+    assert [d["numer"] for d in k["dokumenty"]["fv"]] == ["553", "541"]
+    assert sorted(w["kwota"] for w in k["wplaty"]) == [4464.0, 7000.0]
+    assert k["saldo"]["wz"] == -5289.50
+    assert k["saldo"]["fv"] == -15758.20
+    wiersz = next(r for r in lista(dzis=DZIS)["kontrahenci"] if r["id"] == rojpak["cid"])
+    assert wiersz["saldo"] == -21047.70
+
+
+def test_ksiegi_klienta_na_dzien(rojpak):
+    from app.services.rozliczenia_service import ksiegi_klienta
+
+    k = ksiegi_klienta(rojpak["cid"], na_dzien=date(2026, 10, 28), dzis=date(2026, 10, 28))
+
+    fv = {d["numer"]: d for d in k["fv"]["dokumenty"]}
+    assert list(fv) == ["512", "528"]
+    assert fv["512"]["stan"]["kod"] == "zaplacony"
+    assert fv["528"]["zostalo"] == Decimal("14280.00")
+    assert fv["528"]["zaplacono"] == Decimal("0.00")
+    assert k["fv"]["saldo"] == Decimal("-14280.00")
+    assert [kr["kwota"] for kr in k["fv"]["kredyty"]] == [Decimal("17325.00")]

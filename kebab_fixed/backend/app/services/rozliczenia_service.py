@@ -9,9 +9,12 @@ Wejście księgi:
   * dokument z kwotą < 0 (faktura korygująca) staje się kredytem;
   * saldo otwarcia ujemne — najstarszy dokument „Saldo otwarcia”, dodatnie —
     kredyt z datą startu;
-  * wpłaty nieusunięte — kredyty.
+  * wpłaty nieusunięte — kredyty;
+  * dokumenty i wpłaty liczą się od daty startu włącznie (wcześniejsze są
+    w saldzie otwarcia).
 Dokumenty, wpłaty i salda otwarcia w innej walucie niż kontrahent nie wchodzą
-do sum — są zgłaszane (`inna_waluta`, z polem `rodzaj`). Niewycenione WZ trafiają na listę „czeka na ceny”.
+do sum — są zgłaszane (`inna_waluta`, z polem `rodzaj`). Niewycenione WZ
+trafiają na listę „czeka na ceny”.
 
 Na granicy API kwoty to `float` zaokrąglony do 2 miejsc, daty — ISO.
 """
@@ -104,6 +107,10 @@ def _zbuduj(klient: dict, dokumenty: list[dict], wplaty: list[dict], otwarcia: l
             start: date, na_dzien: Optional[date], dzis: date) -> dict:
     """Księgi WZ/FV klienta z wierszy bazy (wspólne dla karty i listy)."""
     waluta = klient["settlement_currency"]
+    # Pozycje sprzed startu siedzą w saldzie otwarcia (spec 5) — także wtedy,
+    # gdy biuro przesunęło datę startu po zapisaniu dokumentów i wpłat.
+    dokumenty = [r for r in dokumenty if r["data_dok"] >= start]
+    wplaty = [w for w in wplaty if w["data"] >= start]
     # Pozycje w innej walucie nie wchodzą do sum, ale nie znikają po cichu.
     inna_waluta = (
         [{"id": r["id"], "numer": r["numer"], "data": r["data_dok"], "kwota": r["kwota"],
@@ -273,10 +280,11 @@ def lista(dzis: Optional[date] = None) -> dict:
     start = data_startu()
     klienci = {k["id"]: k for k in query_all(_SQL_KLIENT)}
     dokumenty: dict[str, list] = defaultdict(list)
-    for r in query_all(_SQL_DOKUMENTY + " AND client_id IS NOT NULL"):
+    for r in query_all(_SQL_DOKUMENTY + " AND client_id IS NOT NULL AND data_dok >= %s",
+                       (start,)):
         dokumenty[r["client_id"]].append(r)
     wplaty: dict[str, list] = defaultdict(list)
-    for r in query_all(_SQL_WPLATY):
+    for r in query_all(_SQL_WPLATY + " AND data >= %s", (start,)):
         wplaty[r["client_id"]].append(r)
     otwarcia: dict[str, list] = defaultdict(list)
     for r in query_all(_SQL_OTWARCIA):
@@ -291,7 +299,8 @@ def lista(dzis: Optional[date] = None) -> dict:
             "SELECT d.id, d.numer, d.data_dok, d.kwota, d.waluta, w.buyer_name "
             "FROM rozl_dokumenty d LEFT JOIN wz_documents w ON w.id = d.source_id "
             "WHERE d.client_id IS NULL AND d.zrodlo='mes_wz' AND d.usuniety_at IS NULL "
-            "  AND d.stan_zrodla <> 'anulowany' ORDER BY d.data_dok, d.numer")]
+            "  AND d.stan_zrodla <> 'anulowany' AND d.data_dok >= %s "
+            "ORDER BY d.data_dok, d.numer", (start,))]
 
     zero = {"naleznosci": _ZERO, "po_terminie": _ZERO, "gotowka_wz": _ZERO, "nadplaty": _ZERO}
     podsumowanie: dict[str, dict] = {"PLN": dict(zero), "EUR": dict(zero)}
