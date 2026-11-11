@@ -387,12 +387,15 @@ export function numerZSeria(numer: string, ksiega: Ksiega): string {
   return `${seria} ${n}`
 }
 
-/** Na co poszła wpłata: `FV 528/2026: 7 280,00 €; FV 541/2026: 7 720,00 €`, reszta — `nadpłata: 250,00 €`. */
-export function rozliczyla(w: Wplata, waluta: string): string {
+/** Pozycje „Rozliczyła” osobno: `FV 528/2026: 7 280,00 €`, reszta — `nadpłata: 250,00 €`. */
+export function czesciRozliczenia(w: Wplata, waluta: string): string[] {
   const czesci = w.przydzialy.map(p => `${numerZSeria(p.numer, w.ksiega)}: ${kwota(p.kwota, waluta)}`)
   if (znakSalda(w.reszta) > 0) czesci.push(`nadpłata: ${kwota(w.reszta, waluta)}`)
-  return czesci.join('; ')
+  return czesci
 }
+
+/** Na co poszła wpłata: `FV 528/2026: 7 280,00 €; FV 541/2026: 7 720,00 €`. */
+export const rozliczyla = (w: Wplata, waluta: string): string => czesciRozliczenia(w, waluta).join('; ')
 
 export const FORMA_SLOWEM: Record<string, string> = { gotowka: 'gotówka', przelew: 'przelew' }
 

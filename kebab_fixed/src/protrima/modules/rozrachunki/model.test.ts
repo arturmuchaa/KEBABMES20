@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   etykietaStanu, filtruj, kwotaSalda, liczba, mapujKarte, mapujListe, mapujSzczegoly, opisPlatnosci, pigulka, podpowiedzKlienta,
-  numerZSeria, rozliczyla, sortuj, symbolWaluty, uporzadkujDziennik, walutyPodsumowania, wOkresie, zakresOkresu,
+  czesciRozliczenia, numerZSeria, rozliczyla, sortuj, symbolWaluty, uporzadkujDziennik, walutyPodsumowania, wOkresie, zakresOkresu,
   dodajDni, mapujPodglad, opisRozliczenia, poprzedniMiesiac, dni, doGroszy, formaDomyslna, FORMY,
   type Kontrahent, type Wplata,
 } from './model'
@@ -188,6 +188,10 @@ describe('rozliczyla — na co poszła wpłata', () => {
     expect(rozliczyla(w({ ksiega: 'fv', przydzialy: [{ numer: '512', kwota: 17325 }], reszta: 0 }), 'EUR')).toBe('FV 512: 17 325,00 €')
     expect(rozliczyla(w({ ksiega: 'wz', przydzialy: [{ numer: 'Saldo otwarcia', kwota: 1250 }, { numer: '14/10', kwota: 6175 }], reszta: 0 }), 'EUR'))
       .toBe('Saldo otwarcia: 1 250,00 €; WZ 14/10: 6 175,00 €')
+  })
+  it('czesciRozliczenia — te same pozycje osobno (do wierszy bez łamania w środku kwoty)', () => {
+    expect(czesciRozliczenia(w({ ksiega: 'fv', przydzialy: [{ numer: '528', kwota: 7280 }], reszta: 250 }), 'EUR'))
+      .toEqual(['FV 528: 7 280,00 €', 'nadpłata: 250,00 €'])
   })
   it('numerZSeria — seria tylko gdy jej brak (bez względu na wielkość liter)', () => {
     expect(numerZSeria('528', 'fv')).toBe('FV 528')

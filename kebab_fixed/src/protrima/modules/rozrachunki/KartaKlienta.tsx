@@ -8,7 +8,7 @@ import { useApi } from '@/hooks/useApi'
 import { rozliczeniaApi } from '@/lib/api'
 import { dataPl, kwota } from '@/features/rozliczenia/druk'
 import {
-  FORMA_SLOWEM, KLASA_TONU, OKRESY, dni, dzisIso, etykietaStanu, kwotaBezWaluty, kwotaSalda, mapujKarte, opisPlatnosci, rozliczyla, symbolWaluty,
+  FORMA_SLOWEM, KLASA_TONU, OKRESY, dni, dzisIso, etykietaStanu, kwotaBezWaluty, kwotaSalda, mapujKarte, opisPlatnosci, czesciRozliczenia, rozliczyla, symbolWaluty,
   wOkresie, zakresOkresu,
   znakSalda, type Dok, type Karta, type Ksiega, type Okres, type Wplata, type Zakres,
 } from './model'
@@ -352,7 +352,7 @@ function Wplaty({ k, onUsun, onDodaj }: { k: Karta; onUsun: (w: Wplata) => void;
                 <th>Data</th><th>Do czego</th><th>Forma</th><th className="num">Kwota</th><th>Rozliczyła</th><th>Uwagi</th><th>Kto</th><th />
               </tr></thead>
               <tbody>{k.wplaty.map(p => {
-                const r = rozliczyla(p, w)
+                const r = czesciRozliczenia(p, w)
                 const nr = numer(p.dokumentId)
                 return (
                   <tr key={p.id} className="row" data-id={p.id}>
@@ -360,7 +360,9 @@ function Wplaty({ k, onUsun, onDodaj }: { k: Karta; onUsun: (w: Wplata) => void;
                     <td>{p.ksiega === 'wz' ? 'WZ' : 'FV'}{nr && <span className="sub" data-tip="Wpłata wskazana na ten dokument">→ {nr}</span>}</td>
                     <td>{FORMA_SLOWEM[p.forma] ?? p.forma}</td>
                     <td className="num">{kwota(p.kwota, w)}</td>
-                    <td className="rr-rozliczyla">{r || <span className="faint">—</span>}</td>
+                    <td className="rr-rozliczyla">{r.length
+                      ? r.map((c, i) => <React.Fragment key={i}>{i > 0 && '; '}<span className="rr-nw">{c}</span></React.Fragment>)
+                      : <span className="faint">—</span>}</td>
                     <td className="rr-uwagi" title={p.uwagi || undefined}>{p.uwagi || <span className="faint">—</span>}</td>
                     <td className="muted">{p.utworzyl || '—'}</td>
                     <td className="r">

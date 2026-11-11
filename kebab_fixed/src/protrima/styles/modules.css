@@ -853,6 +853,8 @@ div.pstage { cursor: default; }
 .rr-vat { margin-left: 6px; height: 20px; padding: 0 4px; vertical-align: -1px; cursor: help; }
 .rr-vat svg { flex: none; }
 .rr-dok-tbl td.rr-rozliczyla { white-space: normal; min-width: 200px; padding-top: 4px; padding-bottom: 4px; line-height: 1.35; }
+/* Pozycja „FV 541: 7 720,00 €” w jednym kawałku — spacja w kwocie to separator tysięcy, nie miejsce na złamanie. */
+.rr-dok-tbl td.rr-rozliczyla .rr-nw { white-space: nowrap; }
 .rr-dok-tbl th:first-child, .rr-dok-tbl th:last-child { border-radius: 0; }
 .rr-tbl tbody tr.click { cursor: pointer; }
 .rr-tbl tbody tr.rr-otwarcie td { background: var(--accent-tint-2); }

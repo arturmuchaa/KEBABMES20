@@ -186,7 +186,10 @@ describe('Rozrachunki — karta klienta', () => {
     await gotowe()
     const wpl = screen.getByRole('table', { name: 'Wpłaty' })
     const p3 = within(wpl).getAllByRole('row').find(r => r.getAttribute('data-id') === 'p3') as HTMLElement
-    expect(within(p3).getByText('FV 528/2026: 7 000,00 €; nadpłata: 250,00 €')).toBeTruthy()
+    const roz = p3.querySelector('td.rr-rozliczyla') as HTMLElement
+    expect(roz.textContent).toBe('FV 528/2026: 7 000,00 €; nadpłata: 250,00 €')
+    // Pozycja nie łamie się w środku kwoty (spacja to też separator tysięcy) — łamie się tylko między pozycjami.
+    expect(Array.from(roz.querySelectorAll('.rr-nw')).map(e => e.textContent)).toEqual(['FV 528/2026: 7 000,00 €', 'nadpłata: 250,00 €'])
     const p1 = within(wpl).getAllByRole('row').find(r => r.getAttribute('data-id') === 'p1') as HTMLElement
     fireEvent.click(within(p1).getByRole('button', { name: /Usuń/ }))
     const dlg = await screen.findByRole('dialog')
