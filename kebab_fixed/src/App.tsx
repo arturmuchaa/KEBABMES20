@@ -46,6 +46,8 @@ import { HdiDocumentsPage }     from '@/pages/office/HdiDocumentsPage'
 import { CmrDocumentsPage }     from '@/pages/office/CmrDocumentsPage'
 import { ZaladunekDrukPage } from '@/pages/office/ZaladunekDrukPage'
 import { WzPrintPage }          from '@/pages/office/WzPrintPage'
+import { ZestawienieNaleznosciPrintPage } from '@/pages/office/ZestawienieNaleznosciPrintPage'
+import { HistoriaRozliczenPrintPage }     from '@/pages/office/HistoriaRozliczenPrintPage'
 import { DeboningReportPrintPage } from '@/pages/office/DeboningReportPrintPage'
 import { MixingPlanPrintPage }    from '@/pages/office/MixingPlanPrintPage'
 import { PaySlipsPrintPage }     from '@/pages/office/PaySlipsPrintPage'
@@ -147,6 +149,8 @@ export default function App() {
       <Route path="/office/hdi/:id/druk" element={<HdiPrintPage />} />
       <Route path="/office/cmr/:id/druk" element={<CmrPrintPage />} />
       <Route path="/office/wz/:id/druk" element={<WzPrintPage />} />
+      <Route path="/office/rozliczenia/:clientId/zestawienie/druk" element={<ZestawienieNaleznosciPrintPage />} />
+      <Route path="/office/rozliczenia/:clientId/historia/druk" element={<HistoriaRozliczenPrintPage />} />
       <Route path="/office/zaladunek/:id/druk" element={<ZaladunekDrukPage />} />
       <Route path="/office/rozbior-raport/druk" element={<DeboningReportPrintPage />} />
       <Route path="/office/plan-masowania/druk" element={<MixingPlanPrintPage />} />

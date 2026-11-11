@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from 'react'
-import { BlokSalda } from '@/features/rozrachunki/BlokSalda'
+import { BlokSaldaWz } from '@/features/rozliczenia/BlokSaldaWz'
 import { WzDoc, WzLine } from '@/lib/api'
 import { fmtDatePl } from '@/lib/utils'
 import { buildHdiRows } from './hdiRows'
@@ -303,12 +303,14 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
         </div>
       )}
 
-      {/* Rozrachunki: zaległości klienta na tym samym papierze co wydanie.
+      {/* Stan rozliczeń klienta na tym samym papierze co wydanie (spec 10.1).
           Właściciel 24.09.2026: „będę podpinał klientowi do dokumentów".
-          Blok MILCZY dla kontrahenta bez rozrachunków — jest dodatkiem do
+          Blok MILCZY, gdy backend nie ma zestawienia — jest dodatkiem do
           dokumentu, nie warunkiem jego powstania. Nie pokazujemy go na
-          szkicu: szkic nie jedzie do klienta. */}
-      {!draft && doc.id ? <BlokSalda wzId={String(doc.id)} /> : null}
+          szkicu (nie jedzie do klienta) ani na WM (wewnętrzny dokument
+          podziału wysyłki). */}
+      {!draft && doc.id && doc.doc_series !== 'WM'
+        ? <BlokSaldaWz wzId={String(doc.id)} /> : null}
 
       {/* ── Identyfikacja partii surowca (HDI) — tylko pozycje surowcowe;
              sprzedaż wyrobu (kebab) ma osobny, pełny HDI jak dotąd. ── */}

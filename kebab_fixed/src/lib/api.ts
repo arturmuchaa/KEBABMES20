@@ -9,6 +9,7 @@ import { tokenStore } from '@/features/auth/storage'
 import type { TakeSettlement, SettlementMeasurement, SettlementKind } from '@/features/deboning/settlement'
 import { formatCartonNo } from '@/lib/unitLocation'
 import type { UpdateReceptionDto } from '@/features/raw-batches/receptionEditView'
+import type { HistoriaOkresu, Zestawienie } from '@/features/rozliczenia/druk'
 import type {
   RawBatch, Supplier, User,
   CreateRawBatchDto, CreateSupplierDto, Paginated,
@@ -3252,6 +3253,77 @@ export const rozrachunkiApi = {
    *  przychodzą per GRUPA, bo tak wypisuje je biuro. */
   dostawa: (orderId: string, ceny: Record<string, number>, loadingId?: string) =>
     post<any>(`/rozrachunki/dostawa/${orderId}`, { ceny, ...(loadingId ? { loading_id: loadingId } : {}) }),
+}
+
+// ─── Panel rozliczeń z odbiorcami (/api/rozliczenia) ────────────
+// Księgi `wz` i `fv` zawsze osobno; minus = klient winien. Odpowiedzi to
+// surowy JSON serwisu — mapowanie do modelu ekranu robi panel.
+export type KsiegaRozliczen = 'wz' | 'fv'
+export type FormaPlatnosci = 'gotowka' | 'przelew'
+
+const rozlKlient = (id: string) => `/rozliczenia/klient/${encodeURIComponent(id)}`
+/** `?a=1&b=2` z pominięciem pustych wartości. */
+const rozlQuery = (q: Record<string, string | undefined>) => {
+  const s = new URLSearchParams(
+    Object.entries(q).filter(([, v]) => v) as [string, string][]).toString()
+  return s ? `?${s}` : ''
+}
+
+export const rozliczeniaApi = {
+  lista: () => get<any>('/rozliczenia'),
+  ustawienia: () => get<{ start: string }>('/rozliczenia/ustawienia'),
+  ustawStart: (start: string) => put<{ start: string }>('/rozliczenia/ustawienia', { start }),
+  karta: (clientId: string, od = '', do_ = '') =>
+    get<any>(`${rozlKlient(clientId)}${rozlQuery({ od, do: do_ })}`),
+  ustawKlienta: (clientId: string, dto: Record<string, unknown>) =>
+    put<{ ok: boolean }>(`${rozlKlient(clientId)}/ustawienia`, dto),
+  ustawOtwarcie: (clientId: string, ksiega: KsiegaRozliczen,
+                  dto: { kwota: number | string; zalegle_od?: string | null; uwagi?: string }) =>
+    put<{ ok: boolean }>(`${rozlKlient(clientId)}/otwarcie/${ksiega}`, dto),
+  dodajFakture: (clientId: string, dto: {
+    numer: string; data: string; kwota: number | string
+    termin?: string | null; forma?: FormaPlatnosci | null; uwagi?: string
+  }) => post<any>(`${rozlKlient(clientId)}/faktury`, dto),
+  podgladWplaty: (clientId: string,
+                  dto: { ksiega: KsiegaRozliczen; kwota: number | string; dokument_id?: string | null }) =>
+    post<any>(`${rozlKlient(clientId)}/wplaty/podglad`, dto),
+  dodajWplate: (clientId: string, dto: {
+    ksiega: KsiegaRozliczen; forma: FormaPlatnosci; kwota: number | string; data: string
+    dokument_id?: string | null; uwagi?: string
+  }) => post<any>(`${rozlKlient(clientId)}/wplaty`, dto),
+  usunWplate: (wplataId: string, powod: string) =>
+    post<{ ok: boolean }>(`/rozliczenia/wplaty/${encodeURIComponent(wplataId)}/usun`, { powod }),
+  dokument: (dokumentId: string) =>
+    get<any>(`/rozliczenia/dokumenty/${encodeURIComponent(dokumentId)}`),
+  /** Zmiana pól dokumentu (kwota, termin, …) z opcjonalnym powodem. */
+  edytujDokument: (dokumentId: string, zmiany: Record<string, unknown> & { powod?: string }) =>
+    patch<any>(`/rozliczenia/dokumenty/${encodeURIComponent(dokumentId)}`, zmiany),
+  usunDokument: (dokumentId: string, powod: string) =>
+    post<{ ok: boolean }>(`/rozliczenia/dokumenty/${encodeURIComponent(dokumentId)}/usun`, { powod }),
+  /** WZ bez kontrahenta → przypisanie do klienta. */
+  przypiszWz: (dokumentId: string, clientId: string) =>
+    post<{ ok: boolean }>(`/rozliczenia/dokumenty/${encodeURIComponent(dokumentId)}/przypisz`,
+      { client_id: clientId }),
+  dodajWpis: (clientId: string, tresc: string, przypomnij?: string | null) =>
+    post<any>(`${rozlKlient(clientId)}/dziennik`, { tresc, przypomnij: przypomnij || null }),
+  odhaczWpis: (wpisId: string) =>
+    post<{ ok: boolean }>(`/rozliczenia/dziennik/${encodeURIComponent(wpisId)}/odhacz`, {}),
+  /** Dokumenty niezapłacone na dzień (domyślnie dziś); `wzId` oznacza „ten dokument”. */
+  zestawienie: (clientId: string, naDzien = '', wzId = '') =>
+    get<Zestawienie>(`${rozlKlient(clientId)}/zestawienie${rozlQuery({ na_dzien: naDzien, wz_id: wzId })}`),
+  /** Tabelka salda pod drukowaną WZ — 404, gdy WZ jej nie dostaje (WM, bez kontrahenta). */
+  naWz: (wzId: string) =>
+    get<Zestawienie>(`/rozliczenia/na-wz/${encodeURIComponent(wzId)}`),
+  historia: (clientId: string, od: string, do_: string) =>
+    get<HistoriaOkresu>(`${rozlKlient(clientId)}/historia${rozlQuery({ od, do: do_ })}`),
+}
+
+/** Adresy PDF (render serwerowy) — dla `downloadDocPdf` / `openDocument`. */
+export const rozliczeniaPdf = {
+  zestawienie: (clientId: string, naDzien = '') =>
+    `${BASE}${rozlKlient(clientId)}/zestawienie/pdf${rozlQuery({ na_dzien: naDzien })}`,
+  historia: (clientId: string, od: string, do_: string) =>
+    `${BASE}${rozlKlient(clientId)}/historia/pdf${rozlQuery({ od, do: do_ })}`,
 }
 
 export const wzApi = {
