@@ -102,3 +102,29 @@ describe('TabelaSalda — bez należności', () => {
     expect(screen.queryByText('Razem faktury')).toBeNull()
   })
 })
+
+describe('TabelaSalda — czytelność wydruku', () => {
+  it('nad każdą tabelą nagłówek WZ / Faktury; pusta księga bez nagłówka', () => {
+    const { container, unmount } = render(<TabelaSalda z={ROJPAK} />)
+    expect(screen.getByRole('heading', { name: 'WZ' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Faktury' })).toBeTruthy()
+    // te same szerokości kolumn w obu tabelach — kolumny stoją jedna pod drugą
+    const szer = Array.from(container.querySelectorAll('table')).map(t =>
+      Array.from(t.querySelectorAll('col')).map(c => (c as HTMLElement).style.width).join('|'))
+    expect(szer[0]).not.toBe('')
+    expect(szer[0]).toBe(szer[1])
+    for (const t of Array.from(container.querySelectorAll('table'))) expect((t as HTMLElement).style.tableLayout).toBe('fixed')
+    unmount()
+    render(<TabelaSalda z={{ ...ROJPAK, wz: { pozycje: [], razem: 0 } }} />)
+    expect(screen.queryByRole('heading', { name: 'WZ' })).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Faktury' })).toBeTruthy()
+  })
+
+  it('pod WZ suma wszystkich dokumentów nazywa się inaczej niż „Razem do zapłaty” samego WZ', () => {
+    const { container } = render(<TabelaSalda z={ROJPAK} naWz />)
+    const tekst = container.textContent ?? ''
+    expect(tekst).toContain('Łącznie do zapłaty (wszystkie niezapłacone dokumenty): 38 447,70 €')
+    expect(tekst).not.toContain('Razem do zapłaty')
+  })
+})
+

@@ -47,13 +47,13 @@ function Ksiega({ k, tytul, waluta, od, do_ }: {
       <table style={S.table}>
         <colgroup>
           <col style={{ width: '22mm' }} /><col />
-          <col style={{ width: '27mm' }} /><col style={{ width: '27mm' }} /><col style={{ width: '29mm' }} />
-          <col style={{ width: '16mm' }} />
+          <col style={{ width: '25mm' }} /><col style={{ width: '25mm' }} /><col style={{ width: '28mm' }} />
+          <col style={{ width: '25mm' }} />
         </colgroup>
         <thead>
           <tr>
             {KOLUMNY.map((n, i) => (
-              <th key={n} style={i >= 2 ? { ...S.th, textAlign: 'right' } : S.th}>{n}</th>
+              <th key={n} style={i >= 2 ? { ...S.th, textAlign: 'right', whiteSpace: 'nowrap' } : S.th}>{n}</th>
             ))}
           </tr>
         </thead>
@@ -137,7 +137,7 @@ export function HistoriaRozliczenPrintPage() {
       ))}
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 24, fontSize: 12,
                     borderTop: '1.5px solid #111', paddingTop: 6 }}>
-        <span>Saldo łącznie: <b>{kwota(h.saldo_koniec, h.waluta)}</b></span>
+        <span>Saldo łącznie na {dataPl(h.do)}: <b>{kwota(h.saldo_koniec, h.waluta)}</b></span>
       </div>
     </div>
   )

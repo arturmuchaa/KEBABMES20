@@ -352,7 +352,7 @@ function Wplaty({ k, onUsun, onDodaj }: { k: Karta; onUsun: (w: Wplata) => void;
                 <th>Data</th><th>Do czego</th><th>Forma</th><th className="num">Kwota</th><th>Rozliczyła</th><th>Uwagi</th><th>Kto</th><th />
               </tr></thead>
               <tbody>{k.wplaty.map(p => {
-                const r = rozliczyla(p)
+                const r = rozliczyla(p, w)
                 const nr = numer(p.dokumentId)
                 return (
                   <tr key={p.id} className="row" data-id={p.id}>
@@ -390,7 +390,7 @@ function UsunWplate({ w, waluta, onClose, onUsunieto }: { w: Wplata; waluta: str
       onUsunieto()
     })
   }
-  const r = rozliczyla(w)
+  const r = rozliczyla(w, waluta)
   return (
     <Dialog title="Usuń wpłatę" icon={<Trash2 size={20} />} onClose={onClose}
       footer={<>

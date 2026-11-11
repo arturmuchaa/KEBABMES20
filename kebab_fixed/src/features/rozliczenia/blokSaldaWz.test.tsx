@@ -33,6 +33,10 @@ describe('BlokSaldaWz', () => {
     expect(await screen.findByTestId('blok-salda')).toBeTruthy()
     expect(stan.wzId).toBe('w3')
     expect(screen.getByText('WZ 02/11')).toBeTruthy()
+    // Pod WZ jest już „Razem do zapłaty” samego dokumentu — suma salda ma inną nazwę.
+    const blok = screen.getByTestId('blok-salda').textContent ?? ''
+    expect(blok).toContain('Łącznie do zapłaty (wszystkie niezapłacone dokumenty): 5 289,50 €')
+    expect(blok).not.toContain('Razem do zapłaty')
   })
 
   it('brak zestawienia (404) — nic nie rysuje, WZ drukuje się normalnie', async () => {

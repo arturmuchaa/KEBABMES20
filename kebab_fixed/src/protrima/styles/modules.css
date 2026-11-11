@@ -784,7 +784,10 @@ div.pstage { cursor: default; }
 .rr-chips .count.crit { color: var(--crit-ink); font-weight: 600; }
 .rr-chips .count.warn { color: var(--warn-ink); font-weight: 600; }
 .rr-szukaj { margin-left: auto; flex: 0 1 300px; min-width: 200px; }
-.rr-tbl .rr-th { display: inline-flex; align-items: center; font: inherit; color: inherit; cursor: pointer; }
+/* Sortuje cały nagłówek, nie tylko napis: przycisk wypełnia komórkę (padding przeniesiony z th). */
+.rr-tbl th:has(> .rr-th) { padding: 0; }
+.rr-tbl .rr-th { display: flex; align-items: center; width: 100%; height: 100%; min-height: 35px; padding: 0 10px; font: inherit; color: inherit; text-align: inherit; cursor: pointer; }
+.rr-tbl th.num .rr-th { justify-content: flex-end; }
 .rr-tbl th:hover { color: var(--ink-1); background: var(--surface-sunk); }
 .rr-tbl th .sort { display: inline-flex; margin-left: 3px; color: var(--accent-ink); }
 .rr-tbl tbody tr.row:focus { outline: none; }
@@ -792,7 +795,9 @@ div.pstage { cursor: default; }
 .rr-tbl tbody tr.row:focus-visible td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .rr-tbl td.num { font-size: max(var(--fs-md), var(--fs-id)); }
 .rr-tbl td.rr-saldo { font-weight: 600; }
-.rr-nazwa-w { display: flex; align-items: center; max-width: 340px; min-width: 0; }
+/* Nazwa bierze całą wolną szerokość kolumny (max-width: 0 — bez tego długa nazwa rozpychałaby tabelę); wielokropek + podpowiedź zostają. */
+.rr-tbl td.rr-nazwa-td { width: 100%; max-width: 0; }
+.rr-nazwa-w { display: flex; align-items: center; min-width: 0; }
 .rr-nazwa { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--ink-1); }
 .rr-tbl tr.closed .rr-nazwa { color: var(--ink-3); font-weight: 500; }
 .rr-waluta { margin-left: 0; }

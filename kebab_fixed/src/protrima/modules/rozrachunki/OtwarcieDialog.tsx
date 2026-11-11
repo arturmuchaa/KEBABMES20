@@ -4,7 +4,7 @@ import { useApp, Dialog } from '../../shell/context'
 import { FlagIcon } from '../../ui/Glyphs'
 import { rozliczeniaApi } from '@/lib/api'
 import { dataPl, kwota } from '@/features/rozliczenia/druk'
-import { doGroszy, kwotaBezWaluty, kwotaSalda, liczba, znakSalda, type Karta, type Ksiega } from './model'
+import { dodajDni, doGroszy, kwotaBezWaluty, kwotaSalda, liczba, znakSalda, type Karta, type Ksiega } from './model'
 import { OdmowaSerwera, PoleKwoty, Segment, klasaSalda, naEnter, tekstBledu, useZapis } from './wspolne'
 
 type Kierunek = 'winien' | 'nadplata'
@@ -108,6 +108,8 @@ export function OtwarcieDialog({ karta, ksiega, onClose, onZapisano, onOdswiez }
     })
   }
 
+  // Stan z arkusza to dzień przed startem (np. start 09.11 → „stan na 08.11”).
+  const podpowiedzUwag = `np. z arkusza, stan na ${dataPl(dodajDni(karta.start, -1)).slice(0, 5)}`
   return (
     <Dialog wide icon={<Scale size={20} />} onClose={onClose}
       title={<>Saldo otwarcia <span className="rr-dlg-klient">{karta.klient.nazwa}</span></>}
@@ -146,7 +148,7 @@ export function OtwarcieDialog({ karta, ksiega, onClose, onZapisano, onOdswiez }
                 </label>
               )}
               <label className="fld"><span className="label">Uwagi</span>
-                <input className="field" value={s.uwagi} aria-label={`Uwagi ${n}`} placeholder="np. z arkusza, stan na 08.11"
+                <input className="field" value={s.uwagi} aria-label={`Uwagi ${n}`} placeholder={podpowiedzUwag}
                   onChange={e => zmien(ks, { uwagi: e.target.value })} onKeyDown={naEnter(zapisz)} />
               </label>
             </section>

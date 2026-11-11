@@ -26,7 +26,7 @@ export function BlokSaldaWz({ wzId }: { wzId: string }) {
   if (!z) return null
   return (
     <div data-testid="blok-salda" className="mt-3">
-      <TabelaSalda z={z} />
+      <TabelaSalda z={z} naWz />
     </div>
   )
 }

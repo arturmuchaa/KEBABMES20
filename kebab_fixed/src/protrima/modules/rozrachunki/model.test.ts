@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   etykietaStanu, filtruj, kwotaSalda, liczba, mapujKarte, mapujListe, mapujSzczegoly, opisPlatnosci, pigulka, podpowiedzKlienta,
-  rozliczyla, sortuj, symbolWaluty, uporzadkujDziennik, walutyPodsumowania, wOkresie, zakresOkresu,
+  numerZSeria, rozliczyla, sortuj, symbolWaluty, uporzadkujDziennik, walutyPodsumowania, wOkresie, zakresOkresu,
   dodajDni, mapujPodglad, opisRozliczenia, poprzedniMiesiac, dni, doGroszy, formaDomyslna, FORMY,
   type Kontrahent, type Wplata,
 } from './model'
@@ -178,11 +178,22 @@ describe('zakresOkresu / wOkresie — filtr okresu na karcie', () => {
 
 describe('rozliczyla — na co poszła wpłata', () => {
   const w = (o: Partial<Wplata>): Wplata => ({ ...mapujKarte(SUROWA_KARTA).wplaty[0], ...o })
-  it('numery z kwotami po średniku, reszta jako nadpłata', () => {
-    expect(rozliczyla(w({ przydzialy: [{ numer: 'FV 528/2026', kwota: 7280 }, { numer: 'FV 541/2026', kwota: 7720 }], reszta: 0 })))
-      .toBe('FV 528/2026 7 280,00; FV 541/2026 7 720,00')
-    expect(rozliczyla(w({ przydzialy: [], reszta: 250 }))).toBe('nadpłata 250,00')
-    expect(rozliczyla(w({ przydzialy: [{ numer: 'WZ 21/10', kwota: 3000 }], reszta: 0.004 }))).toBe('WZ 21/10 3 000,00')
+  it('numer z serią, dwukropek i kwota z walutą — po średniku; reszta jako nadpłata', () => {
+    expect(rozliczyla(w({ ksiega: 'fv', przydzialy: [{ numer: 'FV 528/2026', kwota: 7280 }, { numer: 'FV 541/2026', kwota: 7720 }], reszta: 0 }), 'EUR'))
+      .toBe('FV 528/2026: 7 280,00 €; FV 541/2026: 7 720,00 €')
+    expect(rozliczyla(w({ przydzialy: [], reszta: 250 }), 'PLN')).toBe('nadpłata: 250,00 zł')
+    expect(rozliczyla(w({ ksiega: 'wz', przydzialy: [{ numer: 'WZ 21/10', kwota: 3000 }], reszta: 0.004 }), 'EUR')).toBe('WZ 21/10: 3 000,00 €')
+  })
+  it('goły numer faktury dostaje serię — „512 17 325,00” nie czyta się jak jedna kwota', () => {
+    expect(rozliczyla(w({ ksiega: 'fv', przydzialy: [{ numer: '512', kwota: 17325 }], reszta: 0 }), 'EUR')).toBe('FV 512: 17 325,00 €')
+    expect(rozliczyla(w({ ksiega: 'wz', przydzialy: [{ numer: 'Saldo otwarcia', kwota: 1250 }, { numer: '14/10', kwota: 6175 }], reszta: 0 }), 'EUR'))
+      .toBe('Saldo otwarcia: 1 250,00 €; WZ 14/10: 6 175,00 €')
+  })
+  it('numerZSeria — seria tylko gdy jej brak (bez względu na wielkość liter)', () => {
+    expect(numerZSeria('528', 'fv')).toBe('FV 528')
+    expect(numerZSeria('fv/12/2026', 'fv')).toBe('fv/12/2026')
+    expect(numerZSeria('WZ/31/10/26', 'wz')).toBe('WZ/31/10/26')
+    expect(numerZSeria('Saldo otwarcia', 'fv')).toBe('Saldo otwarcia')
   })
 })
 
@@ -239,6 +250,8 @@ describe('mapujPodglad / opisRozliczenia — co rozliczy wpłata', () => {
     expect(opisRozliczenia(trzy, 'EUR')).toBe('rozliczyła FV 528/2026, FV 541/2026 i FV 553/2026 — nadpłata +250,00 € zostaje na saldzie')
     expect(opisRozliczenia({ przydzialy: [], nadwyzka: 100 }, 'PLN')).toBe('nic nie było do zapłaty — +100,00 zł zostaje jako nadpłata')
     expect(opisRozliczenia({ przydzialy: [], nadwyzka: 0 }, 'PLN')).toBe('')
+    const gole = { przydzialy: [{ ...mapujPodglad(SUROWY_PODGLAD).przydzialy[0], numer: '528' }, { ...mapujPodglad(SUROWY_PODGLAD).przydzialy[1], numer: '541' }], nadwyzka: 0 }
+    expect(opisRozliczenia(gole, 'EUR', 'fv')).toBe('rozliczyła FV 528 i część FV 541')
   })
 })
 

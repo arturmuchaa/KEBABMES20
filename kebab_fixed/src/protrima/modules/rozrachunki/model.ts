@@ -375,10 +375,22 @@ export const symbolWaluty = (w: string) => kwota(0, w).split(' ').pop() ?? w
 /** Kwota bez symbolu waluty (`7 280,00`) — do opisów w wierszu, gdzie waluta jest w kolumnie obok. */
 export const kwotaBezWaluty = (x: number) => kwota(x, 'PLN').replace(/ zł$/, '')
 
-/** Na co poszła wpłata: `FV 528/2026 7 280,00; FV 541/2026 7 720,00`, reszta — `nadpłata 250,00`. */
-export function rozliczyla(w: Wplata): string {
-  const czesci = w.przydzialy.map(p => `${p.numer} ${kwotaBezWaluty(p.kwota)}`)
-  if (znakSalda(w.reszta) > 0) czesci.push(`nadpłata ${kwotaBezWaluty(w.reszta)}`)
+/**
+ * Numer z serią księgi (`528` → `FV 528`), gdy jej brak. Goły numer obok kwoty
+ * (`512 17 325,00`) czyta się jak jedna liczba — spacja to też separator tysięcy.
+ * „Saldo otwarcia” to nie dokument z serią — zostaje bez zmian.
+ */
+export function numerZSeria(numer: string, ksiega: Ksiega): string {
+  const seria = ksiega === 'wz' ? 'WZ' : 'FV'
+  const n = numer.trim()
+  if (!n || n.toUpperCase().startsWith(seria) || n.startsWith('Saldo otwarcia')) return n
+  return `${seria} ${n}`
+}
+
+/** Na co poszła wpłata: `FV 528/2026: 7 280,00 €; FV 541/2026: 7 720,00 €`, reszta — `nadpłata: 250,00 €`. */
+export function rozliczyla(w: Wplata, waluta: string): string {
+  const czesci = w.przydzialy.map(p => `${numerZSeria(p.numer, w.ksiega)}: ${kwota(p.kwota, waluta)}`)
+  if (znakSalda(w.reszta) > 0) czesci.push(`nadpłata: ${kwota(w.reszta, waluta)}`)
   return czesci.join('; ')
 }
 
@@ -432,10 +444,11 @@ export function mapujPodglad(raw: unknown): PodgladWplaty {
 const wyliczenie = (x: string[]) => (x.length > 1 ? `${x.slice(0, -1).join(', ')} i ${x[x.length - 1]}` : x[0] ?? '')
 
 /** Co zrobiła wpłata, do powiadomienia: `rozliczyła FV 528/2026 i część FV 541/2026 — nadpłata +250,00 € zostaje na saldzie`. */
-export function opisRozliczenia(p: PodgladWplaty, waluta: string): string {
+export function opisRozliczenia(p: PodgladWplaty, waluta: string, ksiega?: Ksiega): string {
   const nadwyzka = znakSalda(p.nadwyzka) > 0 ? kwotaSalda(p.nadwyzka, waluta) : ''
   if (!p.przydzialy.length) return nadwyzka ? `nic nie było do zapłaty — ${nadwyzka} zostaje jako nadpłata` : ''
-  const co = `rozliczyła ${wyliczenie(p.przydzialy.map(x => (x.zamyka ? x.numer : `część ${x.numer}`)))}`
+  const nr = (x: Przydzial) => (ksiega ? numerZSeria(x.numer, ksiega) : x.numer)
+  const co = `rozliczyła ${wyliczenie(p.przydzialy.map(x => (x.zamyka ? nr(x) : `część ${nr(x)}`)))}`
   return nadwyzka ? `${co} — nadpłata ${nadwyzka} zostaje na saldzie` : co
 }
 

@@ -39,6 +39,14 @@ describe('Rozrachunki — saldo otwarcia', () => {
     expect(zapisz().getAttribute('data-tip')).toBe('Nic nie zmieniono')
   })
 
+  it('podpowiedź w uwagach: dzień przed startem z ustawień, nie data wpisana na sztywno', () => {
+    mount()
+    expect(within(sekcja('WZ')).getByLabelText('Uwagi WZ').getAttribute('placeholder')).toBe('np. z arkusza, stan na 30.09')
+    cleanup()
+    mount({ ...bez, start: '2026-11-09' })
+    expect(within(sekcja('Faktury')).getByLabelText('Uwagi Faktury').getAttribute('placeholder')).toBe('np. z arkusza, stan na 08.11')
+  })
+
   it('„klient winien” + 6 300 → do API z minusem; nietknięta księga FV nie idzie', async () => {
     mount()
     expect(within(sekcja('WZ')).getByRole('button', { name: 'klient winien' }).getAttribute('aria-pressed')).toBe('true')

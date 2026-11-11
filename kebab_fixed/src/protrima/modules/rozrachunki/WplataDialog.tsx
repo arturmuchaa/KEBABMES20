@@ -4,7 +4,7 @@ import { useApp, Dialog } from '../../shell/context'
 import { rozliczeniaApi } from '@/lib/api'
 import { dataPl, kwota } from '@/features/rozliczenia/druk'
 import {
-  FORMA_SLOWEM, FORMY, doGroszy, dzisIso, formaDomyslna, kwotaSalda, mapujPodglad, opisRozliczenia, znakSalda,
+  FORMA_SLOWEM, FORMY, doGroszy, dzisIso, formaDomyslna, kwotaSalda, mapujPodglad, numerZSeria, opisRozliczenia, znakSalda,
   type Forma, type Karta, type Ksiega, type PodgladWplaty,
 } from './model'
 import { OdmowaSerwera, PoleKwoty, Segment, klasaSalda, kwotaZPola, naEnter, tekstBledu, useZapis } from './wspolne'
@@ -82,7 +82,7 @@ export function WplataDialog({ karta, ksiega: ksiegaStart, dokumentId, onClose, 
       const r = await rozliczeniaApi.dodajWplate(karta.klient.id, {
         ksiega, forma, kwota: kwR, data, dokument_id: dokument || null, uwagi: uwagi.trim(),
       })
-      const opis = opisRozliczenia(mapujPodglad(r), w)
+      const opis = opisRozliczenia(mapujPodglad(r), w, ksiega)
       app.toast({
         kind: 'ok', title: `Wpłata ${kwota(kwR, w)} zapisana${opis ? ` — ${opis}` : ''}`,
         detail: `${karta.klient.nazwa} · ${ksiega === 'wz' ? 'księga WZ' : 'księga faktur'} · ${FORMA_SLOWEM[forma]} · ${dataPl(data)}`,
@@ -135,14 +135,14 @@ export function WplataDialog({ karta, ksiega: ksiegaStart, dokumentId, onClose, 
         </label>
       </div>
 
-      <Podglad podglad={podglad} aktualny={!!podglad && podglad.klucz === klucz} pusty={!klucz} waluta={w} wskazany={wskazany?.numer} />
+      <Podglad podglad={podglad} aktualny={!!podglad && podglad.klucz === klucz} pusty={!klucz} waluta={w} ksiega={ksiega} wskazany={wskazany ? numerZSeria(wskazany.numer, ksiega) : undefined} />
       <OdmowaSerwera blad={zapis.blad} />
     </Dialog>
   )
 }
 
-function Podglad({ podglad, aktualny, pusty, waluta, wskazany }: {
-  podglad: { p?: PodgladWplaty; blad?: string } | null; aktualny: boolean; pusty: boolean; waluta: string; wskazany?: string
+function Podglad({ podglad, aktualny, pusty, waluta, ksiega, wskazany }: {
+  podglad: { p?: PodgladWplaty; blad?: string } | null; aktualny: boolean; pusty: boolean; waluta: string; ksiega: Ksiega; wskazany?: string
 }) {
   const p = podglad?.p
   return (
@@ -158,7 +158,7 @@ function Podglad({ podglad, aktualny, pusty, waluta, wskazany }: {
               <ul className={`rr-podglad${aktualny ? '' : ' nieaktualny'}`} aria-label="Podgląd rozliczenia" aria-busy={!aktualny || undefined}>
                 {p.przydzialy.map(x => (
                   <li key={x.dokumentId}>
-                    <span className="code">{x.numer}</span>
+                    <span className="code">{numerZSeria(x.numer, ksiega)}</span>
                     {x.zamyka
                       ? <span>{kwota(x.kwota, waluta)} z {kwota(x.zostaloPrzed, waluta)} → <b>zapłacona</b></span>
                       : <span>{`${kwota(x.kwota, waluta)} z ${kwota(x.zostaloPrzed, waluta)} → zostaje ${kwota(x.zostaloPo, waluta)}`}</span>}

@@ -69,6 +69,8 @@ describe('Zestawienie należności — kartka', () => {
     expect(screen.getByText('ROJPAK')).toBeTruthy()
     expect(screen.getByText('NIP DE123456789')).toBeTruthy()
     expect(screen.getByText('Razem faktury')).toBeTruthy()
+    // Osobna kartka zostaje przy „Razem do zapłaty” (spec 10.1).
+    expect(document.body.textContent).toContain('Razem do zapłaty')
   })
 })
 
@@ -82,7 +84,7 @@ describe('Historia rozliczeń — kartka', () => {
     expect(komorki).toEqual(['09.11.2026', 'Saldo otwarcia', '', '2 000,00 zł', '2 000,00 zł', '–'])
     expect(screen.getByText('Saldo na początek okresu')).toBeTruthy()
     expect(screen.getByText('Saldo na koniec okresu')).toBeTruthy()
-    expect(container.textContent).toContain('Saldo łącznie: \u22121 550,00 zł')
+    expect(container.textContent).toContain('Saldo łącznie na 30.11.2026: \u22121 550,00 zł')
     // Po terminie na koniec okresu: tylko WZ 9/11 — na czerwono, dni pogrubione.
     const po = container.querySelectorAll('tr[data-po-terminie="1"]')
     expect(po).toHaveLength(1)
@@ -92,7 +94,8 @@ describe('Historia rozliczeń — kartka', () => {
     const dni = wiersz.lastElementChild as HTMLElement
     expect(dni.textContent).toBe('18')
     expect(dni.style.fontWeight).toBe('700')
-    expect(screen.getByText('Dni po terminie')).toBeTruthy()
+    const naglDni = screen.getByText('Dni po terminie') as HTMLElement
+    expect(naglDni.style.whiteSpace).toBe('nowrap')
     // Księga faktur bez ruchu i z zerem nie zaśmieca kartki.
     expect(screen.queryByText('Faktury')).toBeNull()
   })
