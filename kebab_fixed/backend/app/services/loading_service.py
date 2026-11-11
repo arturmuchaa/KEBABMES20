@@ -710,7 +710,7 @@ def zaladunek(loading_id: str) -> Dict[str, Any]:
         raise HTTPException(404, "Kurs nie znaleziony")
     pozycje = []
     for r in query_all(
-            "SELECT lo.order_id, lo.wz_id, lo.wz_status, lo.pozycje, lo.document_snapshot, o.order_no, o.client_name "
+            "SELECT lo.order_id, lo.wz_id, lo.wz_status, lo.pozycje, lo.document_snapshot, o.order_no, o.client_name, o.client_id "
             "FROM loading_orders lo LEFT JOIN client_orders o ON o.id = lo.order_id "
             "WHERE lo.loading_id=%s ORDER BY o.client_name", (loading_id,)):
         oid = r["order_id"]
@@ -734,6 +734,7 @@ def zaladunek(loading_id: str) -> Dict[str, Any]:
             "order_id": oid,
             "order_no": r.get("order_no"),
             "client_name": r.get("client_name"),
+            "client_id": r.get("client_id"),
             "wz_status": r.get("wz_status"),
             "zaladowano": zapisane,
             "kg_zaladowane": kg_kursu,

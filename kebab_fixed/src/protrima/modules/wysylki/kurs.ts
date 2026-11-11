@@ -5,13 +5,15 @@
  * faktury tego odbiorcy (pole 5 CMR) i czy drukuje HDI także do faktury.
  * Wystawienie robi serwer jedną operacją (`zaladunkiApi.wystaw`).
  */
-import { cmrApi, hdiApi, wzApi } from '@/lib/api'
+import { cmrApi, hdiApi, rozliczeniaPdf, wzApi } from '@/lib/api'
 
 export interface DokKursu { id: string; number: string; doc_series?: string; split_scope?: string | null; scope?: string | null }
 export interface PozycjaKursu {
   order_id: string
   order_no: string | null
   client_name: string | null
+  /** Kontrahent zamówienia — bez niego nie ma zestawienia należności. */
+  client_id?: string | null
   /** 'do_wystawienia' — czeka na biuro; 'wystawiony'; 'rozjazd' — dokument ≠ załadunek. */
   wz_status: string | null
   /** Co FAKTYCZNIE wyjechało tym kursem — z tego liczy się „całość”. */
@@ -99,4 +101,21 @@ export function papieryPozycji(p: PozycjaKursu): PapierKursu[] {
     ...p.hdi.map(d => ({ key: `hdi-${d.id}`, etykieta: d.scope === 'fv' ? 'HDI do faktury' : 'HDI', numer: d.number, url: hdiApi.pdfUrl(d.id), plik: plik('HDI', d.number) })),
     ...p.cmr.map(d => ({ key: `cmr-${d.id}`, etykieta: d.scope === 'fv' ? 'CMR do faktury' : 'CMR na drogę', numer: d.number, url: cmrApi.pdfUrl(d.id), plik: plik('CMR', d.number) })),
   ]
+}
+
+export interface SaldoKursu extends PapierKursu {
+  /** Wchodzi do „Pobierz wszystkie PDF” tylko, gdy odbiorca nie ma WZ klienta (saldo nie jest wtedy na WZ). */
+  doWszystkich: boolean
+}
+
+/**
+ * Zestawienie należności odbiorcy — papier „na dziś”. Odbiorca bez `client_id` nie ma go wcale.
+ * Gdy wysyłka idzie bez WZ do klienta (wszystko na fakturę; WM jest wewnętrzny), saldo nie ma
+ * gdzie się pojawić, więc dochodzi do wydruku; przy WZ klienta jest już pod nim.
+ */
+export function saldoPozycji(p: PozycjaKursu, dzis: string): SaldoKursu | null {
+  if (!p.client_id) return null
+  const brakWz = !p.wz.some(d => d.doc_series !== 'WM')
+  const klient = (p.client_name || p.client_id).replace(/[\\/:*?"<>|\s]+/g, '_')
+  return { key: `saldo-${p.client_id}`, etykieta: 'Zestawienie należności', numer: '', url: rozliczeniaPdf.zestawienie(p.client_id, dzis), plik: `SALDO_${klient}_${dzis}.pdf`, doWszystkich: brakWz }
 }

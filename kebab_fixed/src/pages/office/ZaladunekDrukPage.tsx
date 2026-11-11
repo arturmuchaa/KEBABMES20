@@ -24,6 +24,7 @@ type Pozycja = {
   order_id: string
   order_no: string | null
   client_name: string | null
+  client_id?: string | null
   wz_status: string | null
   /** Co FAKTYCZNIE wyjechało tym kursem — z tego biuro liczy „całość". */
   kg_zaladowane: number
@@ -303,10 +304,10 @@ export function ZaladunekDrukPage() {
                 <Papier key={d.id} do={`/office/cmr/${d.id}/druk`}
                   etykieta={d.scope === 'fv' ? 'CMR do faktury' : 'CMR na drogę'} numer={d.number} />
               ))}
-              {p.wz.some(d => d.doc_series === 'WM' || !d.split_scope) && (
+              {p.client_id && (
                 <Link className="inline-flex min-h-10 items-center rounded border px-3 text-sm underline"
-                  to={`/office/rozliczenie-dostawy/${encodeURIComponent(p.order_id)}?loading_id=${encodeURIComponent(id || '')}`}>
-                  Rozliczenie tego kursu
+                  to={`/office/rozliczenia/${encodeURIComponent(p.client_id)}/zestawienie/druk`}>
+                  Zestawienie należności
                 </Link>
               )}
               {p.wz.length + p.hdi.length + p.cmr.length === 0 && (

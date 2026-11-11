@@ -1064,6 +1064,17 @@ def test_kurs_oddaje_KOMPLET_papierow_per_odbiorca(db):
     assert poz["hdi"], "HDI ma być na liście"
 
 
+def test_pozycja_kursu_niesie_client_id_zamowienia(db):
+    """Zestawienie należności w papierach kursu potrzebuje kontrahenta odbiorcy."""
+    from app.services.loading_service import zaladunek, zaladunki_do_wydruku
+    _przygotuj()
+    finalize_loading("v1", ["o1"], plate="KR 99999")
+
+    poz = zaladunek(zaladunki_do_wydruku()[0]["id"])["pozycje"][0]
+
+    assert poz["client_id"] == "c1"
+
+
 def test_pominiete_zamowienie_nie_robi_pustej_karty(db):
     """Pusta karta na pulpicie to szum — biuro przestaje czytać powiadomienia,
     które nic nie znaczą."""

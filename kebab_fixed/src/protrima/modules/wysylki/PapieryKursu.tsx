@@ -7,10 +7,11 @@ import { FlagIcon } from '../../ui/Glyphs'
 import { carriersApi, downloadDocPdf, zaladunkiApi, type Carrier } from '@/lib/api'
 import { INSTRUKCJE_DOMYSLNE } from '../orders/dokumenty/Cmr'
 import {
-  PUSTA_DECYZJA, calosc, doWystawienia, kgNaFakture, kgNaWz, papieryPozycji, uklad, wpiszKg, zamowieniaDoWystawienia,
+  PUSTA_DECYZJA, calosc, doWystawienia, kgNaFakture, kgNaWz, papieryPozycji, saldoPozycji, uklad, wpiszKg, zamowieniaDoWystawienia,
   type Decyzja, type Kurs, type PozycjaKursu, type Transport,
 } from './kurs'
 
+const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 const godz = (iso: string | null) => {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -51,7 +52,10 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
 
   const czekajace = doWystawienia(kurs)
   const wynik = useMemo(() => zamowieniaDoWystawienia(kurs, decyzje), [kurs, decyzje])
-  const wszystkiePapiery = useMemo(() => (kurs?.pozycje ?? []).flatMap(papieryPozycji), [kurs])
+  const wszystkiePapiery = useMemo(() => (kurs?.pozycje ?? []).flatMap(p => {
+    const saldo = saldoPozycji(p, dzisIso())
+    return [...papieryPozycji(p), ...(saldo?.doWszystkich ? [saldo] : [])]
+  }), [kurs])
 
   const wystaw = async () => {
     if (lock.current || 'blad' in wynik) return
@@ -71,7 +75,7 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
   const pobierzWszystkie = async () => {
     setBusy('all')
     for (const d of wszystkiePapiery) {
-      try { await downloadDocPdf(d.url, d.plik) } catch (e) { app.toast({ kind: 'warn', title: `Nie udało się pobrać ${d.etykieta} ${d.numer}`, detail: e instanceof Error ? e.message : '' }) }
+      try { await downloadDocPdf(d.url, d.plik) } catch (e) { app.toast({ kind: 'warn', title: `Nie udało się pobrać ${d.etykieta} ${d.numer}`.trim(), detail: e instanceof Error ? e.message : '' }) }
     }
     setBusy(null)
   }
@@ -131,6 +135,7 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
               <thead><tr><th>Odbiorca</th><th>Zamówienie</th><th className="num">Wyjechało</th><th>Dokumenty</th></tr></thead>
               <tbody>{kurs.pozycje.map((p, i) => {
                 const papiery = papieryPozycji(p)
+                const saldo = saldoPozycji(p, dzisIso())
                 return (
                   <tr key={p.order_id} className={`row${i % 2 ? ' zebra' : ''}`}>
                     <td className="strong">{p.client_name || '—'}{p.wz_status === 'rozjazd' && <span className="tag warn" style={{ marginLeft: 8 }}>rozjazd — sprawdź przed wydrukiem</span>}</td>
@@ -139,6 +144,11 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
                     <td style={{ whiteSpace: 'normal' }}><div className="row-wrap">
                       {papiery.map(d => <button key={d.key} className="btn sm" disabled={!!busy} onClick={() => void pobierz(d.url, d.plik, d.key)}>
                         <FileDown size={14} />{d.etykieta} <span className="code">{d.numer}</span></button>)}
+                      {saldo && <span className="row-wrap" style={{ gap: 6 }}>
+                        <button className="btn sm" disabled={!!busy} onClick={() => void pobierz(saldo.url, saldo.plik, saldo.key)}>
+                          <FileDown size={14} />{saldo.etykieta}</button>
+                        {saldo.doWszystkich && <span className="tag warn">do wydruku — brak WZ</span>}
+                      </span>}
                       {!papiery.length && <span className="muted">{p.wz_status === 'do_wystawienia' ? 'czeka na wystawienie' : 'brak dokumentów'}</span>}
                     </div></td>
                   </tr>
