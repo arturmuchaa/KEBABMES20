@@ -61,8 +61,11 @@ def _kwota(wartosc: Any) -> Any:
 
 
 def _kto(request: Request) -> str:
+    # Sesja biura (auth_service._office_public) niesie `name` (nazwa wyświetlana
+    # albo login) — bez tego w księdze lądowało surowe id użytkownika.
     subject = getattr(request.state, "subject", None) or {}
-    return str(subject.get("username") or subject.get("id") or "")
+    return str(subject.get("name") or subject.get("login") or subject.get("username")
+               or subject.get("id") or "")
 
 
 def _tekst(body: Dict[str, Any], pole: str) -> str:

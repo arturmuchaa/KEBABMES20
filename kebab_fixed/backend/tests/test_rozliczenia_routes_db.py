@@ -106,3 +106,18 @@ def test_kwota_waski_nbsp_i_nieskonczone():
         with pytest.raises(HTTPException) as e:
             route._kwota(zla)
         assert e.value.status_code == 400 and e.value.detail == "Nieprawidłowa kwota"
+
+
+def test_kto_to_nazwa_konta_biura_a_nie_id(db, przywroc_start):
+    """Sesja biura (auth_service._office_public) nie ma `username` — w księdze
+    ma zostać nazwa konta, nie surowe id użytkownika."""
+    _klient()
+    biuro = SimpleNamespace(state=SimpleNamespace(subject={
+        "kind": "office", "id": "1ad3d12baa024422a8c9", "name": "Anna Biuro",
+        "login": "anna", "role": "admin", "departments": [], "must_change_password": False}))
+
+    route.dodaj_wplate("c1", {"ksiega": "wz", "forma": "gotowka", "kwota": "100",
+                              "data": "2026-11-10"}, biuro)
+
+    assert query_one("SELECT utworzyl FROM rozl_wplaty")["utworzyl"] == "Anna Biuro"
+    assert query_one("SELECT kto FROM rozl_historia WHERE obiekt='wplata'")["kto"] == "Anna Biuro"
