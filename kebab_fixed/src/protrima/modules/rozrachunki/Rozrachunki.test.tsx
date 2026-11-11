@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor, within, act } from '@testing-library/react'
 import React from 'react'
 import { AppCtx, type AppApi, type Cmd } from '../../shell/context'
-import { SUROWA_KARTA, SUROWA_LISTA, SUROWY_PODGLAD } from './daneTestowe'
+import { SUROWA_KARTA, SUROWA_LISTA, SUROWY_PODGLAD } from './daneTestowe.fixture'
 
 /** Rozrachunki — lista kontrahentów. Dane w kształcie odpowiedzi `GET /api/rozliczenia`. */
 const api = vi.hoisted(() => ({ lista: vi.fn(), ustawStart: vi.fn(), przypiszWz: vi.fn(), karta: vi.fn(), podgladWplaty: vi.fn(), dodajWplate: vi.fn() }))
@@ -12,8 +12,8 @@ vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), rozliczenia
 import { RozrachunkiModule } from './RozrachunkiModule'
 
 const KLIENCI = [
-  { id: 'c1', name: 'ROJPAK', displayName: '', nip: 'HU25341187', active: true },
-  { id: 'c2', name: 'NAZAR SP. Z O.O.', displayName: 'NAZAR', nip: '7471234567', active: true },
+  { id: 'c1', name: 'RONDO GRILL', displayName: '', nip: 'HU99000001', active: true },
+  { id: 'c2', name: 'NABYWCA TESTOWY SP. Z O.O.', displayName: 'NABYWCA TESTOWY', nip: '7471234567', active: true },
 ]
 
 describe('Rozrachunki — lista kontrahentów', () => {
@@ -38,13 +38,13 @@ describe('Rozrachunki — lista kontrahentów', () => {
 
   it('wiersz: nazwa, saldo z minusem typograficznym na czerwono, pigułka zaległości, dzwonek przypomnienia', async () => {
     mount()
-    await screen.findByText('ROJPAK')
-    const r = wiersz('ROJPAK')
+    await screen.findByText('RONDO GRILL')
+    const r = wiersz('RONDO GRILL')
     const saldo = within(r).getByText(/−38 447,70/)
     expect(saldo.closest('td')?.className).toMatch(/crit-ink/)
     expect(within(r).getByText('13 dni po terminie').className).toMatch(/tag crit/)
     expect(within(r).getByLabelText('Przypomnienie na dziś')).toBeTruthy()
-    const boss = within(wiersz('BOSS KEBAB')).getAllByText('+350,00 zł')
+    const boss = within(wiersz('BAR PRZYKŁADOWY')).getAllByText('+350,00 zł')
     expect(boss[0].closest('td')?.className).toMatch(/ok-ink/)
     // Kafelki sum: osobno PLN i EUR
     expect(screen.getByText('Należności EUR')).toBeTruthy()
@@ -59,28 +59,28 @@ describe('Rozrachunki — lista kontrahentów', () => {
 
   it('klik nagłówka „Saldo łącznie” sortuje od największego dłużnika, drugi klik odwraca; wybór zapamiętany', async () => {
     mount()
-    await screen.findByText('ROJPAK')
-    expect(nazwyWierszy()).toEqual(['ROJPAK', 'TRUVA GASTRO', 'BOSS KEBAB', 'POLAT'])
+    await screen.findByText('RONDO GRILL')
+    expect(nazwyWierszy()).toEqual(['RONDO GRILL', 'TESTOWA GASTRONOMIA', 'BAR PRZYKŁADOWY', 'PUNKT WZOROWY'])
     fireEvent.click(screen.getByRole('button', { name: /Saldo łącznie/ }))
-    expect(nazwyWierszy()).toEqual(['ROJPAK', 'TRUVA GASTRO', 'POLAT', 'BOSS KEBAB'])
+    expect(nazwyWierszy()).toEqual(['RONDO GRILL', 'TESTOWA GASTRONOMIA', 'PUNKT WZOROWY', 'BAR PRZYKŁADOWY'])
     expect(screen.getByRole('columnheader', { name: /Saldo łącznie/ }).getAttribute('aria-sort')).toBe('ascending')
     fireEvent.click(screen.getByRole('button', { name: /Saldo łącznie/ }))
-    expect(nazwyWierszy()).toEqual(['BOSS KEBAB', 'POLAT', 'TRUVA GASTRO', 'ROJPAK'])
+    expect(nazwyWierszy()).toEqual(['BAR PRZYKŁADOWY', 'PUNKT WZOROWY', 'TESTOWA GASTRONOMIA', 'RONDO GRILL'])
     expect(JSON.parse(window.localStorage.getItem('protrima.rozrachunki.sort') ?? 'null')).toEqual({ kol: 'saldo', kier: 'desc' })
     cleanup()
     mount()
-    await screen.findByText('ROJPAK')
-    expect(nazwyWierszy()).toEqual(['BOSS KEBAB', 'POLAT', 'TRUVA GASTRO', 'ROJPAK'])
+    await screen.findByText('RONDO GRILL')
+    expect(nazwyWierszy()).toEqual(['BAR PRZYKŁADOWY', 'PUNKT WZOROWY', 'TESTOWA GASTRONOMIA', 'RONDO GRILL'])
   })
 
-  it('filtr „Nadpłaty” zostawia tylko BOSS KEBAB; szukanie „roj” zostawia jeden wiersz, Enter otwiera jego kartę', async () => {
+  it('filtr „Nadpłaty” zostawia tylko BAR PRZYKŁADOWY; szukanie „rondo” zostawia jeden wiersz, Enter otwiera jego kartę', async () => {
     mount()
-    await screen.findByText('ROJPAK')
+    await screen.findByText('RONDO GRILL')
     fireEvent.click(screen.getByRole('button', { name: /Nadpłaty/ }))
-    expect(nazwyWierszy()).toEqual(['BOSS KEBAB'])
+    expect(nazwyWierszy()).toEqual(['BAR PRZYKŁADOWY'])
     fireEvent.click(screen.getByRole('button', { name: /Wszyscy/ }))
-    fireEvent.change(screen.getByLabelText('Szukaj kontrahenta'), { target: { value: 'roj' } })
-    expect(nazwyWierszy()).toEqual(['ROJPAK'])
+    fireEvent.change(screen.getByLabelText('Szukaj kontrahenta'), { target: { value: 'rondo' } })
+    expect(nazwyWierszy()).toEqual(['RONDO GRILL'])
     fireEvent.keyDown(screen.getByLabelText('Szukaj kontrahenta'), { key: 'Enter' }) // jedno trafienie → od razu karta
     expect(screen.getByRole('button', { name: '← Kontrahenci' })).toBeTruthy()
   })
@@ -99,18 +99,18 @@ describe('Rozrachunki — lista kontrahentów', () => {
     api.lista.mockResolvedValue({ ...SUROWA_LISTA, kontrahenci: [SUROWA_LISTA.kontrahenci[3]], bez_kontrahenta: [], inna_waluta: 0,
       podsumowanie: { PLN: { naleznosci: 0, po_terminie: 0, gotowka_wz: 0, nadplaty: 0 }, EUR: { naleznosci: 0, po_terminie: 0, gotowka_wz: 0, nadplaty: 0 } } })
     mount()
-    await screen.findByText('POLAT')
+    await screen.findByText('PUNKT WZOROWY')
     expect(screen.queryByRole('group', { name: 'Sumy rozrachunków' })).toBeNull()
     expect(screen.getByRole('table', { name: 'Kontrahenci z saldami' })).toBeTruthy()
   })
 
   it('długa nazwa: tekst w osobnym elemencie z wielokropkiem i podpowiedzią, dzwonek poza ucinaną częścią', async () => {
     mount()
-    await screen.findByText('ROJPAK')
-    const r = wiersz('ROJPAK')
-    const nazwa = within(r).getByText('ROJPAK')
+    await screen.findByText('RONDO GRILL')
+    const r = wiersz('RONDO GRILL')
+    const nazwa = within(r).getByText('RONDO GRILL')
     expect(nazwa.className).toMatch(/rr-nazwa/)
-    expect(nazwa.getAttribute('title')).toBe('ROJPAK · NIP HU25341187')
+    expect(nazwa.getAttribute('title')).toBe('RONDO GRILL · NIP HU99000001')
     const dzwonek = within(r).getByLabelText('Przypomnienie na dziś')
     expect(nazwa.contains(dzwonek)).toBe(false)
     expect(dzwonek.closest('td')).toBe(nazwa.closest('td'))
@@ -121,11 +121,11 @@ describe('Rozrachunki — lista kontrahentów', () => {
     mount()
     expect(await screen.findByText(/Brak połączenia z serwerem/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Spróbuj ponownie' }))
-    expect(await screen.findByText('ROJPAK')).toBeTruthy()
+    expect(await screen.findByText('RONDO GRILL')).toBeTruthy()
   })
 
   it('WZ bez kontrahenta (1): wybór kontrahenta i „Przypisz” woła przypiszWz, potem odświeża listę', async () => {
-    api.lista.mockResolvedValue({ ...SUROWA_LISTA, bez_kontrahenta: [{ ...SUROWA_LISTA.bez_kontrahenta[0], nabywca: 'NAZAR GASTRO KFT' }] })
+    api.lista.mockResolvedValue({ ...SUROWA_LISTA, bez_kontrahenta: [{ ...SUROWA_LISTA.bez_kontrahenta[0], nabywca: 'NABYWCA TESTOWY GASTRO KFT' }] })
     mount()
     expect(await screen.findByText(/Dokumenty w innej walucie niż kontrahent \(2\)/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /WZ bez kontrahenta \(1\)/ }))
@@ -134,7 +134,7 @@ describe('Rozrachunki — lista kontrahentów', () => {
     const pole = await screen.findByRole('combobox', { name: 'Kontrahent dla WZ 07/11' })
     await waitFor(() => expect(klienci.list).toHaveBeenCalled())
     fireEvent.focus(pole)
-    fireEvent.change(pole, { target: { value: 'naz' } })
+    fireEvent.change(pole, { target: { value: 'naby' } })
     fireEvent.keyDown(pole, { key: 'Enter' })
     expect(przypisz.disabled).toBe(false)
     fireEvent.click(przypisz)
@@ -147,40 +147,40 @@ describe('Rozrachunki — lista kontrahentów', () => {
     mount()
     fireEvent.click(await screen.findByRole('button', { name: /WZ bez kontrahenta \(1\)/ }))
     const pole = await screen.findByRole('combobox', { name: 'Kontrahent dla WZ 07/11' }) as HTMLInputElement
-    await waitFor(() => expect(pole.value).toBe('NAZAR'))
+    await waitFor(() => expect(pole.value).toBe('NABYWCA TESTOWY'))
     fireEvent.click(screen.getByRole('button', { name: 'Przypisz' }))
     await waitFor(() => expect(api.przypiszWz).toHaveBeenCalledWith('d1', 'c2'))
   })
 
   it('klik w wiersz / Enter otwiera kartę w module; „← Kontrahenci” i Esc wracają do listy', async () => {
     mount()
-    fireEvent.click(await screen.findByText('ROJPAK'))
+    fireEvent.click(await screen.findByText('RONDO GRILL'))
     expect(screen.queryByRole('table', { name: 'Kontrahenci z saldami' })).toBeNull()
     await waitFor(() => expect(api.karta).toHaveBeenCalledWith('c1'))
     expect(await screen.findByRole('table', { name: 'Faktury' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '← Kontrahenci' }))
     expect(await screen.findByRole('table', { name: 'Kontrahenci z saldami' })).toBeTruthy()
-    const r = wiersz('TRUVA GASTRO')
+    const r = wiersz('TESTOWA GASTRONOMIA')
     fireEvent.keyDown(r, { key: 'Enter' })
     expect(screen.getByRole('button', { name: '← Kontrahenci' })).toBeTruthy()
-    expect(screen.getAllByText('TRUVA GASTRO').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('TESTOWA GASTRONOMIA').length).toBeGreaterThan(0)
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(await screen.findByRole('table', { name: 'Kontrahenci z saldami' })).toBeTruthy()
   })
 
   it('strzałki przesuwają kursor po wierszach', async () => {
     mount()
-    await screen.findByText('ROJPAK')
-    wiersz('ROJPAK').focus()
-    fireEvent.keyDown(wiersz('ROJPAK'), { key: 'ArrowDown' })
-    expect(document.activeElement).toBe(wiersz('TRUVA GASTRO'))
-    fireEvent.keyDown(wiersz('TRUVA GASTRO'), { key: 'ArrowUp' })
-    expect(document.activeElement).toBe(wiersz('ROJPAK'))
+    await screen.findByText('RONDO GRILL')
+    wiersz('RONDO GRILL').focus()
+    fireEvent.keyDown(wiersz('RONDO GRILL'), { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(wiersz('TESTOWA GASTRONOMIA'))
+    fireEvent.keyDown(wiersz('TESTOWA GASTRONOMIA'), { key: 'ArrowUp' })
+    expect(document.activeElement).toBe(wiersz('RONDO GRILL'))
   })
 
   it('komenda „Data startu rozliczeń” — dialog z datą zapisuje ustawStart', async () => {
     mount()
-    await screen.findByText('ROJPAK')
+    await screen.findByText('RONDO GRILL')
     const cmds = setCmds.mock.calls[setCmds.mock.calls.length - 1]?.[0] as Cmd[]
     expect(cmds.map(c => c.label)).toEqual(['Odśwież', 'Data startu rozliczeń'])
     act(() => { cmds.find(c => c.id === 'start')!.run!() })
@@ -196,7 +196,7 @@ describe('Rozrachunki — lista kontrahentów', () => {
 
   it('„+ Wpłata” na karcie otwiera okno; po zapisie karta i lista się odświeżają, fokus wraca na przycisk', async () => {
     mount()
-    fireEvent.click(await screen.findByText('ROJPAK'))
+    fireEvent.click(await screen.findByText('RONDO GRILL'))
     await screen.findByRole('table', { name: 'Faktury' })
     const przycisk = screen.getByRole('button', { name: '+ Wpłata' })
     przycisk.focus()

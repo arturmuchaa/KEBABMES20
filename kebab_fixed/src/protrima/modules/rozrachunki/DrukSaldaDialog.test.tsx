@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import React from 'react'
 import { AppCtx, type AppApi } from '../../shell/context'
-import { SUROWA_KARTA } from './daneTestowe'
+import { SUROWA_KARTA } from './daneTestowe.fixture'
 import { mapujKarte } from './model'
 
 /** Drukuj saldo — zestawienie na dzień albo historia za okres; PDF z serwera (rozliczeniaPdf). */
@@ -37,7 +37,7 @@ describe('Rozrachunki — drukuj saldo', () => {
     await waitFor(() => expect(dok.openDocument).toHaveBeenCalled())
     const [url, nazwa] = dok.openDocument.mock.calls[0]
     expect(url).toMatch(/\/rozliczenia\/klient\/c1\/zestawienie\/pdf\?na_dzien=2026-11-09$/)
-    expect(nazwa).toBe('Saldo ROJPAK 2026-11-09.pdf')
+    expect(nazwa).toBe('Saldo RONDO GRILL 2026-11-09.pdf')
     await waitFor(() => expect(app.toast).toHaveBeenCalled())
     expect(onClose).not.toHaveBeenCalled()
     await waitFor(() => expect(przycisk('Zapisz PDF').disabled).toBe(false))
@@ -55,7 +55,7 @@ describe('Rozrachunki — drukuj saldo', () => {
     await waitFor(() => expect(dok.downloadDocPdf).toHaveBeenCalled())
     const [url, nazwa] = dok.downloadDocPdf.mock.calls[0]
     expect(url).toContain('/rozliczenia/klient/c1/historia/pdf?od=2026-10-01&do=2026-10-31')
-    expect(nazwa).toBe('Rozliczenia ROJPAK 2026-10-01_2026-10-31.pdf')
+    expect(nazwa).toBe('Rozliczenia RONDO GRILL 2026-10-01_2026-10-31.pdf')
   })
 
   it('historia: ten miesiąc domyślnie; od–do bez dat — przyciski nieaktywne z podpowiedzią', async () => {

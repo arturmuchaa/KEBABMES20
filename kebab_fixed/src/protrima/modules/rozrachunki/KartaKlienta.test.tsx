@@ -3,9 +3,9 @@ import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import React from 'react'
 import { AppCtx, type AppApi } from '../../shell/context'
-import { SUROWA_KARTA_PELNA, SUROWY_DOKUMENT } from './daneTestowe'
+import { SUROWA_KARTA_PELNA, SUROWY_DOKUMENT } from './daneTestowe.fixture'
 
-/** Karta klienta — dane ROJPAK w kształcie odpowiedzi `GET /api/rozliczenia/klienci/c1`. */
+/** Karta klienta — dane RONDO GRILL w kształcie odpowiedzi `GET /api/rozliczenia/klienci/c1`. */
 const api = vi.hoisted(() => ({
   karta: vi.fn(), ustawKlienta: vi.fn(), dokument: vi.fn(), edytujDokument: vi.fn(), usunDokument: vi.fn(),
   usunWplate: vi.fn(), dodajWpis: vi.fn(), odhaczWpis: vi.fn(),
@@ -43,8 +43,8 @@ describe('Rozrachunki — karta klienta', () => {
     mount()
     await gotowe()
     expect(api.karta).toHaveBeenCalledWith('c1')
-    expect(screen.getByRole('heading', { name: 'ROJPAK' })).toBeTruthy()
-    expect(screen.getByText('NIP HU25341187')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'RONDO GRILL' })).toBeTruthy()
+    expect(screen.getByText('NIP HU99000001')).toBeTruthy()
     expect(screen.getByText('Termin FV: 7 dni')).toBeTruthy()
     expect(screen.getByText('WZ: gotówka przy odbiorze')).toBeTruthy()
     expect(screen.getByText(/Waluta:/).textContent).toBe('Waluta: EUR')

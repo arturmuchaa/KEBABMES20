@@ -10,7 +10,7 @@ vi.mock('@/lib/api', () => ({
       return stan.padnij
         ? Promise.reject(Object.assign(new Error('Brak zestawienia'), { status: 404 }))
         : Promise.resolve({
-          klient: { nazwa: 'ROJPAK', nip: '', adres: '' }, waluta: 'EUR',
+          klient: { nazwa: 'RONDO GRILL', nip: '', adres: '' }, waluta: 'EUR',
           na_dzien: '2026-11-09', policzono: '2026-11-09T10:00:00',
           wz: { pozycje: [{ numer: 'WZ 02/11', data: '2026-11-03', termin: '2026-11-03',
                             kwota: 5289.5, zaplacono: 0, pozostalo: 5289.5,

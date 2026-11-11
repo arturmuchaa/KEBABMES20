@@ -3,10 +3,10 @@ import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import React from 'react'
 import { AppCtx, type AppApi } from '../../shell/context'
-import { SUROWA_KARTA_PELNA } from './daneTestowe'
+import { SUROWA_KARTA_PELNA } from './daneTestowe.fixture'
 import { mapujKarte } from './model'
 
-/** Okno faktury — karta ROJPAK (EUR, termin FV 7 dni, przelew), dziś 09.11.2026. */
+/** Okno faktury — karta RONDO GRILL (EUR, termin FV 7 dni, przelew), dziś 09.11.2026. */
 const api = vi.hoisted(() => ({ dodajFakture: vi.fn() }))
 vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), rozliczeniaApi: api }))
 import { FakturaDialog } from './FakturaDialog'

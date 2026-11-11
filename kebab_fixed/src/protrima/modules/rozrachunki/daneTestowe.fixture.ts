@@ -1,9 +1,10 @@
 /**
- * Dane testowe modułu Rozrachunki — surowe odpowiedzi API w kształcie z backendu
+ * Dane testowe (fixture) modułu Rozrachunki — surowe odpowiedzi API w kształcie z backendu
  * (`rozliczenia_service.lista` / `karta`), wspólne dla testów modelu, listy i karty.
+ * Nazwy i NIP-y wymyślone — żadnych prawdziwych kontrahentów w repozytorium.
  */
 
-/** Odpowiedź `GET /api/rozliczenia` (rozliczenia_service.lista) — dane ROJPAK z testów Task 4, stan na 09.11.2026. */
+/** Odpowiedź `GET /api/rozliczenia` (rozliczenia_service.lista) — wymyśleni kontrahenci (scenariusz z testów backendu), stan na 09.11.2026. */
 export const SUROWA_LISTA = {
   start: '2026-11-09',
   podsumowanie: {
@@ -11,22 +12,22 @@ export const SUROWA_LISTA = {
     EUR: { naleznosci: 38447.7, po_terminie: 15689.5, gotowka_wz: 8409.5, nadplaty: 0 },
   },
   kontrahenci: [
-    { id: 'c1', nazwa: 'ROJPAK', nip: 'HU25341187', waluta: 'EUR', saldo_wz: -8409.5, saldo_fv: -30038.2, saldo: -38447.7,
+    { id: 'c1', nazwa: 'RONDO GRILL', nip: 'HU99000001', waluta: 'EUR', saldo_wz: -8409.5, saldo_fv: -30038.2, saldo: -38447.7,
       po_terminie: 15689.5, najstarsza_dni: 13, najblizszy_termin_dni: 1, stan: 'po_terminie', przypomnienie: true },
-    { id: 'c3', nazwa: 'TRUVA GASTRO', nip: '753-123-45-67', waluta: 'PLN', saldo_wz: -2400, saldo_fv: -15300, saldo: -17700,
+    { id: 'c3', nazwa: 'TESTOWA GASTRONOMIA', nip: '000-111-22-33', waluta: 'PLN', saldo_wz: -2400, saldo_fv: -15300, saldo: -17700,
       po_terminie: 15300, najstarsza_dni: 41, najblizszy_termin_dni: null, stan: 'po_terminie', przypomnienie: false },
-    { id: 'c4', nazwa: 'BOSS KEBAB', nip: '', waluta: 'PLN', saldo_wz: 350, saldo_fv: 0, saldo: 350,
+    { id: 'c4', nazwa: 'BAR PRZYKŁADOWY', nip: '', waluta: 'PLN', saldo_wz: 350, saldo_fv: 0, saldo: 350,
       po_terminie: 0, najstarsza_dni: 0, najblizszy_termin_dni: null, stan: 'nadplata', przypomnienie: false },
-    { id: 'c5', nazwa: 'POLAT', nip: '', waluta: 'PLN', saldo_wz: 0, saldo_fv: 0, saldo: 0,
+    { id: 'c5', nazwa: 'PUNKT WZOROWY', nip: '', waluta: 'PLN', saldo_wz: 0, saldo_fv: 0, saldo: 0,
       po_terminie: 0, najstarsza_dni: 0, najblizszy_termin_dni: null, stan: 'rozliczony', przypomnienie: false },
   ],
-  bez_kontrahenta: [{ id: 'd1', numer: 'WZ 07/11', data: '2026-11-07', kwota: 1250.4, waluta: 'PLN', nabywca: 'NAZAR' }],
+  bez_kontrahenta: [{ id: 'd1', numer: 'WZ 07/11', data: '2026-11-07', kwota: 1250.4, waluta: 'PLN', nabywca: 'NABYWCA TESTOWY' }],
   inna_waluta: 2,
 }
 
 /** Odpowiedź `GET /api/rozliczenia/klienci/c1` (rozliczenia_service.karta). */
 export const SUROWA_KARTA = {
-  klient: { id: 'c1', nazwa: 'ROJPAK', nip: 'HU25341187', waluta: 'EUR', termin_wz: 0, termin_fv: 7,
+  klient: { id: 'c1', nazwa: 'RONDO GRILL', nip: 'HU99000001', waluta: 'EUR', termin_wz: 0, termin_fv: 7,
     forma_wz: 'gotowka', forma_fv: 'przelew', notatka: 'płaci w piątki', waluta_podpowiedz: null },
   start: '2026-10-01',
   saldo: { wz: -8409.5, fv: -30038.2, lacznie: -38447.7, po_terminie_wz: 8409.5, po_terminie_fv: 7280,
@@ -52,7 +53,7 @@ const dok = (d: Record<string, unknown>) => ({
 })
 
 /**
- * Pełna karta ROJPAK jak w szkicu (stan na 09.11.2026): księga WZ z saldem otwarcia,
+ * Pełna karta RONDO GRILL jak w szkicu (stan na 09.11.2026): księga WZ z saldem otwarcia,
  * cztery faktury, wpłaty obu ksiąg. Najnowsze dokumenty i wpłaty na górze (jak z serwera).
  */
 export const SUROWA_KARTA_PELNA = {

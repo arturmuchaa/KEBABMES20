@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import React from 'react'
 import { AppCtx, type AppApi } from '../../shell/context'
-import { SUROWA_KARTA } from './daneTestowe'
+import { SUROWA_KARTA } from './daneTestowe.fixture'
 import { mapujKarte } from './model'
 
 /** Saldo otwarcia — stan z arkusza na początek dnia startu (01.10.2026 w danych testowych). */

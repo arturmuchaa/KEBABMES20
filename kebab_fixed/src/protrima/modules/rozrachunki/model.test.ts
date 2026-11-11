@@ -5,7 +5,7 @@ import {
   dodajDni, mapujPodglad, opisRozliczenia, poprzedniMiesiac, dni, doGroszy, formaDomyslna, FORMY,
   type Kontrahent, type Wplata,
 } from './model'
-import { SUROWA_KARTA, SUROWA_KARTA_PELNA, SUROWA_LISTA, SUROWY_DOKUMENT, SUROWY_PODGLAD } from './daneTestowe'
+import { SUROWA_KARTA, SUROWA_KARTA_PELNA, SUROWA_LISTA, SUROWY_DOKUMENT, SUROWY_PODGLAD } from './daneTestowe.fixture'
 
 const lista = () => mapujListe(SUROWA_LISTA).kontrahenci
 const k = (o: Partial<Kontrahent>): Kontrahent => ({ ...lista()[0], ...o })
@@ -14,14 +14,14 @@ describe('mapujListe — nie gubi pól', () => {
   it('snake_case → camelCase dla wiersza, podsumowania, WZ bez kontrahenta', () => {
     const l = mapujListe(SUROWA_LISTA)
     const r = l.kontrahenci[0]
-    expect(r).toEqual({ id: 'c1', nazwa: 'ROJPAK', nip: 'HU25341187', waluta: 'EUR', saldoWz: -8409.5, saldoFv: -30038.2, saldo: -38447.7,
+    expect(r).toEqual({ id: 'c1', nazwa: 'RONDO GRILL', nip: 'HU99000001', waluta: 'EUR', saldoWz: -8409.5, saldoFv: -30038.2, saldo: -38447.7,
       poTerminie: 15689.5, najstarszaDni: 13, najblizszyTerminDni: 1, stan: 'po_terminie', przypomnienie: true })
     expect(r.saldoWz).toBe(-8409.5)
     expect(r.najstarszaDni).toBe(13)
     expect(l.kontrahenci[1].najblizszyTerminDni).toBeNull()
     expect(l.start).toBe('2026-11-09')
     expect(l.podsumowanie.EUR).toEqual({ naleznosci: 38447.7, poTerminie: 15689.5, gotowkaWz: 8409.5, nadplaty: 0 })
-    expect(l.bezKontrahenta).toEqual([{ id: 'd1', numer: 'WZ 07/11', data: '2026-11-07', kwota: 1250.4, waluta: 'PLN', nabywca: 'NAZAR' }])
+    expect(l.bezKontrahenta).toEqual([{ id: 'd1', numer: 'WZ 07/11', data: '2026-11-07', kwota: 1250.4, waluta: 'PLN', nabywca: 'NABYWCA TESTOWY' }])
     expect(l.innaWaluta).toBe(2)
   })
   it('pusta / uszkodzona odpowiedź → puste listy zamiast wyjątku', () => {
@@ -32,7 +32,7 @@ describe('mapujListe — nie gubi pól', () => {
 describe('mapujKarte — nie gubi pól', () => {
   it('klient, salda, otwarcia, dokumenty, wpłaty, ostrzeżenia, dziennik', () => {
     const c = mapujKarte(SUROWA_KARTA)
-    expect(c.klient).toEqual({ id: 'c1', nazwa: 'ROJPAK', nip: 'HU25341187', waluta: 'EUR', terminWz: 0, terminFv: 7,
+    expect(c.klient).toEqual({ id: 'c1', nazwa: 'RONDO GRILL', nip: 'HU99000001', waluta: 'EUR', terminWz: 0, terminFv: 7,
       formaWz: 'gotowka', formaFv: 'przelew', notatka: 'płaci w piątki', walutaPodpowiedz: null })
     expect(c.start).toBe('2026-10-01')
     expect(c.saldo).toEqual({ wz: -8409.5, fv: -30038.2, lacznie: -38447.7, poTerminieWz: 8409.5, poTerminieFv: 7280,
@@ -83,30 +83,30 @@ describe('etykietaStanu — stan dokumentu', () => {
 describe('sortuj', () => {
   it('po saldzie rosnąco — największy dłużnik pierwszy; malejąco odwrotnie; nie rusza wejścia', () => {
     const l = lista()
-    expect(sortuj(l, 'saldo', 'asc').map(x => x.nazwa)).toEqual(['ROJPAK', 'TRUVA GASTRO', 'POLAT', 'BOSS KEBAB'])
-    expect(sortuj(l, 'saldo', 'desc')[0].nazwa).toBe('BOSS KEBAB')
-    expect(l[0].nazwa).toBe('ROJPAK')
+    expect(sortuj(l, 'saldo', 'asc').map(x => x.nazwa)).toEqual(['RONDO GRILL', 'TESTOWA GASTRONOMIA', 'PUNKT WZOROWY', 'BAR PRZYKŁADOWY'])
+    expect(sortuj(l, 'saldo', 'desc')[0].nazwa).toBe('BAR PRZYKŁADOWY')
+    expect(l[0].nazwa).toBe('RONDO GRILL')
   })
   it('po nazwie po polsku, po najstarszej zaległości', () => {
-    expect(sortuj(lista(), 'nazwa', 'asc').map(x => x.nazwa)).toEqual(['BOSS KEBAB', 'POLAT', 'ROJPAK', 'TRUVA GASTRO'])
-    expect(sortuj(lista(), 'najstarszaDni', 'desc')[0].nazwa).toBe('TRUVA GASTRO')
+    expect(sortuj(lista(), 'nazwa', 'asc').map(x => x.nazwa)).toEqual(['BAR PRZYKŁADOWY', 'PUNKT WZOROWY', 'RONDO GRILL', 'TESTOWA GASTRONOMIA'])
+    expect(sortuj(lista(), 'najstarszaDni', 'desc')[0].nazwa).toBe('TESTOWA GASTRONOMIA')
   })
 })
 
 describe('filtruj', () => {
   it('po terminie, nadpłaty, przypomnienia, waluta', () => {
-    expect(filtruj(lista(), 'poTerminie', '').map(x => x.nazwa)).toEqual(['ROJPAK', 'TRUVA GASTRO'])
-    expect(filtruj(lista(), 'nadplaty', '').map(x => x.nazwa)).toEqual(['BOSS KEBAB'])
-    expect(filtruj(lista(), 'przypomnienia', '').map(x => x.nazwa)).toEqual(['ROJPAK'])
-    expect(filtruj(lista(), 'EUR', '').map(x => x.nazwa)).toEqual(['ROJPAK'])
+    expect(filtruj(lista(), 'poTerminie', '').map(x => x.nazwa)).toEqual(['RONDO GRILL', 'TESTOWA GASTRONOMIA'])
+    expect(filtruj(lista(), 'nadplaty', '').map(x => x.nazwa)).toEqual(['BAR PRZYKŁADOWY'])
+    expect(filtruj(lista(), 'przypomnienia', '').map(x => x.nazwa)).toEqual(['RONDO GRILL'])
+    expect(filtruj(lista(), 'EUR', '').map(x => x.nazwa)).toEqual(['RONDO GRILL'])
     expect(filtruj(lista(), 'PLN', '')).toHaveLength(3)
     expect(filtruj(lista(), 'wszyscy', '')).toHaveLength(4)
   })
   it('szukanie po nazwie i NIP bez wielkości liter; NIP także bez kresek', () => {
-    expect(filtruj(lista(), 'wszyscy', 'roj').map(x => x.nazwa)).toEqual(['ROJPAK'])
-    expect(filtruj(lista(), 'wszyscy', 'hu2534').map(x => x.nazwa)).toEqual(['ROJPAK'])
-    expect(filtruj(lista(), 'wszyscy', '7531234567').map(x => x.nazwa)).toEqual(['TRUVA GASTRO'])
-    expect(filtruj(lista(), 'poTerminie', 'boss')).toEqual([])
+    expect(filtruj(lista(), 'wszyscy', 'rondo').map(x => x.nazwa)).toEqual(['RONDO GRILL'])
+    expect(filtruj(lista(), 'wszyscy', 'hu9900').map(x => x.nazwa)).toEqual(['RONDO GRILL'])
+    expect(filtruj(lista(), 'wszyscy', '0001112233').map(x => x.nazwa)).toEqual(['TESTOWA GASTRONOMIA'])
+    expect(filtruj(lista(), 'poTerminie', 'bar')).toEqual([])
   })
 })
 
@@ -148,11 +148,11 @@ describe('walutyPodsumowania — kafelek waluty tylko, gdy ma liczby', () => {
 })
 
 describe('podpowiedzKlienta — kontrahent dla WZ bez kontrahenta', () => {
-  const klienci = [{ id: 'c2', name: 'NAZAR SP. Z O.O.', displayName: 'NAZAR' }, { id: 'c1', name: 'ROJPAK', displayName: '' }]
+  const klienci = [{ id: 'c2', name: 'NABYWCA TESTOWY SP. Z O.O.', displayName: 'NABYWCA TESTOWY' }, { id: 'c1', name: 'RONDO GRILL', displayName: '' }]
   it('nabywca z WZ równy nazwie albo nazwie skróconej (bez wielkości liter i spacji na brzegach)', () => {
-    expect(podpowiedzKlienta(' nazar ', klienci)).toBe('c2')
-    expect(podpowiedzKlienta('Rojpak', klienci)).toBe('c1')
-    expect(podpowiedzKlienta('NAZAR GASTRO', klienci)).toBe('')
+    expect(podpowiedzKlienta(' nabywca testowy ', klienci)).toBe('c2')
+    expect(podpowiedzKlienta('Rondo Grill', klienci)).toBe('c1')
+    expect(podpowiedzKlienta('NABYWCA TESTOWY GASTRO', klienci)).toBe('')
     expect(podpowiedzKlienta('', klienci)).toBe('')
   })
 })

@@ -3,10 +3,10 @@ import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import React from 'react'
 import { AppCtx, type AppApi } from '../../shell/context'
-import { SUROWA_KARTA_PELNA, SUROWY_PODGLAD } from './daneTestowe'
+import { SUROWA_KARTA_PELNA, SUROWY_PODGLAD } from './daneTestowe.fixture'
 import { mapujKarte } from './model'
 
-/** Okno wpłaty — karta ROJPAK (EUR, FV przelew 7 dni, WZ gotówka), dziś 09.11.2026. */
+/** Okno wpłaty — karta RONDO GRILL (EUR, FV przelew 7 dni, WZ gotówka), dziś 09.11.2026. */
 const api = vi.hoisted(() => ({ podgladWplaty: vi.fn(), dodajWplate: vi.fn() }))
 vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), rozliczeniaApi: api }))
 import { WplataDialog } from './WplataDialog'

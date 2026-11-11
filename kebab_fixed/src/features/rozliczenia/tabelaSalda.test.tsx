@@ -4,9 +4,9 @@ import { render, screen, cleanup } from '@testing-library/react'
 import { TabelaSalda } from './TabelaSalda'
 import type { Zestawienie } from './druk'
 
-/** Zestawienie ROJPAK na 09.11.2026 — te same liczby co backend (Task 6). */
-const ROJPAK: Zestawienie = {
-  klient: { nazwa: 'ROJPAK', nip: 'DE123456789', adres: '' },
+/** Zestawienie RONDO GRILL na 09.11.2026 — te same liczby co backend (Task 6). */
+const ZESTAWIENIE: Zestawienie = {
+  klient: { nazwa: 'RONDO GRILL', nip: 'DE123456789', adres: '' },
   waluta: 'EUR', na_dzien: '2026-11-09', policzono: '2026-11-09T10:00:00',
   wz: {
     pozycje: [
@@ -32,16 +32,16 @@ const ROJPAK: Zestawienie = {
 }
 
 const PUSTE: Zestawienie = {
-  ...ROJPAK, waluta: 'PLN',
+  ...ZESTAWIENIE, waluta: 'PLN',
   wz: { pozycje: [], razem: 0 }, fv: { pozycje: [], razem: 0 },
   razem: 0, po_terminie: 0, nadplata_wz: 0, nadplata_fv: 0,
 }
 
 afterEach(cleanup)
 
-describe('TabelaSalda — ROJPAK', () => {
+describe('TabelaSalda — RONDO GRILL', () => {
   it('nagłówek, pozycje i kwoty w walucie klienta', () => {
-    render(<TabelaSalda z={ROJPAK} />)
+    render(<TabelaSalda z={ZESTAWIENIE} />)
     expect(screen.getByText(/Stan rozliczeń na dzień 09\.11\.2026 — dokumenty niezapłacone/)).toBeTruthy()
     expect(screen.getByText('WZ 21/10')).toBeTruthy()
     expect(screen.getByText('3 120,00 €')).toBeTruthy()
@@ -51,33 +51,33 @@ describe('TabelaSalda — ROJPAK', () => {
   })
 
   it('stopka sum: razem do zapłaty i w tym po terminie', () => {
-    const { container } = render(<TabelaSalda z={ROJPAK} />)
+    const { container } = render(<TabelaSalda z={ZESTAWIENIE} />)
     const tekst = container.textContent ?? ''
     expect(tekst).toContain('Razem do zapłaty: 38 447,70 €')
     expect(tekst).toContain('W tym po terminie: 15 689,50 €')
   })
 
   it('dokładnie trzy wiersze po terminie, na czerwono', () => {
-    const { container } = render(<TabelaSalda z={ROJPAK} />)
+    const { container } = render(<TabelaSalda z={ZESTAWIENIE} />)
     const po = container.querySelectorAll('tr[data-po-terminie="1"]')
     expect(po).toHaveLength(3)
     po.forEach(tr => expect((tr as HTMLElement).style.color).toBe('rgb(176, 0, 32)'))
   })
 
   it('FV 541 w terminie pokazuje kreskę zamiast dni', () => {
-    render(<TabelaSalda z={ROJPAK} />)
+    render(<TabelaSalda z={ZESTAWIENIE} />)
     const wiersz = screen.getByText('541').closest('tr')!
     expect(wiersz.getAttribute('data-po-terminie')).toBeNull()
     expect(wiersz.lastElementChild!.textContent).toBe('–')
   })
 
   it('drukowana WZ ma dopisek (ten dokument)', () => {
-    render(<TabelaSalda z={ROJPAK} />)
+    render(<TabelaSalda z={ZESTAWIENIE} />)
     expect(screen.getByText('WZ 02/11').closest('td')!.textContent).toContain('(ten dokument)')
   })
 
   it('stopka o zaksięgowanych wpłatach', () => {
-    const { container } = render(<TabelaSalda z={ROJPAK} />)
+    const { container } = render(<TabelaSalda z={ZESTAWIENIE} />)
     expect(container.textContent).toContain(
       'Wpłaty zaksięgowane do 09.11.2026. Jeżeli zapłacili Państwo w ostatnich dniach, prosimy uznać zestawienie za nieaktualne.')
   })
@@ -97,7 +97,7 @@ describe('TabelaSalda — bez należności', () => {
   })
 
   it('pokazuje tylko tabelę, która ma pozycje', () => {
-    render(<TabelaSalda z={{ ...ROJPAK, fv: { pozycje: [], razem: 0 } }} />)
+    render(<TabelaSalda z={{ ...ZESTAWIENIE, fv: { pozycje: [], razem: 0 } }} />)
     expect(screen.getAllByRole('table')).toHaveLength(1)
     expect(screen.queryByText('Razem faktury')).toBeNull()
   })
@@ -105,7 +105,7 @@ describe('TabelaSalda — bez należności', () => {
 
 describe('TabelaSalda — czytelność wydruku', () => {
   it('nad każdą tabelą nagłówek WZ / Faktury; pusta księga bez nagłówka', () => {
-    const { container, unmount } = render(<TabelaSalda z={ROJPAK} />)
+    const { container, unmount } = render(<TabelaSalda z={ZESTAWIENIE} />)
     expect(screen.getByRole('heading', { name: 'WZ' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Faktury' })).toBeTruthy()
     // te same szerokości kolumn w obu tabelach — kolumny stoją jedna pod drugą
@@ -115,13 +115,13 @@ describe('TabelaSalda — czytelność wydruku', () => {
     expect(szer[0]).toBe(szer[1])
     for (const t of Array.from(container.querySelectorAll('table'))) expect((t as HTMLElement).style.tableLayout).toBe('fixed')
     unmount()
-    render(<TabelaSalda z={{ ...ROJPAK, wz: { pozycje: [], razem: 0 } }} />)
+    render(<TabelaSalda z={{ ...ZESTAWIENIE, wz: { pozycje: [], razem: 0 } }} />)
     expect(screen.queryByRole('heading', { name: 'WZ' })).toBeNull()
     expect(screen.getByRole('heading', { name: 'Faktury' })).toBeTruthy()
   })
 
   it('pod WZ suma wszystkich dokumentów nazywa się inaczej niż „Razem do zapłaty” samego WZ', () => {
-    const { container } = render(<TabelaSalda z={ROJPAK} naWz />)
+    const { container } = render(<TabelaSalda z={ZESTAWIENIE} naWz />)
     const tekst = container.textContent ?? ''
     expect(tekst).toContain('Łącznie do zapłaty (wszystkie niezapłacone dokumenty): 38 447,70 €')
     expect(tekst).not.toContain('Razem do zapłaty')

@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import React from 'react'
 import { AppCtx, type AppApi } from '../../shell/context'
-import { SUROWA_KARTA } from './daneTestowe'
+import { SUROWA_KARTA } from './daneTestowe.fixture'
 import { mapujKarte } from './model'
 
 /** Ustawienia kontrahenta: waluta, domyślne terminy i formy płatności WZ / FV. */
@@ -33,7 +33,7 @@ describe('Rozrachunki — ustawienia klienta', () => {
     fireEvent.click(zapisz())
     await waitFor(() => expect(api.ustawKlienta).toHaveBeenCalledWith('c1', { termin_fv: 14, forma_wz: 'przelew' }))
     await waitFor(() => expect(onZapisano).toHaveBeenCalled())
-    expect(app.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Ustawienia ROJPAK zapisane' }))
+    expect(app.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Ustawienia RONDO GRILL zapisane' }))
   })
 
   it('zmiana waluty przy istniejących dokumentach — ostrzeżenie; podpowiedź z NIP', () => {

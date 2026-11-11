@@ -14,7 +14,7 @@ vi.mock('@/lib/api', () => ({
     zestawienie: (...a: unknown[]) => {
       stan.wywolania.push(['zestawienie', ...a])
       return Promise.resolve({
-        klient: { nazwa: 'ROJPAK', nip: 'DE123456789', adres: 'Hauptstr. 1, Berlin' },
+        klient: { nazwa: 'RONDO GRILL', nip: 'DE123456789', adres: 'Hauptstr. 1, Berlin' },
         waluta: 'EUR', na_dzien: '2026-11-09', policzono: '2026-11-09T10:00:00',
         wz: { pozycje: [], razem: 0 },
         fv: { pozycje: [{ numer: '541', data: '2026-11-03', termin: '2026-11-10', kwota: 12342.2,
@@ -26,7 +26,7 @@ vi.mock('@/lib/api', () => ({
     historia: (...a: unknown[]) => {
       stan.wywolania.push(['historia', ...a])
       return Promise.resolve({
-        klient: { nazwa: 'ROJPAK', nip: '', adres: '' }, waluta: 'PLN',
+        klient: { nazwa: 'RONDO GRILL', nip: '', adres: '' }, waluta: 'PLN',
         od: '2026-11-01', do: '2026-11-30',
         wz: { saldo_poczatek: 0, saldo_koniec: -1550, wiersze: [
           { data: '2026-11-09', rodzaj: 'dokument', opis: 'Saldo otwarcia', obciazenie: 0,
@@ -66,7 +66,7 @@ describe('Zestawienie należności — kartka', () => {
     expect(await screen.findByText('Zestawienie należności')).toBeTruthy()
     expect(stan.wywolania).toEqual([['zestawienie', 'c1', '2026-11-09']])
     expect(screen.getByTestId('druk-firma').textContent).toContain('Firma Testowa')
-    expect(screen.getByText('ROJPAK')).toBeTruthy()
+    expect(screen.getByText('RONDO GRILL')).toBeTruthy()
     expect(screen.getByText('NIP DE123456789')).toBeTruthy()
     expect(screen.getByText('Razem faktury')).toBeTruthy()
     // Osobna kartka zostaje przy „Razem do zapłaty” (spec 10.1).
