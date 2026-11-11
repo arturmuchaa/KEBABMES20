@@ -359,3 +359,80 @@ def test_data_startu_fallback_bez_ustawienia(db, przywroc_start):
     finally:
         execute("INSERT INTO app_settings (key, value) VALUES "
                 "('rozliczenia_start', '\"2026-11-09\"'::jsonb) ON CONFLICT (key) DO NOTHING")
+
+
+def test_bledna_data_nie_wywraca_synchronizacji(db):
+    _klient()
+    _wz("w1", "c1", numer="WZ/1/11/26", release_date="brak daty")
+    _wz("w2", "c1", numer="WZ/2/11/26", release_date="2026-11-10")
+
+    assert synchronizuj_wz()["dodane"] == 1
+    assert _dok("w1") is None
+    assert _dok("w2") is not None
+
+
+def test_bledna_data_wydania_liczy_data_wystawienia(db):
+    _klient()
+    _wz("w1", "c1", release_date="jutro", issued_date="2026-11-11")
+
+    synchronizuj_wz()
+
+    assert _dok("w1")["data_dok"] == date(2026, 11, 11)
+
+
+def test_pierwszy_kontrahent_z_dopasowania_ustawia_forme(db):
+    _wz("w1", buyer_name="NOWY")
+    synchronizuj_wz()
+    assert _dok("w1")["client_id"] is None
+    assert _dok("w1")["forma"] == "gotowka"
+
+    _klient("c1", nazwa="NOWY", forma_wz="przelew", termin_wz=5)
+    synchronizuj_wz()
+
+    d = _dok("w1")
+    assert d["client_id"] == "c1"
+    assert d["forma"] == "przelew"
+    assert d["termin"] == date(2026, 11, 15)
+
+
+def test_przypisz_wz_pierwszy_kontrahent_ustawia_forme(db):
+    _klient("c1", forma_wz="przelew")
+    _wz("w1", buyer_name="NIKT")
+    synchronizuj_wz()
+
+    przypisz_wz(_dok("w1")["id"], "c1", "biuro")
+
+    assert _dok("w1")["forma"] == "przelew"
+
+
+def test_przypisz_wz_tylko_dla_WZ_z_MES(db):
+    from fastapi import HTTPException
+    _klient()
+    execute("INSERT INTO rozl_dokumenty (id, ksiega, zrodlo, numer, data_dok, termin) "
+            "VALUES ('r1','wz','reczna','R/1','2026-11-10','2026-11-10')")
+
+    with pytest.raises(HTTPException) as e:
+        przypisz_wz("r1", "c1", "biuro")
+
+    assert e.value.status_code == 400
+    assert query_one("SELECT client_id FROM rozl_dokumenty WHERE id='r1'")["client_id"] is None
+
+
+def test_synchronizacja_czeka_na_blokade_ksiegi(db):
+    """Zapis biura trzyma blokadę księgi — synchronizacja nie może przeczytać
+    wiersza przed jego zatwierdzeniem i potem go nadpisać."""
+    import threading
+    from app.db import transaction
+    from app.services.rozliczenia_wz import zablokuj_ksiege_wz
+
+    _klient()
+    _wz("w1", "c1")
+    wynik = {}
+    watek = threading.Thread(target=lambda: wynik.update(synchronizuj_wz()))
+    with transaction() as conn:
+        zablokuj_ksiege_wz(conn)
+        watek.start()
+        watek.join(0.5)
+        assert watek.is_alive()
+    watek.join(5)
+    assert wynik["dodane"] == 1

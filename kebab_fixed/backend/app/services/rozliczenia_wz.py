@@ -34,7 +34,20 @@ START_KEY = "rozliczenia_start"
 START_DOMYSLNY = date(2026, 11, 9)
 KTO_MES = "MES"
 
-_DATA_WZ = "COALESCE(NULLIF(w.release_date, ''), NULLIF(w.issued_date, ''))::date"
+# Rzutujemy tylko tekst w kształcie daty ISO — jedna literówka w polu daty
+# nie może wywrócić całej synchronizacji (taki WZ jest po prostu pomijany).
+_ISO = r"'^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$'"
+_DATA_WZ = (f"COALESCE(CASE WHEN w.release_date ~ {_ISO} THEN w.release_date::date END, "
+            f"CASE WHEN w.issued_date ~ {_ISO} THEN w.issued_date::date END)")
+
+
+# ── Blokada księgi WZ ──────────────────────────────────────────────────
+
+def zablokuj_ksiege_wz(conn) -> None:
+    """Blokada doradcza księgi WZ do końca transakcji. Biorą ją synchronizacja
+    i KAŻDY zapis biura do dokumentów `mes_wz` — inaczej synchronizacja,
+    która przeczytała wiersz przed zapisem biura, nadpisałaby go."""
+    cx_execute(conn, "SELECT pg_advisory_xact_lock(hashtext('rozliczenia_wz'))")
 
 
 # ── Historia ────────────────────────────────────────────────────────────
@@ -158,14 +171,14 @@ def synchronizuj_wz() -> dict:
     dodadzą tego samego WZ dwa razy)."""
     wynik = {"dodane": 0, "zmienione": 0, "anulowane": 0}
     with transaction() as conn:
-        cx_execute(conn, "SELECT pg_advisory_xact_lock(hashtext('rozliczenia_wz'))")
+        zablokuj_ksiege_wz(conn)
         start = _data_startu_cx(conn)
         kartoteka = _Kartoteka(cx_query_all(
             conn, "SELECT id, name, display_name, nip, rozl_termin_wz, rozl_forma_wz "
                   "FROM clients"))
         istniejace = {r["source_id"]: r for r in cx_query_all(
             conn,
-            "SELECT id, source_id, client_id, przypisano_recznie, numer, data_dok, kwota, "
+            "SELECT id, source_id, client_id, przypisano_recznie, numer, data_dok, kwota, forma, "
             "       waluta, termin, termin_reczny, stan_zrodla, brak_vat "
             "FROM rozl_dokumenty WHERE zrodlo='mes_wz'")}
         dokumenty_wz = cx_query_all(
@@ -239,11 +252,19 @@ def _aktualizuj(conn, wz: dict, stary: dict, kartoteka: _Kartoteka) -> Optional[
     nowe["data_dok"] = data_dok
     if not stary["termin_reczny"]:
         nowe["termin"] = kartoteka.termin(client_id, data_dok)
+    if stary["client_id"] is None and client_id in kartoteka.po_id:
+        # Pierwszy kontrahent: domyślne „gotówka" nie było wyborem biura.
+        nowe["forma"] = kartoteka.po_id[client_id]["rozl_forma_wz"]
 
     rozne = {k: v for k, v in nowe.items() if stary[k] != v}
     if not rozne:
         return None
-    ustaw = ", ".join(f"{k}=%s" for k in rozne)
+    # Druga linia obrony: ręczne przypisanie i ręczny termin nie do nadpisania,
+    # nawet gdyby wiersz zmienił się od odczytu.
+    straz = {"client_id": "przypisano_recznie", "termin": "termin_reczny"}
+    ustaw = ", ".join(
+        f"{k}=CASE WHEN {straz[k]} THEN {k} ELSE %s END" if k in straz else f"{k}=%s"
+        for k in rozne)
     cx_execute(conn, f"UPDATE rozl_dokumenty SET {ustaw} WHERE id=%s",
                (*rozne.values(), stary["id"]))
 
@@ -273,19 +294,25 @@ def _aktualizuj(conn, wz: dict, stary: dict, kartoteka: _Kartoteka) -> Optional[
 def przypisz_wz(dokument_id: str, client_id: str, kto: str) -> None:
     """Ręczne przypisanie kontrahenta do dokumentu; synchronizacja go nie zmienia."""
     with transaction() as conn:
+        zablokuj_ksiege_wz(conn)
         dok = cx_query_one(
-            conn, "SELECT id, client_id, numer, data_dok, termin, termin_reczny "
+            conn, "SELECT id, client_id, zrodlo, numer, data_dok, forma, termin, "
+                  "       termin_reczny "
                   "FROM rozl_dokumenty WHERE id=%s FOR UPDATE", (dokument_id,))
         if not dok:
             raise HTTPException(404, "Dokument nie znaleziony")
-        klient = cx_query_one(conn, "SELECT id, name, rozl_termin_wz FROM clients "
-                                    "WHERE id=%s", (client_id,))
+        if dok["zrodlo"] != "mes_wz":
+            raise HTTPException(400, "Przypisać kontrahenta można tylko do WZ z MES")
+        klient = cx_query_one(conn, "SELECT id, name, rozl_termin_wz, rozl_forma_wz "
+                                    "FROM clients WHERE id=%s", (client_id,))
         if not klient:
             raise HTTPException(404, "Kontrahent nie znaleziony")
         termin = dok["termin"] if dok["termin_reczny"] else \
             dok["data_dok"] + timedelta(days=klient["rozl_termin_wz"] or 0)
+        forma = klient["rozl_forma_wz"] if dok["client_id"] is None else dok["forma"]
         cx_execute(conn, "UPDATE rozl_dokumenty SET client_id=%s, przypisano_recznie=true, "
-                         "termin=%s WHERE id=%s", (client_id, termin, dokument_id))
+                         "termin=%s, forma=%s WHERE id=%s",
+                   (client_id, termin, forma, dokument_id))
         historia(conn, client_id=client_id, obiekt="dokument", obiekt_id=dokument_id,
                  akcja="przypisano", opis=f"{dok['numer']} przypisany do {klient['name']}",
                  przed={"client_id": dok["client_id"]}, po={"client_id": client_id}, kto=kto)
