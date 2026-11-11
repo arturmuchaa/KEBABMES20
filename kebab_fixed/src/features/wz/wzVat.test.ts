@@ -64,6 +64,24 @@ describe('podsumowanieVat', () => {
     expect(p.vat).toBe(0.07)
   })
 
+  it('VAT w groszach połówką w górę — jak księga rozliczeń (Decimal ROUND_HALF_UP)', () => {
+    // Liczone na float-ach 20,10 × 5 % = 1,005 dawało 1,00 — a backend
+    // (rozliczenia_ksiega.brutto_wz) liczy 1,01: wydruk WZ i saldo klienta
+    // różniły się o grosz.
+    expect(podsumowanieVat([{ value: 1200.1, vat_rate: 5 }]).vat).toBe(60.01)
+    expect(podsumowanieVat([{ value: 20.1, vat_rate: 5 }]).vat).toBe(1.01)
+    expect(podsumowanieVat([{ value: 2.9, vat_rate: 5 }]).vat).toBe(0.15)
+    expect(podsumowanieVat([{ value: 2.5, vat_rate: 23 }]).vat).toBe(0.58)
+    expect(podsumowanieVat([{ value: 11.3, vat_rate: 5 }])).toMatchObject({ netto: 11.3, vat: 0.57, brutto: 11.87 })
+    expect(podsumowanieVat([{ value: 5.7, vat_rate: 8 }]).vat).toBe(0.46)
+  })
+
+  it('netto do groszy połówką w górę mimo szumu float (1,005 → 1,01)', () => {
+    const p = podsumowanieVat([{ value: 1.005, vat_rate: 0 }])
+    expect(p.netto).toBe(1.01)
+    expect(p.brutto).toBe(1.01)
+  })
+
   it('pozycje bez stawki liczą się jako 0 %', () => {
     const p = podsumowanieVat([{ value: 500 }])
     expect(p.netto).toBe(500)

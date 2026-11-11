@@ -44,7 +44,14 @@ export interface WierszPodsumowaniaVat {
   brutto: number
 }
 
-const grosze = (n: number) => Math.round(n * 100) / 100
+/** Połówka w górę od zera (jak `ROUND_HALF_UP` w Pythonie), także dla ujemnych. */
+const zaokraglij = (x: number) => Math.sign(x) * Math.round(Math.abs(x)) || 0
+
+/**
+ * Kwota w groszach (liczba całkowita). `toPrecision(12)` zdejmuje szum float
+ * (1,005 × 100 = 100,49999… → 100,5), więc 1,005 daje 101 gr, jak `Decimal`.
+ */
+const naGrosze = (n: number) => zaokraglij(Number((n * 100).toPrecision(12)))
 
 /**
  * Podsumowanie w rozbiciu na stawki — tak, jak wygląda stopka faktury.
@@ -52,6 +59,11 @@ const grosze = (n: number) => Math.round(n * 100) / 100
  * VAT liczymy od SUMY netto w stawce, a nie od każdej pozycji osobno:
  * zaokrąglanie pozycja po pozycji potrafi rozjechać się z fakturą o grosze,
  * a to właśnie WZ jest podkładką pod fakturę.
+ *
+ * Liczymy w CAŁYCH GROSZACH: VAT = netto[gr] × stawka / 100, połówka w górę.
+ * Dla stawek 0/5/8/23 połówka (x,5 gr) jest w float dokładna, więc wynik
+ * jest identyczny z `rozliczenia_ksiega.brutto_wz` (Decimal, ROUND_HALF_UP)
+ * — kwota na wydruku WZ i na saldzie klienta nie różni się o grosz.
  */
 export function podsumowanieVat(lines: readonly PozycjaVat[]): {
   wiersze: WierszPodsumowaniaVat[]
@@ -68,16 +80,18 @@ export function podsumowanieVat(lines: readonly PozycjaVat[]): {
   const wiersze = [...wgStawki.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([stawka, netto]) => {
-      const n = grosze(netto)
-      const v = grosze(n * stawka / 100)
-      return { stawka, netto: n, vat: v, brutto: grosze(n + v) }
+      const nC = naGrosze(netto)
+      const vC = zaokraglij(nC * stawka / 100)
+      return { stawka, nC, vC }
     })
+  const zl = (gr: number) => gr / 100
+  const suma = (f: (w: { nC: number; vC: number }) => number) => zl(wiersze.reduce((s, w) => s + f(w), 0))
 
   return {
-    wiersze,
-    netto: grosze(wiersze.reduce((s, w) => s + w.netto, 0)),
-    vat: grosze(wiersze.reduce((s, w) => s + w.vat, 0)),
-    brutto: grosze(wiersze.reduce((s, w) => s + w.brutto, 0)),
+    wiersze: wiersze.map(w => ({ stawka: w.stawka, netto: zl(w.nC), vat: zl(w.vC), brutto: zl(w.nC + w.vC) })),
+    netto: suma(w => w.nC),
+    vat: suma(w => w.vC),
+    brutto: suma(w => w.nC + w.vC),
   }
 }
 
