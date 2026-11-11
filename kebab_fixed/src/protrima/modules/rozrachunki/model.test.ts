@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
-  etykietaStanu, filtruj, kwotaSalda, liczba, mapujKarte, mapujListe, pigulka, podpowiedzKlienta, sortuj, walutyPodsumowania,
-  type Kontrahent,
+  etykietaStanu, filtruj, kwotaSalda, liczba, mapujKarte, mapujListe, mapujSzczegoly, opisPlatnosci, pigulka, podpowiedzKlienta,
+  rozliczyla, sortuj, uporzadkujDziennik, walutyPodsumowania, wOkresie, zakresOkresu,
+  type Kontrahent, type Wplata,
 } from './model'
-import { SUROWA_KARTA, SUROWA_LISTA } from './daneTestowe'
+import { SUROWA_KARTA, SUROWA_KARTA_PELNA, SUROWA_LISTA, SUROWY_DOKUMENT } from './daneTestowe'
 
 const lista = () => mapujListe(SUROWA_LISTA).kontrahenci
 const k = (o: Partial<Kontrahent>): Kontrahent => ({ ...lista()[0], ...o })
@@ -152,5 +153,64 @@ describe('podpowiedzKlienta — kontrahent dla WZ bez kontrahenta', () => {
     expect(podpowiedzKlienta('Rojpak', klienci)).toBe('c1')
     expect(podpowiedzKlienta('NAZAR GASTRO', klienci)).toBe('')
     expect(podpowiedzKlienta('', klienci)).toBe('')
+  })
+})
+
+describe('zakresOkresu / wOkresie — filtr okresu na karcie', () => {
+  it('ten miesiąc, kwartał, rok, od–do; „wszystko” bez zakresu', () => {
+    expect(zakresOkresu('wszystko', '2026-11-09')).toBeNull()
+    expect(zakresOkresu('miesiac', '2026-11-09')).toEqual({ od: '2026-11-01', do: '2026-11-30' })
+    expect(zakresOkresu('miesiac', '2026-02-10')).toEqual({ od: '2026-02-01', do: '2026-02-28' })
+    expect(zakresOkresu('kwartal', '2026-11-09')).toEqual({ od: '2026-10-01', do: '2026-12-31' })
+    expect(zakresOkresu('kwartal', '2026-05-31')).toEqual({ od: '2026-04-01', do: '2026-06-30' })
+    expect(zakresOkresu('rok', '2026-11-09')).toEqual({ od: '2026-01-01', do: '2026-12-31' })
+    expect(zakresOkresu('zakres', '2026-11-09', '2026-10-01', '')).toEqual({ od: '2026-10-01', do: '' })
+    expect(zakresOkresu('zakres', '2026-11-09', '', '')).toBeNull()
+  })
+  it('granice włącznie, puste „do” = bez końca', () => {
+    expect(wOkresie('2026-11-01', { od: '2026-11-01', do: '2026-11-30' })).toBe(true)
+    expect(wOkresie('2026-10-31', { od: '2026-11-01', do: '2026-11-30' })).toBe(false)
+    expect(wOkresie('2027-01-01', { od: '2026-11-01', do: '' })).toBe(true)
+    expect(wOkresie('2026-01-01', null)).toBe(true)
+  })
+})
+
+describe('rozliczyla — na co poszła wpłata', () => {
+  const w = (o: Partial<Wplata>): Wplata => ({ ...mapujKarte(SUROWA_KARTA).wplaty[0], ...o })
+  it('numery z kwotami po średniku, reszta jako nadpłata', () => {
+    expect(rozliczyla(w({ przydzialy: [{ numer: 'FV 528/2026', kwota: 7280 }, { numer: 'FV 541/2026', kwota: 7720 }], reszta: 0 })))
+      .toBe('FV 528/2026 7 280,00; FV 541/2026 7 720,00')
+    expect(rozliczyla(w({ przydzialy: [], reszta: 250 }))).toBe('nadpłata 250,00')
+    expect(rozliczyla(w({ przydzialy: [{ numer: 'WZ 21/10', kwota: 3000 }], reszta: 0.004 }))).toBe('WZ 21/10 3 000,00')
+  })
+})
+
+describe('opisPlatnosci — domyślna forma i termin', () => {
+  it('gotówka bez terminu — przy odbiorze; inaczej forma i dni', () => {
+    expect(opisPlatnosci('gotowka', 0)).toBe('gotówka przy odbiorze')
+    expect(opisPlatnosci('przelew', 7)).toBe('przelew, 7 dni')
+    expect(opisPlatnosci('przelew', 1)).toBe('przelew, 1 dzień')
+    expect(opisPlatnosci('przelew', 0)).toBe('przelew od razu')
+  })
+})
+
+describe('uporzadkujDziennik — przypomnienia na górze', () => {
+  it('nieodhaczone przypomnienia od najwcześniejszego, zaległe oznaczone, reszta jak z serwera', () => {
+    const d = uporzadkujDziennik(mapujKarte(SUROWA_KARTA_PELNA).dziennik, '2026-11-09')
+    expect(d.map(x => [x.id, x.zalegle])).toEqual([['j3', true], ['j1', false], ['j2', false]])
+    const odhaczony = uporzadkujDziennik([{ ...d[0], odhaczono: '2026-11-06T10:00:00' }, d[2]], '2026-11-09')
+    expect(odhaczony.map(x => [x.id, x.zalegle])).toEqual([['j3', false], ['j2', false]])
+  })
+})
+
+describe('mapujSzczegoly — dokument z pokryciem i historią', () => {
+  it('nie gubi pól', () => {
+    const s = mapujSzczegoly(SUROWY_DOKUMENT)
+    expect(s.numer).toBe('FV 512/2026')
+    expect(s.zrodlo).toBe('reczna')
+    expect(s.pokrycie).toEqual([{ data: '2026-10-20', forma: 'przelew', kwota: 17325, uwagi: 'tytuł' }])
+    expect(s.historia).toEqual([{ akcja: 'termin', opis: 'FV 512/2026: termin płatności zmieniona z 2026-10-22 na 2026-10-25',
+      powod: 'ustalenie z klientem', kto: 'Anna', kiedy: '2026-10-19T09:30:00' }])
+    expect(mapujSzczegoly(null).pokrycie).toEqual([])
   })
 })

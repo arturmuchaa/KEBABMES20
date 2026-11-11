@@ -3,10 +3,10 @@ import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor, within, act } from '@testing-library/react'
 import React from 'react'
 import { AppCtx, type AppApi, type Cmd } from '../../shell/context'
-import { SUROWA_LISTA } from './daneTestowe'
+import { SUROWA_KARTA, SUROWA_LISTA } from './daneTestowe'
 
 /** Rozrachunki — lista kontrahentów. Dane w kształcie odpowiedzi `GET /api/rozliczenia`. */
-const api = vi.hoisted(() => ({ lista: vi.fn(), ustawStart: vi.fn(), przypiszWz: vi.fn() }))
+const api = vi.hoisted(() => ({ lista: vi.fn(), ustawStart: vi.fn(), przypiszWz: vi.fn(), karta: vi.fn() }))
 const klienci = vi.hoisted(() => ({ list: vi.fn() }))
 vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), rozliczeniaApi: api, clientsApi: klienci }))
 import { RozrachunkiModule } from './RozrachunkiModule'
@@ -30,6 +30,7 @@ describe('Rozrachunki — lista kontrahentów', () => {
     api.lista.mockResolvedValue(SUROWA_LISTA)
     api.przypiszWz.mockResolvedValue({ ok: true })
     api.ustawStart.mockResolvedValue({ start: '2026-10-01' })
+    api.karta.mockResolvedValue(SUROWA_KARTA)
     klienci.list.mockResolvedValue(KLIENCI)
   })
 
@@ -84,6 +85,29 @@ describe('Rozrachunki — lista kontrahentów', () => {
     mount()
     expect(await screen.findByText('Nikt jeszcze nie ma rozliczeń — dodaj saldo otwarcia albo wystaw WZ')).toBeTruthy()
     expect(screen.queryByRole('table')).toBeNull()
+    // Same zera — bez kafelków „0,00 zł” nad pustym widokiem.
+    expect(screen.queryByRole('group', { name: 'Sumy rozrachunków' })).toBeNull()
+  })
+
+  it('sumy same zera (tylko rozliczeni) → bez kafelków sum, tabela zostaje', async () => {
+    api.lista.mockResolvedValue({ ...SUROWA_LISTA, kontrahenci: [SUROWA_LISTA.kontrahenci[3]], bez_kontrahenta: [], inna_waluta: 0,
+      podsumowanie: { PLN: { naleznosci: 0, po_terminie: 0, gotowka_wz: 0, nadplaty: 0 }, EUR: { naleznosci: 0, po_terminie: 0, gotowka_wz: 0, nadplaty: 0 } } })
+    mount()
+    await screen.findByText('POLAT')
+    expect(screen.queryByRole('group', { name: 'Sumy rozrachunków' })).toBeNull()
+    expect(screen.getByRole('table', { name: 'Kontrahenci z saldami' })).toBeTruthy()
+  })
+
+  it('długa nazwa: tekst w osobnym elemencie z wielokropkiem i podpowiedzią, dzwonek poza ucinaną częścią', async () => {
+    mount()
+    await screen.findByText('ROJPAK')
+    const r = wiersz('ROJPAK')
+    const nazwa = within(r).getByText('ROJPAK')
+    expect(nazwa.className).toMatch(/rr-nazwa/)
+    expect(nazwa.getAttribute('title')).toBe('ROJPAK · NIP HU25341187')
+    const dzwonek = within(r).getByLabelText('Przypomnienie na dziś')
+    expect(nazwa.contains(dzwonek)).toBe(false)
+    expect(dzwonek.closest('td')).toBe(nazwa.closest('td'))
   })
 
   it('błąd serwera → komunikat z „Spróbuj ponownie”, nie pusty ekran', async () => {
@@ -125,15 +149,17 @@ describe('Rozrachunki — lista kontrahentów', () => {
   it('klik w wiersz / Enter otwiera kartę w module; „← Kontrahenci” i Esc wracają do listy', async () => {
     mount()
     fireEvent.click(await screen.findByText('ROJPAK'))
-    expect(screen.queryByRole('table')).toBeNull()
+    expect(screen.queryByRole('table', { name: 'Kontrahenci z saldami' })).toBeNull()
+    await waitFor(() => expect(api.karta).toHaveBeenCalledWith('c1'))
+    expect(await screen.findByRole('table', { name: 'Faktury' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '← Kontrahenci' }))
-    expect(await screen.findByRole('table')).toBeTruthy()
+    expect(await screen.findByRole('table', { name: 'Kontrahenci z saldami' })).toBeTruthy()
     const r = wiersz('TRUVA GASTRO')
     fireEvent.keyDown(r, { key: 'Enter' })
     expect(screen.getByRole('button', { name: '← Kontrahenci' })).toBeTruthy()
     expect(screen.getAllByText('TRUVA GASTRO').length).toBeGreaterThan(0)
     fireEvent.keyDown(window, { key: 'Escape' })
-    expect(await screen.findByRole('table')).toBeTruthy()
+    expect(await screen.findByRole('table', { name: 'Kontrahenci z saldami' })).toBeTruthy()
   })
 
   it('strzałki przesuwają kursor po wierszach', async () => {

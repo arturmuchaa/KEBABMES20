@@ -97,7 +97,7 @@ export const areaOf = (key: string) => AREAS.find(a => a.modules.some(m => m.key
  * Pozostałe są w menu „Narzędzia" i w wyszukiwarce (Ctrl+K).
  */
 export const NAV_SECTIONS: Array<{ label: string; keys: string[] }> = [
-  { label: 'Sprzedaż', keys: ['zamowienia', 'kontrahenci', 'wysylki', 'dokumenty'] },
+  { label: 'Sprzedaż', keys: ['zamowienia', 'kontrahenci', 'wysylki', 'dokumenty', 'rozrachunki'] },
   { label: 'Produkcja', keys: ['plan-produkcji', 'rozbior', 'masowanie', 'realizacja', 'receptury'] },
   { label: 'Magazyn', keys: ['przyjecia', 'surowce', 'magazyn-wg', 'palety'] },
   { label: 'Jakość i analiza', keys: ['sledzenie', 'haccp', 'raporty'] },

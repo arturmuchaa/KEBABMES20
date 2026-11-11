@@ -788,10 +788,11 @@ div.pstage { cursor: default; }
 .rr-tbl tbody tr.row:focus-visible td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 .rr-tbl td.num { font-size: max(var(--fs-md), var(--fs-id)); }
 .rr-tbl td.rr-saldo { font-weight: 600; }
-.rr-nazwa { max-width: 340px; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--ink-1); }
+.rr-nazwa-w { display: flex; align-items: center; max-width: 340px; min-width: 0; }
+.rr-nazwa { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--ink-1); }
 .rr-tbl tr.closed .rr-nazwa { color: var(--ink-3); font-weight: 500; }
 .rr-waluta { margin-left: 0; }
-.rr-dzwonek { display: inline-flex; vertical-align: -2px; margin-left: 6px; color: var(--warn-ink); }
+.rr-dzwonek { flex: none; display: inline-flex; margin-left: 6px; color: var(--warn-ink); }
 .rr-ostrz-b { flex: 1; min-width: 0; }
 .rr-ostrz-t { display: inline-flex; align-items: center; gap: 4px; font: inherit; color: inherit; cursor: pointer; }
 .rr-wz { margin-top: 8px; color: var(--ink-1); }
@@ -801,5 +802,81 @@ div.pstage { cursor: default; }
 .rr-wz-wybor .wybor { min-width: 240px; }
 .rr-wz-blad { white-space: normal; font-size: var(--fs-sm); margin-top: 2px; }
 .rr-nabywca { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
-.rr-karta-h { display: flex; align-items: center; gap: 12px; min-width: 0; }
+/* Karta klienta: nagłówek → notatka → salda → filtry → dwie księgi obok siebie → wpłaty i dziennik. */
+.rr-karta-h { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
+.rr-karta-id { display: flex; flex-direction: column; gap: 4px; flex: 1 1 320px; min-width: 0; }
 .rr-karta-nazwa { font-size: var(--fs-xl); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-karta-meta { display: flex; flex-wrap: wrap; gap: 2px 16px; color: var(--ink-3); font-size: var(--fs-sm); }
+.rr-karta-meta b { color: var(--ink-1); font-weight: 600; }
+.rr-karta-akcje { display: flex; flex-wrap: wrap; gap: 8px; }
+.rr-notatka { display: flex; align-items: center; gap: 8px; color: var(--ink-3); }
+.rr-notatka .field { flex: 1; min-width: 0; }
+.rr-notatka .field:not(:focus):not(.invalid) { border-color: transparent; background: transparent; box-shadow: none; }
+.rr-notatka .field:not(:focus):not(.invalid):hover { border-color: var(--line); }
+.rr-pole-blad { font-size: var(--fs-sm); color: var(--crit-ink); white-space: normal; }
+.rr-sum-glowny .v { font-weight: 700; }
+.rr-zakres { display: inline-flex; align-items: center; gap: 6px; }
+.rr-zakres .field { width: 150px; }
+.rr-przel { display: inline-flex; align-items: center; gap: 7px; color: var(--ink-2); cursor: pointer; user-select: none; }
+.rr-bar-info { font-size: var(--fs-sm); }
+.rr-link { font: inherit; color: var(--accent-ink); text-decoration: underline; cursor: pointer; padding: 0; }
+.rr-ksiegi { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); gap: 12px; align-items: start; }
+/* Wpłaty mają więcej kolumn niż dziennik — szersza kolumna; na wąskim oknie jedno pod drugim. */
+.rr-dolne { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; align-items: start; }
+@media (max-width: 1280px) { .rr-dolne { grid-template-columns: minmax(0, 1fr); } }
+.rr-panel { display: flex; flex-direction: column; min-width: 0; }
+.rr-panel-h { display: flex; align-items: baseline; gap: 8px 12px; flex-wrap: wrap; padding: 10px 12px; border-bottom: 1px solid var(--line-soft); }
+.rr-panel-h h3 { display: inline-flex; align-items: center; gap: 7px; font-size: var(--fs-lg); font-weight: 600; color: var(--ink-1); margin-right: auto; }
+.rr-panel-h h3 svg { color: var(--ink-3); align-self: center; }
+.rr-panel-h h3 small { font-size: var(--fs-sm); font-weight: 400; color: var(--ink-3); }
+.rr-panel-b { padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
+.rr-ukryte { font-size: var(--fs-sm); }
+.rr-ksiega-saldo { font-size: var(--fs-lg); font-weight: 600; font-variant-numeric: tabular-nums; }
+.rr-przewin { overflow-x: auto; }
+.rr-dok-tbl th { position: static; }
+.rr-dok-tbl th, .rr-dok-tbl td { padding: 0 8px; }
+/* Uwagi biorą resztę szerokości i ucinają się wielokropkiem (pełny tekst w podpowiedzi), ale nie znikają. */
+.rr-dok-tbl td.rr-uwagi { max-width: 0; width: 100%; min-width: 140px; }
+.rr-dok-tbl th:first-child, .rr-dok-tbl th:last-child { border-radius: 0; }
+.rr-tbl tbody tr.click { cursor: pointer; }
+.rr-tbl tbody tr.rr-otwarcie td { background: var(--accent-tint-2); }
+.rr-tbl tbody tr.rr-otwarcie td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.rr-otwarcie-nr { font-weight: 600; color: var(--ink-1); }
+.rr-tbl tr.closed .rr-otwarcie-nr { color: var(--ink-3); }
+.rr-tbl tbody tr.rr-bez-cen td { background: var(--surface-alt); }
+.rr-uwagi { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.rr-uwagi .tag { margin-right: 6px; }
+.rr-rozliczyla { max-width: 320px; }
+.rr-dziennik-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px 2px; }
+.rr-dziennik-form > .field { flex: 1 1 240px; min-width: 0; }
+.rr-przypomnij { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); }
+.rr-przypomnij .field { width: 150px; }
+.rr-wpisy { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.rr-wpis { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; padding: 8px; border-bottom: 1px solid var(--line-soft); border-radius: var(--r-xs); }
+.rr-wpis:last-child { border-bottom: 0; }
+.rr-wpis.zalegle { background: var(--warn-tint); }
+.rr-wpis.odhaczony .rr-wpis-tresc { color: var(--ink-3); }
+.rr-wpis-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 220px; }
+.rr-wpis-t .faint { font-size: var(--fs-sm); }
+.rr-wpis-tresc { color: var(--ink-1); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rr-wpis-a { display: flex; align-items: center; gap: 8px; }
+/* Okna karty: szczegóły dokumentu, usunięcie wpłaty. */
+.dialog-f .rr-lewy { margin-right: auto; }
+.rr-dlg-tag { margin-left: 10px; vertical-align: 3px; }
+.rr-dlg-p { margin: 0; }
+.rr-dlg-info { color: var(--ink-2); }
+.rr-dlg-info b { font-variant-numeric: tabular-nums; color: var(--ink-1); }
+.rr-fakty { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px 16px; margin: 0; }
+.rr-fakty dd { margin: 2px 0 0; color: var(--ink-1); font-weight: 500; }
+.rr-fakty dd.num { font-variant-numeric: tabular-nums; }
+.rr-edycja { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.rr-edycja .field[type="date"] { width: 160px; }
+.rr-pole-szerokie { flex: 1 1 260px; }
+.rr-sekcja { display: flex; flex-direction: column; gap: 6px; }
+.rr-sekcja > .label { display: inline-flex; align-items: center; gap: 5px; }
+.rr-mini { border-radius: var(--r-sm); box-shadow: inset 0 0 0 1px var(--line-soft); }
+.rr-mini th { position: static; }
+.rr-hist { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; color: var(--ink-2); }
+.rr-usun { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
+.rr-usun > .btn { align-self: flex-start; }
+.rr-usun-akcje { display: flex; gap: 8px; }

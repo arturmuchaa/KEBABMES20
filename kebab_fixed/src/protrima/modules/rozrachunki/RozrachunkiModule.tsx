@@ -13,17 +13,13 @@ import {
   walutyPodsumowania, znakSalda,
   type Filtr, type Kierunek, type Kolumna, type Kontrahent, type ListaRozliczen, type WzBezKontrahenta,
 } from './model'
+import { KartaKlienta, type Okno } from './KartaKlienta'
+import { klasaSalda, pamiec, tekstBledu } from './wspolne'
 
 type Sort = { kol: Kolumna; kier: Kierunek } | null
 
 const KLUCZ_SORT = 'protrima.rozrachunki.sort'
 const KLUCZ_FILTR = 'protrima.rozrachunki.filtr'
-const pamiec = {
-  czytaj(k: string) { try { return window.localStorage.getItem(k) } catch { return null } },
-  zapisz(k: string, v: string | null) {
-    try { if (v == null) window.localStorage.removeItem(k); else window.localStorage.setItem(k, v) } catch { /* bez pamięci przeglądarki */ }
-  },
-}
 const czytajSort = (): Sort => {
   try {
     const s = JSON.parse(pamiec.czytaj(KLUCZ_SORT) ?? 'null')
@@ -45,8 +41,9 @@ const KOLUMNY_TABELI: Array<{ kol: Kolumna; label: string; num?: boolean; tip?: 
   { kol: 'najstarszaDni', label: 'Najstarsza zaległość' },
 ]
 const KOLUMN = KOLUMNY_TABELI.length
-const klasaSalda = (x: number) => (znakSalda(x) < 0 ? ' crit-ink' : znakSalda(x) > 0 ? ' ok-ink' : '')
-const tekstBledu = (e: unknown, zast: string) => (e instanceof Error && e.message ? e.message : zast)
+const NAZWA_OKNA: Record<Okno['rodzaj'], string> = {
+  wplata: 'Wpłata', faktura: 'Faktura', otwarcie: 'Saldo otwarcia', druk: 'Drukuj saldo', ustawienia: 'Ustawienia klienta',
+}
 
 /**
  * Rozrachunki — salda odbiorców z WZ i faktur (zastępuje arkusz biura):
@@ -89,7 +86,12 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
   const wybranyK = wszyscy.find(k => k.id === wybrany) ?? null
 
   const otworz = (k: Kontrahent) => { setKursor(k.id); setWybrany(k.id) }
-  const wroc = useCallback(() => { doFokusu.current = wybrany; setWybrany(null) }, [wybrany])
+  // Powrót z karty — lista po cichu się odświeża (wpłata, wpis w dzienniku mogły zmienić saldo i przypomnienia).
+  const wroc = useCallback(() => { doFokusu.current = wybrany; setWybrany(null); odswiez() }, [wybrany, odswiez])
+  // Okna karty (wpłata, faktura, saldo otwarcia, druk, ustawienia) dochodzą w następnym kroku planu (Task 11).
+  const otworzOkno = useCallback((o: Okno) => {
+    app.toast({ kind: 'info', title: `${NAZWA_OKNA[o.rodzaj]} — okno w przygotowaniu`, detail: o.karta.klient.nazwa })
+  }, [app])
   // Po powrocie z karty kursor wraca na wiersz klienta — Enter otwiera następnego bez szukania.
   useEffect(() => {
     if (wybrany || !doFokusu.current) return
@@ -102,7 +104,10 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
     if (!active) return
     const klawisz = (e: KeyboardEvent) => {
       if (document.querySelector('.dialog-wrap, .overlay')) return
-      if (e.key === 'Escape' && wybrany) { e.preventDefault(); wroc() }
+      const cel = e.target as HTMLElement | null
+      // Esc w polu karty (dziennik, daty) najpierw tylko z niego wychodzi — wpisany tekst nie znika razem z kartą.
+      if (e.key === 'Escape' && wybrany && cel?.matches?.('input:not([type=checkbox]), textarea, select')) { e.preventDefault(); cel.blur() }
+      else if (e.key === 'Escape' && wybrany) { e.preventDefault(); wroc() }
       else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f' && !wybrany) { e.preventDefault(); szukajRef.current?.focus() }
     }
     window.addEventListener('keydown', klawisz)
@@ -149,13 +154,8 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
 
       {wybrany && (
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-          <div className="dock-pad rr">
-            <div className="rr-karta-h">
-              <button type="button" className="btn" onClick={wroc} data-tip="Wróć do listy (Esc)">← Kontrahenci</button>
-              <h2 className="rr-karta-nazwa" title={wybranyK?.nazwa}>{wybranyK?.nazwa ?? ''}</h2>
-            </div>
-            {/* Karta klienta (Task 10) osadza się tutaj. */}
-            <Pusto ikona={<Wallet size={22} />} tytul="Karta klienta — w przygotowaniu">Tu pojawią się księgi WZ i faktur, wpłaty i dziennik ustaleń tego kontrahenta.</Pusto>
+          <div className="dock-pad">
+            <KartaKlienta key={wybrany} clientId={wybrany} nazwa={wybranyK?.nazwa} onWroc={wroc} onOtworz={otworzOkno} />
           </div>
         </div>
       )}
@@ -250,8 +250,11 @@ function WierszKontrahenta({ k, zebra, tabIndex, onOtworz, onFocus, onKey }: {
   return (
     <tr className={`row click${zebra ? ' zebra' : ''}${k.stan === 'rozliczony' ? ' closed' : ''}`} data-id={k.id} data-nazwa={k.nazwa}
       tabIndex={tabIndex} onClick={onOtworz} onFocus={onFocus} onKeyDown={onKey} aria-label={`${k.nazwa}, saldo ${kwotaSalda(k.saldo, k.waluta)}, ${p.tekst}`}>
-      <td className="rr-nazwa" title={k.nip ? `${k.nazwa} · NIP ${k.nip}` : k.nazwa}>{k.nazwa}
-        {k.przypomnienie && <span className="rr-dzwonek" role="img" aria-label="Przypomnienie na dziś" data-tip="Przypomnienie w dzienniku na dziś — zajrzyj do karty"><BellRing size={14} /></span>}
+      <td className="rr-nazwa-td">
+        <span className="rr-nazwa-w">
+          <span className="rr-nazwa" title={k.nip ? `${k.nazwa} · NIP ${k.nip}` : k.nazwa}>{k.nazwa}</span>
+          {k.przypomnienie && <span className="rr-dzwonek" role="img" aria-label="Przypomnienie na dziś" data-tip="Przypomnienie w dzienniku na dziś — zajrzyj do karty"><BellRing size={14} /></span>}
+        </span>
       </td>
       <td><span className="cc rr-waluta">{k.waluta}</span></td>
       <td className={`num${klasaSalda(k.saldoWz)}`}>{kwotaSalda(k.saldoWz, k.waluta)}</td>
@@ -265,10 +268,10 @@ function WierszKontrahenta({ k, zebra, tabIndex, onOtworz, onFocus, onKey }: {
 
 const ZERO = { naleznosci: 0, poTerminie: 0, gotowkaWz: 0, nadplaty: 0 }
 
-/** Kafelki sum osobno dla każdej waluty — bez przeliczania kursów. */
+/** Kafelki sum osobno dla każdej waluty — bez przeliczania kursów. Same zera — bez kafelków. */
 function Sumy({ l }: { l: ListaRozliczen }) {
-  const z = walutyPodsumowania(l)
-  const waluty = z.length ? z : [l.kontrahenci[0]?.waluta || 'PLN']
+  const waluty = walutyPodsumowania(l)
+  if (!waluty.length) return null
   const suma = (w: string) => l.podsumowanie[w] ?? ZERO
   const nadplacajacy = l.kontrahenci.filter(k => znakSalda(k.saldoWz) > 0 || znakSalda(k.saldoFv) > 0).length
   const nadplaty = waluty.filter(w => znakSalda(suma(w).nadplaty) > 0)

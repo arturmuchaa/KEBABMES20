@@ -189,6 +189,21 @@ export function mapujKarte(raw: unknown): Karta {
   }
 }
 
+/** Szczegóły dokumentu (`GET /api/rozliczenia/dokumenty/:id`): stan, wpłaty, które go pokryły, historia zmian. */
+export interface SzczegolyDokumentu extends Dok {
+  pokrycie: Array<{ data: string; forma: string; kwota: number; uwagi: string }>
+  historia: Array<{ akcja: string; opis: string; powod: string; kto: string; kiedy: string }>
+}
+
+export function mapujSzczegoly(raw: unknown): SzczegolyDokumentu {
+  const r = obj(raw)
+  return {
+    ...mapujDok(r),
+    pokrycie: tab(r.pokrycie).map(p => ({ data: s(p.data), forma: s(p.forma), kwota: n(p.kwota), uwagi: s(p.uwagi) })),
+    historia: tab(r.historia).map(h => ({ akcja: s(h.akcja), opis: s(h.opis), powod: s(h.powod), kto: s(h.kto), kiedy: s(h.kiedy) })),
+  }
+}
+
 // ─── Stany w słowach ───────────────────────────────────────────────────
 
 export type Ton = 'late' | 'soon' | 'ok' | 'zero'
@@ -319,4 +334,64 @@ export function podpowiedzKlienta(nabywca: string, klienci: Array<{ id: string; 
   const q = nabywca.trim().toUpperCase()
   if (!q) return ''
   return klienci.find(c => c.name.trim().toUpperCase() === q || (c.displayName ?? '').trim().toUpperCase() === q)?.id ?? ''
+}
+
+// ─── Karta klienta: okres, wpłaty, dziennik ────────────────────────────
+
+/** Dzisiejsza data lokalna jako `RRRR-MM-DD` (nie UTC — o północy biuro ma już nowy dzień). */
+export function dzisIso(d: Date = new Date()): string {
+  const p = (x: number) => String(x).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+export type Okres = 'wszystko' | 'miesiac' | 'kwartal' | 'rok' | 'zakres'
+export const OKRESY: Okres[] = ['wszystko', 'miesiac', 'kwartal', 'rok', 'zakres']
+export type Zakres = { od: string; do: string } | null
+
+const iso = (r: number, m: number, d: number) => `${r}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+const ostatniDzien = (r: number, m: number) => new Date(Date.UTC(r, m, 0)).getUTCDate()
+
+/** Zakres dat okresu (granice włącznie); `null` — bez filtra. „Od–do” z pustym końcem — bez końca. */
+export function zakresOkresu(okres: Okres, dzis: string, od = '', do_ = ''): Zakres {
+  const [r, m] = dzis.split('-').map(Number)
+  switch (okres) {
+    case 'miesiac': return { od: iso(r, m, 1), do: iso(r, m, ostatniDzien(r, m)) }
+    case 'kwartal': {
+      const p = Math.floor((m - 1) / 3) * 3 + 1
+      return { od: iso(r, p, 1), do: iso(r, p + 2, ostatniDzien(r, p + 2)) }
+    }
+    case 'rok': return { od: iso(r, 1, 1), do: iso(r, 12, 31) }
+    case 'zakres': return od || do_ ? { od, do: do_ } : null
+    default: return null
+  }
+}
+
+export const wOkresie = (data: string, z: Zakres) => !z || ((!z.od || data >= z.od) && (!z.do || data <= z.do))
+
+/** Kwota bez symbolu waluty (`7 280,00`) — do opisów w wierszu, gdzie waluta jest w kolumnie obok. */
+export const kwotaBezWaluty = (x: number) => kwota(x, 'PLN').replace(/ zł$/, '')
+
+/** Na co poszła wpłata: `FV 528/2026 7 280,00; FV 541/2026 7 720,00`, reszta — `nadpłata 250,00`. */
+export function rozliczyla(w: Wplata): string {
+  const czesci = w.przydzialy.map(p => `${p.numer} ${kwotaBezWaluty(p.kwota)}`)
+  if (znakSalda(w.reszta) > 0) czesci.push(`nadpłata ${kwotaBezWaluty(w.reszta)}`)
+  return czesci.join('; ')
+}
+
+export const FORMA_SLOWEM: Record<string, string> = { gotowka: 'gotówka', przelew: 'przelew' }
+
+/** Domyślna płatność słowem: `gotówka przy odbiorze`, `przelew, 7 dni`. */
+export function opisPlatnosci(forma: string, termin: number): string {
+  const f = FORMA_SLOWEM[forma] ?? forma
+  if (termin > 0) return `${f}, ${dni(termin)}`
+  return forma === 'gotowka' ? `${f} przy odbiorze` : `${f} od razu`
+}
+
+export type WpisZPrzypomnieniem = WpisDziennika & { zalegle: boolean }
+
+/** Dziennik: nieodhaczone przypomnienia na górze (najwcześniejsze pierwsze), dalej reszta w kolejności serwera. */
+export function uporzadkujDziennik(wpisy: WpisDziennika[], dzis: string): WpisZPrzypomnieniem[] {
+  const czeka = (w: WpisDziennika) => !!w.przypomnij && !w.odhaczono
+  const gora = wpisy.filter(czeka).sort((a, b) => a.przypomnij!.localeCompare(b.przypomnij!))
+  return [...gora, ...wpisy.filter(w => !czeka(w))].map(w => ({ ...w, zalegle: czeka(w) && w.przypomnij! <= dzis }))
 }
