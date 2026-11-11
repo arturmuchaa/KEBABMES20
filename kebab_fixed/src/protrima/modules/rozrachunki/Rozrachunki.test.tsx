@@ -3,10 +3,10 @@ import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor, within, act } from '@testing-library/react'
 import React from 'react'
 import { AppCtx, type AppApi, type Cmd } from '../../shell/context'
-import { SUROWA_KARTA, SUROWA_LISTA } from './daneTestowe'
+import { SUROWA_KARTA, SUROWA_LISTA, SUROWY_PODGLAD } from './daneTestowe'
 
 /** Rozrachunki — lista kontrahentów. Dane w kształcie odpowiedzi `GET /api/rozliczenia`. */
-const api = vi.hoisted(() => ({ lista: vi.fn(), ustawStart: vi.fn(), przypiszWz: vi.fn(), karta: vi.fn() }))
+const api = vi.hoisted(() => ({ lista: vi.fn(), ustawStart: vi.fn(), przypiszWz: vi.fn(), karta: vi.fn(), podgladWplaty: vi.fn(), dodajWplate: vi.fn() }))
 const klienci = vi.hoisted(() => ({ list: vi.fn() }))
 vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), rozliczeniaApi: api, clientsApi: klienci }))
 import { RozrachunkiModule } from './RozrachunkiModule'
@@ -31,6 +31,8 @@ describe('Rozrachunki — lista kontrahentów', () => {
     api.przypiszWz.mockResolvedValue({ ok: true })
     api.ustawStart.mockResolvedValue({ start: '2026-10-01' })
     api.karta.mockResolvedValue(SUROWA_KARTA)
+    api.podgladWplaty.mockResolvedValue(SUROWY_PODGLAD)
+    api.dodajWplate.mockResolvedValue({ ...SUROWY_PODGLAD, id: 'p9' })
     klienci.list.mockResolvedValue(KLIENCI)
   })
 
@@ -190,5 +192,30 @@ describe('Rozrachunki — lista kontrahentów', () => {
     await waitFor(() => expect(api.ustawStart).toHaveBeenCalledWith('2026-10-01'))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(app.toast).toHaveBeenCalledWith(expect.objectContaining({ title: expect.stringContaining('01.10.2026') }))
+  })
+
+  it('„+ Wpłata” na karcie otwiera okno; po zapisie karta i lista się odświeżają, fokus wraca na przycisk', async () => {
+    mount()
+    fireEvent.click(await screen.findByText('ROJPAK'))
+    await screen.findByRole('table', { name: 'Faktury' })
+    const przycisk = screen.getByRole('button', { name: '+ Wpłata' })
+    przycisk.focus()
+    fireEvent.click(przycisk)
+    const dlg = await screen.findByRole('dialog')
+    expect(within(dlg).getByRole('heading').textContent).toContain('Wpłata')
+    const kartyPrzed = api.karta.mock.calls.length, listyPrzed = api.lista.mock.calls.length
+    fireEvent.change(within(dlg).getByLabelText('Kwota'), { target: { value: '100' } })
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Zapisz wpłatę' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(api.dodajWplate).toHaveBeenCalledWith('c1', expect.objectContaining({ kwota: 100 }))
+    await waitFor(() => expect(api.karta.mock.calls.length).toBe(kartyPrzed + 1))
+    await waitFor(() => expect(api.lista.mock.calls.length).toBe(listyPrzed + 1))
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: '+ Wpłata' }))
+    // Esc zamyka okno, nie kartę.
+    fireEvent.click(screen.getByRole('button', { name: 'Saldo otwarcia' }))
+    await screen.findByRole('dialog')
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(screen.getByRole('button', { name: '← Kontrahenci' })).toBeTruthy()
   })
 })

@@ -858,7 +858,9 @@ div.pstage { cursor: default; }
 .rr-uwagi { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
 .rr-uwagi .tag { margin-right: 6px; }
 .rr-dziennik-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px 2px; }
-.rr-dziennik-form > .field { flex: 1 1 240px; min-width: 0; }
+/* Treść zawsze w całej szerokości (podpowiedź nie ucina się), pod nią przypomnienie i przycisk po prawej. */
+.rr-dziennik-form > .field { flex: 1 1 100%; min-width: 0; }
+.rr-dziennik-form > .btn { margin-left: auto; }
 .rr-przypomnij { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); }
 .rr-przypomnij .field { width: 150px; }
 .rr-wpisy { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
@@ -890,3 +892,31 @@ div.pstage { cursor: default; }
 .rr-usun { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
 .rr-usun > .btn { align-self: flex-start; }
 .rr-usun-akcje { display: flex; gap: 8px; }
+
+/* Okna karty: wpłata, faktura, saldo otwarcia, ustawienia, druk. */
+.rr-dlg-klient { margin-left: 6px; font-size: var(--fs-md); font-weight: 400; color: var(--ink-3); }
+.rr-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; align-items: start; }
+.rr-form .rr-form-cala { grid-column: 1 / -1; }
+.rr-form .field { width: 100%; }
+.rr-pole-pod { font-size: var(--fs-sm); color: var(--ink-3); line-height: 1.35; }
+.rr-pole-pod b { font-weight: 600; }
+.rr-kwota-pole { position: relative; display: flex; align-items: center; min-width: 0; }
+.rr-kwota-pole > .field { width: 100%; padding-right: 38px; font-variant-numeric: tabular-nums; }
+.rr-kwota-pole > .rr-sfx { position: absolute; right: 10px; color: var(--ink-3); pointer-events: none; font-size: var(--fs-md); }
+.rr-kwota-pole.duze > .field { height: 40px; font-size: var(--fs-xl); font-weight: 600; }
+.rr-podglad-w { padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.rr-podglad { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; transition: opacity .12s; }
+.rr-podglad li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 10px; border-radius: var(--r-sm);
+  background: var(--surface-alt); box-shadow: inset 0 0 0 1px var(--line-soft); font-variant-numeric: tabular-nums; color: var(--ink-1); }
+.rr-podglad li > span:last-child { text-align: right; }
+.rr-podglad li b { font-weight: 600; }
+.rr-podglad li.rr-nadwyzka { background: var(--ok-tint); color: var(--ok-ink); box-shadow: none; font-weight: 600; }
+.rr-podglad.nieaktualny { opacity: .55; }
+.rr-otw, .rr-ust { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.rr-otw-k { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line-soft); min-width: 0; }
+.rr-otw-k h3 { font-size: var(--fs-lg); font-weight: 600; color: var(--ink-1); }
+.rr-otw-k .field { width: 100%; }
+.rr-ust .rr-kwota-pole { max-width: 140px; }
+.rr-data { width: 170px; }
+.rr-okres-druku { font-weight: 600; color: var(--ink-1); font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .rr-form, .rr-otw, .rr-ust { grid-template-columns: minmax(0, 1fr); } }

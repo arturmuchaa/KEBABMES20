@@ -2,9 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
   etykietaStanu, filtruj, kwotaSalda, liczba, mapujKarte, mapujListe, mapujSzczegoly, opisPlatnosci, pigulka, podpowiedzKlienta,
   rozliczyla, sortuj, symbolWaluty, uporzadkujDziennik, walutyPodsumowania, wOkresie, zakresOkresu,
+  dodajDni, mapujPodglad, opisRozliczenia, poprzedniMiesiac,
   type Kontrahent, type Wplata,
 } from './model'
-import { SUROWA_KARTA, SUROWA_KARTA_PELNA, SUROWA_LISTA, SUROWY_DOKUMENT } from './daneTestowe'
+import { SUROWA_KARTA, SUROWA_KARTA_PELNA, SUROWA_LISTA, SUROWY_DOKUMENT, SUROWY_PODGLAD } from './daneTestowe'
 
 const lista = () => mapujListe(SUROWA_LISTA).kontrahenci
 const k = (o: Partial<Kontrahent>): Kontrahent => ({ ...lista()[0], ...o })
@@ -220,5 +221,37 @@ describe('symbolWaluty — waluta w nagłówku kolumny', () => {
     expect(symbolWaluty('EUR')).toBe('€')
     expect(symbolWaluty('PLN')).toBe('zł')
     expect(symbolWaluty('CHF')).toBe('CHF')
+  })
+})
+
+describe('mapujPodglad / opisRozliczenia — co rozliczy wpłata', () => {
+  it('nie gubi pól podglądu', () => {
+    const p = mapujPodglad(SUROWY_PODGLAD)
+    expect(p.przydzialy[1]).toEqual({ dokumentId: 'f541', numer: 'FV 541/2026', kwota: 7720, zostaloPrzed: 12342.2, zostaloPo: 4622.2, zamyka: false })
+    expect(p.nadwyzka).toBe(0)
+    expect(mapujPodglad(null)).toEqual({ przydzialy: [], nadwyzka: 0 })
+  })
+  it('zamknięte numery, „część” dla niedopłaconych, nadpłata z plusem', () => {
+    expect(opisRozliczenia(mapujPodglad(SUROWY_PODGLAD), 'EUR')).toBe('rozliczyła FV 528/2026 i część FV 541/2026')
+    const trzy = mapujPodglad({ ...SUROWY_PODGLAD, przydzialy: [
+      { ...SUROWY_PODGLAD.przydzialy[0] }, { ...SUROWY_PODGLAD.przydzialy[1], zamyka: true, zostalo_po: 0 },
+      { dokument_id: 'f553', numer: 'FV 553/2026', kwota: 10416, zostalo_przed: 10416, zostalo_po: 0, zamyka: true }], nadwyzka: 250 })
+    expect(opisRozliczenia(trzy, 'EUR')).toBe('rozliczyła FV 528/2026, FV 541/2026 i FV 553/2026 — nadpłata +250,00 € zostaje na saldzie')
+    expect(opisRozliczenia({ przydzialy: [], nadwyzka: 100 }, 'PLN')).toBe('nic nie było do zapłaty — +100,00 zł zostaje jako nadpłata')
+    expect(opisRozliczenia({ przydzialy: [], nadwyzka: 0 }, 'PLN')).toBe('')
+  })
+})
+
+describe('dodajDni / poprzedniMiesiac — daty w oknach', () => {
+  it('termin = data + dni, przez koniec miesiąca i roku', () => {
+    expect(dodajDni('2026-11-09', 7)).toBe('2026-11-16')
+    expect(dodajDni('2026-12-28', 7)).toBe('2027-01-04')
+    expect(dodajDni('2026-11-09', 0)).toBe('2026-11-09')
+    expect(dodajDni('', 7)).toBe('')
+  })
+  it('poprzedni miesiąc — pełny, także przez nowy rok', () => {
+    expect(poprzedniMiesiac('2026-11-09')).toEqual({ od: '2026-10-01', do: '2026-10-31' })
+    expect(poprzedniMiesiac('2027-01-15')).toEqual({ od: '2026-12-01', do: '2026-12-31' })
+    expect(poprzedniMiesiac('2026-03-31')).toEqual({ od: '2026-02-01', do: '2026-02-28' })
   })
 })

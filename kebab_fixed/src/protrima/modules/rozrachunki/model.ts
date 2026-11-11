@@ -398,3 +398,45 @@ export function uporzadkujDziennik(wpisy: WpisDziennika[], dzis: string): WpisZP
   const gora = wpisy.filter(czeka).sort((a, b) => a.przypomnij!.localeCompare(b.przypomnij!))
   return [...gora, ...wpisy.filter(w => !czeka(w))].map(w => ({ ...w, zalegle: czeka(w) && w.przypomnij! <= dzis }))
 }
+
+// ─── Okna karty: podgląd wpłaty, daty ──────────────────────────────────
+
+/** Jeden dokument, który pokryje wpłata (`_podglad` w rozliczenia_service). */
+export interface Przydzial { dokumentId: string; numer: string; kwota: number; zostaloPrzed: number; zostaloPo: number; zamyka: boolean }
+export interface PodgladWplaty { przydzialy: Przydzial[]; nadwyzka: number }
+
+export function mapujPodglad(raw: unknown): PodgladWplaty {
+  const r = obj(raw)
+  return {
+    przydzialy: tab(r.przydzialy).map(p => ({
+      dokumentId: s(p.dokument_id), numer: s(p.numer), kwota: n(p.kwota),
+      zostaloPrzed: n(p.zostalo_przed), zostaloPo: n(p.zostalo_po), zamyka: !!p.zamyka,
+    })),
+    nadwyzka: n(r.nadwyzka),
+  }
+}
+
+const wyliczenie = (x: string[]) => (x.length > 1 ? `${x.slice(0, -1).join(', ')} i ${x[x.length - 1]}` : x[0] ?? '')
+
+/** Co zrobiła wpłata, do powiadomienia: `rozliczyła FV 528/2026 i część FV 541/2026 — nadpłata +250,00 € zostaje na saldzie`. */
+export function opisRozliczenia(p: PodgladWplaty, waluta: string): string {
+  const nadwyzka = znakSalda(p.nadwyzka) > 0 ? kwotaSalda(p.nadwyzka, waluta) : ''
+  if (!p.przydzialy.length) return nadwyzka ? `nic nie było do zapłaty — ${nadwyzka} zostaje jako nadpłata` : ''
+  const co = `rozliczyła ${wyliczenie(p.przydzialy.map(x => (x.zamyka ? x.numer : `część ${x.numer}`)))}`
+  return nadwyzka ? `${co} — nadpłata ${nadwyzka} zostaje na saldzie` : co
+}
+
+/** `RRRR-MM-DD` + N dni (bez stref czasowych); pusta data — pusta. */
+export function dodajDni(dataIso: string, dniDo: number): string {
+  if (!dataIso) return ''
+  const [r, m, d] = dataIso.split('-').map(Number)
+  const x = new Date(Date.UTC(r, m - 1, d + dniDo))
+  return iso(x.getUTCFullYear(), x.getUTCMonth() + 1, x.getUTCDate())
+}
+
+/** Cały poprzedni miesiąc względem dnia `dzis` (historia rozliczeń do druku). */
+export function poprzedniMiesiac(dzis: string): { od: string; do: string } {
+  const [r, m] = dzis.split('-').map(Number)
+  const pr = m === 1 ? r - 1 : r, pm = m === 1 ? 12 : m - 1
+  return { od: iso(pr, pm, 1), do: iso(pr, pm, ostatniDzien(pr, pm)) }
+}

@@ -97,3 +97,12 @@ export const SUROWY_DOKUMENT = {
   historia: [{ akcja: 'termin', opis: 'FV 512/2026: termin płatności zmieniona z 2026-10-22 na 2026-10-25',
     przed: { termin: '2026-10-22' }, po: { termin: '2026-10-25' }, powod: 'ustalenie z klientem', kto: 'Anna', kiedy: '2026-10-19T09:30:00' }],
 }
+
+/** Odpowiedź `POST /api/rozliczenia/klient/c1/wplaty/podglad` dla 15 000 € do faktur (rozliczenia_service._podglad). */
+export const SUROWY_PODGLAD = {
+  przydzialy: [
+    { dokument_id: 'f528', numer: 'FV 528/2026', kwota: 7280, zostalo_przed: 7280, zostalo_po: 0, zamyka: true },
+    { dokument_id: 'f541', numer: 'FV 541/2026', kwota: 7720, zostalo_przed: 12342.2, zostalo_po: 4622.2, zamyka: false },
+  ],
+  nadwyzka: 0,
+}

@@ -15,6 +15,11 @@ import {
 } from './model'
 import { KartaKlienta, type Okno } from './KartaKlienta'
 import { klasaSalda, pamiec, tekstBledu } from './wspolne'
+import { WplataDialog } from './WplataDialog'
+import { FakturaDialog } from './FakturaDialog'
+import { OtwarcieDialog } from './OtwarcieDialog'
+import { UstawieniaKlientaDialog } from './UstawieniaKlientaDialog'
+import { DrukSaldaDialog } from './DrukSaldaDialog'
 
 type Sort = { kol: Kolumna; kier: Kierunek } | null
 
@@ -41,10 +46,6 @@ const KOLUMNY_TABELI: Array<{ kol: Kolumna; label: string; num?: boolean; tip?: 
   { kol: 'najstarszaDni', label: 'Najstarsza zaległość' },
 ]
 const KOLUMN = KOLUMNY_TABELI.length
-const NAZWA_OKNA: Record<Okno['rodzaj'], string> = {
-  wplata: 'Wpłata', faktura: 'Faktura', otwarcie: 'Saldo otwarcia', druk: 'Drukuj saldo', ustawienia: 'Ustawienia klienta',
-}
-
 /**
  * Rozrachunki — salda odbiorców z WZ i faktur (zastępuje arkusz biura):
  * sumy osobno PLN i EUR, filtry, sortowanie (zapamiętane), WZ bez kontrahenta
@@ -56,6 +57,8 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
   const l = res.data
   const [wybrany, setWybrany] = useState<string | null>(null)
   const [okno, setOkno] = useState<'start' | null>(null)
+  const [oknoKarty, setOknoKarty] = useState<Okno | null>(null)
+  const [wersjaKarty, setWersjaKarty] = useState(0)
   const [filtr, setFiltrStan] = useState<Filtr>(czytajFiltr)
   const [szukaj, setSzukaj] = useState('')
   const [sort, setSortStan] = useState<Sort>(czytajSort)
@@ -88,10 +91,11 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
   const otworz = (k: Kontrahent) => { setKursor(k.id); setWybrany(k.id) }
   // Powrót z karty — lista po cichu się odświeża (wpłata, wpis w dzienniku mogły zmienić saldo i przypomnienia).
   const wroc = useCallback(() => { doFokusu.current = wybrany; setWybrany(null); odswiez() }, [wybrany, odswiez])
-  // Okna karty (wpłata, faktura, saldo otwarcia, druk, ustawienia) dochodzą w następnym kroku planu (Task 11).
-  const otworzOkno = useCallback((o: Okno) => {
-    app.toast({ kind: 'info', title: `${NAZWA_OKNA[o.rodzaj]} — okno w przygotowaniu`, detail: o.karta.klient.nazwa })
-  }, [app])
+  // Okna karty (wpłata, faktura, saldo otwarcia, druk, ustawienia). Po zapisie: karta i lista od nowa
+  // (saldo, przypomnienia), okno samo oddaje fokus przyciskowi, z którego je otwarto.
+  const otworzOkno = useCallback((o: Okno) => setOknoKarty(o), [])
+  const zamknijOkno = useCallback(() => setOknoKarty(null), [])
+  const poZapisie = useCallback(() => { setOknoKarty(null); setWersjaKarty(v => v + 1); odswiez() }, [odswiez])
   // Po powrocie z karty kursor wraca na wiersz klienta — Enter otwiera następnego bez szukania.
   useEffect(() => {
     if (wybrany || !doFokusu.current) return
@@ -155,7 +159,7 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
       {wybrany && (
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           <div className="dock-pad">
-            <KartaKlienta key={wybrany} clientId={wybrany} nazwa={wybranyK?.nazwa} onWroc={wroc} onOtworz={otworzOkno} />
+            <KartaKlienta key={wybrany} clientId={wybrany} nazwa={wybranyK?.nazwa} wersja={wersjaKarty} onWroc={wroc} onOtworz={otworzOkno} />
           </div>
         </div>
       )}
@@ -231,6 +235,8 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
         </div>
       </div>
 
+      {oknoKarty && <OknoKarty o={oknoKarty} onClose={zamknijOkno} onZapisano={poZapisie} />}
+
       {okno === 'start' && l && (
         <DataStartu start={l.start} onClose={() => setOkno(null)} onZapisano={nowa => {
           setOkno(null)
@@ -240,6 +246,18 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
       )}
     </>
   )
+}
+
+/** Okno nad kartą klienta — dialog wybrany przez przycisk karty. */
+function OknoKarty({ o, onClose, onZapisano }: { o: Okno; onClose: () => void; onZapisano: () => void }) {
+  const p = { karta: o.karta, onClose, onZapisano }
+  switch (o.rodzaj) {
+    case 'wplata': return <WplataDialog {...p} ksiega={o.ksiega} dokumentId={o.dokumentId} />
+    case 'faktura': return <FakturaDialog {...p} />
+    case 'otwarcie': return <OtwarcieDialog {...p} ksiega={o.ksiega} />
+    case 'ustawienia': return <UstawieniaKlientaDialog {...p} />
+    case 'druk': return <DrukSaldaDialog {...p} />
+  }
 }
 
 function WierszKontrahenta({ k, zebra, tabIndex, onOtworz, onFocus, onKey }: {
