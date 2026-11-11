@@ -203,6 +203,21 @@ def test_lista_kolejnosc_najstarsza_potem_saldo(db):
     assert [r["id"] for r in lista(dzis=DZIS)["kontrahenci"]] == ["b", "c", "a"]
 
 
+def test_lista_rozliczeni_na_koncu_po_nadplatach(db):
+    _klient("roz")
+    _klient("nad")
+    _klient("dlug")
+    fid = _faktura("roz", "1", date(2026, 11, 9), 100, waluta="PLN")
+    _wplata("roz", "fv", 100, date(2026, 11, 9), dokument_id=fid, waluta="PLN")
+    _otwarcie("nad", "wz", 350)
+    _faktura("dlug", "1", date(2026, 11, 9), 100, waluta="PLN")
+
+    wynik = lista(dzis=DZIS)["kontrahenci"]
+
+    assert [(r["id"], r["stan"]) for r in wynik] == [
+        ("dlug", "w_terminie"), ("nad", "nadplata"), ("roz", "rozliczony")]
+
+
 def test_lista_przypomnienie_z_dziennika(db):
     _klient("p")
     _faktura("p", "1", date(2026, 11, 9), 100, waluta="PLN")
@@ -295,8 +310,29 @@ def test_dokument_w_innej_walucie_nie_wchodzi_do_sald(db):
     assert k["saldo"]["lacznie"] == 0.0
     assert k["dokumenty"]["fv"] == []
     assert k["inna_waluta"] == [{"id": "fv-x-FV/1", "numer": "FV/1", "data": "2026-11-09",
-                                 "kwota": 1000.0, "waluta": "PLN"}]
+                                 "kwota": 1000.0, "waluta": "PLN", "rodzaj": "dokument"}]
     assert lista(dzis=DZIS)["inna_waluta"] == 1
+
+
+def test_wplata_i_otwarcie_w_innej_walucie_nie_wchodza_do_sald(db):
+    _klient("x", waluta="PLN")
+    fid = _faktura("x", "FV/1", date(2026, 11, 9), 1000, waluta="PLN")
+    _wplata("x", "fv", 1000, date(2026, 11, 9), dokument_id=fid, waluta="PLN", wid="wp-x")
+    execute("UPDATE clients SET settlement_currency='EUR' WHERE id='x'")
+
+    k = karta("x", dzis=DZIS)
+
+    assert k["saldo"]["lacznie"] == 0.0
+    assert k["wplaty"] == []
+    assert sorted((r["rodzaj"], r["id"]) for r in k["inna_waluta"]) == [
+        ("dokument", "fv-x-FV/1"), ("wplata", "wp-x")]
+    assert lista(dzis=DZIS)["inna_waluta"] == 2
+
+    _otwarcie("x", "wz", -300, waluta="PLN")
+    k = karta("x", dzis=DZIS)
+    assert k["saldo"]["wz"] == 0.0
+    assert ("otwarcie", "otwarcie-wz") in [(r["rodzaj"], r["id"]) for r in k["inna_waluta"]]
+    assert lista(dzis=DZIS)["inna_waluta"] == 3
 
 
 def test_usuniete_i_anulowane_poza_karta_czeka_na_ceny_osobno(db):

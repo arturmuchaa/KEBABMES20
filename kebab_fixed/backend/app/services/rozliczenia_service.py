@@ -10,8 +10,8 @@ Wejście księgi:
   * saldo otwarcia ujemne — najstarszy dokument „Saldo otwarcia”, dodatnie —
     kredyt z datą startu;
   * wpłaty nieusunięte — kredyty.
-Dokumenty w innej walucie niż kontrahent nie wchodzą do sum — są zgłaszane
-(`inna_waluta`). Niewycenione WZ trafiają na listę „czeka na ceny”.
+Dokumenty, wpłaty i salda otwarcia w innej walucie niż kontrahent nie wchodzą
+do sum — są zgłaszane (`inna_waluta`, z polem `rodzaj`). Niewycenione WZ trafiają na listę „czeka na ceny”.
 
 Na granicy API kwoty to `float` zaokrąglony do 2 miejsc, daty — ISO.
 """
@@ -104,8 +104,20 @@ def _zbuduj(klient: dict, dokumenty: list[dict], wplaty: list[dict], otwarcia: l
             start: date, na_dzien: Optional[date], dzis: date) -> dict:
     """Księgi WZ/FV klienta z wierszy bazy (wspólne dla karty i listy)."""
     waluta = klient["settlement_currency"]
-    inna_waluta = [r for r in dokumenty
-                   if r["stan_zrodla"] == "aktywny" and r["waluta"] != waluta]
+    # Pozycje w innej walucie nie wchodzą do sum, ale nie znikają po cichu.
+    inna_waluta = (
+        [{"id": r["id"], "numer": r["numer"], "data": r["data_dok"], "kwota": r["kwota"],
+          "waluta": r["waluta"], "rodzaj": "dokument"}
+         for r in dokumenty if r["stan_zrodla"] == "aktywny" and r["waluta"] != waluta]
+        + [{"id": w["id"], "numer": "Wpłata", "data": w["data"], "kwota": w["kwota"],
+            "waluta": w["waluta"], "rodzaj": "wplata"}
+           for w in wplaty if w["waluta"] != waluta]
+        + [{"id": f"otwarcie-{o['ksiega']}", "numer": "Saldo otwarcia",
+            "data": o["zalegle_od"] or start, "kwota": o["kwota"], "waluta": o["waluta"],
+            "rodzaj": "otwarcie"}
+           for o in otwarcia if o["waluta"] != waluta])
+    wplaty = [w for w in wplaty if w["waluta"] == waluta]
+    otwarcia = [o for o in otwarcia if o["waluta"] == waluta]
     czeka = [r for r in dokumenty if r["stan_zrodla"] == "czeka_na_ceny"]
     wynik: dict[str, Any] = {"klient": klient, "inna_waluta": inna_waluta,
                              "czeka_na_ceny": czeka}
@@ -230,8 +242,7 @@ def karta(client_id: str, dzis: Optional[date] = None, od: Optional[date] = None
         "wplaty": wplaty,
         "czeka_na_ceny": [{"id": r["id"], "numer": r["numer"], "data": _d(r["data_dok"])}
                           for r in k["czeka_na_ceny"]],
-        "inna_waluta": [{"id": r["id"], "numer": r["numer"], "data": _d(r["data_dok"]),
-                         "kwota": _f(r["kwota"]), "waluta": r["waluta"]}
+        "inna_waluta": [{**r, "data": _d(r["data"]), "kwota": _f(r["kwota"])}
                         for r in k["inna_waluta"]],
         "dziennik": [{"id": r["id"], "tresc": r["tresc"], "przypomnij": _d(r["przypomnij"]),
                       "odhaczono": (r["odhaczono_at"].isoformat() if r["odhaczono_at"] else None),
@@ -312,7 +323,9 @@ def lista(dzis: Optional[date] = None) -> dict:
         suma["nadplaty"] += wz["nadplata"] + fv["nadplata"]
         suma["gotowka_wz"] += sum((d["zostalo"] for d in wz["dokumenty"]
                                    if d["forma"] == "gotowka"), _ZERO)
-    kontrahenci.sort(key=lambda r: (-r["najstarsza_dni"], r["saldo"]))
+    # Rozliczeni zawsze na końcu (spec 8.1), reszta: najdłużej zalegający na górze.
+    kontrahenci.sort(key=lambda r: (r["stan"] == "rozliczony", -r["najstarsza_dni"],
+                                    r["saldo"]))
     return {"start": start.isoformat(),
             "podsumowanie": {w: {p: _f(v) for p, v in s.items()}
                              for w, s in podsumowanie.items()},
