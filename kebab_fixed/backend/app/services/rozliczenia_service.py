@@ -519,7 +519,7 @@ def dodaj_fakture(client_id: str, *, numer: str, data: date, kwota: Any,
         zablokuj_ksiege_wz(conn)
         klient = _klient_cx(conn, client_id)
         termin = (_data(termin, "termin") if termin is not None
-                  else data + timedelta(days=klient["rozl_termin_fv"] or 0))
+                  else data + timedelta(days=klient["rozl_termin_fv"]))
         if termin < data:
             raise HTTPException(400, "Termin płatności nie może być przed datą faktury")
         forma = _forma(forma if forma is not None else klient["rozl_forma_fv"])
@@ -611,7 +611,7 @@ def edytuj_dokument(dokument_id: str, zmiany: dict, kto: str, powod: str = "") -
 
 
 def usun_dokument(dokument_id: str, powod: str, kto: str) -> None:
-    """Miękkie usunięcie ręcznego dokumentu (z powodem). Wpłaty do niego
+    """Miękkie usunięcie dokumentu wpisanego ręcznie (z powodem). Wpłaty do niego
     przypięte nie giną — w rozliczeniu idą na najstarsze otwarte dokumenty."""
     with transaction() as conn:
         zablokuj_ksiege_wz(conn)
@@ -621,6 +621,8 @@ def usun_dokument(dokument_id: str, powod: str, kto: str) -> None:
             raise HTTPException(404, "Dokument nie znaleziony")
         if dok["zrodlo"] == "mes_wz":
             raise HTTPException(400, "WZ anuluje się w dokumentach WZ")
+        if dok["zrodlo"] != "reczna":
+            raise HTTPException(400, "Fakturę z Subiekta poprawia się w Subiekcie")
         if dok["usuniety_at"] is not None:
             raise HTTPException(400, "Dokument jest już usunięty")
         powod = _powod(powod, "Podaj powód usunięcia")

@@ -122,6 +122,27 @@ def test_usun_WZ_z_MES_niedozwolone(rojpak):
     assert e.detail == "WZ anuluje się w dokumentach WZ"
 
 
+def test_usun_dokument_z_subiekta_niedozwolone(db):
+    _klient("k")
+    execute("INSERT INTO rozl_dokumenty (id, client_id, ksiega, zrodlo, numer, data_dok, "
+            " kwota, waluta, termin) VALUES ('s1','k','fv','subiekt','FS/1',%s,100,'PLN',%s)",
+            (DZIS, DZIS))
+
+    e = _blad(usun_dokument, "s1", "bo tak", "biuro")
+
+    assert e.status_code == 400
+    assert e.detail == "Fakturę z Subiekta poprawia się w Subiekcie"
+    assert query_one("SELECT usuniety_at FROM rozl_dokumenty WHERE id='s1'")["usuniety_at"] \
+        is None
+
+
+def test_faktura_termin_zero_dni_z_ustawien_klienta(db):
+    _klient("k")
+    execute("UPDATE clients SET rozl_termin_fv=0 WHERE id='k'")
+
+    assert _fv("k")["termin"] == "2026-11-09"
+
+
 # ── Podgląd i wpłaty ────────────────────────────────────────────────────
 
 def test_podglad_wplaty_ROJPAK(rojpak):
@@ -272,6 +293,22 @@ def test_edycja_faktury_recznej(db):
         {"kwota": 1000.0}, {"kwota": 1050.0}, "błąd w kwocie")
     assert h["uwagi"]["po"] == {"uwagi": "dopisany transport"}
     assert karta("k", dzis=DZIS)["saldo"]["fv"] == -1050.0
+
+
+def test_edycja_daty_faktury_recznej(db):
+    _klient("k")
+    d = _fv("k", data=date(2026, 11, 9), termin=date(2026, 11, 20))
+
+    e = _blad(edytuj_dokument, d["id"], {"data": date(2026, 11, 8)}, "biuro")
+    assert e.status_code == 400
+    assert e.detail == ("Faktura sprzed daty startu rozliczeń (09.11.2026) "
+                        "jest już w saldzie otwarcia")
+    po = edytuj_dokument(d["id"], {"data": date(2026, 11, 12)}, "biuro")
+
+    assert po["data"] == "2026-11-12"
+    h = _historia(d["id"])[-1]
+    assert (h["akcja"], h["przed"], h["po"]) == ("zmiana", {"data": "2026-11-09"},
+                                                 {"data": "2026-11-12"})
 
 
 def test_edycja_numeru_na_istniejacy_odrzucona(db):
