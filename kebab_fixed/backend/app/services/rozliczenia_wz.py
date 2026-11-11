@@ -250,7 +250,11 @@ def _aktualizuj(conn, wz: dict, stary: dict, kartoteka: _Kartoteka) -> Optional[
     nowe = _wylicz(wz, client_id, kartoteka)
     nowe["client_id"] = client_id
     nowe["data_dok"] = data_dok
-    if not stary["termin_reczny"]:
+    # Termin automatyczny liczy się na nowo tylko przy zmianie daty WZ albo
+    # kontrahenta — zmiana domyślnego terminu w ustawieniach klienta nie rusza
+    # istniejących dokumentów.
+    if not stary["termin_reczny"] and (data_dok != stary["data_dok"]
+                                       or client_id != stary["client_id"]):
         nowe["termin"] = kartoteka.termin(client_id, data_dok)
     if stary["client_id"] is None and client_id in kartoteka.po_id:
         # Pierwszy kontrahent: domyślne „gotówka" nie było wyborem biura.

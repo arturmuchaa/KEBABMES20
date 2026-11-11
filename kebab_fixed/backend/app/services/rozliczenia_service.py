@@ -1,4 +1,5 @@
-"""Rozliczenia z odbiorcami — odczyt: karta klienta, lista kontrahentów.
+"""Rozliczenia z odbiorcami — karta klienta, lista kontrahentów i zapisy biura
+(faktury, wpłaty z podglądem, saldo otwarcia, ustawienia, dziennik).
 
 Księgi WZ i FV klienta budowane są z bazy i liczone wyłącznie przez
 `rozliczenia_ksiega.rozlicz_ksiege` (jedno źródło sald dla panelu i wydruków).
@@ -21,17 +22,19 @@ Na granicy API kwoty to `float` zaokrąglony do 2 miejsc, daty — ISO.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Optional
 
 from fastapi import HTTPException
 
-from app.db import query_all, query_one
+from app.db import cx_execute, cx_query_one, execute, query_all, query_one, transaction
 from app.services.rozliczenia_ksiega import (grosze, na_dzien as _na_dzien,
                                              rozlicz_ksiege, stan_dokumentu,
                                              waluta_z_nip)
-from app.services.rozliczenia_wz import data_startu, synchronizuj_wz
+from app.services.rozliczenia_wz import (data_startu, historia, synchronizuj_wz,
+                                         zablokuj_ksiege_wz)
+from app.utils.ids import cuid
 
 KSIEGI = ("wz", "fv")
 _ZERO = Decimal("0.00")
@@ -347,6 +350,16 @@ def lista(dzis: Optional[date] = None) -> dict:
 def dokument(dokument_id: str) -> dict:
     """Dokument z rozliczeniem (`Dok`), wpłatami, które go pokryły,
     i historią zmian (od najstarszej)."""
+    wynik, pokrycie = _dok_z_rozliczeniem(dokument_id)
+    wpisy = query_all(
+        "SELECT akcja, opis, przed, po, powod, kto, kiedy FROM rozl_historia "
+        "WHERE obiekt='dokument' AND obiekt_id=%s ORDER BY kiedy, id", (dokument_id,))
+    return {**wynik, "pokrycie": pokrycie,
+            "historia": [{**h, "kiedy": h["kiedy"].isoformat()} for h in wpisy]}
+
+
+def _dok_z_rozliczeniem(dokument_id: str) -> tuple[dict, list]:
+    """`Dok` (stan z bieżącego rozliczenia księgi) i lista wpłat, które go pokryły."""
     row = query_one("SELECT d.*, c.settlement_currency FROM rozl_dokumenty d "
                     "LEFT JOIN clients c ON c.id = d.client_id WHERE d.id=%s", (dokument_id,))
     if not row:
@@ -368,11 +381,7 @@ def dokument(dokument_id: str) -> dict:
                                  "kwota": _f(p["kwota"]), "uwagi": uwagi})
     if wynik is None:
         wynik = _dok_poza_ksiega(row)
-    historia = query_all(
-        "SELECT akcja, opis, przed, po, powod, kto, kiedy FROM rozl_historia "
-        "WHERE obiekt='dokument' AND obiekt_id=%s ORDER BY kiedy, id", (dokument_id,))
-    return {**wynik, "pokrycie": pokrycie,
-            "historia": [{**h, "kiedy": h["kiedy"].isoformat()} for h in historia]}
+    return wynik, pokrycie
 
 
 def _dok_poza_ksiega(row: dict) -> dict:
@@ -394,3 +403,429 @@ def _dok_poza_ksiega(row: dict) -> dict:
             "zrodlo": row["zrodlo"], "otwarcie": False,
             "stan": {"kod": kod, "dni": 0, "czesciowo": False},
             "zamkniety": None, "brak_vat": bool(row["brak_vat"])}
+
+
+# ═══ Zapisy biura ═══════════════════════════════════════════════════════
+#
+# Każdy zapis i jego wiersze historii idą w jednej transakcji. Zapisy do
+# `rozl_dokumenty` biorą najpierw blokadę księgi WZ — nie mogą ścigać się
+# z synchronizacją. Pieniądze przychodzą jako liczby (parsowanie polskiego
+# tekstu robi warstwa tras) i zamieniane są na `Decimal(str(x))`.
+
+FORMY = ("gotowka", "przelew")
+WALUTY = ("PLN", "EUR")
+_MAX_KWOTA = Decimal("1e12")  # NUMERIC(14,2)
+
+
+def _kwota(x: Any) -> Decimal:
+    """Kwota z liczby: skończona, w groszach, mieszcząca się w NUMERIC(14,2)."""
+    try:
+        d = Decimal(str(x))
+    except (ArithmeticError, ValueError, TypeError):
+        raise HTTPException(400, "Nieprawidłowa kwota")
+    if isinstance(x, bool) or not d.is_finite():
+        raise HTTPException(400, "Nieprawidłowa kwota")
+    d = grosze(d)
+    if abs(d) >= _MAX_KWOTA:
+        raise HTTPException(400, "Kwota jest za duża")
+    return d
+
+
+def _data(x: Any, pole: str) -> date:
+    if isinstance(x, date):
+        return x
+    if isinstance(x, str):
+        try:
+            return date.fromisoformat(x)
+        except ValueError:
+            pass
+    raise HTTPException(400, f"Nieprawidłowa data: {pole}")
+
+
+def _ksiega(ksiega: str) -> str:
+    if ksiega not in KSIEGI:
+        raise HTTPException(400, "Księga musi być WZ albo FV")
+    return ksiega
+
+
+def _forma(forma: Any) -> str:
+    if forma not in FORMY:
+        raise HTTPException(400, "Forma płatności musi być gotówka albo przelew")
+    return forma
+
+
+def _pl(d: date) -> str:
+    return d.strftime("%d.%m.%Y")
+
+
+def _po_starcie(d: date, co: str) -> None:
+    start = data_startu()
+    if d < start:
+        raise HTTPException(400, f"{co} sprzed daty startu rozliczeń ({_pl(start)}) "
+                                 "jest już w saldzie otwarcia")
+
+
+def _json(x: Any) -> Any:
+    """Wartość pola do `przed/po` w historii."""
+    if isinstance(x, Decimal):
+        return float(x)
+    if isinstance(x, date):
+        return x.isoformat()
+    return x
+
+
+def _powod(powod: Optional[str], komunikat: str) -> str:
+    powod = (powod or "").strip()
+    if not powod:
+        raise HTTPException(400, komunikat)
+    return powod
+
+
+def _dok(dokument_id: str) -> dict:
+    return _dok_z_rozliczeniem(dokument_id)[0]
+
+
+def _klient_cx(conn, client_id: str, zablokuj: bool = False) -> dict:
+    row = cx_query_one(conn, _SQL_KLIENT + " WHERE id=%s" + (" FOR UPDATE" if zablokuj else ""),
+                       (client_id,))
+    if not row:
+        raise HTTPException(404, "Kontrahent nie znaleziony")
+    return row
+
+
+def _numer_wolny(conn, client_id: str, numer: str, poza_id: str = "") -> None:
+    if cx_query_one(conn, "SELECT 1 FROM rozl_dokumenty WHERE client_id=%s AND numer=%s "
+                          "AND ksiega='fv' AND usuniety_at IS NULL AND id<>%s",
+                    (client_id, numer, poza_id)):
+        raise HTTPException(400, f"Faktura {numer} jest już wpisana temu kontrahentowi")
+
+
+# ── Faktury i edycja dokumentów ─────────────────────────────────────────
+
+def dodaj_fakture(client_id: str, *, numer: str, data: date, kwota: Any,
+                  termin: Optional[date], forma: Optional[str], uwagi: str,
+                  kto: str) -> dict:
+    """Ręczna faktura w księdze FV (kwota ujemna = korekta). Zwraca `Dok`."""
+    numer = (numer or "").strip()
+    if not numer:
+        raise HTTPException(400, "Podaj numer faktury")
+    data = _data(data, "data faktury")
+    k = _kwota(kwota)
+    if k == 0:
+        raise HTTPException(400, "Kwota faktury nie może być zerowa")
+    _po_starcie(data, "Faktura")
+    dok_id = cuid()
+    with transaction() as conn:
+        zablokuj_ksiege_wz(conn)
+        klient = _klient_cx(conn, client_id)
+        termin = (_data(termin, "termin") if termin is not None
+                  else data + timedelta(days=klient["rozl_termin_fv"] or 0))
+        if termin < data:
+            raise HTTPException(400, "Termin płatności nie może być przed datą faktury")
+        forma = _forma(forma if forma is not None else klient["rozl_forma_fv"])
+        _numer_wolny(conn, client_id, numer)
+        cx_execute(
+            conn,
+            "INSERT INTO rozl_dokumenty (id, client_id, ksiega, zrodlo, numer, data_dok, "
+            " kwota, waluta, termin, forma, uwagi, utworzyl) "
+            "VALUES (%s,%s,'fv','reczna',%s,%s,%s,%s,%s,%s,%s,%s)",
+            (dok_id, client_id, numer, data, k, klient["settlement_currency"], termin, forma,
+             uwagi or "", kto or ""))
+        historia(conn, client_id=client_id, obiekt="dokument", obiekt_id=dok_id,
+                 akcja="dodano", opis=f"dodano fakturę {numer}",
+                 po={"kwota": float(k), "termin": termin.isoformat(), "forma": forma},
+                 kto=kto)
+    return _dok(dok_id)
+
+
+_POLA_KAZDEGO = ("termin", "forma", "uwagi")
+_POLA_RECZNEJ = ("kwota", "numer", "data")
+_KOLUMNA = {"termin": "termin", "forma": "forma", "uwagi": "uwagi", "kwota": "kwota",
+            "numer": "numer", "data": "data_dok"}
+_OPIS_POLA = {"termin": "termin płatności", "forma": "forma płatności", "uwagi": "uwagi",
+              "kwota": "kwota", "numer": "numer", "data": "data dokumentu"}
+
+
+def edytuj_dokument(dokument_id: str, zmiany: dict, kto: str, powod: str = "") -> dict:
+    """Zmiana pól dokumentu. `termin`/`forma`/`uwagi` — każdy dokument (ręczny
+    termin przeżywa synchronizację WZ); `kwota`/`numer`/`data` — tylko ręczne
+    (zmiana kwoty z powodem). Każde zmienione pole → wiersz historii."""
+    nieznane = set(zmiany) - set(_POLA_KAZDEGO) - set(_POLA_RECZNEJ)
+    if nieznane:
+        raise HTTPException(400, f"Nie można zmienić pola: {', '.join(sorted(nieznane))}")
+    with transaction() as conn:
+        zablokuj_ksiege_wz(conn)
+        dok = cx_query_one(conn, "SELECT * FROM rozl_dokumenty WHERE id=%s FOR UPDATE",
+                           (dokument_id,))
+        if not dok:
+            raise HTTPException(404, "Dokument nie znaleziony")
+        if dok["usuniety_at"] is not None:
+            raise HTTPException(400, "Dokument jest usunięty")
+        if dok["zrodlo"] != "reczna" and set(zmiany) & set(_POLA_RECZNEJ):
+            raise HTTPException(400, "Kwotę, numer i datę WZ zmienia się w dokumentach WZ")
+
+        nowe: dict[str, Any] = {}
+        for pole, wartosc in zmiany.items():
+            if pole in ("termin", "data"):
+                wartosc = _data(wartosc, _OPIS_POLA[pole])
+            elif pole == "forma":
+                wartosc = _forma(wartosc)
+            elif pole == "uwagi":
+                wartosc = str(wartosc or "")
+            elif pole == "numer":
+                wartosc = str(wartosc or "").strip()
+                if not wartosc:
+                    raise HTTPException(400, "Podaj numer faktury")
+            elif pole == "kwota":
+                wartosc = _kwota(wartosc)
+                if wartosc == 0:
+                    raise HTTPException(400, "Kwota faktury nie może być zerowa")
+            if wartosc != dok[_KOLUMNA[pole]]:
+                nowe[pole] = wartosc
+        if not nowe:
+            return _dok(dokument_id)
+
+        if "kwota" in nowe:
+            powod = _powod(powod, "Podaj powód zmiany kwoty")
+        if "data" in nowe:
+            _po_starcie(nowe["data"], "Faktura")
+        if "numer" in nowe and dok["ksiega"] == "fv":
+            _numer_wolny(conn, dok["client_id"], nowe["numer"], dokument_id)
+        if nowe.get("termin", dok["termin"]) < nowe.get("data", dok["data_dok"]):
+            raise HTTPException(400, "Termin płatności nie może być przed datą dokumentu")
+
+        ustaw = [f"{_KOLUMNA[p]}=%s" for p in nowe]
+        if "termin" in nowe:
+            ustaw.append("termin_reczny=true")
+        cx_execute(conn, f"UPDATE rozl_dokumenty SET {', '.join(ustaw)} WHERE id=%s",
+                   (*nowe.values(), dokument_id))
+        for pole, wartosc in nowe.items():
+            przed = _json(dok[_KOLUMNA[pole]])
+            po = _json(wartosc)
+            historia(conn, client_id=dok["client_id"], obiekt="dokument",
+                     obiekt_id=dokument_id,
+                     akcja=pole if pole in ("kwota", "termin", "forma", "uwagi") else "zmiana",
+                     opis=f"{dok['numer']}: {_OPIS_POLA[pole]} zmieniona z {przed} na {po}",
+                     przed={pole: przed}, po={pole: po}, powod=powod, kto=kto)
+    return _dok(dokument_id)
+
+
+def usun_dokument(dokument_id: str, powod: str, kto: str) -> None:
+    """Miękkie usunięcie ręcznego dokumentu (z powodem). Wpłaty do niego
+    przypięte nie giną — w rozliczeniu idą na najstarsze otwarte dokumenty."""
+    with transaction() as conn:
+        zablokuj_ksiege_wz(conn)
+        dok = cx_query_one(conn, "SELECT id, client_id, zrodlo, numer, kwota, usuniety_at "
+                                 "FROM rozl_dokumenty WHERE id=%s FOR UPDATE", (dokument_id,))
+        if not dok:
+            raise HTTPException(404, "Dokument nie znaleziony")
+        if dok["zrodlo"] == "mes_wz":
+            raise HTTPException(400, "WZ anuluje się w dokumentach WZ")
+        if dok["usuniety_at"] is not None:
+            raise HTTPException(400, "Dokument jest już usunięty")
+        powod = _powod(powod, "Podaj powód usunięcia")
+        cx_execute(conn, "UPDATE rozl_dokumenty SET usuniety_at=now(), usuniety_przez=%s, "
+                         "powod_usuniecia=%s WHERE id=%s", (kto or "", powod, dokument_id))
+        historia(conn, client_id=dok["client_id"], obiekt="dokument", obiekt_id=dokument_id,
+                 akcja="usunieto", opis=f"usunięto {dok['numer']}",
+                 przed={"kwota": float(dok["kwota"])}, powod=powod, kto=kto)
+
+
+# ── Wpłaty ──────────────────────────────────────────────────────────────
+
+_NOWA_WPLATA = "__nowa_wplata__"
+
+
+def _podglad(client_id: str, ksiega: str, kwota: Decimal, dokument_id: Optional[str],
+             data: date) -> dict:
+    """Co rozliczy wpłata: księga przeliczona z dopisanym hipotetycznym
+    kredytem, porównana dokument po dokumencie ze stanem bieżącym."""
+    teraz = ksiegi_klienta(client_id)[ksiega]
+    if dokument_id is not None and dokument_id not in {d["id"] for d in teraz["dokumenty"]}:
+        raise HTTPException(400, "Wskazany dokument nie należy do tej księgi kontrahenta")
+    po = rozlicz_ksiege(teraz["dokumenty"], teraz["kredyty"] + [
+        {"id": _NOWA_WPLATA, "data": data, "kwota": kwota, "dokument_id": dokument_id}])
+    przed = {d["id"]: d["zostalo"] for d in teraz["dokumenty"]}
+    przydzialy = []
+    for d in po["dokumenty"]:
+        roznica = przed[d["id"]] - d["zostalo"]
+        if roznica > 0:
+            przydzialy.append({"dokument_id": d["id"], "numer": d["numer"],
+                               "kwota": _f(roznica), "zostalo_przed": _f(przed[d["id"]]),
+                               "zostalo_po": _f(d["zostalo"]), "zamyka": d["zostalo"] == 0})
+    # Wskazany dokument pokrywany jest pierwszy — tak też go pokazujemy.
+    przydzialy.sort(key=lambda p: p["dokument_id"] != dokument_id)
+    return {"przydzialy": przydzialy, "nadwyzka": _f(po["nadplata"] - teraz["nadplata"])}
+
+
+def _wplata_dane(client_id: str, ksiega: str, kwota: Any, data: Any) -> tuple[Decimal, date]:
+    _ksiega(ksiega)
+    k = _kwota(kwota)
+    if k <= 0:
+        raise HTTPException(400, "Kwota wpłaty musi być większa od zera")
+    data = _data(data, "data wpłaty")
+    _klient(client_id)
+    _po_starcie(data, "Wpłata")
+    return k, data
+
+
+def podglad_wplaty(client_id: str, *, ksiega: str, kwota: Any,
+                   dokument_id: Optional[str] = None, data: Optional[date] = None) -> dict:
+    """Podgląd rozliczenia wpłaty — bez zapisu."""
+    k, data = _wplata_dane(client_id, ksiega, kwota, data or date.today())
+    synchronizuj_wz()
+    return _podglad(client_id, ksiega, k, dokument_id, data)
+
+
+def dodaj_wplate(client_id: str, *, ksiega: str, forma: str, kwota: Any, data: date,
+                 dokument_id: Optional[str], uwagi: str, kto: str) -> dict:
+    """Wpłata w walucie kontrahenta. Zwraca podgląd rozliczenia i `id`."""
+    k, data = _wplata_dane(client_id, ksiega, kwota, data)
+    _forma(forma)
+    synchronizuj_wz()
+    wynik = _podglad(client_id, ksiega, k, dokument_id, data)
+    wplata_id = cuid()
+    with transaction() as conn:
+        klient = _klient_cx(conn, client_id)
+        cx_execute(
+            conn,
+            "INSERT INTO rozl_wplaty (id, client_id, ksiega, forma, kwota, waluta, data, "
+            " dokument_id, uwagi, utworzyl) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (wplata_id, client_id, ksiega, forma, k, klient["settlement_currency"], data,
+             dokument_id, uwagi or "", kto or ""))
+        historia(conn, client_id=client_id, obiekt="wplata", obiekt_id=wplata_id,
+                 akcja="dodano", opis=f"wpłata {grosze(k)} {klient['settlement_currency']} "
+                                      f"do księgi {ksiega.upper()}",
+                 po={"kwota": float(k), "ksiega": ksiega, "forma": forma,
+                     "data": data.isoformat()}, kto=kto)
+    return {**wynik, "id": wplata_id}
+
+
+def usun_wplate(wplata_id: str, powod: str, kto: str) -> None:
+    """Miękkie usunięcie wpłaty (z powodem); rozliczenie przelicza się od zera."""
+    with transaction() as conn:
+        w = cx_query_one(conn, "SELECT id, client_id, ksiega, kwota, usuniety_at "
+                               "FROM rozl_wplaty WHERE id=%s FOR UPDATE", (wplata_id,))
+        if not w:
+            raise HTTPException(404, "Wpłata nie znaleziona")
+        if w["usuniety_at"] is not None:
+            raise HTTPException(400, "Wpłata jest już usunięta")
+        powod = _powod(powod, "Podaj powód usunięcia")
+        cx_execute(conn, "UPDATE rozl_wplaty SET usuniety_at=now(), usuniety_przez=%s, "
+                         "powod_usuniecia=%s WHERE id=%s", (kto or "", powod, wplata_id))
+        historia(conn, client_id=w["client_id"], obiekt="wplata", obiekt_id=wplata_id,
+                 akcja="usunieto", opis=f"usunięto wpłatę {grosze(w['kwota'])}",
+                 przed={"kwota": float(w["kwota"])}, powod=powod, kto=kto)
+
+
+# ── Saldo otwarcia ──────────────────────────────────────────────────────
+
+def ustaw_otwarcie(client_id: str, ksiega: str, *, kwota: Any, zalegle_od: Optional[date],
+                   uwagi: str, kto: str) -> None:
+    """Saldo otwarcia księgi (minus dług, plus nadpłata) w walucie kontrahenta.
+    Każde zmienione pole → wiersz historii `zmiana`."""
+    _ksiega(ksiega)
+    k = _kwota(kwota)
+    if zalegle_od is not None:
+        zalegle_od = _data(zalegle_od, "zaległe od")
+        start = data_startu()
+        if zalegle_od > start:
+            raise HTTPException(400, "Data „zaległe od” nie może być późniejsza niż data "
+                                     f"startu rozliczeń ({_pl(start)})")
+    with transaction() as conn:
+        klient = _klient_cx(conn, client_id, zablokuj=True)
+        stare = cx_query_one(conn, "SELECT kwota, waluta, zalegle_od, uwagi FROM rozl_otwarcia "
+                                   "WHERE client_id=%s AND ksiega=%s", (client_id, ksiega))
+        przed = stare or {"kwota": _ZERO, "waluta": klient["settlement_currency"],
+                          "zalegle_od": None, "uwagi": ""}
+        nowe = {"kwota": k, "waluta": klient["settlement_currency"], "zalegle_od": zalegle_od,
+                "uwagi": uwagi or ""}
+        rozne = [p for p in nowe if nowe[p] != przed[p]]
+        if stare is not None and not rozne:
+            return
+        cx_execute(
+            conn,
+            "INSERT INTO rozl_otwarcia (client_id, ksiega, kwota, waluta, zalegle_od, uwagi, "
+            " zmieniono, zmienil) VALUES (%s,%s,%s,%s,%s,%s,now(),%s) "
+            "ON CONFLICT (client_id, ksiega) DO UPDATE SET kwota=EXCLUDED.kwota, "
+            " waluta=EXCLUDED.waluta, zalegle_od=EXCLUDED.zalegle_od, uwagi=EXCLUDED.uwagi, "
+            " zmieniono=now(), zmienil=EXCLUDED.zmienil",
+            (client_id, ksiega, k, nowe["waluta"], zalegle_od, nowe["uwagi"], kto or ""))
+        for pole in rozne:
+            historia(conn, client_id=client_id, obiekt="otwarcie",
+                     obiekt_id=f"otwarcie-{ksiega}", akcja="zmiana",
+                     opis=f"saldo otwarcia {ksiega.upper()}: {pole} "
+                          f"z {_json(przed[pole])} na {_json(nowe[pole])}",
+                     przed={pole: _json(przed[pole])}, po={pole: _json(nowe[pole])}, kto=kto)
+
+
+# ── Ustawienia kontrahenta ──────────────────────────────────────────────
+
+_POLA_KLIENTA = {"waluta": "settlement_currency", "termin_wz": "rozl_termin_wz",
+                 "termin_fv": "rozl_termin_fv", "forma_wz": "rozl_forma_wz",
+                 "forma_fv": "rozl_forma_fv", "notatka": "rozl_notatka"}
+
+
+def ustaw_klienta(client_id: str, zmiany: dict, kto: str) -> None:
+    """Waluta, domyślne terminy i formy płatności, stała notatka. Nowe
+    ustawienia dotyczą dokumentów dodanych później — istniejących nie rusza."""
+    nieznane = set(zmiany) - set(_POLA_KLIENTA)
+    if nieznane:
+        raise HTTPException(400, f"Nie można zmienić pola: {', '.join(sorted(nieznane))}")
+    nowe: dict[str, Any] = {}
+    for pole, wartosc in zmiany.items():
+        if pole == "waluta":
+            if wartosc not in WALUTY:
+                raise HTTPException(400, "Waluta rozliczeń musi być PLN albo EUR")
+        elif pole in ("termin_wz", "termin_fv"):
+            if isinstance(wartosc, bool) or not isinstance(wartosc, (int, float)) \
+                    or wartosc != int(wartosc) or not 0 <= wartosc <= 365:
+                raise HTTPException(400, "Termin płatności to liczba dni od 0 do 365")
+            wartosc = int(wartosc)
+        elif pole in ("forma_wz", "forma_fv"):
+            _forma(wartosc)
+        else:
+            wartosc = str(wartosc or "")
+        nowe[pole] = wartosc
+    with transaction() as conn:
+        klient = _klient_cx(conn, client_id, zablokuj=True)
+        rozne = {p: v for p, v in nowe.items() if klient[_POLA_KLIENTA[p]] != v}
+        if not rozne:
+            return
+        cx_execute(conn, "UPDATE clients SET "
+                         + ", ".join(f"{_POLA_KLIENTA[p]}=%s" for p in rozne)
+                         + " WHERE id=%s", (*rozne.values(), client_id))
+        for pole, wartosc in rozne.items():
+            przed = klient[_POLA_KLIENTA[pole]]
+            historia(conn, client_id=client_id, obiekt="klient", obiekt_id=client_id,
+                     akcja="zmiana", opis=f"{pole} zmienione z {przed} na {wartosc}",
+                     przed={pole: przed}, po={pole: wartosc}, kto=kto)
+
+
+# ── Dziennik ustaleń ────────────────────────────────────────────────────
+
+def dodaj_wpis_dziennika(client_id: str, tresc: str, przypomnij: Optional[date],
+                         kto: str) -> dict:
+    """Wpis w dzienniku ustaleń; z datą przypomnienia klient jest wyróżniony
+    na liście od tego dnia, dopóki wpis nie zostanie odhaczony."""
+    tresc = (tresc or "").strip()
+    if not tresc:
+        raise HTTPException(400, "Wpisz treść ustalenia")
+    if przypomnij is not None:
+        przypomnij = _data(przypomnij, "przypomnij")
+    _klient(client_id)
+    wpis_id = cuid()
+    execute("INSERT INTO rozl_dziennik (id, client_id, tresc, przypomnij, kto) "
+            "VALUES (%s,%s,%s,%s,%s)", (wpis_id, client_id, tresc, przypomnij, kto or ""))
+    r = query_one("SELECT id, tresc, przypomnij, odhaczono_at, kto, kiedy FROM rozl_dziennik "
+                  "WHERE id=%s", (wpis_id,))
+    return {"id": r["id"], "tresc": r["tresc"], "przypomnij": _d(r["przypomnij"]),
+            "odhaczono": None, "kto": r["kto"], "kiedy": r["kiedy"].isoformat()}
+
+
+def odhacz_wpis(wpis_id: str, kto: str) -> None:
+    """Odhacza przypomnienie (ponowne odhaczenie nic nie zmienia)."""
+    if not query_one("SELECT 1 FROM rozl_dziennik WHERE id=%s", (wpis_id,)):
+        raise HTTPException(404, "Wpis nie znaleziony")
+    execute("UPDATE rozl_dziennik SET odhaczono_at=now() "
+            "WHERE id=%s AND odhaczono_at IS NULL", (wpis_id,))
