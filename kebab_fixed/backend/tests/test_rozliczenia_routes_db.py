@@ -98,3 +98,11 @@ def test_pdf_historii(db, przywroc_start, pdf_stub):
 
     assert "/office/rozliczenia/c1/historia/druk?pdf=1&od=2026-11-01&do=2026-11-10" in pdf_stub[0]
     assert "ROZLICZENIA_YALCIN_" in r.headers["content-disposition"]
+
+
+def test_kwota_waski_nbsp_i_nieskonczone():
+    assert route._kwota("15\u202f000,50") == 15000.50
+    for zla in ("nan", "inf", "-inf", float("nan"), float("inf")):
+        with pytest.raises(HTTPException) as e:
+            route._kwota(zla)
+        assert e.value.status_code == 400 and e.value.detail == "Nieprawidłowa kwota"

@@ -5,6 +5,7 @@ serwisom `rozliczenia_service` / `rozliczenia_wz`. Walidację merytoryczną
 (księgi, powody, daty startu) robią serwisy.
 """
 from datetime import date
+import math
 from typing import Any, Dict, Optional
 from urllib.parse import quote
 
@@ -43,13 +44,17 @@ def _kwota(wartosc: Any) -> Any:
     if isinstance(wartosc, bool):
         raise HTTPException(400, "Nieprawidłowa kwota")
     if isinstance(wartosc, (int, float)):
+        if not math.isfinite(wartosc):
+            raise HTTPException(400, "Nieprawidłowa kwota")
         return wartosc
     if isinstance(wartosc, str):
-        txt = wartosc.replace(" ", "").replace(" ", "").replace(",", ".")
+        txt = wartosc.translate({ord(c): None for c in " \u00a0\u202f"}).replace(",", ".")
         if not txt:
             return None
         try:
-            return float(txt)
+            liczba = float(txt)
+            if math.isfinite(liczba):
+                return liczba
         except ValueError:
             pass
     raise HTTPException(400, "Nieprawidłowa kwota")
