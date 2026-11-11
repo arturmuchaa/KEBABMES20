@@ -70,6 +70,13 @@ def test_historia_okresu_ROJPAK(rojpak):
     assert [(w["opis"], w["rodzaj"], w["obciazenie"], w["saldo"]) for w in h["fv"]["wiersze"]] == [
         ("541", "dokument", 12342.20, -19622.20), ("553", "dokument", 10416.00, -30038.20)]
     assert h["fv"]["saldo_koniec"] == -30038.20
+    # Po terminie liczone na koniec okresu (09.11): FV 541 ma termin 10.11.
+    assert [(w["opis"], w["dni_po_terminie"]) for w in h["fv"]["wiersze"]] == [
+        ("541", 0), ("553", 0)]
+    wz = {w["opis"]: w["dni_po_terminie"] for w in h["wz"]["wiersze"] if w["rodzaj"] == "dokument"}
+    assert wz["WZ 02/11"] == 6
+    assert wz["WZ 05/11"] == 0  # zapłacona w całości
+    assert all(w["dni_po_terminie"] == 0 for w in h["wz"]["wiersze"] if w["rodzaj"] == "wplata")
     assert h["saldo_koniec"] == -38447.70
     assert h["saldo_poczatek"] == h["wz"]["saldo_poczatek"] + h["fv"]["saldo_poczatek"]
     assert h["saldo_koniec"] == karta(rojpak["cid"], dzis=DZIS)["saldo"]["lacznie"]

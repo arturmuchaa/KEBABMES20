@@ -45,6 +45,8 @@ export interface WierszHistorii {
   obciazenie: number
   wplata: number
   saldo: number
+  /** Dni po terminie na koniec okresu (dokument z niezapłaconą resztą); 0 dla wpłat. */
+  dni_po_terminie: number
 }
 
 export interface KsiegaHistorii { saldo_poczatek: number; wiersze: WierszHistorii[]; saldo_koniec: number }

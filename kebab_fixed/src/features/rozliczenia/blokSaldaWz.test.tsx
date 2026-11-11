@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { render, screen, cleanup, waitFor, act } from '@testing-library/react'
 
 const stan = vi.hoisted(() => ({ padnij: false, wzId: '' }))
 vi.mock('@/lib/api', () => ({
@@ -39,6 +39,8 @@ describe('BlokSaldaWz', () => {
     stan.padnij = true
     const { container } = render(<BlokSaldaWz wzId="wm1" />)
     await waitFor(() => expect(stan.wzId).toBe('wm1'))
+    // Odrzucenie obietnicy musi się rozstrzygnąć, zanim sprawdzimy pustkę.
+    await act(async () => { await Promise.resolve() })
     expect(container.querySelector('[data-testid="blok-salda"]')).toBeNull()
   })
 })

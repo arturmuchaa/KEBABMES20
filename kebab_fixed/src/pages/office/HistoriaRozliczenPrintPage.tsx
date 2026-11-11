@@ -4,6 +4,9 @@
  * w kolejności dat z saldem narastającym, saldo na koniec — osobno WZ
  * i faktury, na końcu saldo łączne.
  *
+ * Dokument z niezapłaconą resztą po terminie (stan na koniec okresu) jest
+ * czerwony, a liczba dni pogrubiona — czytelne też na drukarce czarno-białej.
+ *
  * Saldo otwarcia przychodzi jako wiersz „Saldo otwarcia”: dług w kolumnie
  * Obciążenie, nadpłata w kolumnie Wpłata.
  *
@@ -19,6 +22,7 @@ import { CSS_DRUKU, NaglowekDruku, STYL_STRONY } from '@/features/rozliczenia/Na
 import { dataPl, kwota, type HistoriaOkresu, type KsiegaHistorii } from '@/features/rozliczenia/druk'
 
 const RAMKA = '1px solid #9a9a9a'
+const CZERWONY = '#b00020'
 const S = {
   table: { width: '100%', borderCollapse: 'collapse', fontSize: 10, marginBottom: 10 } as CSSProperties,
   th: { border: RAMKA, background: '#d7d7d7', padding: '3px 5px', fontWeight: 700,
@@ -27,7 +31,7 @@ const S = {
   sum: { border: RAMKA, background: '#efefef', padding: '3px 5px', fontWeight: 700 } as CSSProperties,
 }
 const liczbowa: CSSProperties = { textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }
-const KOLUMNY = ['Data', 'Opis', 'Obciążenie', 'Wpłata', 'Saldo']
+const KOLUMNY = ['Data', 'Opis', 'Obciążenie', 'Wpłata', 'Saldo', 'Dni po terminie']
 
 function pusta(k: KsiegaHistorii): boolean {
   return k.wiersze.length === 0 && k.saldo_poczatek === 0 && k.saldo_koniec === 0
@@ -43,7 +47,8 @@ function Ksiega({ k, tytul, waluta, od, do_ }: {
       <table style={S.table}>
         <colgroup>
           <col style={{ width: '22mm' }} /><col />
-          <col style={{ width: '30mm' }} /><col style={{ width: '30mm' }} /><col style={{ width: '32mm' }} />
+          <col style={{ width: '27mm' }} /><col style={{ width: '27mm' }} /><col style={{ width: '29mm' }} />
+          <col style={{ width: '16mm' }} />
         </colgroup>
         <thead>
           <tr>
@@ -57,23 +62,32 @@ function Ksiega({ k, tytul, waluta, od, do_ }: {
             <td style={S.sum}>{dataPl(od)}</td>
             <td style={S.sum} colSpan={3}>Saldo na początek okresu</td>
             <td style={{ ...S.sum, ...liczbowa }}>{kwota(k.saldo_poczatek, waluta)}</td>
+            <td style={S.sum} />
           </tr>
-          {k.wiersze.map((w, i) => (
-            <tr key={i} data-rodzaj={w.rodzaj}>
-              <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{dataPl(w.data)}</td>
-              <td style={S.td}>{w.opis}</td>
-              <td style={{ ...S.td, ...liczbowa }}>{kw(w.obciazenie)}</td>
-              <td style={{ ...S.td, ...liczbowa }}>{kw(w.wplata)}</td>
-              <td style={{ ...S.td, ...liczbowa }}>{kwota(w.saldo, waluta)}</td>
-            </tr>
-          ))}
+          {k.wiersze.map((w, i) => {
+            const po = w.dni_po_terminie > 0
+            return (
+              <tr key={i} data-rodzaj={w.rodzaj} data-po-terminie={po ? '1' : undefined}
+                  style={po ? { color: CZERWONY } : undefined}>
+                <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{dataPl(w.data)}</td>
+                <td style={S.td}>{w.opis}</td>
+                <td style={{ ...S.td, ...liczbowa }}>{kw(w.obciazenie)}</td>
+                <td style={{ ...S.td, ...liczbowa }}>{kw(w.wplata)}</td>
+                <td style={{ ...S.td, ...liczbowa }}>{kwota(w.saldo, waluta)}</td>
+                <td style={{ ...S.td, ...liczbowa, fontWeight: po ? 700 : undefined }}>
+                  {po ? w.dni_po_terminie : '–'}
+                </td>
+              </tr>
+            )
+          })}
           {k.wiersze.length === 0 && (
-            <tr><td style={S.td} colSpan={5}>Brak dokumentów i wpłat w tym okresie.</td></tr>
+            <tr><td style={S.td} colSpan={6}>Brak dokumentów i wpłat w tym okresie.</td></tr>
           )}
           <tr>
             <td style={S.sum}>{dataPl(do_)}</td>
             <td style={S.sum} colSpan={3}>Saldo na koniec okresu</td>
             <td style={{ ...S.sum, ...liczbowa }}>{kwota(k.saldo_koniec, waluta)}</td>
+            <td style={S.sum} />
           </tr>
         </tbody>
       </table>

@@ -28,14 +28,16 @@ vi.mock('@/lib/api', () => ({
       return Promise.resolve({
         klient: { nazwa: 'ROJPAK', nip: '', adres: '' }, waluta: 'PLN',
         od: '2026-11-01', do: '2026-11-30',
-        wz: { saldo_poczatek: 0, saldo_koniec: 1450, wiersze: [
+        wz: { saldo_poczatek: 0, saldo_koniec: -1550, wiersze: [
           { data: '2026-11-09', rodzaj: 'dokument', opis: 'Saldo otwarcia', obciazenie: 0,
-            wplata: 2000, saldo: 2000 },
+            wplata: 2000, saldo: 2000, dni_po_terminie: 0 },
           { data: '2026-11-10', rodzaj: 'dokument', opis: 'WZ 7/11', obciazenie: 550,
-            wplata: 0, saldo: 1450 },
+            wplata: 0, saldo: 1450, dni_po_terminie: 0 },
+          { data: '2026-11-12', rodzaj: 'dokument', opis: 'WZ 9/11', obciazenie: 3000,
+            wplata: 0, saldo: -1550, dni_po_terminie: 18 },
         ] },
         fv: { saldo_poczatek: 0, saldo_koniec: 0, wiersze: [] },
-        saldo_poczatek: 0, saldo_koniec: 1450,
+        saldo_poczatek: 0, saldo_koniec: -1550,
       })
     },
   },
@@ -77,10 +79,20 @@ describe('Historia rozliczeń — kartka', () => {
     expect(stan.wywolania).toEqual([['historia', 'c1', '2026-11-01', '2026-11-30']])
     const otwarcie = screen.getByText('Saldo otwarcia').closest('tr')!
     const komorki = Array.from(otwarcie.querySelectorAll('td')).map(td => td.textContent)
-    expect(komorki).toEqual(['09.11.2026', 'Saldo otwarcia', '', '2 000,00 zł', '2 000,00 zł'])
+    expect(komorki).toEqual(['09.11.2026', 'Saldo otwarcia', '', '2 000,00 zł', '2 000,00 zł', '–'])
     expect(screen.getByText('Saldo na początek okresu')).toBeTruthy()
     expect(screen.getByText('Saldo na koniec okresu')).toBeTruthy()
-    expect(container.textContent).toContain('Saldo łącznie: 1 450,00 zł')
+    expect(container.textContent).toContain('Saldo łącznie: \u22121 550,00 zł')
+    // Po terminie na koniec okresu: tylko WZ 9/11 — na czerwono, dni pogrubione.
+    const po = container.querySelectorAll('tr[data-po-terminie="1"]')
+    expect(po).toHaveLength(1)
+    const wiersz = po[0] as HTMLElement
+    expect(wiersz.textContent).toContain('WZ 9/11')
+    expect(wiersz.style.color).toBe('rgb(176, 0, 32)')
+    const dni = wiersz.lastElementChild as HTMLElement
+    expect(dni.textContent).toBe('18')
+    expect(dni.style.fontWeight).toBe('700')
+    expect(screen.getByText('Dni po terminie')).toBeTruthy()
     // Księga faktur bez ruchu i z zerem nie zaśmieca kartki.
     expect(screen.queryByText('Faktury')).toBeNull()
   })

@@ -911,9 +911,13 @@ def _wiersze_ksiegi(k: dict, poczatek: Decimal, od: date, do: date) -> dict:
     wiersze: list[dict] = []
     for d in k["dokumenty"]:
         if od <= d["data"] <= do:
+            # Księga `k` jest policzona na dzień `do` — `zostalo` to reszta
+            # niezapłacona na koniec okresu; tylko wtedy dokument jest po terminie.
+            dni = max(0, (do - d["termin"]).days) if d["zostalo"] > 0 else 0
             wiersze.append({"_k": (d["data"], 0, str(d["numer"]), str(d["id"])),
                             "data": d["data"], "rodzaj": "dokument", "opis": d["numer"],
-                            "obciazenie": d["kwota"], "wplata": _ZERO})
+                            "obciazenie": d["kwota"], "wplata": _ZERO,
+                            "dni_po_terminie": dni})
     for kr in k["kredyty"]:
         if not od <= kr["data"] <= do:
             continue
@@ -928,14 +932,14 @@ def _wiersze_ksiegi(k: dict, poczatek: Decimal, od: date, do: date) -> dict:
             opis, rodzaj = "Saldo otwarcia", "dokument"
         wiersze.append({"_k": (kr["data"], 1, "", str(kr["id"])), "data": kr["data"],
                         "rodzaj": rodzaj, "opis": opis, "obciazenie": _ZERO,
-                        "wplata": kr["kwota"]})
+                        "wplata": kr["kwota"], "dni_po_terminie": 0})
     wiersze.sort(key=lambda w: w["_k"])
     saldo, wynik = poczatek, []
     for w in wiersze:
         saldo += w["wplata"] - w["obciazenie"]
         wynik.append({"data": _d(w["data"]), "rodzaj": w["rodzaj"], "opis": w["opis"],
                       "obciazenie": _f(w["obciazenie"]), "wplata": _f(w["wplata"]),
-                      "saldo": _f(saldo)})
+                      "saldo": _f(saldo), "dni_po_terminie": w["dni_po_terminie"]})
     return {"saldo_poczatek": _f(poczatek), "wiersze": wynik, "saldo_koniec": _f(k["saldo"])}
 
 
