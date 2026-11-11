@@ -22,7 +22,7 @@ Na granicy API kwoty to `float` zaokrąglony do 2 miejsc, daty — ISO.
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -831,3 +831,127 @@ def odhacz_wpis(wpis_id: str, kto: str) -> None:
         raise HTTPException(404, "Wpis nie znaleziony")
     execute("UPDATE rozl_dziennik SET odhaczono_at=now() "
             "WHERE id=%s AND odhaczono_at IS NULL", (wpis_id,))
+
+
+# ── Wydruki: zestawienie na dzień i historia za okres ───────────────────
+
+def _adres_klienta(client_id: str) -> str:
+    """Adres z istniejących kolumn clients (brakujące pomijamy)."""
+    kolumny = {r["column_name"] for r in query_all(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema = current_schema() AND table_name='clients' "
+        "  AND column_name IN ('address','postal_code','city')")}
+    wybrane = [c for c in ("address", "postal_code", "city") if c in kolumny]
+    if not wybrane:
+        return ""
+    row = query_one(f"SELECT {', '.join(wybrane)} FROM clients WHERE id=%s", (client_id,)) or {}
+    ulica = (row.get("address") or "").strip()
+    miasto = " ".join(x for x in ((row.get("postal_code") or "").strip(),
+                                  (row.get("city") or "").strip()) if x)
+    return ", ".join(x for x in (ulica, miasto) if x)
+
+
+def _klient_wydruku(klient: dict) -> dict:
+    return {"nazwa": _nazwa(klient), "nip": klient["nip"] or "",
+            "adres": _adres_klienta(klient["id"])}
+
+
+def zestawienie(client_id: str, na_dzien: Optional[date] = None,
+                wz_id: Optional[str] = None) -> dict:
+    """Dokumenty niezapłacone klienta wg stanu na dzień (domyślnie dziś).
+
+    `wz_id` (id z wz_documents) oznacza pozycję powstałą z drukowanej WZ.
+    """
+    synchronizuj_wz()
+    dzien = na_dzien or date.today()
+    k = ksiegi_klienta(client_id, na_dzien=dzien, dzis=dzien)
+    ten_id = None
+    if wz_id:
+        r = query_one("SELECT id FROM rozl_dokumenty WHERE zrodlo='mes_wz' AND source_id=%s",
+                      (wz_id,))
+        ten_id = r["id"] if r else None
+    wynik: dict[str, Any] = {
+        "klient": _klient_wydruku(k["klient"]), "waluta": k["klient"]["settlement_currency"],
+        "na_dzien": dzien.isoformat(), "policzono": datetime.now().isoformat(timespec="seconds")}
+    po_terminie = _ZERO
+    for ks in KSIEGI:
+        pozycje, razem = [], _ZERO
+        for d in k[ks]["dokumenty"]:
+            if d["zostalo"] <= 0:
+                continue
+            dni = max(0, (dzien - d["termin"]).days)
+            if dni > 0:
+                po_terminie += d["zostalo"]
+            razem += d["zostalo"]
+            pozycje.append({"numer": d["numer"], "data": _d(d["data"]), "termin": _d(d["termin"]),
+                            "kwota": _f(d["kwota"]), "zaplacono": _f(d["zaplacono"]),
+                            "pozostalo": _f(d["zostalo"]), "dni_po_terminie": dni,
+                            "ten_dokument": ten_id is not None and d["id"] == ten_id})
+        wynik[ks] = {"pozycje": pozycje, "razem": _f(razem)}
+    wynik["razem"] = _f(k["wz"]["do_zaplaty"] + k["fv"]["do_zaplaty"])
+    wynik["po_terminie"] = _f(po_terminie)
+    wynik["nadplata_wz"] = _f(k["wz"]["nadplata"])
+    wynik["nadplata_fv"] = _f(k["fv"]["nadplata"])
+    return wynik
+
+
+def zestawienie_dla_wz(wz_id: str) -> Optional[dict]:
+    """Zestawienie na dziś dla drukowanej WZ; None dla WM, WZ bez kontrahenta
+    albo sprzed daty startu (brak dokumentu w księdze)."""
+    synchronizuj_wz()
+    row = query_one(
+        "SELECT client_id, data_dok FROM rozl_dokumenty "
+        "WHERE zrodlo='mes_wz' AND source_id=%s AND usuniety_at IS NULL", (wz_id,))
+    if not row or not row["client_id"] or row["data_dok"] < data_startu():
+        return None
+    return zestawienie(row["client_id"], wz_id=wz_id)
+
+
+def _wiersze_ksiegi(k: dict, poczatek: Decimal, od: date, do: date) -> dict:
+    wiersze: list[dict] = []
+    for d in k["dokumenty"]:
+        if od <= d["data"] <= do:
+            wiersze.append({"_k": (d["data"], 0, str(d["numer"]), str(d["id"])),
+                            "data": d["data"], "rodzaj": "dokument", "opis": d["numer"],
+                            "obciazenie": d["kwota"], "wplata": _ZERO})
+    for kr in k["kredyty"]:
+        if not od <= kr["data"] <= do:
+            continue
+        if kr["rodzaj"] == "wplata":
+            opis = "Wpłata gotówką" if kr["forma"] == "gotowka" else "Wpłata przelewem"
+            if kr["uwagi"]:
+                opis += f" — {kr['uwagi']}"
+            rodzaj = "wplata"
+        elif kr["rodzaj"] == "korekta":
+            opis, rodzaj = f"Korekta {kr['numer']}", "korekta"
+        else:
+            opis, rodzaj = "Saldo otwarcia", "dokument"
+        wiersze.append({"_k": (kr["data"], 1, "", str(kr["id"])), "data": kr["data"],
+                        "rodzaj": rodzaj, "opis": opis, "obciazenie": _ZERO,
+                        "wplata": kr["kwota"]})
+    wiersze.sort(key=lambda w: w["_k"])
+    saldo, wynik = poczatek, []
+    for w in wiersze:
+        saldo += w["wplata"] - w["obciazenie"]
+        wynik.append({"data": _d(w["data"]), "rodzaj": w["rodzaj"], "opis": w["opis"],
+                      "obciazenie": _f(w["obciazenie"]), "wplata": _f(w["wplata"]),
+                      "saldo": _f(saldo)})
+    return {"saldo_poczatek": _f(poczatek), "wiersze": wynik, "saldo_koniec": _f(k["saldo"])}
+
+
+def historia_okresu(client_id: str, od: date, do: date) -> dict:
+    """Wyciąg rozliczeń za okres: saldo początkowe, dokumenty i wpłaty w
+    kolejności dat z saldem narastającym, saldo końcowe — osobno WZ i FV."""
+    if do < od:
+        raise HTTPException(400, "Data „do” jest wcześniejsza niż „od”")
+    synchronizuj_wz()
+    przed = ksiegi_klienta(client_id, na_dzien=od - timedelta(days=1), dzis=od)
+    po = ksiegi_klienta(client_id, na_dzien=do, dzis=do)
+    wynik: dict[str, Any] = {"klient": _klient_wydruku(po["klient"]),
+                             "waluta": po["klient"]["settlement_currency"],
+                             "od": od.isoformat(), "do": do.isoformat()}
+    for ks in KSIEGI:
+        wynik[ks] = _wiersze_ksiegi(po[ks], przed[ks]["saldo"], od, do)
+    wynik["saldo_poczatek"] = _f(przed["wz"]["saldo"] + przed["fv"]["saldo"])
+    wynik["saldo_koniec"] = _f(po["wz"]["saldo"] + po["fv"]["saldo"])
+    return wynik
