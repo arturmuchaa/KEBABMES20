@@ -95,7 +95,8 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
   // (saldo, przypomnienia), okno samo oddaje fokus przyciskowi, z którego je otwarto.
   const otworzOkno = useCallback((o: Okno) => setOknoKarty(o), [])
   const zamknijOkno = useCallback(() => setOknoKarty(null), [])
-  const poZapisie = useCallback(() => { setOknoKarty(null); setWersjaKarty(v => v + 1); odswiez() }, [odswiez])
+  const odswiezKarte = useCallback(() => { setWersjaKarty(v => v + 1); odswiez() }, [odswiez])
+  const poZapisie = useCallback(() => { setOknoKarty(null); odswiezKarte() }, [odswiezKarte])
   // Po powrocie z karty kursor wraca na wiersz klienta — Enter otwiera następnego bez szukania.
   useEffect(() => {
     if (wybrany || !doFokusu.current) return
@@ -235,7 +236,7 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
         </div>
       </div>
 
-      {oknoKarty && <OknoKarty o={oknoKarty} onClose={zamknijOkno} onZapisano={poZapisie} />}
+      {oknoKarty && <OknoKarty o={oknoKarty} onClose={zamknijOkno} onZapisano={poZapisie} onOdswiez={odswiezKarte} />}
 
       {okno === 'start' && l && (
         <DataStartu start={l.start} onClose={() => setOkno(null)} onZapisano={nowa => {
@@ -249,12 +250,12 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
 }
 
 /** Okno nad kartą klienta — dialog wybrany przez przycisk karty. */
-function OknoKarty({ o, onClose, onZapisano }: { o: Okno; onClose: () => void; onZapisano: () => void }) {
+function OknoKarty({ o, onClose, onZapisano, onOdswiez }: { o: Okno; onClose: () => void; onZapisano: () => void; onOdswiez: () => void }) {
   const p = { karta: o.karta, onClose, onZapisano }
   switch (o.rodzaj) {
     case 'wplata': return <WplataDialog {...p} ksiega={o.ksiega} dokumentId={o.dokumentId} />
     case 'faktura': return <FakturaDialog {...p} />
-    case 'otwarcie': return <OtwarcieDialog {...p} ksiega={o.ksiega} />
+    case 'otwarcie': return <OtwarcieDialog {...p} ksiega={o.ksiega} onOdswiez={onOdswiez} />
     case 'ustawienia': return <UstawieniaKlientaDialog {...p} />
     case 'druk': return <DrukSaldaDialog {...p} />
   }

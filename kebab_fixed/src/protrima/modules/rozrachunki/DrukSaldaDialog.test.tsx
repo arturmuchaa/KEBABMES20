@@ -28,8 +28,9 @@ describe('Rozrachunki — drukuj saldo', () => {
     ;(app.toast as ReturnType<typeof vi.fn>).mockClear()
   })
 
-  it('domyślnie zestawienie na dziś → „Podgląd / drukuj” otwiera PDF zestawienia', async () => {
+  it('domyślnie zestawienie na dziś → „Podgląd / drukuj” (z fokusem) otwiera PDF; okno zostaje na „Zapisz PDF”', async () => {
     mount()
+    expect(document.activeElement).toBe(przycisk('Podgląd / drukuj'))
     expect(przycisk('Zestawienie należności na dzień').getAttribute('aria-pressed')).toBe('true')
     expect((screen.getByLabelText('Na dzień') as HTMLInputElement).value).toBe('2026-11-09')
     fireEvent.click(przycisk('Podgląd / drukuj'))
@@ -37,6 +38,11 @@ describe('Rozrachunki — drukuj saldo', () => {
     const [url, nazwa] = dok.openDocument.mock.calls[0]
     expect(url).toMatch(/\/rozliczenia\/klient\/c1\/zestawienie\/pdf\?na_dzien=2026-11-09$/)
     expect(nazwa).toBe('Saldo ROJPAK 2026-11-09.pdf')
+    await waitFor(() => expect(app.toast).toHaveBeenCalled())
+    expect(onClose).not.toHaveBeenCalled()
+    await waitFor(() => expect(przycisk('Zapisz PDF').disabled).toBe(false))
+    fireEvent.click(przycisk('Zapisz PDF'))
+    await waitFor(() => expect(dok.downloadDocPdf).toHaveBeenCalledWith(url, nazwa))
     await waitFor(() => expect(onClose).toHaveBeenCalled())
   })
 

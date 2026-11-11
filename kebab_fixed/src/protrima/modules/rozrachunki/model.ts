@@ -211,7 +211,8 @@ export type Ton = 'late' | 'soon' | 'ok' | 'zero'
 /** Klasa znacznika powłoki (`.tag`) dla tonu: po terminie — czerwień, termin blisko — ostrzeżenie. */
 export const KLASA_TONU: Record<Ton, string> = { late: 'crit', soon: 'warn', ok: 'ok', zero: 'neutral' }
 
-const dni = (x: number) => (x === 1 ? '1 dzień' : `${x} dni`)
+/** Liczba dni słowem: `1 dzień`, `7 dni`. */
+export const dni = (x: number) => (x === 1 ? '1 dzień' : `${x} dni`)
 /** Tyle dni do terminu i mniej — termin „blisko” (ostrzeżenie zamiast spokojnego „w terminie”). */
 const BLISKO = 3
 
@@ -382,6 +383,18 @@ export function rozliczyla(w: Wplata): string {
 }
 
 export const FORMA_SLOWEM: Record<string, string> = { gotowka: 'gotówka', przelew: 'przelew' }
+
+/** Formy płatności do przełącznika w oknach. */
+export const FORMY = [['gotowka', 'Gotówka'], ['przelew', 'Przelew']] as const
+
+/** Forma z ustawień klienta, a gdy pusta lub nieznana — domyślna księgi (WZ gotówka, faktury przelew). */
+export const formaDomyslna = (f: string, ks: Ksiega): Forma => (f === 'gotowka' || f === 'przelew' ? f : ks === 'wz' ? 'gotowka' : 'przelew')
+
+/** Zaokrąglenie do groszy/centów jak `ROUND_HALF_UP` na serwerze (1,005 → 1,01; −1,005 → −1,01). */
+export function doGroszy(x: number): number {
+  const r = Math.sign(x) * Math.round(Number(Math.abs(x * 100).toPrecision(12))) / 100
+  return r || 0
+}
 
 /** Domyślna płatność słowem: `gotówka przy odbiorze`, `przelew, 7 dni`. */
 export function opisPlatnosci(forma: string, termin: number): string {

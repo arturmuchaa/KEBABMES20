@@ -3,11 +3,9 @@ import { FilePlus2 } from 'lucide-react'
 import { useApp, Dialog } from '../../shell/context'
 import { rozliczeniaApi } from '@/lib/api'
 import { dataPl, kwota } from '@/features/rozliczenia/druk'
-import { FORMA_SLOWEM, dodajDni, dzisIso, type Forma, type Karta } from './model'
+import { FORMA_SLOWEM, FORMY, dni, doGroszy, dodajDni, dzisIso, formaDomyslna, type Forma, type Karta } from './model'
 import { OdmowaSerwera, PoleKwoty, Segment, kwotaZPola, naEnter, useZapis } from './wspolne'
 
-const FORMY = [['gotowka', 'Gotówka'], ['przelew', 'Przelew']] as const
-const dni = (x: number) => (x === 1 ? '1 dzień' : `${x} dni`)
 const normNumer = (t: string) => t.trim().replace(/\s+/g, ' ').toUpperCase()
 
 /**
@@ -24,13 +22,13 @@ export function FakturaDialog({ karta, onClose, onZapisano }: { karta: Karta; on
   const [tekst, setTekst] = useState('')
   const [termin, setTermin] = useState(() => dodajDni(dzisIso(), terminFv))
   const [terminReczny, setTerminReczny] = useState(false)
-  const [forma, setForma] = useState<Forma>(karta.klient.formaFv === 'gotowka' ? 'gotowka' : 'przelew')
+  const [forma, setForma] = useState<Forma>(() => formaDomyslna(karta.klient.formaFv, 'fv'))
   const [uwagi, setUwagi] = useState('')
   const zapis = useZapis('Nie udało się dodać faktury')
 
   const zmienDate = (d: string) => { setData(d); if (!terminReczny) setTermin(dodajDni(d, terminFv)) }
   const kw = kwotaZPola(tekst)
-  const kwR = Number.isFinite(kw) ? Math.round(kw * 100) / 100 : NaN
+  const kwR = Number.isFinite(kw) ? doGroszy(kw) : NaN
   const okKwota = Number.isFinite(kwR) && kwR !== 0
   const bladKwoty = tekst.trim() && !okKwota ? 'Wpisz kwotę różną od zera (ujemna = korekta)' : null
   const duplikat = numer.trim() ? karta.dokumenty.fv.find(d => !d.otwarcie && normNumer(d.numer) === normNumer(numer)) : undefined

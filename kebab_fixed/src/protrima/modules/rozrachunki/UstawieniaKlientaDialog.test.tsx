@@ -26,6 +26,7 @@ describe('Rozrachunki — ustawienia klienta', () => {
 
   it('wysyła tylko zmienione pola', async () => {
     mount()
+    expect(document.activeElement).toBe(within(screen.getByRole('group', { name: 'Waluta' })).getByRole('button', { name: 'EUR' }))
     expect(zapisz().disabled).toBe(true)
     fireEvent.change(screen.getByLabelText('Termin FV (dni)'), { target: { value: '14' } })
     fireEvent.click(within(screen.getByRole('group', { name: 'Forma WZ' })).getByRole('button', { name: 'Przelew' }))

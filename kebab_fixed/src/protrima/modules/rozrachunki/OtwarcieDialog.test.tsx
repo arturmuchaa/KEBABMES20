@@ -17,15 +17,16 @@ describe('Rozrachunki — saldo otwarcia', () => {
   const onZapisano = vi.fn()
   const bez = mapujKarte({ ...SUROWA_KARTA, otwarcia: { wz: null, fv: null } })
   const z = mapujKarte(SUROWA_KARTA)
+  const onOdswiez = vi.fn()
   const mount = (karta = bez, ksiega?: 'wz' | 'fv') => render(
-    <AppCtx.Provider value={app}><OtwarcieDialog karta={karta} ksiega={ksiega} onClose={onClose} onZapisano={onZapisano} /></AppCtx.Provider>)
+    <AppCtx.Provider value={app}><OtwarcieDialog karta={karta} ksiega={ksiega} onClose={onClose} onZapisano={onZapisano} onOdswiez={onOdswiez} /></AppCtx.Provider>)
   const sekcja = (k: 'WZ' | 'Faktury') => screen.getByRole('group', { name: `Saldo otwarcia — ${k}` })
   const kwotaW = (k: 'WZ' | 'Faktury') => within(sekcja(k)).getByLabelText(`Kwota ${k}`) as HTMLInputElement
   const zapisz = () => screen.getByRole('button', { name: /Zapisz saldo otwarcia|Zapisuję/ }) as HTMLButtonElement
 
   afterEach(cleanup)
   beforeEach(() => {
-    api.ustawOtwarcie.mockReset(); onClose.mockReset(); onZapisano.mockReset()
+    api.ustawOtwarcie.mockReset(); onClose.mockReset(); onZapisano.mockReset(); onOdswiez.mockReset()
     ;(app.toast as ReturnType<typeof vi.fn>).mockClear()
     api.ustawOtwarcie.mockResolvedValue({ ok: true })
   })
@@ -85,6 +86,23 @@ describe('Rozrachunki — saldo otwarcia', () => {
     fireEvent.change(within(sekcja('WZ')).getByLabelText('Zaległe od WZ'), { target: { value: '2026-10-05' } })
     expect(within(sekcja('WZ')).getByText(/nie może być po dacie startu/)).toBeTruthy()
     expect(zapisz().disabled).toBe(true)
+  })
+
+  it('WZ zapisane, FV odrzucone — komunikat mówi, co się zapisało, karta odświeżona, ponowny zapis wysyła tylko FV', async () => {
+    api.ustawOtwarcie.mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(new Error('Kontrahent zablokowany'))
+    mount()
+    fireEvent.change(kwotaW('WZ'), { target: { value: '6 300' } })
+    fireEvent.click(within(sekcja('Faktury')).getByRole('button', { name: 'nadpłata' }))
+    fireEvent.change(kwotaW('Faktury'), { target: { value: '350' } })
+    fireEvent.click(zapisz())
+    expect(await screen.findByText(/Saldo otwarcia FV nie zapisano — Kontrahent zablokowany\. Saldo otwarcia WZ jest już zapisane\./)).toBeTruthy()
+    expect(onOdswiez).toHaveBeenCalledTimes(1)
+    expect(onZapisano).not.toHaveBeenCalled()
+    api.ustawOtwarcie.mockClear().mockResolvedValue({ ok: true })
+    fireEvent.click(zapisz())
+    await waitFor(() => expect(onZapisano).toHaveBeenCalled())
+    expect(api.ustawOtwarcie).toHaveBeenCalledTimes(1)
+    expect(api.ustawOtwarcie).toHaveBeenCalledWith('c1', 'fv', expect.objectContaining({ kwota: 350 }))
   })
 
   it('odmowa serwera — komunikat w oknie, pola zostają', async () => {

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   etykietaStanu, filtruj, kwotaSalda, liczba, mapujKarte, mapujListe, mapujSzczegoly, opisPlatnosci, pigulka, podpowiedzKlienta,
   rozliczyla, sortuj, symbolWaluty, uporzadkujDziennik, walutyPodsumowania, wOkresie, zakresOkresu,
-  dodajDni, mapujPodglad, opisRozliczenia, poprzedniMiesiac,
+  dodajDni, mapujPodglad, opisRozliczenia, poprzedniMiesiac, dni, doGroszy, formaDomyslna, FORMY,
   type Kontrahent, type Wplata,
 } from './model'
 import { SUROWA_KARTA, SUROWA_KARTA_PELNA, SUROWA_LISTA, SUROWY_DOKUMENT, SUROWY_PODGLAD } from './daneTestowe'
@@ -253,5 +253,24 @@ describe('dodajDni / poprzedniMiesiac — daty w oknach', () => {
     expect(poprzedniMiesiac('2026-11-09')).toEqual({ od: '2026-10-01', do: '2026-10-31' })
     expect(poprzedniMiesiac('2027-01-15')).toEqual({ od: '2026-12-01', do: '2026-12-31' })
     expect(poprzedniMiesiac('2026-03-31')).toEqual({ od: '2026-02-01', do: '2026-02-28' })
+  })
+})
+
+describe('drobne wspólne: dni, grosze, forma domyślna', () => {
+  it('dni po polsku', () => {
+    expect(dni(1)).toBe('1 dzień')
+    expect(dni(7)).toBe('7 dni')
+  })
+  it('zaokrąglenie do groszy', () => {
+    expect(doGroszy(15000.505)).toBe(15000.51)
+    expect(doGroszy(-0.004)).toBe(0)
+    expect(doGroszy(-1.005)).toBe(-1.01)
+    expect(doGroszy(1.005)).toBe(1.01)
+  })
+  it('forma z ustawień albo domyślna księgi (WZ gotówka, FV przelew)', () => {
+    expect(formaDomyslna('przelew', 'wz')).toBe('przelew')
+    expect(formaDomyslna('', 'wz')).toBe('gotowka')
+    expect(formaDomyslna('karta', 'fv')).toBe('przelew')
+    expect(FORMY.map(f => f[1])).toEqual(['Gotówka', 'Przelew'])
   })
 })

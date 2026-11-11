@@ -3,15 +3,12 @@ import { Settings2 } from 'lucide-react'
 import { useApp, Dialog } from '../../shell/context'
 import { FlagIcon } from '../../ui/Glyphs'
 import { rozliczeniaApi } from '@/lib/api'
-import { FORMA_SLOWEM, type Forma, type Karta } from './model'
+import { FORMA_SLOWEM, FORMY, dni, formaDomyslna, type Forma, type Karta } from './model'
 import { OdmowaSerwera, Segment, naEnter, useZapis } from './wspolne'
 
 const WALUTY = [['PLN', 'PLN'], ['EUR', 'EUR']] as const
-const FORMY = [['gotowka', 'Gotówka'], ['przelew', 'Przelew']] as const
 const BLAD_TERMINU = 'Termin to liczba dni od 0 do 365'
-const dni = (x: number) => (x === 1 ? '1 dzień' : `${x} dni`)
 const termin = (t: string) => (/^\d{1,3}$/.test(t.trim()) && Number(t) <= 365 ? Number(t) : NaN)
-const forma = (f: string, zast: Forma): Forma => (f === 'gotowka' || f === 'przelew' ? f : zast)
 
 /**
  * Ustawienia rozliczeń kontrahenta: waluta salda, domyślne terminy i formy
@@ -23,8 +20,8 @@ export function UstawieniaKlientaDialog({ karta, onClose, onZapisano }: { karta:
   const [waluta, setWaluta] = useState(k.waluta === 'EUR' ? 'EUR' : 'PLN')
   const [terminWz, setTerminWz] = useState(String(k.terminWz))
   const [terminFv, setTerminFv] = useState(String(k.terminFv))
-  const [formaWz, setFormaWz] = useState<Forma>(forma(k.formaWz, 'gotowka'))
-  const [formaFv, setFormaFv] = useState<Forma>(forma(k.formaFv, 'przelew'))
+  const [formaWz, setFormaWz] = useState<Forma>(() => formaDomyslna(k.formaWz, 'wz'))
+  const [formaFv, setFormaFv] = useState<Forma>(() => formaDomyslna(k.formaFv, 'fv'))
   const zapis = useZapis('Nie udało się zapisać ustawień')
 
   const tWz = termin(terminWz), tFv = termin(terminFv)

@@ -4,8 +4,8 @@ import { useApp, Dialog } from '../../shell/context'
 import { FlagIcon } from '../../ui/Glyphs'
 import { rozliczeniaApi } from '@/lib/api'
 import { dataPl, kwota } from '@/features/rozliczenia/druk'
-import { kwotaBezWaluty, kwotaSalda, liczba, znakSalda, type Karta, type Ksiega } from './model'
-import { OdmowaSerwera, PoleKwoty, Segment, klasaSalda, naEnter, useZapis } from './wspolne'
+import { doGroszy, kwotaBezWaluty, kwotaSalda, liczba, znakSalda, type Karta, type Ksiega } from './model'
+import { OdmowaSerwera, PoleKwoty, Segment, klasaSalda, naEnter, tekstBledu, useZapis } from './wspolne'
 
 type Kierunek = 'winien' | 'nadplata'
 type Stan = { kierunek: Kierunek; tekst: string; zalegle: string; uwagi: string }
@@ -31,7 +31,13 @@ const kwotaBezZnaku = (t: string) => {
   if (!t.trim()) return 0
   if (/^\s*[-+−–]/.test(t)) return NaN
   const x = liczba(t)
-  return Number.isFinite(x) && x >= 0 ? Math.round(x * 100) / 100 : NaN
+  return Number.isFinite(x) && x >= 0 ? doGroszy(x) : NaN
+}
+
+/** Saldo otwarcia z karty w kształcie `doApi` — punkt odniesienia „co się zmieniło”. */
+const zKarty = (k: Karta, ks: Ksiega) => {
+  const o = k.otwarcia[ks]
+  return { kwota: o?.kwota ?? 0, zalegle_od: o?.zalegleOd ?? null, uwagi: o?.uwagi ?? '' }
 }
 
 /** Wartość do API: minus — klient winien, plus — nadpłata; „zaległe od” tylko przy długu. */
@@ -49,24 +55,27 @@ const doApi = (s: Stan) => {
  * WZ i faktur. Biuro wybiera kierunek słowem („klient winien” / „nadpłata”)
  * i wpisuje kwotę bez znaku; znak dokłada okno.
  */
-export function OtwarcieDialog({ karta, ksiega, onClose, onZapisano }: {
+export function OtwarcieDialog({ karta, ksiega, onClose, onZapisano, onOdswiez }: {
   karta: Karta; onClose: () => void; onZapisano: () => void
   /** Księga, z której otwarto okno (klik w wiersz „Saldo otwarcia”) — tam fokus. */
   ksiega?: Ksiega
+  /** Odświeżenie karty bez zamykania okna — gdy zapisała się tylko jedna księga. */
+  onOdswiez?: () => void
 }) {
   const app = useApp()
   const w = karta.klient.waluta
   const [stan, setStan] = useState<Record<Ksiega, Stan>>(() => ({ wz: poczatek(karta, 'wz'), fv: poczatek(karta, 'fv') }))
   const zapis = useZapis('Nie udało się zapisać salda otwarcia')
+  // Stan na serwerze: z karty, a po częściowym zapisie — z tego, co już przeszło (ponowny zapis wysyła tylko resztę).
+  const [zapisane, setZapisane] = useState<Record<Ksiega, ReturnType<typeof doApi>>>(() => ({ wz: zKarty(karta, 'wz'), fv: zKarty(karta, 'fv') }))
   const zmien = (ks: Ksiega, z: Partial<Stan>) => setStan(s => ({ ...s, [ks]: { ...s[ks], ...z } }))
 
   const bladKwoty = (ks: Ksiega) => (Number.isNaN(kwotaBezZnaku(stan[ks].tekst)) ? BLAD_KWOTY : null)
   const bladZaleglych = (ks: Ksiega) => (stan[ks].kierunek === 'winien' && stan[ks].zalegle && stan[ks].zalegle > karta.start
     ? `Data „zaległe od” nie może być po dacie startu (${dataPl(karta.start)})` : null)
   const zmieniona = (ks: Ksiega) => {
-    const teraz = doApi(stan[ks]), o = karta.otwarcia[ks]
-    const przed = { kwota: o?.kwota ?? 0, zalegle_od: o?.zalegleOd ?? null, uwagi: o?.uwagi ?? '' }
-    return Math.round(teraz.kwota * 100) !== Math.round(przed.kwota * 100)
+    const teraz = doApi(stan[ks]), przed = zapisane[ks]
+    return doGroszy(teraz.kwota) !== doGroszy(przed.kwota)
       || (znakSalda(teraz.kwota) < 0 && teraz.zalegle_od !== przed.zalegle_od) || teraz.uwagi !== przed.uwagi
   }
   const bledne = KSIEGI.some(ks => bladKwoty(ks) || bladZaleglych(ks))
@@ -78,9 +87,20 @@ export function OtwarcieDialog({ karta, ksiega, onClose, onZapisano }: {
     if (!ok) return
     void zapis.zapisz(async () => {
       const opisy: string[] = []
+      const gotowe: Ksiega[] = []
       for (const ks of doZapisu) {
         const dto = doApi(stan[ks])
-        await rozliczeniaApi.ustawOtwarcie(karta.klient.id, ks, dto)
+        try {
+          await rozliczeniaApi.ustawOtwarcie(karta.klient.id, ks, dto)
+        } catch (e) {
+          if (!gotowe.length) throw e
+          // Część przeszła: karta ma to pokazać, a komunikat — powiedzieć, co jest zapisane.
+          onOdswiez?.()
+          throw new Error(`Saldo otwarcia ${SKROT[ks]} nie zapisano — ${tekstBledu(e, 'błąd serwera')}. `
+            + `Saldo otwarcia ${gotowe.map(g => SKROT[g]).join(' i ')} jest już zapisane.`)
+        }
+        gotowe.push(ks)
+        setZapisane(z => ({ ...z, [ks]: dto }))
         opisy.push(`${SKROT[ks]}: ${znakSalda(dto.kwota) < 0 ? `klient winien ${kwota(-dto.kwota, w)}` : znakSalda(dto.kwota) > 0 ? `nadpłata ${kwota(dto.kwota, w)}` : 'zero'}`)
       }
       app.toast({ kind: 'ok', title: 'Saldo otwarcia zapisane', detail: opisy.join(' · ') })

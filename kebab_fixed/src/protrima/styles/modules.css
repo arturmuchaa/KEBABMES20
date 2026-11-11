@@ -904,7 +904,10 @@ div.pstage { cursor: default; }
 .rr-kwota-pole > .field { width: 100%; padding-right: 38px; font-variant-numeric: tabular-nums; }
 .rr-kwota-pole > .rr-sfx { position: absolute; right: 10px; color: var(--ink-3); pointer-events: none; font-size: var(--fs-md); }
 .rr-kwota-pole.duze > .field { height: 40px; font-size: var(--fs-xl); font-weight: 600; }
-.rr-podglad-w { padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.rr-podglad-w { padding-top: 12px; border-top: 1px solid var(--line-soft); min-height: 132px; }
+/* Okno wpłaty rośnie z podglądem — przypięte u góry zamiast na środku, żeby pole kwoty nie uciekało spod kursora. */
+.dialog-wrap:has(.rr-dlg-gora) { align-items: flex-start; padding-top: max(16px, 6vh); }
+.dialog-wrap:has(.rr-dlg-gora) > .dialog { max-height: calc(100vh - max(16px, 6vh) - 16px); }
 .rr-podglad { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; transition: opacity .12s; }
 .rr-podglad li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 10px; border-radius: var(--r-sm);
   background: var(--surface-alt); box-shadow: inset 0 0 0 1px var(--line-soft); font-variant-numeric: tabular-nums; color: var(--ink-1); }

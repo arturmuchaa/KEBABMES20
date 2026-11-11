@@ -4,24 +4,18 @@ import { useApp, Dialog } from '../../shell/context'
 import { rozliczeniaApi } from '@/lib/api'
 import { dataPl, kwota } from '@/features/rozliczenia/druk'
 import {
-  FORMA_SLOWEM, dzisIso, kwotaSalda, mapujPodglad, opisRozliczenia, znakSalda,
+  FORMA_SLOWEM, FORMY, doGroszy, dzisIso, formaDomyslna, kwotaSalda, mapujPodglad, opisRozliczenia, znakSalda,
   type Forma, type Karta, type Ksiega, type PodgladWplaty,
 } from './model'
 import { OdmowaSerwera, PoleKwoty, Segment, klasaSalda, kwotaZPola, naEnter, tekstBledu, useZapis } from './wspolne'
 
 const KSIEGI = [['wz', 'WZ'], ['fv', 'Faktury']] as const
-const FORMY = [['gotowka', 'Gotówka'], ['przelew', 'Przelew']] as const
 const BLAD_KWOTY = 'Wpisz kwotę większą od zera'
 /** Podgląd rozliczenia pyta serwer dopiero, gdy biuro przestanie pisać. */
 const ZWLOKA_PODGLADU = 250
 
-const doGroszy = (x: number) => Math.round(x * 100) / 100
-
 /** Domyślna forma księgi z ustawień klienta (WZ zwykle gotówka, faktury przelew). */
-const formaKsiegi = (k: Karta, ks: Ksiega): Forma => {
-  const f = ks === 'wz' ? k.klient.formaWz : k.klient.formaFv
-  return f === 'gotowka' || f === 'przelew' ? f : ks === 'wz' ? 'gotowka' : 'przelew'
-}
+const formaKsiegi = (k: Karta, ks: Ksiega): Forma => formaDomyslna(ks === 'wz' ? k.klient.formaWz : k.klient.formaFv, ks)
 
 /** Dokumenty z czymś do zapłaty, od najstarszego — kolejność, w jakiej wpłata je pokrywa. */
 const otwarte = (k: Karta, ks: Ksiega) => k.dokumenty[ks]
@@ -110,7 +104,8 @@ export function WplataDialog({ karta, ksiega: ksiegaStart, dokumentId, onClose, 
           {zapis.busy ? 'Zapisuję…' : 'Zapisz wpłatę'}
         </button>
       </>}>
-      <div className="rr-form">
+      {/* rr-dlg-gora: okno przypięte u góry — rosnący podgląd nie przesuwa pól, w które biuro pisze. */}
+      <div className="rr-form rr-dlg-gora">
         <div className="fld"><span className="label">Do czego</span>
           <Segment label="Do czego" value={ksiega} opcje={KSIEGI} onChange={zmienKsiege} />
           <span className="rr-pole-pod">Saldo {ksiega === 'wz' ? 'WZ' : 'faktur'}: <b className={`tnum${klasaSalda(saldo)}`}>{kwotaSalda(saldo, w)}</b>
@@ -155,7 +150,7 @@ function Podglad({ podglad, aktualny, pusty, waluta, wskazany }: {
       <span className="label">Ta wpłata rozliczy {wskazany ? `(najpierw ${wskazany}, reszta od najstarszych)` : '(od najstarszych)'}:</span>
       {pusty
         ? <p className="muted rr-dlg-p">Wpisz kwotę — tu zobaczysz, które dokumenty zamknie i co zostanie do zapłaty.</p>
-        : podglad?.blad
+        : podglad?.blad && aktualny
           ? <p className="muted rr-dlg-p">Podgląd niedostępny: {podglad.blad}. Wpłatę i tak można zapisać.</p>
           : !p
             ? <p className="muted rr-dlg-p" aria-busy="true">Liczę rozliczenie…</p>

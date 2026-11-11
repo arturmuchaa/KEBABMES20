@@ -110,6 +110,23 @@ describe('Rozrachunki — okno wpłaty', () => {
     expect([...(screen.getByLabelText('Dokument') as HTMLSelectElement).options].map(o => o.value)).toEqual(['', 'w21', 'w02'])
   })
 
+  it('błąd podglądu dla starej kwoty nie wisi po zmianie kwoty — „Liczę…”, potem nowy podgląd', async () => {
+    api.podgladWplaty.mockRejectedValueOnce(new Error('Kontrahent nie znaleziony'))
+    mount()
+    wpisz('100')
+    expect(await screen.findByText(/Podgląd niedostępny: Kontrahent nie znaleziony/)).toBeTruthy()
+    wpisz('15 000')
+    expect(screen.queryByText(/Podgląd niedostępny/)).toBeNull()
+    expect(screen.getByText('Liczę rozliczenie…')).toBeTruthy()
+    expect(await screen.findByRole('list', { name: 'Podgląd rozliczenia' })).toBeTruthy()
+  })
+
+  it('miejsce na podgląd zarezerwowane od początku — pola nie skaczą, gdy pojawi się wynik', () => {
+    mount()
+    expect(document.querySelector('.rr-podglad-w')).toBeTruthy()
+    expect(document.querySelector('.dialog-wrap.rr-dlg-gora, .rr-dlg-gora')).toBeTruthy()
+  })
+
   it('Enter w kwocie zapisuje', async () => {
     mount()
     wpisz('250')

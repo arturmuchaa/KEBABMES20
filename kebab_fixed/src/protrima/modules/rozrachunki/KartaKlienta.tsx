@@ -8,7 +8,7 @@ import { useApi } from '@/hooks/useApi'
 import { rozliczeniaApi } from '@/lib/api'
 import { dataPl, kwota } from '@/features/rozliczenia/druk'
 import {
-  FORMA_SLOWEM, KLASA_TONU, OKRESY, dzisIso, etykietaStanu, kwotaBezWaluty, kwotaSalda, mapujKarte, opisPlatnosci, rozliczyla, symbolWaluty,
+  FORMA_SLOWEM, KLASA_TONU, OKRESY, dni, dzisIso, etykietaStanu, kwotaBezWaluty, kwotaSalda, mapujKarte, opisPlatnosci, rozliczyla, symbolWaluty,
   wOkresie, zakresOkresu,
   znakSalda, type Dok, type Karta, type Ksiega, type Okres, type Wplata, type Zakres,
 } from './model'
@@ -26,7 +26,6 @@ export type Okno = { rodzaj: RodzajOkna; karta: Karta; ksiega?: Ksiega; dokument
 
 const KLUCZ_UKRYJ = 'protrima.rozrachunki.karta.ukryjZaplacone'
 const ETYKIETA_OKRESU: Record<Okres, string> = { wszystko: 'Wszystko', miesiac: 'Ten miesiąc', kwartal: 'Kwartał', rok: 'Rok', zakres: 'Od–do' }
-const dni = (x: number) => (x === 1 ? '1 dzień' : `${x} dni`)
 
 /** Data w wierszu księgi: w bieżącym roku krótko (27.10), inaczej pełna. */
 const dataWiersza = (iso: string | null, rok: string) => (!iso ? '—' : iso.slice(0, 4) === rok ? dataPl(iso).slice(0, 5) : dataPl(iso))

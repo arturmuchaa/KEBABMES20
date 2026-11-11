@@ -14,7 +14,8 @@ const OKRESY_DRUKU = [['miesiac', 'Ten miesiąc'], ['poprzedni', 'Poprzedni mies
 /**
  * Drukuj saldo: „Zestawienie należności” na dzień (do wysłania klientowi)
  * albo „Historia rozliczeń” za okres (jak wyciąg — do wyjaśniania „już
- * zapłaciłem”). PDF renderuje serwer; podgląd otwiera go w czytniku.
+ * zapłaciłem”). PDF renderuje serwer; podgląd otwiera go w czytniku. Fokus na
+ * „Podgląd / drukuj” — dzisiejsze zestawienie to: okno → Enter.
  */
 export function DrukSaldaDialog({ karta, onClose }: { karta: Karta; onClose: () => void; onZapisano?: () => void }) {
   const app = useApp()
@@ -43,7 +44,8 @@ export function DrukSaldaDialog({ karta, onClose }: { karta: Karta; onClose: () 
     void zapis.zapisz(async () => {
       await (jak === 'podglad' ? openDocument : downloadDocPdf)(wydruk.url, wydruk.nazwa)
       app.toast({ kind: 'ok', title: `${wydruk.tytul} — PDF gotowy`, detail: `${k.nazwa} · ${wydruk.opis}` })
-      onClose()
+      // Po podglądzie okno zostaje — można jeszcze zapisać PDF do maila; po zapisie PDF robota skończona.
+      if (jak === 'pdf') onClose()
     })
   }
 
@@ -55,7 +57,7 @@ export function DrukSaldaDialog({ karta, onClose }: { karta: Karta; onClose: () 
         <button type="button" className="btn" disabled={!ok || zapis.busy} data-tip={tip} onClick={() => pobierz('pdf')}>
           <Download size={15} />{zapis.busy && ktory === 'pdf' ? 'Przygotowuję PDF…' : 'Zapisz PDF'}
         </button>
-        <button type="button" className="btn primary" disabled={!ok || zapis.busy} data-tip={tip} onClick={() => pobierz('podglad')}>
+        <button type="button" className="btn primary" disabled={!ok || zapis.busy} data-tip={tip} onClick={() => pobierz('podglad')} data-autofocus>
           <Printer size={15} />{zapis.busy && ktory === 'podglad' ? 'Przygotowuję PDF…' : 'Podgląd / drukuj'}
         </button>
       </>}>
