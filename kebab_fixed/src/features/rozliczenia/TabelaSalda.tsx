@@ -29,7 +29,7 @@ const S = {
   table: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' } as CSSProperties,
   th: { padding: '.35em .55em .4em', fontWeight: 600, fontSize: '.84em', color: DRUK.szary,
         textAlign: 'left', borderBottom: `0.75pt solid ${DRUK.liniaMocna}`, verticalAlign: 'bottom' } as CSSProperties,
-  td: { padding: '.48em .55em', borderBottom: `0.5pt solid ${DRUK.linia}`, verticalAlign: 'baseline' } as CSSProperties,
+  td: { padding: '.42em .55em', borderBottom: `0.5pt solid ${DRUK.linia}`, verticalAlign: 'baseline' } as CSSProperties,
   sum: { padding: '.5em .55em .2em', fontWeight: 600 } as CSSProperties,
 }
 
@@ -117,7 +117,7 @@ export function TabelaSalda({ z, naWz = false, bezTytulu = false }: {
           <Ksiega k={z.fv} naglowek="Faktury" tytul="Razem faktury" waluta={z.waluta} />
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.1em' }}>
-            <div data-testid="panel-sumy" style={{
+            <div data-testid="panel-sumy" className="druk-panel" style={{
               minWidth: '48%', border: `0.75pt solid ${DRUK.linia}`, borderTop: `1.5pt solid ${DRUK.liniaMocna}`,
               background: DRUK.tlo, padding: '.65em .9em .7em', display: 'grid', rowGap: '.3em',
             }}>

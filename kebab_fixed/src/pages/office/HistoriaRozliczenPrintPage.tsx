@@ -25,12 +25,12 @@ import { ArkuszDruku, DRUK, LICZBOWA, NaglowekDruku } from '@/features/rozliczen
 import { dataPl, kwota, type HistoriaOkresu, type KsiegaHistorii } from '@/features/rozliczenia/druk'
 
 const S = {
-  table: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' } as CSSProperties,
+  table: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', lineHeight: 1.3 } as CSSProperties,
   th: { padding: '.35em .55em .4em', fontWeight: 600, fontSize: '.84em', color: DRUK.szary,
         textAlign: 'left', borderBottom: `0.75pt solid ${DRUK.liniaMocna}`, verticalAlign: 'bottom' } as CSSProperties,
-  td: { padding: '.45em .55em', borderBottom: `0.5pt solid ${DRUK.linia}`, verticalAlign: 'baseline' } as CSSProperties,
+  td: { padding: '.27em .55em', borderBottom: `0.5pt solid ${DRUK.linia}`, verticalAlign: 'baseline' } as CSSProperties,
   /** Saldo na początek — wiersz otwierający, spokojny. */
-  pocz: { padding: '.45em .55em', borderBottom: `0.5pt solid ${DRUK.linia}`, color: DRUK.szary,
+  pocz: { padding: '.27em .55em', borderBottom: `0.5pt solid ${DRUK.linia}`, color: DRUK.szary,
           fontWeight: 600 } as CSSProperties,
   /** Saldo na koniec — zamyka księgę mocniejszą linią. */
   kon: { padding: '.5em .55em .3em', borderTop: `0.75pt solid ${DRUK.liniaMocna}`, fontWeight: 600 } as CSSProperties,
@@ -47,7 +47,7 @@ function Ksiega({ k, tytul, waluta, od, do_ }: {
 }) {
   const kw = (n: number) => (n ? kwota(n, waluta) : '')
   return (
-    <section style={{ marginBottom: '6mm' }}>
+    <section style={{ marginBottom: '4.5mm' }}>
       <h2 style={{ fontSize: '1.05em', fontWeight: 600, margin: '0 0 .35em' }}>{tytul}</h2>
       <table style={S.table}>
         <colgroup>
@@ -143,7 +143,7 @@ export function HistoriaRozliczenPrintPage() {
         {pokaz.map(([ks, tytul]) => (
           <Ksiega key={ks} k={h[ks]} tytul={tytul} waluta={h.waluta} od={h.od} do_={h.do} />
         ))}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '8mm' }}>
+        <div className="druk-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '8mm' }}>
           <div style={{ fontSize: '.86em', color: DRUK.szary, maxWidth: '80mm' }}>
             Saldo ujemne oznacza kwotę do zapłaty, dodatnie — nadpłatę.
           </div>

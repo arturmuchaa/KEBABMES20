@@ -46,7 +46,7 @@ export const CSS_DRUKU = `
   }
   .druk-arkusz h1, .druk-arkusz h2, .druk-arkusz h3 { margin: 0; }
   .druk-tresc { flex: 1 0 auto; }
-  .druk-arkusz tr { break-inside: avoid; }
+  .druk-arkusz tr, .druk-panel, .druk-arkusz footer { break-inside: avoid; }
   .druk-arkusz thead { display: table-header-group; }
   @media screen {
     html, body { background: #e8ebee; }
@@ -84,7 +84,7 @@ function StopkaDruku({ firma }: { firma: CompanySettings | null }) {
   return (
     <footer data-testid="druk-stopka" style={{
       display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '6mm',
-      marginTop: '8mm', paddingTop: '2.2mm', borderTop: `0.5pt solid ${DRUK.linia}`,
+      marginTop: '6mm', paddingTop: '2mm', borderTop: `0.5pt solid ${DRUK.linia}`,
       fontSize: '7.5pt', color: DRUK.szary, lineHeight: 1.45,
     }}>
       <div>{kontakt.join('  ·  ')}</div>
@@ -110,11 +110,11 @@ export function NaglowekDruku({ firma, klient, tytul, dane }: {
 }) {
   const adres = firma ? adresFirmy(firma) : ''
   return (
-    <header style={{ marginBottom: '7mm' }}>
+    <header style={{ marginBottom: '5.5mm' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                    gap: '8mm', paddingBottom: '4.5mm', borderBottom: `0.75pt solid ${DRUK.liniaMocna}` }}>
-        <div data-testid="druk-firma" style={{ lineHeight: 1.45 }}>
-          <LogoZakladu wysokosc={34} przyciete style={{ marginBottom: '3.2mm' }} />
+                    gap: '8mm', paddingBottom: '3.5mm', borderBottom: `0.75pt solid ${DRUK.liniaMocna}` }}>
+        <div data-testid="druk-firma" style={{ lineHeight: 1.4 }}>
+          <LogoZakladu wysokosc={32} przyciete style={{ marginBottom: '2.6mm' }} />
           {firma ? (
             <>
               <div style={{ fontWeight: 600, fontSize: '10pt' }}>{firma.name}</div>
@@ -130,19 +130,19 @@ export function NaglowekDruku({ firma, klient, tytul, dane }: {
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                    gap: '8mm', marginTop: '5mm' }}>
+                    gap: '8mm', marginTop: '4mm' }}>
         <div data-testid="druk-nabywca" style={{
           flex: '0 1 98mm', border: `0.75pt solid ${DRUK.linia}`, borderRadius: '1.5mm',
-          padding: '3mm 4mm', lineHeight: 1.45,
+          padding: '2.4mm 3.6mm', lineHeight: 1.4,
         }}>
-          <div style={{ ...ETYKIETA, marginBottom: '1.2mm' }}>Nabywca</div>
+          <div style={{ ...ETYKIETA, marginBottom: '.8mm' }}>Nabywca</div>
           <div style={{ fontWeight: 600, fontSize: '11pt' }}>{klient.nazwa}</div>
           {klient.adres && <div>{klient.adres}</div>}
           {klient.nip && <div>NIP {klient.nip}</div>}
         </div>
         <dl data-testid="druk-dane" style={{
           margin: 0, display: 'grid', gridTemplateColumns: 'auto auto', columnGap: '6mm', rowGap: '1.4mm',
-          paddingTop: '3mm',
+          paddingTop: '2.4mm',
         }}>
           {dane.map(([etykieta, wartosc]) => (
             <div key={etykieta} style={{ display: 'contents' }}>
