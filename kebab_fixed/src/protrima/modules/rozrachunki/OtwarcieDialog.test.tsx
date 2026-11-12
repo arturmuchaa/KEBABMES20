@@ -210,6 +210,15 @@ describe('Rozrachunki — saldo otwarcia', () => {
       expect(zapiszZal().disabled).toBe(false)
     })
 
+    it('termin 0 dni przy gotówce: zamiast „+ 0 dni” podpis „termin = data (gotówka)”', () => {
+      mount(bez, 'wz', 'zalegle')
+      fireEvent.change(pole('Księga', 1), { target: { value: 'wz' } })
+      fireEvent.change(pole('Data wystawienia', 1), { target: { value: '2026-09-15' } })
+      expect(pole('Termin', 1).value).toBe('2026-09-15')
+      expect(within(tabela()).getByText('termin = data (gotówka)')).toBeTruthy()
+      expect(within(tabela()).queryByText('+ 0 dni')).toBeNull()
+    })
+
     it('odmowa serwera — komunikat w oknie, wiersze zostają; Ctrl+Enter zapisuje', async () => {
       api.dodajZalegle.mockRejectedValueOnce(new Error('Wiersz 1: numer FV 7 jest już w księdze'))
       mount(bez, 'fv', 'zalegle')

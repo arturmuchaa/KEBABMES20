@@ -76,8 +76,8 @@ export function SzczegolyDokumentu({ dokId, waluta, start, terminFv, wpiszKwote,
   const zmiany: Record<string, string | number | null> = {}
   const bledy: Partial<Record<keyof Edycja, string>> = {}
   if (d && e) {
-    if (!korekta && e.termin && e.termin !== (d.termin ?? '')) zmiany.termin = e.termin
-    if (!korekta && e.forma && e.forma !== d.forma) zmiany.forma = e.forma
+    if (!korekta && !d.nieLicz && e.termin && e.termin !== (d.termin ?? '')) zmiany.termin = e.termin
+    if (!korekta && !d.nieLicz && e.forma && e.forma !== d.forma) zmiany.forma = e.forma
     if (e.uwagi.trim() !== d.uwagi) zmiany.uwagi = e.uwagi.trim()
     if (mozeNumerDate) {
       const nr = e.numer.trim().replace(/\s+/g, ' ')
@@ -163,9 +163,10 @@ export function SzczegolyDokumentu({ dokId, waluta, start, terminFv, wpiszKwote,
           {d.bezKwoty && wpisywanie && <WpiszKwote d={d} waluta={waluta} terminFv={terminFv} onZapisano={onZmiana} />}
           {d.brakVat && <div className="note warn"><FlagIcon level="warn" size={15} /><div><b>Bez VAT — sprawdź wycenę.</b> Klient z polskim NIP, a na WZ nie ma żadnej stawki VAT.</div></div>}
 
-          {korekta ? <Zmniejszyla d={d} waluta={waluta} /> : <WplatyDokumentu d={d} waluta={waluta} onWplata={maWplate ? () => onWplata?.(d) : undefined} />}
+          {korekta ? <Zmniejszyla d={d} waluta={waluta} /> : !d.nieLicz && <WplatyDokumentu d={d} waluta={waluta} onWplata={maWplate ? () => onWplata?.(d) : undefined} />}
 
-          {d.ksiega === 'wz' && !korekta && <NieLicz d={d} onZapisano={onZmiana} />}
+          {/* Zaległe sprzed startu to dług z arkusza, nie towar z MES — „nie licz” ich nie dotyczy (usuwa się je z powodem). */}
+          {d.ksiega === 'wz' && !korekta && zr !== 'otwarcie' && <NieLicz d={d} onZapisano={onZmiana} />}
 
           <div className="rr-sekcja rr-dok-edycja">
             <span className="label">Zmiana danych</span>
@@ -194,7 +195,7 @@ export function SzczegolyDokumentu({ dokId, waluta, start, terminFv, wpiszKwote,
                   </span>
                 </Pole>
               )}
-              {!korekta && <>
+              {!korekta && !d.nieLicz && <>
                 <Pole label="Termin płatności" blad={bledy.termin}>
                   <input type="date" className={`field${bledy.termin ? ' invalid' : ''}`} value={e.termin} aria-label="Termin płatności"
                     aria-invalid={bledy.termin ? true : undefined} onChange={x => setE({ ...e, termin: x.target.value })} onKeyDown={naEnter(zapisz)} />
@@ -272,14 +273,14 @@ function Kafle({ d, waluta, terminFv, onWpiszKwote }: { d: Szczegoly; waluta: st
         {d.bezKwoty
           ? kafel('Kwota', 'czeka na kwotę',
             onWpiszKwote ? <button type="button" className="btn sm primary" onClick={onWpiszKwote}>Wpisz kwotę</button> : 'wpisz ją poniżej', ' rr-czeka')
-          : kafel(d.korekta ? 'Kwota korekty' : 'Kwota', kwota(d.kwota, waluta), d.nieLicz ? 'nie liczy się do salda' : undefined)}
+          : kafel(d.korekta ? 'Kwota korekty' : 'Kwota', kwota(d.kwota, waluta))}
         {!d.korekta && kafel('Zapłacono', poza ? '—' : kwota(d.zaplacono, waluta), undefined, poza ? ' faint' : '')}
         {!d.korekta && kafel('Zostało', poza ? '—' : kwota(d.zostalo, waluta), d.stan.czesciowo ? 'zapłacona częściowo' : undefined,
           poza ? ' faint' : po ? klasaZaleglosci(d.zostalo) : '')}
         {kafel('kg', d.kg == null ? '—' : kilogramy(d.kg), undefined, d.kg == null ? ' faint' : '')}
         {!d.korekta && (d.bezKwoty
           ? kafel('Termin', '—', `po wpisaniu kwoty: data + ${dni(terminFv)}`, ' faint')
-          : kafel('Termin', d.termin ? dataPl(d.termin) : '—', <span className={`tag ${KLASA_TONU[st.ton]}`}>{st.tekst}</span>))}
+          : kafel('Termin', d.termin ? dataPl(d.termin) : '—', d.nieLicz ? undefined : <span className={`tag ${KLASA_TONU[st.ton]}`}>{st.tekst}</span>))}
       </div>
     </div>
   )
@@ -295,13 +296,17 @@ function WpiszKwote({ d, waluta, terminFv, onZapisano }: { d: Szczegoly; waluta:
   const kR = Number.isFinite(k) ? doGroszy(k) : NaN
   const ok = kR > 0
   const bladPola = tekst.trim() && !ok ? 'Wpisz kwotę większą od zera' : null
-  const termin = dodajDni(d.data, terminFv)
+  // Termin wstępny z serwera = data + termin FV klienta; inny — biuro zmieniło go ręcznie i serwer go nie ruszy.
+  const wyliczony = dodajDni(d.data, terminFv)
+  const termin = d.termin && d.termin !== wyliczony ? d.termin : wyliczony
   useEffect(() => { pole.current?.focus() }, [])
   const zapiszKwote = () => {
     if (!ok || busy) return
     void zapisz(async () => {
-      await rozliczeniaApi.wpiszKwoteFv(d.id, kR)
-      app.toast({ kind: 'ok', title: `${d.numer} — kwota ${kwota(kR, waluta)} wpisana`, detail: `faktura weszła do salda · termin ${dataPl(termin)}` })
+      const r = await rozliczeniaApi.wpiszKwoteFv(d.id, kR)
+      // Termin z odpowiedzi serwera (ręcznie zmieniony zostaje); bez niego — ten, który pokazało okno.
+      const zSerwera = r && typeof r === 'object' && typeof (r as { termin?: unknown }).termin === 'string' ? (r as { termin: string }).termin : termin
+      app.toast({ kind: 'ok', title: `${d.numer} — kwota ${kwota(kR, waluta)} wpisana`, detail: `faktura weszła do salda · termin ${dataPl(zSerwera)}` })
       onZapisano()
     })
   }
@@ -332,9 +337,7 @@ function WplatyDokumentu({ d, waluta, onWplata }: { d: Szczegoly; waluta: string
   return (
     <section className="rr-sekcja rr-dok-wplaty" aria-label="Wpłaty do tego dokumentu">
       <div className="rr-sekcja-h"><h3><Wallet size={15} />Wpłaty do tego dokumentu</h3>{d.pokrycie.length > 0 && przycisk}</div>
-      {d.nieLicz
-        ? <p className="muted rr-dlg-p">WZ nie liczy się do rozrachunków — wpłat się do niej nie przypina.</p>
-        : d.bezKwoty
+      {d.bezKwoty
           ? <p className="muted rr-dlg-p">Wpłatę przypniesz po wpisaniu kwoty faktury.</p>
           : d.pokrycie.length === 0
             ? <div className="rr-dok-brak"><span>Brak wpłat</span>{przycisk}</div>
@@ -377,9 +380,10 @@ function NieLicz({ d, onZapisano }: { d: Szczegoly; onZapisano: () => void }) {
   }
   return (
     <div className="rr-sekcja rr-nielicz">
+      {/* „nie liczona” mówi już pigułka w tytule — tu tylko powód i skutek. */}
       {d.nieLicz && (
         <div className="note"><FlagIcon level="info" size={15} />
-          <div><b>Nie liczona do rozrachunków.</b>{d.nieLiczPowod && <> Powód: „{d.nieLiczPowod}”.</>}</div>
+          <div>{d.nieLiczPowod && <><b>Powód:</b> „{d.nieLiczPowod}”. </>}Poza saldem, obrotem, kg i wydrukami.</div>
         </div>
       )}
       {!otwarte

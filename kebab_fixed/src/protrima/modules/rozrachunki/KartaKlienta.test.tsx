@@ -471,7 +471,7 @@ describe('Rozrachunki — karta klienta', () => {
     fireEvent.click(screen.getByLabelText('Pokaż nieliczone (1)'))
     fireEvent.click(wiersz(ksiega('Księga WZ'), 'WZ 05/11'))
     const dlg2 = await screen.findByRole('dialog')
-    expect(await within(dlg2).findByText(/Powód: „towar dla pracowników”/)).toBeTruthy()
+    expect(await within(dlg2).findByText(/„towar dla pracowników”/)).toBeTruthy()
     fireEvent.click(within(dlg2).getByRole('button', { name: 'Licz z powrotem…' }))
     fireEvent.change(within(dlg2).getByLabelText('Powód cofnięcia'), { target: { value: 'pomyłka' } })
     fireEvent.click(within(dlg2).getByRole('button', { name: 'Licz z powrotem' }))
@@ -578,6 +578,47 @@ describe('Rozrachunki — karta klienta', () => {
     await screen.findByRole('dialog')
     await screen.findByRole('group', { name: 'Podsumowanie dokumentu' })
     expect(document.querySelectorAll('[placeholder]').length).toBe(0)
+  })
+
+  it('FV bez kwoty z terminem zmienionym ręcznie: okno i toast pokazują termin z serwera, nie data + termin FV', async () => {
+    api.karta.mockResolvedValue(Z_NOWYMI)
+    api.dokument.mockResolvedValue({ ...BEZ_KWOTY, termin: '2026-11-30', ksiega: 'fv', client_id: 'c1', pokrycie: [], historia: [] })
+    api.wpiszKwoteFv.mockResolvedValue({ ...BEZ_KWOTY, kwota: 500, termin: '2026-11-30', stan: { kod: 'w_terminie', dni: 18, czesciowo: false } })
+    mount()
+    await gotowe()
+    fireEvent.click(within(wiersz(ksiega('Faktury'), 'FV 590/2026')).getByRole('button', { name: 'Wpisz kwotę' }))
+    const dlg = await screen.findByRole('dialog')
+    expect(await within(dlg).findByText(/z terminem 30\.11\.2026/)).toBeTruthy()
+    fireEvent.change(within(dlg).getByLabelText('Kwota brutto'), { target: { value: '500' } })
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Zapisz kwotę' }))
+    await waitFor(() => expect(app.toast).toHaveBeenCalledWith(expect.objectContaining({ detail: 'faktura weszła do salda · termin 30.11.2026' })))
+  })
+
+  it('szczegóły nieliczonej WZ: „nie liczona” raz (w tytule), powód w nocie, bez edycji terminu i formy i bez sekcji wpłat', async () => {
+    api.karta.mockResolvedValue(Z_NOWYMI)
+    api.dokument.mockResolvedValue({ ...NIELICZONA, ksiega: 'wz', pokrycie: [], historia: [] })
+    mount()
+    await gotowe()
+    fireEvent.click(screen.getByLabelText('Pokaż nieliczone (1)'))
+    fireEvent.click(wiersz(ksiega('Księga WZ'), 'WZ 05/11'))
+    const dlg = await screen.findByRole('dialog')
+    await within(dlg).findByRole('group', { name: 'Podsumowanie dokumentu' })
+    expect(within(dlg).getAllByText(/nie liczon/i)).toHaveLength(1)
+    expect(within(dlg).queryByLabelText('Termin płatności')).toBeNull()
+    expect(within(dlg).queryByRole('group', { name: 'Forma płatności' })).toBeNull()
+    expect(within(dlg).queryByRole('region', { name: 'Wpłaty do tego dokumentu' })).toBeNull()
+  })
+
+  it('zaległa WZ sprzed startu: bez „Nie licz do rozrachunków…” (usuwa się ją z powodem)', async () => {
+    const zalWz = { ...ZALEGLA, id: 'z9', numer: 'WZ/77/09/26' }
+    api.karta.mockResolvedValue({ ...SUROWA_KARTA_PELNA, dokumenty: { ...SUROWA_KARTA_PELNA.dokumenty, wz: [...SUROWA_KARTA_PELNA.dokumenty.wz, zalWz] } })
+    api.dokument.mockResolvedValue({ ...zalWz, ksiega: 'wz', pokrycie: [], historia: [] })
+    mount()
+    await gotowe()
+    fireEvent.click(wiersz(ksiega('Księga WZ'), 'WZ/77/09/26'))
+    const dlg = await screen.findByRole('dialog')
+    expect(await within(dlg).findByRole('button', { name: 'Usuń dokument…' })).toBeTruthy()
+    expect(within(dlg).queryByRole('button', { name: 'Nie licz do rozrachunków…' })).toBeNull()
   })
 
   it('błąd wczytania karty → komunikat z „Spróbuj ponownie”', async () => {

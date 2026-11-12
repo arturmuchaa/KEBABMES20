@@ -167,7 +167,7 @@ describe('Rozrachunki — okno wpłaty', () => {
     expect(zapisz().disabled).toBe(true)
   })
 
-  it('pola wpłaty bez placeholderów (D9); zaległy dokument sprzed startu do wskazania na liście dokumentów', () => {
+  it('pola wpłaty bez placeholderów (D9)', () => {
     mount({ ksiega: 'fv' })
     expect(document.querySelectorAll('[placeholder]').length).toBe(0)
   })

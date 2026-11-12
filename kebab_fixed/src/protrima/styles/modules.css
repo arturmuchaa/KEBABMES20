@@ -979,6 +979,11 @@ div.pstage { cursor: default; }
 .rr-wpisz { height: 26px; }
 .rr-znacznik { margin-left: 6px; vertical-align: 1px; font-weight: 500; }
 .rr-sum .s.warn-ink { color: var(--warn-ink); }
+/* `.rr-sum .s` ma szarość i wyższą specyficzność niż `.crit-ink` — zaległość po terminie musi być czerwona. */
+.rr-sum .s.crit-ink { color: var(--crit-ink); }
+.rr-pole-pod.warn-ink { color: var(--warn-ink); }
+/* „czeka na kwotę” na żółtawym wierszu: pigułka z obwódką na tle powierzchni, żeby nie zlewała się z wierszem. */
+.rr-tbl tbody tr.rr-bez-kwoty .tag.warn { background: var(--surface); box-shadow: inset 0 0 0 1px var(--warn); color: var(--warn-ink); }
 /* Szczegóły dokumentu (D12): kafelki na górze, wpłaty wyraźnie, edycja niżej. */
 .rr-dok-kafle .rr-sumy { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
 .rr-dok-kafle .rr-sum { padding: 10px 14px; }

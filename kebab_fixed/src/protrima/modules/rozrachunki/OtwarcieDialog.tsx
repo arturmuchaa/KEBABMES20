@@ -230,6 +230,13 @@ function useZalegle(karta: Karta, ksiega: Ksiega | undefined, onZapisano: () => 
   const app = useApp()
   const w = karta.klient.waluta
   const terminKsiegi = (ks: Ksiega) => (ks === 'wz' ? karta.klient.terminWz : karta.klient.terminFv)
+  /** Skąd termin: `+ 7 dni` albo — przy terminie 0 — `termin = data (gotówka)`. */
+  const podpisTerminu = (ks: Ksiega) => {
+    const t = terminKsiegi(ks)
+    if (t > 0) return `+ ${t} dni`
+    const forma = ks === 'wz' ? karta.klient.formaWz : karta.klient.formaFv
+    return `termin = data${forma === 'gotowka' ? ' (gotówka)' : ''}`
+  }
   const nowy = (po?: WierszZaleglego): WierszZaleglego => {
     const ks = po?.ksiega ?? ksiega ?? 'fv'
     const data = po?.data ?? ''
@@ -357,7 +364,7 @@ function useZalegle(karta: Karta, ksiega: Ksiega | undefined, onZapisano: () => 
                   <input type="date" className={`field${widoczny(r, 'data') ? ' invalid' : ''}`} value={r.data} max={dodajDni(karta.start, -1)}
                     aria-label={`Data wystawienia, wiersz ${i + 1}`} onChange={e => zmien(r.klucz, { data: e.target.value })} onKeyDown={nastepnePole} />
                 </Komorka></td>
-                <td><Komorka blad={widoczny(r, 'termin')} pod={!r.terminReczny && r.termin ? `+ ${terminKsiegi(r.ksiega)} dni` : undefined}>
+                <td><Komorka blad={widoczny(r, 'termin')} pod={!r.terminReczny && r.termin ? podpisTerminu(r.ksiega) : undefined}>
                   <input type="date" className={`field${widoczny(r, 'termin') ? ' invalid' : ''}`} value={r.termin} min={r.data || undefined}
                     aria-label={`Termin, wiersz ${i + 1}`} onChange={e => zmien(r.klucz, { termin: e.target.value })} onKeyDown={nastepnePole} />
                 </Komorka></td>
