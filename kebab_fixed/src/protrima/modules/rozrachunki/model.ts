@@ -78,6 +78,18 @@ export interface Dok {
   korekta: boolean
   /** Korekta: dokumenty, które zmniejszyła (numer i kwota). */
   rozliczyla: Array<{ numer: string; kwota: number }>
+  /** Kilogramy dokumentu (WZ z MES, FV z kursu, FV ręczna z kg); null — brak danych. */
+  kg: number | null
+  /** WZ „nie licz do rozrachunków” (D2) — poza saldem, z powodem. */
+  nieLicz: boolean
+  nieLiczPowod: string
+  /** FV z papierów kursu bez kwoty (D4) — czeka, aż biuro wpisze kwotę z Subiekta. */
+  bezKwoty: boolean
+  /**
+   * Zaległy dokument sprzed startu (D13): `zrodlo='otwarcie'`, ale osobny dokument z numerem.
+   * Zbiorcze saldo otwarcia ma to samo źródło — odróżnia je flaga `otwarcie`.
+   */
+  zalegly: boolean
 }
 
 export interface Wplata {
@@ -105,8 +117,16 @@ export interface Karta {
     notatka: string
     /** Waluta, na którą wskazuje NIP, gdy różna od ustawionej. */
     walutaPodpowiedz: string | null
+    /** Wyłączony z rozrachunków (D1) — nie ma go na liście, saldo nie drukuje się na WZ. */
+    wylaczony: boolean
   }
   start: string
+  /** Obrót za wybrany okres (brutto, waluta klienta, bez salda otwarcia i zaległych sprzed startu). */
+  obrot: number
+  /** Sprzedane kg za okres (z FV bez kwoty, bez salda otwarcia). */
+  kg: number
+  /** FV z papierów kursu czekające na kwotę (bez względu na okres). */
+  fvBezKwoty: number
   /** Biuro wprowadziło saldo otwarcia (choćby 0) — dopiero wtedy saldo drukuje się na WZ i w papierach kursu. */
   rozliczeniaOtwarte: boolean
   saldo: {
@@ -174,6 +194,10 @@ function mapujDok(r: Surowy): Dok {
     termin: sNull(r.termin), forma: s(r.forma), uwagi: s(r.uwagi), zrodlo: s(r.zrodlo),
     otwarcie: !!r.otwarcie, stan: mapujStan(obj(r.stan)), zamkniety: sNull(r.zamkniety), brakVat: !!r.brak_vat,
     korekta: !!r.korekta, rozliczyla: tab(r.rozliczyla).map(p => ({ numer: s(p.numer), kwota: n(p.kwota) })),
+    kg: r.kg == null || r.kg === '' ? null : n(r.kg),
+    nieLicz: !!r.nie_licz, nieLiczPowod: s(r.nie_licz_powod),
+    bezKwoty: r.kwota === null || s(obj(r.stan).kod) === 'czeka_na_kwote',
+    zalegly: s(r.zrodlo) === 'otwarcie' && !r.otwarcie,
   }
 }
 
@@ -189,9 +213,10 @@ export function mapujKarte(raw: unknown): Karta {
     klient: {
       id: s(k.id), nazwa: s(k.nazwa), nip: s(k.nip), waluta: s(k.waluta),
       terminWz: n(k.termin_wz), terminFv: n(k.termin_fv), formaWz: s(k.forma_wz), formaFv: s(k.forma_fv),
-      notatka: s(k.notatka), walutaPodpowiedz: sNull(k.waluta_podpowiedz),
+      notatka: s(k.notatka), walutaPodpowiedz: sNull(k.waluta_podpowiedz), wylaczony: !!k.wylaczony,
     },
     start: s(r.start),
+    obrot: n(r.obrot), kg: n(r.kg), fvBezKwoty: n(r.fv_bez_kwoty),
     rozliczeniaOtwarte: !!r.rozliczenia_otwarte,
     saldo: {
       wz: n(sa.wz), fv: n(sa.fv), lacznie: n(sa.lacznie),
@@ -217,8 +242,20 @@ export function mapujKarte(raw: unknown): Karta {
 }
 
 /** Szczegóły dokumentu (`GET /api/rozliczenia/dokumenty/:id`): stan, wpłaty, które go pokryły, historia zmian. */
+export interface Pokrycie {
+  data: string; forma: string
+  /** Ile z wpłaty (korekty, nadpłaty z otwarcia) poszło na ten dokument. */
+  kwota: number
+  /** Cała kwota wpłaty — inna niż `kwota`, gdy wpłata pokryła kilka dokumentów. */
+  kwotaWplaty: number
+  uwagi: string; kto: string
+  rodzaj: 'wplata' | 'korekta' | 'otwarcie' | string
+}
+
 export interface SzczegolyDokumentu extends Dok {
-  pokrycie: Array<{ data: string; forma: string; kwota: number; uwagi: string }>
+  /** Księga dokumentu (do „+ Wpłata do tego dokumentu”). */
+  ksiega: Ksiega
+  pokrycie: Pokrycie[]
   historia: Array<{ akcja: string; opis: string; powod: string; kto: string; kiedy: string }>
 }
 
@@ -226,7 +263,11 @@ export function mapujSzczegoly(raw: unknown): SzczegolyDokumentu {
   const r = obj(raw)
   return {
     ...mapujDok(r),
-    pokrycie: tab(r.pokrycie).map(p => ({ data: s(p.data), forma: s(p.forma), kwota: n(p.kwota), uwagi: s(p.uwagi) })),
+    ksiega: s(r.ksiega) === 'wz' ? 'wz' : 'fv',
+    pokrycie: tab(r.pokrycie).map(p => ({
+      data: s(p.data), forma: s(p.forma), kwota: n(p.kwota), kwotaWplaty: p.kwota_wplaty == null ? n(p.kwota) : n(p.kwota_wplaty),
+      uwagi: s(p.uwagi), kto: s(p.kto), rodzaj: s(p.rodzaj) || 'wplata',
+    })),
     historia: tab(r.historia).map(h => ({ akcja: s(h.akcja), opis: s(h.opis), powod: s(h.powod), kto: s(h.kto), kiedy: s(h.kiedy) })),
   }
 }
@@ -296,6 +337,8 @@ const POZA_KSIEGA: Record<string, { tekst: string; ton: Ton }> = {
   usuniety: { tekst: 'usunięty', ton: 'zero' },
   anulowany: { tekst: 'anulowany', ton: 'zero' },
   korekta: { tekst: 'korekta', ton: 'zero' },
+  nie_licz: { tekst: 'nie liczona', ton: 'zero' },
+  czeka_na_kwote: { tekst: 'czeka na kwotę', ton: 'soon' },
 }
 
 export function etykietaStanu(st: Stan): { tekst: string; ton: Ton } {
@@ -468,29 +511,8 @@ export function dzisIso(d: Date = new Date()): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
 }
 
-export type Okres = 'wszystko' | 'miesiac' | 'kwartal' | 'rok' | 'zakres'
-export const OKRESY: Okres[] = ['wszystko', 'miesiac', 'kwartal', 'rok', 'zakres']
-export type Zakres = { od: string; do: string } | null
-
 const iso = (r: number, m: number, d: number) => `${r}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
 const ostatniDzien = (r: number, m: number) => new Date(Date.UTC(r, m, 0)).getUTCDate()
-
-/** Zakres dat okresu (granice włącznie); `null` — bez filtra. „Od–do” z pustym końcem — bez końca. */
-export function zakresOkresu(okres: Okres, dzis: string, od = '', do_ = ''): Zakres {
-  const [r, m] = dzis.split('-').map(Number)
-  switch (okres) {
-    case 'miesiac': return { od: iso(r, m, 1), do: iso(r, m, ostatniDzien(r, m)) }
-    case 'kwartal': {
-      const p = Math.floor((m - 1) / 3) * 3 + 1
-      return { od: iso(r, p, 1), do: iso(r, p + 2, ostatniDzien(r, p + 2)) }
-    }
-    case 'rok': return { od: iso(r, 1, 1), do: iso(r, 12, 31) }
-    case 'zakres': return od || do_ ? { od, do: do_ } : null
-    default: return null
-  }
-}
-
-export const wOkresie = (data: string, z: Zakres) => !z || ((!z.od || data >= z.od) && (!z.do || data <= z.do))
 
 /** Symbol waluty do nagłówka kolumny: `€`, `zł`, inna — kod. */
 export const symbolWaluty = (w: string) => kwota(0, w).split(' ').pop() ?? w
@@ -591,4 +613,48 @@ export function poprzedniMiesiac(dzis: string): { od: string; do: string } {
   const [r, m] = dzis.split('-').map(Number)
   const pr = m === 1 ? r - 1 : r, pm = m === 1 ? 12 : m - 1
   return { od: iso(pr, pm, 1), do: iso(pr, pm, ostatniDzien(pr, pm)) }
+}
+
+// ─── Saldo otwarcia: zaległe dokumenty sprzed startu (D13) ─────────────
+
+/** Wiersz tabeli „Zaległe dokumenty” w oknie salda otwarcia (tekst z pól, zanim pójdzie do API). */
+export interface WierszZaleglego {
+  klucz: string
+  ksiega: Ksiega
+  numer: string
+  data: string
+  termin: string
+  /** Termin wpisany ręcznie — przestaje iść za datą. */
+  terminReczny: boolean
+  kwota: string
+  uwagi: string
+}
+export type BledyZaleglego = Partial<Record<'numer' | 'data' | 'termin' | 'kwota', string>>
+
+/** Pusty wiersz — nic nie wpisano (data i termin same nie wystarczą); przy zapisie pomijany. */
+export const pustyZalegly = (w: WierszZaleglego) => !w.numer.trim() && !w.kwota.trim() && !w.uwagi.trim()
+
+export const normNumeru = (t: string) => t.trim().replace(/\s+/g, ' ').toUpperCase()
+
+/**
+ * Błędy wiersza po polsku (przy polach). `zajete` — numery już zajęte w księdze
+ * (na karcie i we wcześniejszych wierszach tej paczki), znormalizowane `normNumeru`.
+ */
+export function bledyZaleglego(w: WierszZaleglego, start: string, zajete: Set<string>): BledyZaleglego {
+  const b: BledyZaleglego = {}
+  if (!w.numer.trim()) b.numer = 'Wpisz numer dokumentu'
+  else if (zajete.has(normNumeru(w.numer))) b.numer = `Numer ${w.numer.trim()} jest już w księdze ${w.ksiega === 'wz' ? 'WZ' : 'faktur'}`
+  if (!w.data) b.data = 'Wpisz datę wystawienia'
+  else if (start && w.data >= start) b.data = `Data musi być przed startem rozliczeń (${start.split('-').reverse().join('.')})`
+  if (w.termin && w.data && w.termin < w.data) b.termin = 'Termin przed datą wystawienia'
+  const k = w.kwota.trim() ? liczba(w.kwota) : NaN
+  if (!w.kwota.trim()) b.kwota = 'Wpisz kwotę do zapłaty'
+  else if (!Number.isFinite(k) || doGroszy(k) <= 0) b.kwota = 'Kwota większa od zera'
+  return b
+}
+
+/** `1 dokument`, `2 dokumenty`, `5 dokumentów`. */
+export function ileDokumentow(x: number): string {
+  const d = x % 10, s = x % 100
+  return `${x} ${x === 1 ? 'dokument' : d >= 2 && d <= 4 && (s < 12 || s > 14) ? 'dokumenty' : 'dokumentów'}`
 }

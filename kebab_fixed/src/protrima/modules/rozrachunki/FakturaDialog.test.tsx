@@ -118,4 +118,19 @@ describe('Rozrachunki — okno faktury', () => {
     expect(screen.getByText(/Termin nie może być przed datą wystawienia/)).toBeTruthy()
     expect(zapisz().disabled).toBe(true)
   })
+
+  it('kilogramy (opcjonalnie) idą do API jako liczba i do toastu; złe kg — komunikat przy polu; bez placeholderów', async () => {
+    mount()
+    expect(document.querySelectorAll('[placeholder]').length).toBe(0)
+    zmien('Numer', 'FV 561/2026')
+    zmien('Kwota brutto', '2 000')
+    zmien('Kilogramy', '-3')
+    expect(screen.getByText('Wpisz liczbę kilogramów (0 lub więcej)')).toBeTruthy()
+    expect(zapisz().disabled).toBe(true)
+    zmien('Kilogramy', '1 250,5')
+    fireEvent.click(zapisz())
+    await waitFor(() => expect(api.dodajFakture).toHaveBeenCalledWith('c1',
+      { numer: 'FV 561/2026', data: '2026-11-09', kwota: 2000, termin: '2026-11-16', forma: 'przelew', uwagi: '', kg: 1250.5 }))
+    expect(app.toast).toHaveBeenCalledWith(expect.objectContaining({ detail: 'termin 16.11.2026 · przelew · 1 250,5 kg' }))
+  })
 })

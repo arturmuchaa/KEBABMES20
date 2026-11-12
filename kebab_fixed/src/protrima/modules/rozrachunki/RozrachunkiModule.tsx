@@ -54,7 +54,6 @@ const KOLUMN = KOLUMNY_TABELI.length
  * do przypisania, karta klienta wewnątrz modułu. Salda liczy serwer.
  */
 export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void }) {
-  const app = useApp()
   const dzis = dzisIso()
   const [okresWybor, setOkresWybor] = useOkresObrotu()
   // Zły własny zakres (brak daty, „do” przed „od”) — zostaje ostatni poprawny, bez zapytania do serwera.
@@ -65,6 +64,7 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
   const l = res.data
   const [wybrany, setWybrany] = useState<string | null>(null)
   const [nazwaNowego, setNazwaNowego] = useState<string | undefined>(undefined)
+  const [nowyZKartoteki, setNowyZKartoteki] = useState(false)
   const [okno, setOkno] = useState<'dodaj' | null>(null)
   const [wylaczeniOn, setWylaczeniOn] = useState(false)
   const [oknoKarty, setOknoKarty] = useState<Okno | null>(null)
@@ -102,9 +102,9 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
   const opisWybranego = opisOkresu(okresWybor, dzis, l?.start ?? '')
   const okresSlowem = `${ETYKIETA_OKRESU_OBROTU[okresOk.okres]} · ${opisOkresu(okresOk, dzis, l?.start ?? '')}`
 
-  const otworz = (k: Kontrahent) => { setKursor(k.id); setWybrany(k.id) }
+  const otworz = (k: Kontrahent) => { setKursor(k.id); setNowyZKartoteki(false); setWybrany(k.id) }
   // Kontrahent z kartoteki bez rozrachunków: karta (pusta) w module — tam saldo otwarcia, potem jest na liście.
-  const otworzNowego = (id: string, nazwa: string) => { setOkno(null); setNazwaNowego(nazwa); setWybrany(id) }
+  const otworzNowego = (id: string, nazwa: string) => { setOkno(null); setNazwaNowego(nazwa); setNowyZKartoteki(true); setWybrany(id) }
   // Powrót z karty — lista po cichu się odświeża (wpłata, wpis w dzienniku mogły zmienić saldo i przypomnienia).
   const wroc = useCallback(() => { doFokusu.current = wybrany; setWybrany(null); odswiez() }, [wybrany, odswiez])
   // Okna karty (wpłata, faktura, saldo otwarcia, druk, ustawienia). Po zapisie: karta i lista od nowa
@@ -176,7 +176,8 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
       {wybrany && (
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           <div className="dock-pad">
-            <KartaKlienta key={wybrany} clientId={wybrany} nazwa={wybranyK?.nazwa ?? nazwaNowego} wersja={wersjaKarty} onWroc={wroc} onOtworz={otworzOkno} />
+            <KartaKlienta key={wybrany} clientId={wybrany} nazwa={wybranyK?.nazwa ?? nazwaNowego} wersja={wersjaKarty} onWroc={wroc} onOtworz={otworzOkno}
+              okres={okresWybor} onOkres={zmienOkres} fokusNaStart={nowyZKartoteki} />
           </div>
         </div>
       )}
@@ -282,7 +283,7 @@ function OknoKarty({ o, onClose, onZapisano, onOdswiez }: { o: Okno; onClose: ()
   switch (o.rodzaj) {
     case 'wplata': return <WplataDialog {...p} ksiega={o.ksiega} dokumentId={o.dokumentId} />
     case 'faktura': return <FakturaDialog {...p} />
-    case 'otwarcie': return <OtwarcieDialog {...p} ksiega={o.ksiega} onOdswiez={onOdswiez} />
+    case 'otwarcie': return <OtwarcieDialog {...p} ksiega={o.ksiega} zakladka={o.zakladka} onOdswiez={onOdswiez} />
     case 'ustawienia': return <UstawieniaKlientaDialog {...p} />
     case 'druk': return <DrukSaldaDialog {...p} />
   }
@@ -521,10 +522,10 @@ function DodajKontrahentaDialog({ naLiscie, wylaczeni, onClose, onWybierz }: {
           <Wybor id="rr-dodaj-kontrahenta" label="Kontrahent z kartoteki" items={items} value={id} autoFocus
             pusto={wczytuje ? 'Wczytuję kartotekę…' : 'Wszyscy kontrahenci z kartoteki są już w rozrachunkach'}
             onChange={setId} onDalej={() => setTimeout(() => przycisk.current?.focus(), 0)} />
-          <span className="rr-pole-pod">{wczytuje ? 'Wczytuję kartotekę kontrahentów…' : 'Szukaj po nazwie albo NIP. Nie ma tu tych, którzy już są na liście, ani wyłączonych (te przywrócisz chipem „Wyłączeni”).'}</span>
+          <span className="rr-pole-pod">{wczytuje ? 'Wczytuję kartotekę kontrahentów…' : 'Szukaj po nazwie albo NIP.'}</span>
         </div>
       </form>
-      <p className="muted" style={{ margin: 0 }}>Otworzy się karta kontrahenta. Wpisz saldo otwarcia albo zaległe dokumenty — wtedy kontrahent zostanie na liście.</p>
+      <p className="muted" style={{ margin: 0 }}>Otworzy się karta — wpisz tam saldo otwarcia.</p>
       {klienciRes.error && (
         <div className="note crit" role="alert"><FlagIcon level="crit" size={15} />
           <div><b>Nie udało się wczytać kartoteki:</b> {klienciRes.error} <button type="button" className="btn sm" onClick={() => void klienciRes.refetch()}>Spróbuj ponownie</button></div>

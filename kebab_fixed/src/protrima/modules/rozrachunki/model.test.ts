@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   etykietaStanu, filtruj, kwotaSalda, liczba, mapujKarte, mapujListe, mapujSzczegoly, opisPlatnosci, pigulka, podpowiedzKlienta,
-  czesciRozliczenia, numerZSeria, rozliczyla, sortuj, symbolWaluty, uporzadkujDziennik, walutyPodsumowania, wOkresie, zakresOkresu,
+  czesciRozliczenia, numerZSeria, rozliczyla, sortuj, symbolWaluty, uporzadkujDziennik, walutyPodsumowania,
   dodajDni, mapujPodglad, opisRozliczenia, poprzedniMiesiac, dni, doGroszy, formaDomyslna, FORMY, mapujHistorieZmian,
-  zakresObrotu, opisOkresu, bladZakresu, kilogramy, kandydaciDoDodania,
+  zakresObrotu, opisOkresu, bladZakresu, kilogramy, kandydaciDoDodania, bledyZaleglego, pustyZalegly, ileDokumentow,
+  type WierszZaleglego,
   type Kontrahent, type Wplata,
 } from './model'
 import { SUROWA_KARTA, SUROWA_KARTA_PELNA, SUROWA_LISTA, SUROWY_DOKUMENT, SUROWY_PODGLAD } from './daneTestowe.fixture'
@@ -38,14 +39,15 @@ describe('mapujKarte — nie gubi pól', () => {
   it('klient, salda, otwarcia, dokumenty, wpłaty, ostrzeżenia, dziennik', () => {
     const c = mapujKarte(SUROWA_KARTA)
     expect(c.klient).toEqual({ id: 'c1', nazwa: 'RONDO GRILL', nip: 'HU99000001', waluta: 'EUR', terminWz: 0, terminFv: 7,
-      formaWz: 'gotowka', formaFv: 'przelew', notatka: 'płaci w piątki', walutaPodpowiedz: null })
+      formaWz: 'gotowka', formaFv: 'przelew', notatka: 'płaci w piątki', walutaPodpowiedz: null, wylaczony: false })
     expect(c.start).toBe('2026-10-01')
     expect(c.saldo).toEqual({ wz: -8409.5, fv: -30038.2, lacznie: -38447.7, poTerminieWz: 8409.5, poTerminieFv: 7280,
       najstarszaDniWz: 13, najstarszaDniFv: 6 })
     expect(c.otwarcia).toEqual({ wz: { kwota: -6300, zalegleOd: '2026-09-20', uwagi: 'z Excela' }, fv: null })
     expect(c.dokumenty.wz[0]).toEqual({ id: 'w21', numer: 'WZ 21/10', data: '2026-10-27', kwota: 6120, zaplacono: 3000, zostalo: 3120,
       termin: '2026-10-27', forma: 'gotowka', uwagi: '', zrodlo: 'mes_wz', otwarcie: false,
-      stan: { kod: 'po_terminie', dni: 13, czesciowo: true }, zamkniety: null, brakVat: true, korekta: false, rozliczyla: [] })
+      stan: { kod: 'po_terminie', dni: 13, czesciowo: true }, zamkniety: null, brakVat: true, korekta: false, rozliczyla: [],
+      kg: null, nieLicz: false, nieLiczPowod: '', bezKwoty: false, zalegly: false })
     expect(c.dokumenty.fv[0].zamkniety).toBe('2026-10-20')
     expect(c.wplaty[0]).toEqual({ id: 'p1', ksiega: 'fv', forma: 'przelew', kwota: 17325, data: '2026-10-20', uwagi: 'tytuł',
       utworzyl: 'biuro', dokumentId: null, przydzialy: [{ numer: 'FV 512/2026', kwota: 17325 }], reszta: 0 })
@@ -55,6 +57,25 @@ describe('mapujKarte — nie gubi pól', () => {
       kiedy: '2026-11-09T10:00:00' }])
     expect(c.rozliczeniaOtwarte).toBe(true)
     expect(mapujKarte({ ...SUROWA_KARTA, rozliczenia_otwarte: false }).rozliczeniaOtwarte).toBe(false)
+  })
+  it('karta: wyłączony klient, obrót, kg, FV bez kwoty; dokumenty: kg, nieliczona WZ, FV bez kwoty, zaległy vs zbiorcze saldo otwarcia', () => {
+    const c = mapujKarte({ ...SUROWA_KARTA, klient: { ...SUROWA_KARTA.klient, wylaczony: true }, obrot: 21000.5, kg: 1450.25, fv_bez_kwoty: 2,
+      dokumenty: {
+        wz: [
+          { ...SUROWA_KARTA.dokumenty.wz[0], id: 'n1', kg: 120.5, nie_licz: true, nie_licz_powod: 'towar zwrotny', stan: { kod: 'nie_licz', dni: 0, czesciowo: false } },
+          { ...SUROWA_KARTA.dokumenty.wz[0], id: 'o1', zrodlo: 'otwarcie', otwarcie: false },
+          { ...SUROWA_KARTA.dokumenty.wz[0], id: 'otwarcie-wz', zrodlo: 'otwarcie', otwarcie: true },
+        ],
+        fv: [{ ...SUROWA_KARTA.dokumenty.fv[0], id: 'k1', kwota: null, zrodlo: 'kurs', kg: 300, stan: { kod: 'czeka_na_kwote', dni: 0, czesciowo: false } }],
+      } })
+    expect(c.klient.wylaczony).toBe(true)
+    expect([c.obrot, c.kg, c.fvBezKwoty]).toEqual([21000.5, 1450.25, 2])
+    expect(c.dokumenty.wz[0]).toMatchObject({ kg: 120.5, nieLicz: true, nieLiczPowod: 'towar zwrotny', zalegly: false })
+    expect(c.dokumenty.wz[1].zalegly).toBe(true)
+    expect(c.dokumenty.wz[2]).toMatchObject({ otwarcie: true, zalegly: false })
+    expect(c.dokumenty.fv[0]).toMatchObject({ bezKwoty: true, kwota: 0, kg: 300 })
+    expect(etykietaStanu(c.dokumenty.fv[0].stan)).toEqual({ tekst: 'czeka na kwotę', ton: 'soon' })
+    expect(etykietaStanu(c.dokumenty.wz[0].stan)).toEqual({ tekst: 'nie liczona', ton: 'zero' })
   })
   it('faktura korygująca: ujemna kwota, znacznik korekty i co zmniejszyła', () => {
     const c = mapujKarte({ ...SUROWA_KARTA, dokumenty: { wz: [], fv: [{ ...SUROWA_KARTA.dokumenty.fv[0], id: 'k1', numer: 'FVK 1/2026', kwota: -200,
@@ -182,25 +203,6 @@ describe('podpowiedzKlienta — kontrahent dla WZ bez kontrahenta', () => {
   })
 })
 
-describe('zakresOkresu / wOkresie — filtr okresu na karcie', () => {
-  it('ten miesiąc, kwartał, rok, od–do; „wszystko” bez zakresu', () => {
-    expect(zakresOkresu('wszystko', '2026-11-09')).toBeNull()
-    expect(zakresOkresu('miesiac', '2026-11-09')).toEqual({ od: '2026-11-01', do: '2026-11-30' })
-    expect(zakresOkresu('miesiac', '2026-02-10')).toEqual({ od: '2026-02-01', do: '2026-02-28' })
-    expect(zakresOkresu('kwartal', '2026-11-09')).toEqual({ od: '2026-10-01', do: '2026-12-31' })
-    expect(zakresOkresu('kwartal', '2026-05-31')).toEqual({ od: '2026-04-01', do: '2026-06-30' })
-    expect(zakresOkresu('rok', '2026-11-09')).toEqual({ od: '2026-01-01', do: '2026-12-31' })
-    expect(zakresOkresu('zakres', '2026-11-09', '2026-10-01', '')).toEqual({ od: '2026-10-01', do: '' })
-    expect(zakresOkresu('zakres', '2026-11-09', '', '')).toBeNull()
-  })
-  it('granice włącznie, puste „do” = bez końca', () => {
-    expect(wOkresie('2026-11-01', { od: '2026-11-01', do: '2026-11-30' })).toBe(true)
-    expect(wOkresie('2026-10-31', { od: '2026-11-01', do: '2026-11-30' })).toBe(false)
-    expect(wOkresie('2027-01-01', { od: '2026-11-01', do: '' })).toBe(true)
-    expect(wOkresie('2026-01-01', null)).toBe(true)
-  })
-})
-
 describe('rozliczyla — na co poszła wpłata', () => {
   const w = (o: Partial<Wplata>): Wplata => ({ ...mapujKarte(SUROWA_KARTA).wplaty[0], ...o })
   it('numer z serią, dwukropek i kwota z walutą — po średniku; reszta jako nadpłata', () => {
@@ -249,7 +251,13 @@ describe('mapujSzczegoly — dokument z pokryciem i historią', () => {
     const s = mapujSzczegoly(SUROWY_DOKUMENT)
     expect(s.numer).toBe('FV 512/2026')
     expect(s.zrodlo).toBe('reczna')
-    expect(s.pokrycie).toEqual([{ data: '2026-10-20', forma: 'przelew', kwota: 17325, uwagi: 'tytuł' }])
+    expect(s.pokrycie).toEqual([{ data: '2026-10-20', forma: 'przelew', kwota: 17325, kwotaWplaty: 17325, uwagi: 'tytuł', kto: '', rodzaj: 'wplata' }])
+    expect(s.ksiega).toBe('fv')
+    const p = mapujSzczegoly({ ...SUROWY_DOKUMENT, ksiega: 'wz', kg: 1250.5, pokrycie: [{ data: '2026-11-05', forma: 'gotowka', kwota: 300,
+      kwota_wplaty: 1000, uwagi: '', kto: 'Anna', rodzaj: 'wplata', wplata_id: 'p9' }] })
+    expect(p.ksiega).toBe('wz')
+    expect(p.kg).toBe(1250.5)
+    expect(p.pokrycie[0]).toEqual({ data: '2026-11-05', forma: 'gotowka', kwota: 300, kwotaWplaty: 1000, uwagi: '', kto: 'Anna', rodzaj: 'wplata' })
     expect(s.historia).toEqual([{ akcja: 'termin', opis: 'FV 512/2026: termin płatności 22.10.2026 → 25.10.2026',
       powod: 'ustalenie z klientem', kto: 'Anna', kiedy: '2026-10-19T09:30:00' }])
     expect(mapujSzczegoly(null).pokrycie).toEqual([])
@@ -353,5 +361,26 @@ describe('okres obrotu i kg — lista i karta', () => {
   it('kandydaciDoDodania: bez widocznych na liście, wyłączonych i nieaktywnych', () => {
     const klienci = [{ id: 'c1' }, { id: 'c7' }, { id: 'c8' }, { id: 'c9', active: false }]
     expect(kandydaciDoDodania(klienci, [{ id: 'c1' }], [{ id: 'c7' }]).map(c => c.id)).toEqual(['c8'])
+  })
+})
+
+describe('zaległe dokumenty sprzed startu — walidacja wiersza (D13)', () => {
+  const w = (o: Partial<WierszZaleglego>): WierszZaleglego => ({
+    klucz: 'z1', ksiega: 'fv', numer: 'FV 101/2026', data: '2026-10-15', termin: '2026-10-22', terminReczny: false, kwota: '1 250,50', uwagi: '', ...o,
+  })
+  it('poprawny wiersz bez błędów; pusty wiersz pomijany', () => {
+    expect(bledyZaleglego(w({}), '2026-11-12', new Set())).toEqual({})
+    expect(pustyZalegly(w({ numer: '', kwota: '', uwagi: '' }))).toBe(true)
+    expect(pustyZalegly(w({ numer: '', kwota: '', uwagi: 'x' }))).toBe(false)
+  })
+  it('numer wymagany i unikalny w księdze, data przed startem, termin ≥ data, kwota > 0', () => {
+    const b = bledyZaleglego(w({ numer: ' ', data: '2026-11-12', termin: '2026-11-01', kwota: '-5' }), '2026-11-12', new Set())
+    expect(b).toEqual({ numer: 'Wpisz numer dokumentu', data: 'Data musi być przed startem rozliczeń (12.11.2026)', termin: 'Termin przed datą wystawienia', kwota: 'Kwota większa od zera' })
+    expect(bledyZaleglego(w({ numer: 'fv  101/2026' }), '2026-11-12', new Set(['FV 101/2026'])).numer).toBe('Numer fv  101/2026 jest już w księdze faktur')
+    expect(bledyZaleglego(w({ kwota: '' }), '2026-11-12', new Set()).kwota).toBe('Wpisz kwotę do zapłaty')
+    expect(bledyZaleglego(w({ data: '' }), '2026-11-12', new Set()).data).toBe('Wpisz datę wystawienia')
+  })
+  it('ileDokumentow — odmiana', () => {
+    expect([1, 2, 5, 12, 22].map(ileDokumentow)).toEqual(['1 dokument', '2 dokumenty', '5 dokumentów', '12 dokumentów', '22 dokumenty'])
   })
 })

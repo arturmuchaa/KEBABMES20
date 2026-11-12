@@ -3,7 +3,7 @@ import { Download, Printer } from 'lucide-react'
 import { useApp, Dialog } from '../../shell/context'
 import { downloadDocPdf, openDocument, rozliczeniaPdf } from '@/lib/api'
 import { dataPl } from '@/features/rozliczenia/druk'
-import { dzisIso, poprzedniMiesiac, zakresOkresu, type Karta } from './model'
+import { dzisIso, poprzedniMiesiac, zakresObrotu, type Karta } from './model'
 import { OdmowaSerwera, Segment, naEnter, useZapis } from './wspolne'
 
 type Rodzaj = 'zestawienie' | 'historia'
@@ -29,7 +29,7 @@ export function DrukSaldaDialog({ karta, onClose }: { karta: Karta; onClose: () 
   const zapis = useZapis('Nie udało się przygotować PDF')
   const k = karta.klient
 
-  const zakres = okres === 'miesiac' ? zakresOkresu('miesiac', dzis) : okres === 'poprzedni' ? poprzedniMiesiac(dzis) : od && do_ && od <= do_ ? { od, do: do_ } : null
+  const zakres = okres === 'miesiac' ? zakresObrotu({ okres: 'miesiac', od: '', do: '' }, dzis) : okres === 'poprzedni' ? poprzedniMiesiac(dzis) : od && do_ && od <= do_ ? { od, do: do_ } : null
   const tip = rodzaj === 'zestawienie' ? (naDzien ? undefined : 'Wpisz datę zestawienia')
     : zakres ? undefined : od && do_ ? 'Data „od” jest po dacie „do”' : 'Wpisz obie daty okresu'
   const ok = !tip

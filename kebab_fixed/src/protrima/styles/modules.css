@@ -968,4 +968,57 @@ div.pstage { cursor: default; }
 .rr-ust .rr-kwota-pole { max-width: 140px; }
 .rr-data { width: 170px; }
 .rr-okres-druku { font-weight: 600; color: var(--ink-1); font-variant-numeric: tabular-nums; }
+/* Karta (Task 4): notatka o kliencie z widoczną etykietą, WZ nieliczone, FV bez kwoty, zaległe sprzed startu. */
+.rr-notatka-l { flex: none; font-size: var(--fs-sm); color: var(--ink-3); }
+.rr-dziennik-form > .rr-notatki-tresc { flex: 1 1 100%; min-width: 0; }
+.rr-dziennik-form > .rr-notatki-tresc .field { width: 100%; }
+.rr-tbl tbody tr.rr-nieliczona td { color: var(--ink-4); background: var(--surface-alt); }
+.rr-tbl tbody tr.rr-nieliczona td.code { text-decoration: line-through; text-decoration-color: var(--line-strong); }
+.rr-tbl tbody tr.rr-bez-kwoty td { background: var(--warn-tint); }
+.rr-tbl tbody tr.rr-bez-kwoty td:first-child { box-shadow: inset 3px 0 0 var(--warn); }
+.rr-wpisz { height: 26px; }
+.rr-znacznik { margin-left: 6px; vertical-align: 1px; font-weight: 500; }
+.rr-sum .s.warn-ink { color: var(--warn-ink); }
+/* Szczegóły dokumentu (D12): kafelki na górze, wpłaty wyraźnie, edycja niżej. */
+.rr-dok-kafle .rr-sumy { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+.rr-dok-kafle .rr-sum { padding: 10px 14px; }
+.rr-dok-kafle .rr-sum .v { font-size: var(--fs-xl); }
+.rr-dok-kafle .rr-sum .v.rr-czeka { color: var(--warn-ink); }
+.rr-dok-kafle .rr-sum .v.faint { color: var(--ink-4); }
+.rr-dok-kafle .rr-sum .s .btn { align-self: flex-start; margin-top: 2px; }
+.rr-dok-kafle .rr-sum .s .tag { margin-top: 2px; }
+.rr-dok-cialo { display: contents; }
+.rr-dok-meta { font-size: var(--fs-sm); }
+.rr-wpisz-kwote { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: var(--r-md); background: var(--warn-tint); color: var(--ink-1); }
+.rr-wpisz-kwote-f { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.rr-wpisz-kwote-f > .fld { flex: 0 1 280px; }
+.rr-wpisz-kwote-f > .btn { margin-top: 22px; height: 40px; }
+.rr-sekcja-h { display: flex; align-items: center; justify-content: space-between; gap: 8px 12px; flex-wrap: wrap; }
+.rr-sekcja-h h3 { display: inline-flex; align-items: center; gap: 7px; font-size: var(--fs-lg); font-weight: 600; color: var(--ink-1); }
+.rr-sekcja-h h3 svg { color: var(--ink-3); }
+.rr-dok-wplaty { padding: 12px 14px; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line); }
+.rr-dok-brak { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--ink-3); }
+.rr-pokrylo { font-weight: 600; color: var(--ink-1); }
+.rr-nielicz { align-items: flex-start; }
+.rr-nielicz .fld, .rr-nielicz .note { align-self: stretch; }
+.rr-dok-edycja { padding-top: 12px; border-top: 1px solid var(--line-soft); }
+.rr-kg-pole { max-width: 150px; }
+/* Saldo otwarcia (D13): zakładki i tabela zaległych dokumentów. */
+.rr-otw-cialo { display: flex; flex-direction: column; gap: 12px; }
+.rr-otw-tabs { padding: 0; margin-top: -4px; }
+.rr-zal { display: flex; flex-direction: column; gap: 10px; }
+.rr-zal-tbl { border-radius: var(--r-sm); box-shadow: inset 0 0 0 1px var(--line-soft); }
+.rr-zal-tbl th { position: static; }
+.rr-zal-tbl td { padding: 6px 6px; vertical-align: top; }
+.rr-zal-tbl td .field { width: 100%; }
+.rr-zal-tbl input[type="date"] { min-width: 140px; }
+.rr-zal-tbl .rr-zal-ks { width: 72px; }
+.rr-zal-tbl td .rr-kwota-pole { min-width: 140px; }
+.rr-zal-k { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rr-zal-dol { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.rr-zal-suma { font-size: var(--fs-sm); color: var(--ink-2); }
+.rr-zal-suma b { color: var(--ink-1); font-variant-numeric: tabular-nums; }
+/* Ustawienia: „Prowadź rozrachunki” (D1). */
+.rr-prowadz { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line-soft); }
+.rr-prowadz b { font-weight: 600; color: var(--ink-1); }
 @media (max-width: 640px) { .rr-form, .rr-otw, .rr-ust { grid-template-columns: minmax(0, 1fr); } }

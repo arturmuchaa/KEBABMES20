@@ -54,11 +54,13 @@ export const naEnter = (fn: () => void) => (e: React.KeyboardEvent) => {
  * Pole kwoty: przyjmuje zapis biura (`15 000,50`, `15000.5`), symbol waluty w polu,
  * zaznacza całość przy wejściu (wpisanie nowej kwoty bez kasowania starej).
  */
-export function PoleKwoty({ label, value, onChange, waluta, blad, onEnter, autofocus, placeholder = '0,00', duze }: {
+export function PoleKwoty({ label, value, onChange, waluta, blad, onEnter, autofocus, duze, inputRef }: {
   label: string; value: string; onChange: (v: string) => void; waluta: string
   /** Komunikat przy polu (po polsku); pusty — pole poprawne. */
   blad?: string | null
-  onEnter?: () => void; autofocus?: boolean; placeholder?: string
+  onEnter?: () => void; autofocus?: boolean
+  /** Dostęp do pola (np. fokus z przycisku „Wpisz kwotę”). */
+  inputRef?: React.Ref<HTMLInputElement>
   /** Główne pole okna — większy krój. */
   duze?: boolean
 }) {
@@ -67,7 +69,7 @@ export function PoleKwoty({ label, value, onChange, waluta, blad, onEnter, autof
     <>
       <span className={`rr-kwota-pole${duze ? ' duze' : ''}`}>
         <input className={`field num${blad ? ' invalid' : ''}`} inputMode="decimal" autoComplete="off" value={value} aria-label={label}
-          aria-invalid={blad ? true : undefined} aria-describedby={blad ? idBledu : undefined} placeholder={placeholder}
+          aria-invalid={blad ? true : undefined} aria-describedby={blad ? idBledu : undefined} ref={inputRef}
           onChange={e => onChange(e.target.value)} onFocus={e => e.currentTarget.select()} onKeyDown={onEnter ? naEnter(onEnter) : undefined}
           {...(autofocus ? { 'data-autofocus': true } : {})} />
         <span className="rr-sfx" aria-hidden="true">{symbolWaluty(waluta)}</span>

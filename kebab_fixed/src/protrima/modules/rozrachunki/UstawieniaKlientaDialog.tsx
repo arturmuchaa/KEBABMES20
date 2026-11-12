@@ -22,11 +22,13 @@ export function UstawieniaKlientaDialog({ karta, onClose, onZapisano }: { karta:
   const [terminFv, setTerminFv] = useState(String(k.terminFv))
   const [formaWz, setFormaWz] = useState<Forma>(() => formaDomyslna(k.formaWz, 'wz'))
   const [formaFv, setFormaFv] = useState<Forma>(() => formaDomyslna(k.formaFv, 'fv'))
+  const [prowadz, setProwadz] = useState(!k.wylaczony)
   const zapis = useZapis('Nie udało się zapisać ustawień')
 
   const tWz = termin(terminWz), tFv = termin(terminFv)
   const bledne = Number.isNaN(tWz) || Number.isNaN(tFv)
-  const zmiany: Record<string, string | number> = {}
+  const zmiany: Record<string, string | number | boolean> = {}
+  if (prowadz === k.wylaczony) zmiany.wylaczony = !prowadz
   if (waluta !== k.waluta) zmiany.waluta = waluta
   if (!Number.isNaN(tWz) && tWz !== k.terminWz) zmiany.termin_wz = tWz
   if (!Number.isNaN(tFv) && tFv !== k.terminFv) zmiany.termin_fv = tFv
@@ -43,6 +45,7 @@ export function UstawieniaKlientaDialog({ karta, onClose, onZapisano }: { karta:
     void zapis.zapisz(async () => {
       await rozliczeniaApi.ustawKlienta(k.id, zmiany)
       const co = [
+        'wylaczony' in zmiany && (zmiany.wylaczony ? 'wyłączony z rozrachunków — zniknął z listy' : 'wraca do rozrachunków'),
         'waluta' in zmiany && `waluta ${zmiany.waluta}`,
         'termin_wz' in zmiany && `termin WZ ${dni(tWz)}`, 'termin_fv' in zmiany && `termin FV ${dni(tFv)}`,
         'forma_wz' in zmiany && `WZ: ${FORMA_SLOWEM[formaWz]}`, 'forma_fv' in zmiany && `FV: ${FORMA_SLOWEM[formaFv]}`,
@@ -75,6 +78,14 @@ export function UstawieniaKlientaDialog({ karta, onClose, onZapisano }: { karta:
           {zapis.busy ? 'Zapisuję…' : 'Zapisz ustawienia'}
         </button>
       </>}>
+      <div className="rr-prowadz">
+        <label className="rr-przel"><input type="checkbox" className="cbx" checked={prowadz} onChange={e => setProwadz(e.target.checked)}
+          aria-describedby="rr-prowadz-opis" />
+          <b>Prowadź rozrachunki z tym kontrahentem</b></label>
+        <span className={`rr-pole-pod${prowadz ? "" : " warn-ink"}`} id="rr-prowadz-opis">{prowadz
+          ? 'Odznacz dla kontrahentów, z którymi się nie rozliczasz (np. osoba prywatna).'
+          : 'Kontrahent zniknie z listy i sum, saldo nie będzie drukowane na WZ ani w papierach kursu. Dokumenty dalej się zapisują — przywrócisz go tutaj albo chipem „Wyłączeni” na liście.'}</span>
+      </div>
       <div className="fld"><span className="label">Waluta rozliczeń</span>
         <Segment label="Waluta" value={waluta} opcje={WALUTY} onChange={setWaluta} autofocus />
         {podpowiedz && (

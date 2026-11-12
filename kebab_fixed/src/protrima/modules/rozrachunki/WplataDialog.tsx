@@ -130,7 +130,7 @@ export function WplataDialog({ karta, ksiega: ksiegaStart, dokumentId, onClose, 
           <span className="rr-pole-pod">Wskaż dokument, gdy klient podał go w tytule przelewu — pokryje go pierwszy, reszta pójdzie od najstarszych.</span>
         </label>
         <label className="fld rr-form-cala"><span className="label">Uwagi</span>
-          <input className="field" value={uwagi} aria-label="Uwagi" placeholder="np. tytuł przelewu, „zapłacił kierowcy”"
+          <input className="field" value={uwagi} aria-label="Uwagi"
             onChange={e => setUwagi(e.target.value)} onKeyDown={naEnter(zapisz)} />
         </label>
       </div>

@@ -8,56 +8,82 @@ import { useApi } from '@/hooks/useApi'
 import { rozliczeniaApi } from '@/lib/api'
 import { dataPl, kwota } from '@/features/rozliczenia/druk'
 import {
-  FORMA_SLOWEM, KLASA_TONU, OKRESY, dni, dzisIso, etykietaStanu, kwotaBezWaluty, kwotaSalda, mapujHistorieZmian, mapujKarte, numerZSeria, opisPlatnosci,
-  czesciRozliczenia, rozliczyla, symbolWaluty, wOkresie, zakresOkresu,
-  znakSalda, type Dok, type Karta, type Ksiega, type Okres, type Wplata, type Zakres,
+  ETYKIETA_OKRESU_OBROTU, FORMA_SLOWEM, KLASA_TONU, bladZakresu, dni, dzisIso, etykietaStanu, kilogramy, kwotaBezWaluty, kwotaSalda, mapujHistorieZmian,
+  mapujKarte, numerZSeria, opisOkresu, opisPlatnosci, czesciRozliczenia, rozliczyla, symbolWaluty, zakresObrotu,
+  znakSalda, type Dok, type Karta, type Ksiega, type Wplata, type WyborOkresuObrotu,
 } from './model'
-import { Dziennik } from './Dziennik'
+import { Notatki } from './Notatki'
 import { SzczegolyDokumentu } from './SzczegolyDokumentu'
-import { OdmowaSerwera, klasaSalda, naEnter, pamiec, tekstBledu, useZapis } from './wspolne'
+import { OdmowaSerwera, WyborOkresu, klasaSalda, naEnter, pamiec, tekstBledu, useOkresObrotu, useZapis } from './wspolne'
 
 export type RodzajOkna = 'wplata' | 'faktura' | 'otwarcie' | 'druk' | 'ustawienia'
+/** Zakładka okna salda otwarcia (D13). */
+export type ZakladkaOtwarcia = 'zalegle' | 'kwota'
 /**
  * Okno do otwarcia nad kartą (dostarcza je moduł). `karta` — aktualny stan klienta
  * (domyślne formy, terminy, dokumenty do wskazania); `ksiega`/`dokumentId` —
- * gdy biuro zaczęło od konkretnej księgi lub dokumentu.
+ * gdy biuro zaczęło od konkretnej księgi lub dokumentu; `zakladka` — okno salda otwarcia.
  */
-export type Okno = { rodzaj: RodzajOkna; karta: Karta; ksiega?: Ksiega; dokumentId?: string }
+export type Okno = { rodzaj: RodzajOkna; karta: Karta; ksiega?: Ksiega; dokumentId?: string; zakladka?: ZakladkaOtwarcia }
 
 const KLUCZ_UKRYJ = 'protrima.rozrachunki.karta.ukryjZaplacone'
-const ETYKIETA_OKRESU: Record<Okres, string> = { wszystko: 'Wszystko', miesiac: 'Ten miesiąc', kwartal: 'Kwartał', rok: 'Rok', zakres: 'Od–do' }
+const KLUCZ_NIELICZONE = 'protrima.rozrachunki.karta.pokazNieliczone'
 
 /** Data w wierszu księgi: w bieżącym roku krótko (27.10), inaczej pełna. */
 const dataWiersza = (iso: string | null, rok: string) => (!iso ? '—' : iso.slice(0, 4) === rok ? dataPl(iso).slice(0, 5) : dataPl(iso))
 
 /**
  * Karta klienta w Rozrachunkach: dwie księgi (WZ i faktury) obok siebie jak dwie
- * kolumny w arkuszu biura, pełna historia dokumentów, wpłaty z tym, co rozliczyły,
- * dziennik ustaleń. Salda liczy serwer; filtry okresu i „ukryj zapłacone”
- * zawężają tylko listy dokumentów.
+ * kolumny w arkuszu biura, pełna historia dokumentów (także zaległe sprzed startu),
+ * wpłaty z tym, co rozliczyły, notatki. Salda liczy serwer — zawsze za całość.
+ *
+ * Jeden wybór okresu (ten sam co na liście): obrót i sprzedane kg. Księgi pokazują
+ * zawsze wszystkie dokumenty — okres ich nie zawęża, żeby żaden niezapłacony dokument
+ * (np. zaległy sprzed startu) nie „zniknął”; zawężają je tylko „Ukryj zapłacone”
+ * i „Pokaż nieliczone”.
  */
-export function KartaKlienta({ clientId, onWroc, onOtworz, nazwa, wersja = 0 }: {
+export function KartaKlienta({ clientId, onWroc, onOtworz, nazwa, wersja = 0, okres: okresZListy, onOkres, fokusNaStart }: {
   clientId: string; onWroc: () => void; onOtworz: (d: Okno) => void
   /** Nazwa z listy — w nagłówku, zanim karta się wczyta. */
   nazwa?: string
   /** Zmiana wartości odświeża kartę (np. po zapisie w oknie modułu). */
   wersja?: number
+  /** Okres obrotu i kg wspólny z listą (moduł); bez niego karta pamięta własny wybór pod tym samym kluczem. */
+  okres?: WyborOkresuObrotu
+  onOkres?: (w: WyborOkresuObrotu) => void
+  /** Karta otwarta z „+ Kontrahent” — po wczytaniu fokus na „Wprowadź saldo otwarcia” (albo na nazwę). */
+  fokusNaStart?: boolean
 }) {
-  const res = useApi(() => rozliczeniaApi.karta(clientId).then(mapujKarte), [clientId, wersja])
+  const [okresWlasny, setOkresWlasny] = useOkresObrotu()
+  const okres = okresZListy ?? okresWlasny
+  const ustawOkres = onOkres ?? setOkresWlasny
+  const dzis = dzisIso()
+  // Zły własny zakres (brak daty, „do” przed „od”) — liczy dalej ostatni poprawny okres, bez zapytania.
+  const [okresOk, setOkresOk] = useState<WyborOkresuObrotu>(() => (bladZakresu(okres) ? { okres: 'miesiac', od: '', do: '' } : okres))
+  useEffect(() => { if (!bladZakresu(okres)) setOkresOk(okres) }, [okres])
+  const z = zakresObrotu(okresOk, dzis)
+  const res = useApi(() => rozliczeniaApi.karta(clientId, '', '', z.od, z.do).then(mapujKarte), [clientId, wersja, z.od, z.do])
   const k = res.data
   const odswiez = () => { void res.refetch() }
   const [ukryj, setUkryjStan] = useState(() => pamiec.czytaj(KLUCZ_UKRYJ) === '1')
-  // Okres zawsze od „Wszystko” (spec 8.2) — wybór nie przechodzi na kartę kolejnego klienta; „Ukryj zapłacone” jest zapamiętane.
-  const [okres, setOkres] = useState<Okres>('wszystko')
-  const [od, setOd] = useState('')
-  const [do_, setDo] = useState('')
-  const [dokument, setDokument] = useState<string | null>(null)
+  const [nieliczone, setNieliczoneStan] = useState(() => pamiec.czytaj(KLUCZ_NIELICZONE) === '1')
+  const [dokument, setDokument] = useState<{ id: string; wpiszKwote?: boolean } | null>(null)
   const [usunWplate, setUsunWplate] = useState<Wplata | null>(null)
 
   const setUkryj = (v: boolean) => { setUkryjStan(v); pamiec.zapisz(KLUCZ_UKRYJ, v ? '1' : null) }
-  const dzis = dzisIso()
-  const zakres = zakresOkresu(okres, dzis, od, do_)
+  const setNieliczone = (v: boolean) => { setNieliczoneStan(v); pamiec.zapisz(KLUCZ_NIELICZONE, v ? '1' : null) }
   const otworz = (rodzaj: RodzajOkna, extra: Partial<Okno> = {}) => { if (k) onOtworz({ rodzaj, karta: k, ...extra }) }
+  const liczbaNieliczonych = k ? k.dokumenty.wz.filter(d => d.nieLicz).length : 0
+
+  // Po „+ Kontrahent”: fokus w karcie (nie z powrotem na komendzie) — na saldzie otwarcia, gdy go brak.
+  const startRef = useRef<HTMLButtonElement>(null)
+  const nazwaRef = useRef<HTMLHeadingElement>(null)
+  const fokusZrobiony = useRef(false)
+  useEffect(() => {
+    if (!fokusNaStart || !k || fokusZrobiony.current) return
+    fokusZrobiony.current = true
+    ;(startRef.current ?? nazwaRef.current)?.focus()
+  }, [fokusNaStart, k])
 
   const naglowek = k?.klient.nazwa || nazwa || ''
   return (
@@ -65,7 +91,7 @@ export function KartaKlienta({ clientId, onWroc, onOtworz, nazwa, wersja = 0 }: 
       <div className="rr-karta-h">
         <button type="button" className="btn" onClick={onWroc} data-tip="Wróć do listy (Esc)">← Kontrahenci</button>
         <div className="rr-karta-id">
-          <h2 className="rr-karta-nazwa" title={naglowek}>{naglowek}</h2>
+          <h2 className="rr-karta-nazwa" title={naglowek} ref={nazwaRef} tabIndex={-1}>{naglowek}</h2>
           {k && (
             <div className="rr-karta-meta">
               <span>{k.klient.nip ? `NIP ${k.klient.nip}` : 'bez NIP'}</span>
@@ -100,14 +126,19 @@ export function KartaKlienta({ clientId, onWroc, onOtworz, nazwa, wersja = 0 }: 
               <div>NIP wskazuje na rozliczenia w <b>{k.klient.walutaPodpowiedz}</b>, a ustawiona jest <b>{k.klient.waluta}</b>. Jeśli to pomyłka — zmień walutę w <button type="button" className="rr-link" onClick={() => otworz('ustawienia')}>Ustawieniach</button>.</div>
             </div>
           )}
-          {!k.rozliczeniaOtwarte && (
+          {k.klient.wylaczony && <Wylaczony clientId={clientId} nazwa={k.klient.nazwa} onZmiana={odswiez} />}
+          {!k.rozliczeniaOtwarte && !k.klient.wylaczony && (
             <div className="note warn rr-nieotwarte"><FlagIcon level="warn" size={15} />
               <div><b>Saldo nie drukuje się jeszcze na WZ ani w papierach kursu — wprowadź saldo otwarcia (może być 0).</b>{' '}
-                To stan z arkusza na początek {dataPl(k.start)}; klient, który nic nie jest winien, ma 0.{' '}
-                <button type="button" className="btn sm" onClick={() => otworz('otwarcie')}><Scale size={14} />Wprowadź saldo otwarcia</button></div>
+                Wpisz zaległe dokumenty sprzed {dataPl(k.start)} albo jedną kwotę z arkusza; klient, który nic nie jest winien, ma 0.{' '}
+                <button ref={startRef} type="button" className="btn sm" onClick={() => otworz('otwarcie')}><Scale size={14} />Wprowadź saldo otwarcia</button></div>
             </div>
           )}
-          <Salda k={k} />
+          <div className="rr-okres-pasek">
+            <span className="rr-okres-tyt">Obrót i kg za</span>
+            <WyborOkresu wybor={okres} onChange={ustawOkres} dzis={dzis} opis={opisOkresu(okres, dzis, k.start)} />
+          </div>
+          <Salda k={k} okresSlowem={`${ETYKIETA_OKRESU_OBROTU[okresOk.okres]} · ${opisOkresu(okresOk, dzis, k.start)}`} />
           {k.innaWaluta.length > 0 && (
             <div className="note warn"><FlagIcon level="warn" size={15} />
               <div><b>Pominięte w saldzie — w innej walucie niż {k.klient.waluta} ({k.innaWaluta.length}):</b>{' '}
@@ -116,47 +147,39 @@ export function KartaKlienta({ clientId, onWroc, onOtworz, nazwa, wersja = 0 }: 
           )}
 
           <div className="rr-bar">
-            <div className="seg" role="group" aria-label="Okres dokumentów">
-              {OKRESY.map(o => (
-                <button key={o} type="button" aria-pressed={okres === o} onClick={() => setOkres(o)}>{ETYKIETA_OKRESU[o]}</button>
-              ))}
-            </div>
-            {okres === 'zakres' && (
-              <span className="rr-zakres">
-                <input type="date" className="field" value={od} max={do_ || undefined} onChange={e => setOd(e.target.value)} aria-label="Od dnia" />
-                <span className="muted">–</span>
-                <input type="date" className="field" value={do_} min={od || undefined} onChange={e => setDo(e.target.value)} aria-label="Do dnia" />
-              </span>
-            )}
+            <span className="rr-okres-tyt">Dokumenty:</span>
             <label className="rr-przel"><input type="checkbox" className="cbx" checked={ukryj} onChange={e => setUkryj(e.target.checked)} />Ukryj zapłacone</label>
-            {(zakres || ukryj) && <span className="muted rr-bar-info">salda zawsze za całość — filtr zawęża tylko listy dokumentów</span>}
+            {liczbaNieliczonych > 0 && (
+              <label className="rr-przel" data-tip="WZ oznaczone „nie licz do rozrachunków” — poza saldem, obrotem i kg">
+                <input type="checkbox" className="cbx" checked={nieliczone} onChange={e => setNieliczone(e.target.checked)} />{`Pokaż nieliczone (${liczbaNieliczonych})`}
+              </label>
+            )}
+            <span className="muted rr-bar-info">wszystkie dokumenty od {dataPl(k.start)} i zaległe sprzed tej daty; salda zawsze za całość</span>
           </div>
 
           <div className="rr-ksiegi">
-            <Ksiega k={k} ksiega="wz" zakres={zakres} ukryj={ukryj} rok={dzis.slice(0, 4)}
-              onDokument={d => (d.otwarcie ? otworz('otwarcie', { ksiega: 'wz' }) : setDokument(d.id))}
-              onBezCen={id => setDokument(id)} onPokazWszystko={() => { setUkryj(false); setOkres('wszystko') }} onDodaj={() => otworz('otwarcie', { ksiega: 'wz' })} />
-            <Ksiega k={k} ksiega="fv" zakres={zakres} ukryj={ukryj} rok={dzis.slice(0, 4)}
-              onDokument={d => (d.otwarcie ? otworz('otwarcie', { ksiega: 'fv' }) : setDokument(d.id))}
-              onBezCen={id => setDokument(id)} onPokazWszystko={() => { setUkryj(false); setOkres('wszystko') }} onDodaj={() => otworz('faktura')} />
+            {(['wz', 'fv'] as Ksiega[]).map(ks => (
+              <Ksiega key={ks} k={k} ksiega={ks} ukryj={ukryj} nieliczone={nieliczone} rok={dzis.slice(0, 4)}
+                onDokument={d => (d.otwarcie ? otworz('otwarcie', { ksiega: ks, zakladka: 'kwota' }) : setDokument({ id: d.id }))}
+                onWpiszKwote={d => setDokument({ id: d.id, wpiszKwote: true })}
+                onBezCen={id => setDokument({ id })} onPokazWszystko={() => { setUkryj(false); setNieliczone(true) }}
+                onDodaj={() => (ks === 'wz' ? otworz('otwarcie', { ksiega: 'wz' }) : otworz('faktura'))} />
+            ))}
           </div>
 
           <div className="rr-dolne">
             <Wplaty k={k} onUsun={setUsunWplate} onDodaj={() => otworz('wplata')} />
-            <Dziennik clientId={clientId} wpisy={k.dziennik} onZmiana={odswiez} />
+            <Notatki clientId={clientId} wpisy={k.dziennik} onZmiana={odswiez} />
           </div>
           <HistoriaZmianKlienta clientId={clientId} karta={k} />
         </>
       )}
 
       {dokument && k && (
-        <SzczegolyDokumentu dokId={dokument} waluta={k.klient.waluta} onClose={() => setDokument(null)}
+        <SzczegolyDokumentu key={dokument.id} dokId={dokument.id} wpiszKwote={dokument.wpiszKwote} waluta={k.klient.waluta} start={k.start}
+          terminFv={k.klient.terminFv} onClose={() => setDokument(null)}
           onZmiana={() => { setDokument(null); odswiez() }}
-          onWplata={d => {
-            setDokument(null)
-            const ksiega: Ksiega = k.dokumenty.fv.some(x => x.id === d.id) ? 'fv' : 'wz'
-            otworz('wplata', { ksiega, dokumentId: d.id })
-          }} />
+          onWplata={d => { setDokument(null); otworz('wplata', { ksiega: d.ksiega, dokumentId: d.id }) }} />
       )}
       {usunWplate && k && (
         <UsunWplate w={usunWplate} waluta={k.klient.waluta} onClose={() => setUsunWplate(null)} onUsunieto={() => { setUsunWplate(null); odswiez() }} />
@@ -196,9 +219,9 @@ function Notatka({ clientId, notatka }: { clientId: string; notatka: string }) {
   return (
     <div className="rr-notatka-w">
       <label className="rr-notatka" data-tip="Stała notatka o kliencie — zapisuje się po wyjściu z pola (Enter), Esc cofa zmianę">
-        <StickyNote size={16} />
+        <StickyNote size={16} /><span className="rr-notatka-l">Notatka o kliencie</span>
         <input ref={pole} className={`field${blad ? ' invalid' : ''}`} value={v} onChange={e => setV(e.target.value)} onBlur={() => void zapisz()}
-          aria-label="Notatka o kliencie" placeholder="Stała notatka o kliencie, np. „płaci w piątki”, „limit 20 000 €”"
+          aria-label="Notatka o kliencie"
           onKeyDown={e => {
             if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur() }
             else if (e.key === 'Escape') { e.stopPropagation(); setV(zapisana); setBlad(null); cofnij.current = true; e.currentTarget.blur(); cofnij.current = false }
@@ -225,14 +248,45 @@ function Kafel({ tytul, saldo, waluta, poTerminie, najstarsza, glowny }: {
   )
 }
 
-function Salda({ k }: { k: Karta }) {
+/** Salda (zawsze za całość) i obrót z kg za wybrany okres — jedna ramka, okresowe kafelki z podpisem okresu. */
+function Salda({ k, okresSlowem }: { k: Karta; okresSlowem: string }) {
   const w = k.klient.waluta, s = k.saldo
   return (
-    <div className="rr-sumy" role="group" aria-label="Salda klienta">
-      <Kafel tytul="Saldo WZ" saldo={s.wz} waluta={w} poTerminie={s.poTerminieWz} najstarsza={s.najstarszaDniWz} />
-      <Kafel tytul="Saldo FV" saldo={s.fv} waluta={w} poTerminie={s.poTerminieFv} najstarsza={s.najstarszaDniFv} />
-      <Kafel tytul="Saldo łącznie" saldo={s.lacznie} waluta={w} poTerminie={s.poTerminieWz + s.poTerminieFv}
-        najstarsza={Math.max(s.najstarszaDniWz, s.najstarszaDniFv)} glowny />
+    <div className="rr-sumy-w">
+      <div className="rr-sumy" role="group" aria-label="Salda klienta">
+        <Kafel tytul="Saldo WZ" saldo={s.wz} waluta={w} poTerminie={s.poTerminieWz} najstarsza={s.najstarszaDniWz} />
+        <Kafel tytul="Saldo FV" saldo={s.fv} waluta={w} poTerminie={s.poTerminieFv} najstarsza={s.najstarszaDniFv} />
+        <Kafel tytul="Saldo łącznie" saldo={s.lacznie} waluta={w} poTerminie={s.poTerminieWz + s.poTerminieFv}
+          najstarsza={Math.max(s.najstarszaDniWz, s.najstarszaDniFv)} glowny />
+        <div className="rr-sum rr-sum-okres" role="group" aria-label="Obrót">
+          <span className="k">Obrót</span>
+          <span className="v">{kwota(k.obrot, w)}</span>
+          <span className="s">{okresSlowem}</span>
+        </div>
+        <div className="rr-sum rr-sum-okres" role="group" aria-label="Sprzedane kg">
+          <span className="k">Sprzedane kg</span>
+          <span className="v">{kilogramy(k.kg)}</span>
+          <span className={`s${k.fvBezKwoty > 0 ? ' warn-ink' : ''}`}>{k.fvBezKwoty > 0 ? `FV bez kwoty: ${k.fvBezKwoty} — kg liczone, obrót jeszcze nie` : 'bez salda otwarcia'}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Klient wyłączony z rozrachunków (D1) — wyraźnie na karcie, z przywróceniem jednym kliknięciem. */
+function Wylaczony({ clientId, nazwa, onZmiana }: { clientId: string; nazwa: string; onZmiana: () => void }) {
+  const app = useApp()
+  const { busy, blad, zapisz } = useZapis('Nie udało się przywrócić kontrahenta')
+  const przywroc = () => void zapisz(async () => {
+    await rozliczeniaApi.ustawWylaczenie(clientId, false)
+    app.toast({ kind: 'ok', title: `${nazwa} wraca do rozrachunków`, detail: 'jest znów na liście, saldo drukuje się na WZ' })
+    onZmiana()
+  })
+  return (
+    <div className="note warn" role="status"><FlagIcon level="warn" size={15} />
+      <div><b>Wyłączony z rozrachunków.</b> Nie ma go na liście ani w sumach, saldo nie drukuje się na WZ ani w papierach kursu. Dokumenty dalej się zapisują.{' '}
+        <button type="button" className="btn sm" disabled={busy} onClick={przywroc}>{busy ? 'Przywracam…' : 'Przywróć do rozrachunków'}</button>
+        <OdmowaSerwera blad={blad} /></div>
     </div>
   )
 }
@@ -250,14 +304,14 @@ function naWierszu(e: React.KeyboardEvent<HTMLTableRowElement>, otworz: () => vo
   wiersze[cel]?.focus()
 }
 
-function Ksiega({ k, ksiega, zakres, ukryj, rok, onDokument, onBezCen, onPokazWszystko, onDodaj }: {
-  k: Karta; ksiega: Ksiega; zakres: Zakres; ukryj: boolean; rok: string
-  onDokument: (d: Dok) => void; onBezCen: (id: string) => void; onPokazWszystko: () => void; onDodaj: () => void
+function Ksiega({ k, ksiega, ukryj, nieliczone, rok, onDokument, onWpiszKwote, onBezCen, onPokazWszystko, onDodaj }: {
+  k: Karta; ksiega: Ksiega; ukryj: boolean; nieliczone: boolean; rok: string
+  onDokument: (d: Dok) => void; onWpiszKwote: (d: Dok) => void; onBezCen: (id: string) => void; onPokazWszystko: () => void; onDodaj: () => void
 }) {
   const w = k.klient.waluta
   const wszystkie = k.dokumenty[ksiega]
-  const docs = useMemo(() => wszystkie.filter(d => wOkresie(d.data, zakres) && !(ukryj && d.stan.kod === 'zaplacony')), [wszystkie, zakres, ukryj])
-  const bezCen = useMemo(() => (ksiega === 'wz' ? k.czekaNaCeny.filter(c => wOkresie(c.data, zakres)) : []), [k.czekaNaCeny, ksiega, zakres])
+  const docs = useMemo(() => wszystkie.filter(d => !(ukryj && d.stan.kod === 'zaplacony') && (nieliczone || !d.nieLicz)), [wszystkie, ukryj, nieliczone])
+  const bezCen = ksiega === 'wz' ? k.czekaNaCeny : []
   const ukryte = wszystkie.length - docs.length
   const saldo = ksiega === 'wz' ? k.saldo.wz : k.saldo.fv
   const tytul = ksiega === 'wz' ? 'WZ' : 'Faktury'
@@ -295,13 +349,15 @@ function Ksiega({ k, ksiega, zakres, ukryj, rok, onDokument, onBezCen, onPokazWs
             ))}
             {docs.map(d => (d.korekta
               ? <WierszKorekty key={d.id} d={d} ksiega={ksiega} waluta={w} rok={rok} tabIndex={tab(d.id)} onFocus={() => setKursor(d.id)} onOtworz={() => onDokument(d)} />
-              : <WierszDokumentu key={d.id} d={d} waluta={w} rok={rok} tabIndex={tab(d.id)} onFocus={() => setKursor(d.id)} onOtworz={() => onDokument(d)} />))}
+              : d.bezKwoty
+                ? <WierszBezKwoty key={d.id} d={d} rok={rok} tabIndex={tab(d.id)} onFocus={() => setKursor(d.id)} onWpisz={() => onWpiszKwote(d)} />
+                : <WierszDokumentu key={d.id} d={d} waluta={w} rok={rok} tabIndex={tab(d.id)} onFocus={() => setKursor(d.id)} onOtworz={() => onDokument(d)} />))}
             {docs.length === 0 && bezCen.length === 0 && (
               <tr><td colSpan={KOLUMNY_KSIEGI} className="docs-empty">
                 {wszystkie.length > 0
-                  ? <>Wszystkie dokumenty ukryte filtrem. <button type="button" className="btn sm" onClick={onPokazWszystko}>Pokaż wszystko</button></>
+                  ? <>Wszystkie dokumenty ukryte. <button type="button" className="btn sm" onClick={onPokazWszystko}>Pokaż wszystko</button></>
                   : ksiega === 'wz'
-                    ? <>Brak WZ od {dataPl(k.start)}. Wycenione WZ pojawią się tu same; dług sprzed tej daty wpisz jako <button type="button" className="rr-link" onClick={onDodaj}>saldo otwarcia</button>.</>
+                    ? <>Brak WZ od {dataPl(k.start)}. Wycenione WZ pojawią się tu same; dług sprzed tej daty wpisz w <button type="button" className="rr-link" onClick={onDodaj}>saldzie otwarcia</button>.</>
                     : <>Brak faktur. <button type="button" className="btn sm" onClick={onDodaj}>+ Faktura</button></>}
               </td></tr>
             )}
@@ -322,26 +378,54 @@ function WierszDokumentu({ d, waluta, rok, tabIndex, onFocus, onOtworz }: {
   const pig = etykietaStanu({ ...d.stan, czesciowo: false })
   const zaplacony = d.stan.kod === 'zaplacony'
   const poTerminie = d.stan.kod === 'po_terminie'
+  const tip = d.otwarcie ? 'Saldo otwarcia — stan z arkusza na dzień startu; kliknij, żeby zmienić'
+    : d.nieLicz ? `Nie liczona do rozrachunków${d.nieLiczPowod ? ` — ${d.nieLiczPowod}` : ''}; kliknij, żeby cofnąć`
+      : d.zalegly ? 'Zaległy dokument sprzed startu rozliczeń — wpłatę można przypiąć do niego' : undefined
   return (
-    <tr className={`row click${zaplacony ? ' closed' : ''}${d.otwarcie ? ' rr-otwarcie' : ''}`} data-numer={d.numer} tabIndex={tabIndex}
+    <tr className={`row click${zaplacony ? ' closed' : ''}${d.otwarcie ? ' rr-otwarcie' : ''}${d.nieLicz ? ' rr-nieliczona' : ''}`} data-numer={d.numer} tabIndex={tabIndex}
       onFocus={onFocus} onClick={onOtworz} onKeyDown={e => naWierszu(e, onOtworz)}
-      aria-label={`${d.numer}, ${kwota(d.kwota, waluta)}, ${st.tekst}`}
-      data-tip={d.otwarcie ? 'Saldo otwarcia — stan z arkusza na dzień startu; kliknij, żeby zmienić' : undefined}>
+      aria-label={`${d.numer}, ${kwota(d.kwota, waluta)}, ${st.tekst}`} data-tip={tip}>
       <td className="tnum" title={dataPl(d.data)}>{dataWiersza(d.data, rok)}</td>
       <td className={d.otwarcie ? 'rr-otwarcie-nr' : 'code id-no'}>{d.numer}
         {/* W komórce numeru, nie w Uwagach — ostrzeżenie nie może wpaść do ucinanej kolumny. */}
         {d.brakVat && <span className="tag warn rr-vat" role="img" aria-label={BEZ_VAT} data-tip={BEZ_VAT}><AlertTriangle size={13} /></span>}
+        {d.zalegly && <span className="tag outline rr-znacznik">sprzed startu</span>}
       </td>
       <td className="num">{kwotaBezWaluty(d.kwota)}</td>
-      <td className="num">{kwotaBezWaluty(d.zaplacono)}</td>
-      <td className={`num${poTerminie ? ' crit-ink' : znakSalda(d.zostalo) === 0 ? ' faint' : ''}`}>{kwotaBezWaluty(d.zostalo)}</td>
+      {d.nieLicz
+        ? <><td className="num faint">—</td><td className="num faint">—</td></>
+        : <>
+            <td className="num">{kwotaBezWaluty(d.zaplacono)}</td>
+            <td className={`num${poTerminie ? ' crit-ink' : znakSalda(d.zostalo) === 0 ? ' faint' : ''}`}>{kwotaBezWaluty(d.zostalo)}</td>
+          </>}
       <td className="tnum" title={d.termin ? dataPl(d.termin) : undefined}>{dataWiersza(d.termin, rok)}</td>
       <td className="rr-stan">
         <span className={`tag ${KLASA_TONU[pig.ton]}`}>{pig.tekst}</span>
         {d.stan.czesciowo && <span className="rr-stan-2">częściowo</span>}
         {d.zamkniety && <span className="rr-stan-2" title="Data zamknięcia (ostatnia wpłata)">zamknięta {dataWiersza(d.zamkniety, rok)}</span>}
       </td>
-      <td className="rr-uwagi" title={d.uwagi || undefined}>{d.uwagi}</td>
+      <td className="rr-uwagi" title={(d.nieLicz ? d.nieLiczPowod : d.uwagi) || undefined}>{d.nieLicz ? d.nieLiczPowod : d.uwagi}</td>
+    </tr>
+  )
+}
+
+/** FV z papierów kursu czekająca na kwotę (D4): zamiast kwoty — „Wpisz kwotę” (otwiera szczegóły z polem kwoty). */
+function WierszBezKwoty({ d, rok, tabIndex, onFocus, onWpisz }: {
+  d: Dok; rok: string; tabIndex: number; onFocus: () => void; onWpisz: () => void
+}) {
+  const opis = ['z papierów kursu', d.kg != null ? kilogramy(d.kg) : ''].filter(Boolean).join(' · ')
+  return (
+    <tr className="row click rr-bez-kwoty" data-numer={d.numer} tabIndex={tabIndex} onFocus={onFocus} onClick={onWpisz}
+      onKeyDown={e => naWierszu(e, onWpisz)} aria-label={`${d.numer}, czeka na kwotę`}
+      data-tip="Faktura z papierów kursu — wpisz kwotę z Subiekta, wtedy wejdzie do salda">
+      <td className="tnum" title={dataPl(d.data)}>{dataWiersza(d.data, rok)}</td>
+      <td className="code id-no">{d.numer}</td>
+      <td className="num"><button type="button" className="btn sm primary rr-wpisz" tabIndex={-1}
+        onClick={e => { e.stopPropagation(); onWpisz() }}>Wpisz kwotę</button></td>
+      <td className="num faint">—</td><td className="num faint">—</td>
+      <td className="faint">—</td>
+      <td className="rr-stan"><span className="tag warn">czeka na kwotę</span></td>
+      <td className="rr-uwagi muted" title={d.uwagi || opis}>{d.uwagi || opis}</td>
     </tr>
   )
 }
@@ -506,7 +590,7 @@ function UsunWplate({ w, waluta, onClose, onUsunieto }: { w: Wplata; waluta: str
         {r && <div className="muted">rozliczyła: {r}</div>}</div>
       <label className="fld"><span className="label">Powód (obowiązkowy, trafi do historii)</span>
         <input className="field" value={powod} onChange={e => setPowod(e.target.value)} onKeyDown={naEnter(usun)} aria-label="Powód"
-          placeholder="np. wpłata wpisana dwa razy" data-autofocus /></label>
+          data-autofocus /></label>
       <div className="note"><FlagIcon level="info" size={15} /><div>Wpłata zniknie z salda, ale zostanie w historii. Dokumenty, które pokryła, wrócą do zapłaty.</div></div>
       <OdmowaSerwera blad={blad} />
     </Dialog>

@@ -3,7 +3,7 @@ import { FilePlus2 } from 'lucide-react'
 import { useApp, Dialog } from '../../shell/context'
 import { rozliczeniaApi } from '@/lib/api'
 import { dataPl, kwota } from '@/features/rozliczenia/druk'
-import { FORMA_SLOWEM, FORMY, dni, doGroszy, dodajDni, dzisIso, formaDomyslna, type Forma, type Karta } from './model'
+import { FORMA_SLOWEM, FORMY, dni, doGroszy, dodajDni, dzisIso, formaDomyslna, kilogramy, liczba, type Forma, type Karta } from './model'
 import { OdmowaSerwera, PoleKwoty, Segment, kwotaZPola, naEnter, useZapis } from './wspolne'
 
 const normNumer = (t: string) => t.trim().replace(/\s+/g, ' ').toUpperCase()
@@ -24,6 +24,7 @@ export function FakturaDialog({ karta, onClose, onZapisano }: { karta: Karta; on
   const [terminReczny, setTerminReczny] = useState(false)
   const [forma, setForma] = useState<Forma>(() => formaDomyslna(karta.klient.formaFv, 'fv'))
   const [uwagi, setUwagi] = useState('')
+  const [kgTekst, setKgTekst] = useState('')
   const zapis = useZapis('Nie udało się dodać faktury')
 
   const zmienDate = (d: string) => { setData(d); if (!terminReczny) setTermin(dodajDni(d, terminFv)) }
@@ -36,18 +37,22 @@ export function FakturaDialog({ karta, onClose, onZapisano }: { karta: Karta; on
   const bladDaty = !data ? 'Wpisz datę wystawienia'
     : data < karta.start ? `Faktura sprzed startu rozliczeń (${dataPl(karta.start)}) — wpisz ją w saldzie otwarcia` : null
   const bladTerminu = termin && data && termin < data ? 'Termin nie może być przed datą wystawienia' : null
-  const ok = !!numer.trim() && okKwota && !bladNumeru && !bladDaty && !bladTerminu
-  const tip = !numer.trim() ? 'Wpisz numer faktury' : !okKwota ? 'Wpisz kwotę brutto' : bladNumeru ?? bladDaty ?? bladTerminu ?? undefined
+  const kgL = kgTekst.trim() ? liczba(kgTekst) : null
+  const bladKg = kgL !== null && !(Number.isFinite(kgL) && kgL >= 0) ? 'Wpisz liczbę kilogramów (0 lub więcej)' : null
+  const ok = !!numer.trim() && okKwota && !bladNumeru && !bladDaty && !bladTerminu && !bladKg
+  const tip = !numer.trim() ? 'Wpisz numer faktury' : !okKwota ? 'Wpisz kwotę brutto' : bladNumeru ?? bladDaty ?? bladTerminu ?? bladKg ?? undefined
   const korekta = okKwota && kwR < 0
 
   const zapisz = () => {
     if (!ok) return
     const nr = numer.trim().replace(/\s+/g, ' ')
     void zapis.zapisz(async () => {
-      await rozliczeniaApi.dodajFakture(karta.klient.id, { numer: nr, data, kwota: kwR, termin: termin || null, forma, uwagi: uwagi.trim() })
+      const kg = kgL === null ? {} : { kg: Math.round(kgL * 1000) / 1000 }
+      await rozliczeniaApi.dodajFakture(karta.klient.id, { numer: nr, data, kwota: kwR, termin: termin || null, forma, uwagi: uwagi.trim(), ...kg })
       app.toast({
         kind: 'ok', title: `${korekta ? 'Korekta' : 'Faktura'} ${nr} dodana — ${kwota(kwR, w)}`,
-        detail: korekta ? 'zmniejsza dług w księdze faktur' : `termin ${termin ? dataPl(termin) : `za ${dni(terminFv)}`} · ${FORMA_SLOWEM[forma]}`,
+        detail: [korekta ? 'zmniejsza dług w księdze faktur' : `termin ${termin ? dataPl(termin) : `za ${dni(terminFv)}`} · ${FORMA_SLOWEM[forma]}`,
+          kgL !== null ? kilogramy(kgL) : ''].filter(Boolean).join(' · '),
       })
       onZapisano()
     })
@@ -65,7 +70,7 @@ export function FakturaDialog({ karta, onClose, onZapisano }: { karta: Karta; on
       </>}>
       <div className="rr-form">
         <label className="fld"><span className="label">Numer</span>
-          <input className={`field${bladNumeru ? ' invalid' : ''}`} value={numer} aria-label="Numer" placeholder="np. FV 560/2026" autoComplete="off"
+          <input className={`field${bladNumeru ? ' invalid' : ''}`} value={numer} aria-label="Numer" autoComplete="off"
             aria-invalid={bladNumeru ? true : undefined} onChange={e => setNumer(e.target.value)} onKeyDown={naEnter(zapisz)} data-autofocus />
           {bladNumeru && <span className="rr-pole-blad">{bladNumeru}</span>}
         </label>
@@ -88,11 +93,19 @@ export function FakturaDialog({ karta, onClose, onZapisano }: { karta: Karta; on
                   onClick={() => { setTerminReczny(false); setTermin(dodajDni(data, terminFv)) }}>{`wróć do ${dni(terminFv)}`}</button></span>
               : <span className="rr-pole-pod">{`data wystawienia + ${dni(terminFv)} (ustawienia klienta)`}</span>}
         </label>
-        <div className="fld rr-form-cala"><span className="label">Forma</span>
+        <div className="fld"><span className="label">Forma</span>
           <Segment label="Forma" value={forma} opcje={FORMY} onChange={setForma} />
         </div>
+        <label className="fld"><span className="label">Kilogramy (opcjonalnie)</span>
+          <span className="rr-kwota-pole">
+            <input className={`field num${bladKg ? ' invalid' : ''}`} inputMode="decimal" autoComplete="off" value={kgTekst} aria-label="Kilogramy"
+              aria-invalid={bladKg ? true : undefined} onChange={e => setKgTekst(e.target.value)} onKeyDown={naEnter(zapisz)} />
+            <span className="rr-sfx" aria-hidden="true">kg</span>
+          </span>
+          {bladKg ? <span className="rr-pole-blad">{bladKg}</span> : <span className="rr-pole-pod">wchodzi do „Sprzedane kg”</span>}
+        </label>
         <label className="fld rr-form-cala"><span className="label">Uwagi</span>
-          <input className="field" value={uwagi} aria-label="Uwagi" placeholder="np. korekta do FV 528/2026, reklamacja"
+          <input className="field" value={uwagi} aria-label="Uwagi"
             onChange={e => setUwagi(e.target.value)} onKeyDown={naEnter(zapisz)} />
         </label>
       </div>

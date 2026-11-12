@@ -166,4 +166,9 @@ describe('Rozrachunki — okno wpłaty', () => {
     expect(screen.getByText(/przed startem rozliczeń \(01\.10\.2026\)/)).toBeTruthy()
     expect(zapisz().disabled).toBe(true)
   })
+
+  it('pola wpłaty bez placeholderów (D9); zaległy dokument sprzed startu do wskazania na liście dokumentów', () => {
+    mount({ ksiega: 'fv' })
+    expect(document.querySelectorAll('[placeholder]').length).toBe(0)
+  })
 })

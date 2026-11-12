@@ -163,7 +163,9 @@ describe('Rozrachunki — lista kontrahentów', () => {
     expect(app.toast).not.toHaveBeenCalled()
   })
 
-  it('„+ Kontrahent”: wybór z kartoteki (bez widocznych i wyłączonych) otwiera kartę klienta', async () => {
+  it('„+ Kontrahent”: wybór z kartoteki (bez widocznych i wyłączonych) otwiera kartę klienta z fokusem na saldzie otwarcia', async () => {
+    api.karta.mockResolvedValue({ ...SUROWA_KARTA, klient: { ...SUROWA_KARTA.klient, id: 'c8', nazwa: 'NOWY ODBIORCA TEST' }, rozliczenia_otwarte: false,
+      otwarcia: { wz: null, fv: null }, dokumenty: { wz: [], fv: [] }, wplaty: [], czeka_na_ceny: [], inna_waluta: [], dziennik: [] })
     mount()
     await screen.findByText('RONDO GRILL')
     const cmds = ostatnieKomendy(setCmds)
@@ -174,6 +176,7 @@ describe('Rozrachunki — lista kontrahentów', () => {
     expect(otworzK.disabled).toBe(true)
     const pole = await within(dlg).findByRole('combobox', { name: 'Kontrahent z kartoteki' })
     await waitFor(() => expect(klienci.list).toHaveBeenCalled())
+    expect(await within(dlg).findByText('Szukaj po nazwie albo NIP.')).toBeTruthy()
     fireEvent.focus(pole)
     fireEvent.change(pole, { target: { value: 'test' } })
     const opcje = within(document.body).getAllByRole('option').map(o => o.textContent)
@@ -186,6 +189,29 @@ describe('Rozrachunki — lista kontrahentów', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     await waitFor(() => expect(api.karta.mock.calls[api.karta.mock.calls.length - 1]?.[0]).toBe('c8'))
     expect(screen.getByRole('button', { name: '← Kontrahenci' })).toBeTruthy()
+    // Fokus w karcie (nie z powrotem na komendzie „Kontrahent”) — na „Wprowadź saldo otwarcia”.
+    const start = await screen.findByRole('button', { name: 'Wprowadź saldo otwarcia' })
+    await waitFor(() => expect(document.activeElement).toBe(start))
+  })
+
+  it('karta dostaje ten sam okres obrotu i kg co lista (jeden wybór okresu)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-12T10:00:00'))
+    try {
+      mount()
+      await screen.findByText('RONDO GRILL')
+      fireEvent.click(screen.getByRole('button', { name: 'Poprzedni miesiąc' }))
+      await waitFor(() => expect(api.lista).toHaveBeenLastCalledWith('2026-10-01', '2026-10-31'))
+      fireEvent.click(screen.getByText('RONDO GRILL'))
+      await waitFor(() => expect(api.karta).toHaveBeenLastCalledWith('c1', '', '', '2026-10-01', '2026-10-31'))
+      const przel = await screen.findByRole('group', { name: 'Okres obrotu i kg' })
+      expect(within(przel).getByRole('button', { name: 'Poprzedni miesiąc' }).getAttribute('aria-pressed')).toBe('true')
+      // Zmiana na karcie wraca na listę.
+      fireEvent.click(within(przel).getByRole('button', { name: 'Ten rok' }))
+      await waitFor(() => expect(api.karta).toHaveBeenLastCalledWith('c1', '', '', '2026-01-01', '2026-12-31'))
+      fireEvent.click(screen.getByRole('button', { name: '← Kontrahenci' }))
+      await waitFor(() => expect(api.lista).toHaveBeenLastCalledWith('2026-01-01', '2026-12-31'))
+    } finally { vi.useRealTimers() }
   })
 
   it('bez komendy „Data startu rozliczeń”; data startu tylko w podtytule; pola listy bez placeholderów', async () => {
@@ -314,7 +340,7 @@ describe('Rozrachunki — lista kontrahentów', () => {
     mount()
     fireEvent.click(await screen.findByText('RONDO GRILL'))
     expect(screen.queryByRole('table', { name: 'Kontrahenci z saldami' })).toBeNull()
-    await waitFor(() => expect(api.karta).toHaveBeenCalledWith('c1'))
+    await waitFor(() => expect(api.karta.mock.calls[0]?.[0]).toBe('c1'))
     expect(await screen.findByRole('table', { name: 'Faktury' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '← Kontrahenci' }))
     expect(await screen.findByRole('table', { name: 'Kontrahenci z saldami' })).toBeTruthy()

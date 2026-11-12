@@ -50,4 +50,24 @@ describe('Rozrachunki — ustawienia klienta', () => {
     expect(screen.getByText('Termin to liczba dni od 0 do 365')).toBeTruthy()
     expect(zapisz().disabled).toBe(true)
   })
+
+  it('„Prowadź rozrachunki” odznaczone — opis skutków, zapis wysyła wylaczony: true; wyłączony klient — przywrócenie', async () => {
+    mount()
+    const przel = screen.getByLabelText('Prowadź rozrachunki z tym kontrahentem') as HTMLInputElement
+    expect(przel.checked).toBe(true)
+    fireEvent.click(przel)
+    expect(screen.getByText(/zniknie z listy i sum, saldo nie będzie drukowane na WZ/)).toBeTruthy()
+    fireEvent.click(zapisz())
+    await waitFor(() => expect(api.ustawKlienta).toHaveBeenCalledWith('c1', { wylaczony: true }))
+    await waitFor(() => expect(onZapisano).toHaveBeenCalled())
+    expect(app.toast).toHaveBeenCalledWith(expect.objectContaining({ detail: 'wyłączony z rozrachunków — zniknął z listy' }))
+    cleanup()
+    api.ustawKlienta.mockClear()
+    mount(mapujKarte({ ...SUROWA_KARTA, klient: { ...SUROWA_KARTA.klient, wylaczony: true } }))
+    const p2 = screen.getByLabelText('Prowadź rozrachunki z tym kontrahentem') as HTMLInputElement
+    expect(p2.checked).toBe(false)
+    fireEvent.click(p2)
+    fireEvent.click(zapisz())
+    await waitFor(() => expect(api.ustawKlienta).toHaveBeenCalledWith('c1', { wylaczony: false }))
+  })
 })
