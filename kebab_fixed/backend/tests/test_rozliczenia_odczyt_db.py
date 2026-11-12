@@ -175,7 +175,8 @@ def test_lista_ROJPAK(rojpak):
     assert wynik["podsumowanie"]["EUR"]["gotowka_wz"] == 8409.50
     assert wynik["podsumowanie"]["EUR"]["po_terminie"] == 15689.50
     assert wynik["podsumowanie"]["PLN"] == {"naleznosci": 0.0, "po_terminie": 0.0,
-                                            "gotowka_wz": 0.0, "nadplaty": 0.0}
+                                            "gotowka_wz": 0.0, "nadplaty": 0.0,
+                                            "obrot": 0.0, "kg": 0.0}
     assert wynik["start"] == "2026-10-01"
 
 
@@ -380,7 +381,9 @@ def test_dokument_FV_528_pokrycie_i_historia(rojpak):
     assert d["numer"] == "528"
     assert d["zostalo"] == 7280.0
     assert d["pokrycie"] == [{"data": "2026-10-30", "forma": "przelew", "kwota": 7000.0,
-                              "uwagi": ""}]
+                              "kwota_wplaty": 7000.0, "uwagi": "", "kto": "biuro",
+                              "rodzaj": "wplata",
+                              "wplata_id": "wp-rojpak-fv-2026-10-30-7000"}]
     assert d["historia"][0]["akcja"] == "dodano"
     assert d["historia"][0]["kto"] == "biuro"
 

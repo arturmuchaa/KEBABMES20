@@ -2030,6 +2030,22 @@ _DDL: list[str] = [
         kto TEXT NOT NULL DEFAULT '',
         kiedy TIMESTAMPTZ NOT NULL DEFAULT now()
     )""",
+    # ── Rozliczenia — poprawki właściciela (12.11.2026) ──
+    # Klient wyłączony z rozrachunków: znika z listy, sum i wydruków salda
+    # (jego WZ dalej synchronizują się do księgi — dane nie giną).
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS "
+    "rozl_wylaczony BOOLEAN NOT NULL DEFAULT false",
+    # WZ „nie licz do rozrachunków” (tylko WZ; FV zawsze liczone) — z powodem.
+    # Synchronizacja z MES nigdy tych kolumn nie dotyka.
+    "ALTER TABLE rozl_dokumenty ADD COLUMN IF NOT EXISTS "
+    "nie_licz BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE rozl_dokumenty ADD COLUMN IF NOT EXISTS nie_licz_powod TEXT",
+    # Kilogramy dokumentu: WZ z MES — suma kg pozycji (synchronizacja, także
+    # wstecznie), FV ręczna — opcjonalnie z okna faktury.
+    "ALTER TABLE rozl_dokumenty ADD COLUMN IF NOT EXISTS kg NUMERIC(12,3)",
+    # Notatki (dawniej dziennik ustaleń) — usuwane miękko.
+    "ALTER TABLE rozl_dziennik ADD COLUMN IF NOT EXISTS usunieto_at TIMESTAMPTZ",
+    "ALTER TABLE rozl_dziennik ADD COLUMN IF NOT EXISTS usunieto_przez TEXT",
     # Data startu rozliczeń (saldo otwarcia = stan na początek tego dnia).
     """INSERT INTO app_settings (key, value)
        VALUES ('rozliczenia_start', '"2026-11-09"'::jsonb)

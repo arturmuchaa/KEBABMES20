@@ -3270,19 +3270,28 @@ const rozlQuery = (q: Record<string, string | undefined>) => {
 }
 
 export const rozliczeniaApi = {
-  lista: () => get<any>('/rozliczenia'),
+  /** Lista kontrahentów; `od`/`do` (RRRR-MM-DD) — okres obrotu i kg
+   *  (puste = od daty startu, bez końca). */
+  lista: (od = '', do_ = '') => get<any>(`/rozliczenia${rozlQuery({ od, do: do_ })}`),
   ustawienia: () => get<{ start: string }>('/rozliczenia/ustawienia'),
   ustawStart: (start: string) => put<{ start: string }>('/rozliczenia/ustawienia', { start }),
-  karta: (clientId: string, od = '', do_ = '') =>
-    get<any>(`${rozlKlient(clientId)}${rozlQuery({ od, do: do_ })}`),
+  /** Karta klienta. `od`/`do` — filtr listy dokumentów (po dacie);
+   *  `okresOd`/`okresDo` — okres obrotu i kg (puste = od daty startu). */
+  karta: (clientId: string, od = '', do_ = '', okresOd = '', okresDo = '') =>
+    get<any>(`${rozlKlient(clientId)}${rozlQuery({
+      od, do: do_, okres_od: okresOd, okres_do: okresDo })}`),
   ustawKlienta: (clientId: string, dto: Record<string, unknown>) =>
     put<{ ok: boolean }>(`${rozlKlient(clientId)}/ustawienia`, dto),
+  /** Wyłączenie klienta z rozrachunków (true) albo przywrócenie (false). */
+  ustawWylaczenie: (clientId: string, wylaczony: boolean) =>
+    put<{ ok: boolean }>(`${rozlKlient(clientId)}/ustawienia`, { wylaczony }),
   ustawOtwarcie: (clientId: string, ksiega: KsiegaRozliczen,
                   dto: { kwota: number | string; zalegle_od?: string | null; uwagi?: string }) =>
     put<{ ok: boolean }>(`${rozlKlient(clientId)}/otwarcie/${ksiega}`, dto),
   dodajFakture: (clientId: string, dto: {
     numer: string; data: string; kwota: number | string
     termin?: string | null; forma?: FormaPlatnosci | null; uwagi?: string
+    kg?: number | string | null
   }) => post<any>(`${rozlKlient(clientId)}/faktury`, dto),
   podgladWplaty: (clientId: string,
                   dto: { ksiega: KsiegaRozliczen; kwota: number | string; dokument_id?: string | null }) =>
@@ -3300,6 +3309,11 @@ export const rozliczeniaApi = {
     patch<any>(`/rozliczenia/dokumenty/${encodeURIComponent(dokumentId)}`, zmiany),
   usunDokument: (dokumentId: string, powod: string) =>
     post<{ ok: boolean }>(`/rozliczenia/dokumenty/${encodeURIComponent(dokumentId)}/usun`, { powod }),
+  /** WZ „nie licz do rozrachunków” (albo cofnięcie) — powód obowiązkowy;
+   *  dla FV serwer odmawia (400). Zwraca dokument po zmianie. */
+  nieLicz: (dokumentId: string, nieLicz: boolean, powod: string) =>
+    post<any>(`/rozliczenia/dokumenty/${encodeURIComponent(dokumentId)}/nie-licz`,
+      { nie_licz: nieLicz, powod }),
   /** WZ bez kontrahenta → przypisanie do klienta. */
   przypiszWz: (dokumentId: string, clientId: string) =>
     post<{ ok: boolean }>(`/rozliczenia/dokumenty/${encodeURIComponent(dokumentId)}/przypisz`,
@@ -3308,6 +3322,9 @@ export const rozliczeniaApi = {
     post<any>(`${rozlKlient(clientId)}/dziennik`, { tresc, przypomnij: przypomnij || null }),
   odhaczWpis: (wpisId: string) =>
     post<{ ok: boolean }>(`/rozliczenia/dziennik/${encodeURIComponent(wpisId)}/odhacz`, {}),
+  /** Miękkie usunięcie notatki (powód opcjonalny, trafia do historii). */
+  usunWpis: (wpisId: string, powod = '') =>
+    post<{ ok: boolean }>(`/rozliczenia/dziennik/${encodeURIComponent(wpisId)}/usun`, { powod }),
   /** Historia zmian klienta (najnowsze pierwsze), także usunięte wpłaty i faktury. */
   historiaZmian: (clientId: string) => get<any>(`${rozlKlient(clientId)}/historia-zmian`),
   /** Dokumenty niezapłacone na dzień (domyślnie dziś); `wzId` oznacza „ten dokument”. */

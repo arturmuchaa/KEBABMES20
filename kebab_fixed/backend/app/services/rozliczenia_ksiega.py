@@ -7,10 +7,12 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
 
 _GROSZ = Decimal("0.01")
 _ZERO = Decimal("0.00")
+_GRAM = Decimal("0.001")
+_ZERO_KG = Decimal("0.000")
 
 
 def grosze(x: Any) -> Decimal:
@@ -38,6 +40,67 @@ def brutto_wz(lines: Iterable[dict]) -> Decimal:
         v = grosze(n * stawka / 100)
         suma += n + v
     return grosze(suma)
+
+
+def kilogramy(x: Any) -> Decimal:
+    """Kwantyzacja kg do 0,001 (ROUND_HALF_UP); None/pusty → 0,000."""
+    if x is None or x == "":
+        return _ZERO_KG
+    if not isinstance(x, Decimal):
+        x = Decimal(str(x))
+    return x.quantize(_GRAM, rounding=ROUND_HALF_UP)
+
+
+def kg_wz(lines: Iterable[dict]) -> Decimal:
+    """Kilogramy WZ z pozycji: `total_kg` pozycji (sztuki z gramaturą, pozycja
+    zbiorcza), a gdy go nie ma — `qty` pozycji w jednostce kg. Sztuki bez
+    gramatury nie mają wagi. Przy podziale wysyłki WZ niesie tylko swoją część,
+    więc kg części fakturowanej tu nie wchodzą."""
+    suma = Decimal(0)
+    for l in lines or []:
+        total = Decimal(str(l.get("total_kg") or 0))
+        if total > 0:
+            suma += total
+        elif (l.get("unit") or "") == "kg":
+            suma += Decimal(str(l.get("qty") or 0))
+    return kilogramy(suma)
+
+
+def faktura_bez_kwoty(dok: dict) -> bool:
+    """FV z papierów kursu, której kwoty biuro jeszcze nie wpisało
+    (`stan_zrodla='czeka_na_kwote'` albo kwota NULL)."""
+    return dok["ksiega"] == "fv" and (dok.get("stan_zrodla") == "czeka_na_kwote"
+                                      or dok.get("kwota") is None)
+
+
+def obrot_okresu(dokumenty: Iterable[dict], waluta: str, od: date,
+                 do: Optional[date]) -> dict:
+    """Obrót i sprzedane kg klienta za okres [od, do] (`do` None = bez końca).
+
+    Obrót = suma brutto dokumentów liczonych (aktywne, w walucie kontrahenta,
+    bez WZ „nie licz”), z datą w okresie — korekty ujemne odejmują. Kg = kg tych
+    samych dokumentów plus kg faktur bez kwoty (towar wyjechał). Saldo otwarcia
+    nie jest dokumentem, więc nie wchodzi nigdzie. `fv_bez_kwoty` — liczba
+    faktur czekających na kwotę, bez względu na okres.
+    Wejście: wiersze `rozl_dokumenty` (nieusunięte, od daty startu).
+    """
+    obrot, kg, bez_kwoty = _ZERO, _ZERO_KG, 0
+    for r in dokumenty:
+        if r.get("nie_licz"):
+            continue
+        brak_kwoty = faktura_bez_kwoty(r)
+        if brak_kwoty:
+            bez_kwoty += 1
+        if r["data_dok"] < od or (do is not None and r["data_dok"] > do):
+            continue
+        if brak_kwoty:
+            kg += kilogramy(r.get("kg"))
+            continue
+        if r["stan_zrodla"] != "aktywny" or r["waluta"] != waluta:
+            continue
+        obrot += grosze(r["kwota"])
+        kg += kilogramy(r.get("kg"))
+    return {"obrot": obrot, "kg": kg, "fv_bez_kwoty": bez_kwoty}
 
 
 def ma_vat(lines: Iterable[dict]) -> bool:

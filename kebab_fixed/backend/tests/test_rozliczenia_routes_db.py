@@ -59,10 +59,13 @@ def test_na_wz_dla_wm_to_404(db, przywroc_start):
     assert e.value.status_code == 404
 
 
-def test_ustawienia_start_round_trip(db, przywroc_start):
-    route.ustaw_ustawienia({"start": "2026-11-12"}, KTO)
+def test_ustawienia_start_zablokowane(db, przywroc_start):
+    # D7 (12.11.2026): data startu tylko do odczytu przez API.
+    with pytest.raises(HTTPException) as e:
+        route.ustaw_ustawienia({"start": "2026-11-12"}, KTO)
 
-    assert route.ustawienia() == {"start": "2026-11-12"}
+    assert e.value.status_code == 403
+    assert route.ustawienia() == {"start": "2026-11-09"}
 
 
 def test_lista_i_karta(db, przywroc_start):

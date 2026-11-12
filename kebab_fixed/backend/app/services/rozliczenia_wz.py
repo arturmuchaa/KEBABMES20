@@ -12,7 +12,9 @@ Do księgi trafia tylko seria WZ (nigdy WM — to ruch magazynowy) z datą
 jest obowiązkowe.
 
 Pola, które ustawia biuro (`uwagi`, `forma`, `termin_reczny`, ręczne
-przypisanie kontrahenta), nie są przez synchronizację nadpisywane.
+przypisanie kontrahenta, `nie_licz`), nie są przez synchronizację nadpisywane.
+Kilogramy (`kg`, suma kg pozycji WZ) synchronizacja uzupełnia po cichu — bez
+historii i bez licznika zmian (to nie pieniądze; wypełnia też stare wiersze).
 """
 from __future__ import annotations
 
@@ -25,7 +27,7 @@ from fastapi import HTTPException
 from app.db import (cx_execute, cx_query_all, cx_query_one, execute,
                     query_one, transaction)
 from app.logging_config import get_logger
-from app.services.rozliczenia_ksiega import brutto_wz, grosze, ma_vat, nip_krajowy
+from app.services.rozliczenia_ksiega import brutto_wz, grosze, kg_wz, ma_vat, nip_krajowy
 from app.utils.ids import cuid
 
 logger = get_logger(__name__)
@@ -195,7 +197,7 @@ def synchronizuj_wz() -> dict:
         istniejace = {r["source_id"]: r for r in cx_query_all(
             conn,
             "SELECT id, source_id, client_id, przypisano_recznie, numer, data_dok, kwota, forma, "
-            "       waluta, termin, termin_reczny, stan_zrodla, brak_vat "
+            "       waluta, termin, termin_reczny, stan_zrodla, brak_vat, kg "
             "FROM rozl_dokumenty WHERE zrodlo='mes_wz'")}
         dokumenty_wz = cx_query_all(
             conn,
@@ -244,6 +246,7 @@ def _wylicz(wz: dict, client_id: Optional[str], kartoteka: _Kartoteka) -> dict:
         "stan_zrodla": stan,
         "brak_vat": bool(klient is not None and nip_krajowy(klient["nip"])
                          and not ma_vat(lines) and stan == "aktywny"),
+        "kg": kg_wz(lines),
     }
 
 
@@ -255,12 +258,12 @@ def _dodaj(conn, wz: dict, kartoteka: _Kartoteka) -> None:
     cx_execute(
         conn,
         "INSERT INTO rozl_dokumenty (id, client_id, ksiega, zrodlo, source_id, numer, "
-        " data_dok, kwota, waluta, termin, forma, stan_zrodla, brak_vat, utworzyl) "
-        "VALUES (%s,%s,'wz','mes_wz',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        " data_dok, kwota, waluta, termin, forma, stan_zrodla, brak_vat, kg, utworzyl) "
+        "VALUES (%s,%s,'wz','mes_wz',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (dok_id, client_id, wz["id"], nowe["numer"], wz["data_dok"], nowe["kwota"],
          nowe["waluta"], kartoteka.termin(client_id, wz["data_dok"]),
          klient["rozl_forma_wz"] if klient else "gotowka", nowe["stan_zrodla"],
-         nowe["brak_vat"], KTO_MES))
+         nowe["brak_vat"], nowe["kg"], KTO_MES))
     historia(conn, client_id=client_id, obiekt="dokument", obiekt_id=dok_id,
              akcja="dodano", opis=f"dodano {nowe['numer']} z MES",
              po={"kwota": float(nowe["kwota"]), "stan": nowe["stan_zrodla"]}, kto=KTO_MES)
@@ -294,6 +297,8 @@ def _aktualizuj(conn, wz: dict, stary: dict, kartoteka: _Kartoteka) -> Optional[
         for k in rozne)
     cx_execute(conn, f"UPDATE rozl_dokumenty SET {ustaw} WHERE id=%s",
                (*rozne.values(), stary["id"]))
+    if set(rozne) == {"kg"}:
+        return None  # same kilogramy (np. uzupełnienie wsteczne) — bez historii
 
     def wpis(akcja: str, opis: str, przed=None, po=None) -> None:
         historia(conn, client_id=client_id, obiekt="dokument", obiekt_id=stary["id"],

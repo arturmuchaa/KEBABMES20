@@ -713,7 +713,9 @@ def zaladunek(loading_id: str) -> Dict[str, Any]:
             "SELECT lo.order_id, lo.wz_id, lo.wz_status, lo.pozycje, lo.document_snapshot, o.order_no, o.client_name, o.client_id, "
             # Rozliczenia „otwarte” (biuro wprowadziło saldo otwarcia) — dopiero
             # wtedy zestawienie należności może iść do klienta w papierach kursu.
-            "       EXISTS (SELECT 1 FROM rozl_otwarcia ro WHERE ro.client_id = o.client_id) AS rozliczenia_otwarte "
+            # Klient wyłączony z rozrachunków nigdy go nie dostaje.
+            "       EXISTS (SELECT 1 FROM rozl_otwarcia ro JOIN clients rc ON rc.id = ro.client_id "
+            "               WHERE ro.client_id = o.client_id AND NOT rc.rozl_wylaczony) AS rozliczenia_otwarte "
             "FROM loading_orders lo LEFT JOIN client_orders o ON o.id = lo.order_id "
             "WHERE lo.loading_id=%s ORDER BY o.client_name", (loading_id,)):
         oid = r["order_id"]

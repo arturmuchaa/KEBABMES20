@@ -73,8 +73,9 @@ def _tekst(body: Dict[str, Any], pole: str) -> str:
 
 
 @router.get("")
-def lista():
-    return svc.lista()
+def lista(od: str = Query(""), do: str = Query("")):
+    """`od`/`do` — okres obrotu i kg (puste = od daty startu, bez końca)."""
+    return svc.lista(od=_data(od), do=_data(do))
 
 
 @router.get("/ustawienia")
@@ -84,16 +85,19 @@ def ustawienia():
 
 @router.put("/ustawienia")
 def ustaw_ustawienia(body: Dict[str, Any], request: Request):
-    start = _data(body.get("start"))
-    if start is None:
-        raise HTTPException(400, "Nieprawidłowa data")
-    wz.ustaw_date_startu(start, _kto(request))
-    return ustawienia()
+    # Data startu ustawiona na produkcji (12.11.2026) — przypadkowa zmiana
+    # przesunęłaby saldo otwarcia wszystkich klientów. Zmienia ją tylko
+    # administrator skryptem (`rozliczenia_wz.ustaw_date_startu`).
+    raise HTTPException(403, "Data startu rozliczeń jest zablokowana")
 
 
 @router.get("/klient/{client_id}")
-def karta(client_id: str, od: str = Query(""), do: str = Query("")):
-    return svc.karta(client_id, od=_data(od), do=_data(do))
+def karta(client_id: str, od: str = Query(""), do: str = Query(""),
+          okres_od: str = Query(""), okres_do: str = Query("")):
+    """`od`/`do` — filtr listy dokumentów; `okres_od`/`okres_do` — okres
+    obrotu i kg (puste = od daty startu, bez końca)."""
+    return svc.karta(client_id, od=_data(od), do=_data(do),
+                     okres_od=_data(okres_od), okres_do=_data(okres_do))
 
 
 @router.get("/klient/{client_id}/historia-zmian")
@@ -122,7 +126,7 @@ def dodaj_fakture(client_id: str, body: Dict[str, Any], request: Request):
         client_id, numer=_tekst(body, "numer"), data=_data(body.get("data")),
         kwota=_kwota(body.get("kwota")), termin=_data(body.get("termin")),
         forma=body.get("forma") or None, uwagi=_tekst(body, "uwagi"),
-        kto=_kto(request))
+        kto=_kto(request), kg=_kwota(body.get("kg")))
 
 
 @router.post("/klient/{client_id}/wplaty/podglad")
@@ -155,8 +159,9 @@ def dokument(dokument_id: str):
 @router.patch("/dokumenty/{dokument_id}")
 def edytuj_dokument(dokument_id: str, body: Dict[str, Any], request: Request):
     zmiany = {k: v for k, v in body.items() if k != "powod"}
-    if "kwota" in zmiany:
-        zmiany["kwota"] = _kwota(zmiany["kwota"])
+    for pole in ("kwota", "kg"):
+        if pole in zmiany:
+            zmiany[pole] = _kwota(zmiany[pole])
     for pole in ("data", "termin"):
         if pole in zmiany:
             zmiany[pole] = _data(zmiany[pole])
@@ -167,6 +172,13 @@ def edytuj_dokument(dokument_id: str, body: Dict[str, Any], request: Request):
 def usun_dokument(dokument_id: str, body: Dict[str, Any], request: Request):
     svc.usun_dokument(dokument_id, _tekst(body, "powod"), _kto(request))
     return {"ok": True}
+
+
+@router.post("/dokumenty/{dokument_id}/nie-licz")
+def nie_licz(dokument_id: str, body: Dict[str, Any], request: Request):
+    """WZ „nie licz do rozrachunków”: `{nie_licz: bool, powod: str}` → `Dok`."""
+    return svc.ustaw_nie_licz(dokument_id, body.get("nie_licz"), _tekst(body, "powod"),
+                              _kto(request))
 
 
 @router.post("/dokumenty/{dokument_id}/przypisz")
@@ -184,6 +196,13 @@ def dodaj_wpis(client_id: str, body: Dict[str, Any], request: Request):
 @router.post("/dziennik/{wpis_id}/odhacz")
 def odhacz(wpis_id: str, request: Request):
     svc.odhacz_wpis(wpis_id, _kto(request))
+    return {"ok": True}
+
+
+@router.post("/dziennik/{wpis_id}/usun")
+def usun_wpis(wpis_id: str, body: Dict[str, Any], request: Request):
+    """Miękkie usunięcie notatki; `powod` opcjonalny (trafia do historii)."""
+    svc.usun_wpis_dziennika(wpis_id, _kto(request), powod=_tekst(body, "powod"))
     return {"ok": True}
 
 
