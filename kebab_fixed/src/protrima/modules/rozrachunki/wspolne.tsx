@@ -4,7 +4,10 @@
  */
 import React, { useId, useRef, useState } from 'react'
 import { FlagIcon } from '../../ui/Glyphs'
-import { liczba, symbolWaluty, znakSalda } from './model'
+import {
+  ETYKIETA_OKRESU_OBROTU, OKRESY_OBROTU, bladZakresu, liczba, symbolWaluty, znakSalda,
+  type OkresObrotu, type WyborOkresuObrotu,
+} from './model'
 
 /** Pamięć wyboru użytkownika (sortowanie, filtry). Bez pamięci przeglądarki — po prostu nic nie pamięta. */
 export const pamiec = {
@@ -14,8 +17,14 @@ export const pamiec = {
   },
 }
 
-/** Klasa koloru salda: dług — czerwień, nadpłata — zieleń, zero — zwykły tekst. */
-export const klasaSalda = (x: number) => (znakSalda(x) < 0 ? ' crit-ink' : znakSalda(x) > 0 ? ' ok-ink' : '')
+/**
+ * Klasa koloru salda (D5): nadpłata — zieleń, dług w terminie i zero — zwykły tekst.
+ * Czerwień niesie tylko to, co po terminie — `klasaZaleglosci`.
+ */
+export const klasaSalda = (x: number) => (znakSalda(x) > 0 ? ' ok-ink' : '')
+
+/** Klasa kwoty po terminie (dodatniej): czerwień, gdy jest zaległość; inaczej zwykły tekst. */
+export const klasaZaleglosci = (poTerminie: number) => (znakSalda(poTerminie) > 0 ? ' crit-ink' : '')
 
 export const tekstBledu = (e: unknown, zast: string) => (e instanceof Error && e.message ? e.message : zast)
 
@@ -81,6 +90,61 @@ export function Segment<T extends string>({ label, value, opcje, onChange, autof
         <button key={v} type="button" aria-pressed={value === v} onClick={() => onChange(v)}
           {...(autofocus && value === v ? { 'data-autofocus': true } : {})}>{t}</button>
       ))}
+    </div>
+  )
+}
+
+
+const KLUCZ_OKRESU = 'protrima.rozrachunki.okres'
+const OKRES_DOMYSLNY: WyborOkresuObrotu = { okres: 'miesiac', od: '', do: '' }
+
+function czytajOkres(klucz: string): WyborOkresuObrotu {
+  try {
+    const v = JSON.parse(pamiec.czytaj(klucz) ?? 'null')
+    if (!v || !OKRESY_OBROTU.includes(v.okres)) return OKRES_DOMYSLNY
+    return { okres: v.okres, od: typeof v.od === 'string' ? v.od : '', do: typeof v.do === 'string' ? v.do : '' }
+  } catch { return OKRES_DOMYSLNY }
+}
+
+/** Okres obrotu i kg zapamiętany w przeglądarce (domyślnie „Ten miesiąc”) — wspólny dla listy i karty. */
+export function useOkresObrotu(klucz = KLUCZ_OKRESU) {
+  const [wybor, setStan] = useState<WyborOkresuObrotu>(() => czytajOkres(klucz))
+  const ustaw = (w: WyborOkresuObrotu) => { setStan(w); pamiec.zapisz(klucz, JSON.stringify(w)) }
+  return [wybor, ustaw] as const
+}
+
+/**
+ * Wybór okresu obrotu i kg: gotowe okresy w przełączniku, „Od–do” rozwija dwa pola dat.
+ * Pierwsze wejście w „Od–do” podstawia ten miesiąc do dziś — od razu jest co liczyć.
+ */
+export function WyborOkresu({ wybor, onChange, dzis, opis }: {
+  wybor: WyborOkresuObrotu; onChange: (w: WyborOkresuObrotu) => void; dzis: string
+  /** Opis wybranego okresu obok przełącznika (`01.11–30.11.2026`). */
+  opis?: string
+}) {
+  const blad = bladZakresu(wybor)
+  const idBledu = useId()
+  const wybierz = (o: OkresObrotu) => {
+    if (o !== 'zakres') { onChange({ ...wybor, okres: o }); return }
+    onChange({ okres: 'zakres', od: wybor.od || `${dzis.slice(0, 8)}01`, do: wybor.do || dzis })
+  }
+  const data = (pole: 'od' | 'do', etykieta: string) => (
+    <label className="rr-okres-data"><span>{etykieta}</span>
+      <input type="date" className={`field${blad ? ' invalid' : ''}`} value={wybor[pole]} aria-label={`Okres ${etykieta}`}
+        aria-invalid={blad ? true : undefined} aria-describedby={blad ? idBledu : undefined}
+        onChange={e => onChange({ ...wybor, [pole]: e.target.value })} />
+    </label>
+  )
+  return (
+    <div className="rr-okres">
+      <div className="seg" role="group" aria-label="Okres obrotu i kg">
+        {OKRESY_OBROTU.map(o => (
+          <button key={o} type="button" aria-pressed={wybor.okres === o} onClick={() => wybierz(o)}>{ETYKIETA_OKRESU_OBROTU[o]}</button>
+        ))}
+      </div>
+      {wybor.okres === 'zakres' && <span className="rr-zakres">{data('od', 'od')}{data('do', 'do')}</span>}
+      {blad ? <span className="rr-pole-blad" id={idBledu} role="alert">{blad}</span>
+        : opis && <span className="rr-okres-opis">{opis}</span>}
     </div>
   )
 }

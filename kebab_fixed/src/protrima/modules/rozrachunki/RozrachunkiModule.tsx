@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Wallet, RefreshCw, CalendarDays, Search, ArrowUp, ArrowDown, BellRing, ChevronDown, ChevronRight, Link2 } from 'lucide-react'
+import { Wallet, RefreshCw, Search, ArrowUp, ArrowDown, BellRing, ChevronDown, ChevronRight, Link2, Plus, UserPlus, Undo2, UserX } from 'lucide-react'
 import { useApp, CommandBar, Dialog, type Cmd } from '../../shell/context'
 import { FlagIcon } from '../../ui/Glyphs'
 import { Pusto } from '../../ui/Pusto'
@@ -9,12 +9,12 @@ import { useApi } from '@/hooks/useApi'
 import { clientsApi, rozliczeniaApi } from '@/lib/api'
 import { dataPl, kwota } from '@/features/rozliczenia/druk'
 import {
-  FILTRY, KLASA_TONU, KOLUMNY, PIERWSZY_KIERUNEK, filtruj, kwotaSalda, mapujListe, pigulka, podpowiedzKlienta, pozycje, sortuj,
-  walutyPodsumowania, znakSalda,
-  type Filtr, type Kierunek, type Kolumna, type Kontrahent, type ListaRozliczen, type WzBezKontrahenta,
+  ETYKIETA_OKRESU_OBROTU, FILTRY, KLASA_TONU, KOLUMNY, PIERWSZY_KIERUNEK, bladZakresu, dzisIso, filtruj, kandydaciDoDodania, kilogramy,
+  kwotaSalda, mapujListe, opisOkresu, pigulka, podpowiedzKlienta, pozycje, sortuj, walutyPodsumowania, zakresObrotu, znakSalda,
+  type Filtr, type Kierunek, type Kolumna, type Kontrahent, type ListaRozliczen, type Wylaczony, type WyborOkresuObrotu, type WzBezKontrahenta,
 } from './model'
 import { KartaKlienta, type Okno } from './KartaKlienta'
-import { klasaSalda, pamiec, tekstBledu } from './wspolne'
+import { WyborOkresu, klasaSalda, klasaZaleglosci, pamiec, tekstBledu, useOkresObrotu } from './wspolne'
 import { WplataDialog } from './WplataDialog'
 import { FakturaDialog } from './FakturaDialog'
 import { OtwarcieDialog } from './OtwarcieDialog'
@@ -36,7 +36,7 @@ const czytajFiltr = (): Filtr => { const f = pamiec.czytaj(KLUCZ_FILTR) as Filtr
 const ETYKIETA_FILTRA: Record<Filtr, string> = {
   wszyscy: 'Wszyscy', poTerminie: 'Po terminie', nadplaty: 'Nadpłaty', przypomnienia: 'Przypomnienia', PLN: 'PLN', EUR: 'EUR',
 }
-const KOLUMNY_TABELI: Array<{ kol: Kolumna; label: string; num?: boolean; tip?: string }> = [
+const KOLUMNY_TABELI: Array<{ kol: Kolumna; label: string; num?: boolean; tip?: string; okres?: boolean }> = [
   { kol: 'nazwa', label: 'Kontrahent' },
   { kol: 'waluta', label: 'Waluta' },
   { kol: 'saldoWz', label: 'Saldo WZ', num: true, tip: 'Księga WZ — minus: klient winien, plus: nadpłata' },
@@ -44,6 +44,8 @@ const KOLUMNY_TABELI: Array<{ kol: Kolumna; label: string; num?: boolean; tip?: 
   { kol: 'saldo', label: 'Saldo łącznie', num: true },
   { kol: 'poTerminie', label: 'Po terminie', num: true, tip: 'Niezapłacona reszta dokumentów po terminie płatności' },
   { kol: 'najstarszaDni', label: 'Najstarsza zaległość' },
+  { kol: 'obrot', label: 'Obrót', num: true, okres: true },
+  { kol: 'kg', label: 'kg', num: true, okres: true },
 ]
 const KOLUMN = KOLUMNY_TABELI.length
 /**
@@ -53,10 +55,18 @@ const KOLUMN = KOLUMNY_TABELI.length
  */
 export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void }) {
   const app = useApp()
-  const res = useApi(() => rozliczeniaApi.lista().then(mapujListe))
+  const dzis = dzisIso()
+  const [okresWybor, setOkresWybor] = useOkresObrotu()
+  // Zły własny zakres (brak daty, „do” przed „od”) — zostaje ostatni poprawny, bez zapytania do serwera.
+  const [okresOk, setOkresOk] = useState<WyborOkresuObrotu>(() => (bladZakresu(okresWybor) ? { okres: 'miesiac', od: '', do: '' } : okresWybor))
+  const zmienOkres = (w: WyborOkresuObrotu) => { setOkresWybor(w); if (!bladZakresu(w)) setOkresOk(w) }
+  const z = zakresObrotu(okresOk, dzis)
+  const res = useApi(() => rozliczeniaApi.lista(z.od, z.do).then(mapujListe), [z.od, z.do])
   const l = res.data
   const [wybrany, setWybrany] = useState<string | null>(null)
-  const [okno, setOkno] = useState<'start' | null>(null)
+  const [nazwaNowego, setNazwaNowego] = useState<string | undefined>(undefined)
+  const [okno, setOkno] = useState<'dodaj' | null>(null)
+  const [wylaczeniOn, setWylaczeniOn] = useState(false)
   const [oknoKarty, setOknoKarty] = useState<Okno | null>(null)
   const [wersjaKarty, setWersjaKarty] = useState(0)
   const [filtr, setFiltrStan] = useState<Filtr>(czytajFiltr)
@@ -70,7 +80,7 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
   const { refetch } = res
   const odswiez = useCallback(() => { void refetch() }, [refetch])
   const wierszDom = (id: string) => [...(tbodyRef.current?.querySelectorAll<HTMLElement>('tr[data-id]') ?? [])].find(r => r.dataset.id === id)
-  const setFiltr = (f: Filtr) => { setFiltrStan(f); pamiec.zapisz(KLUCZ_FILTR, f === 'wszyscy' ? null : f) }
+  const setFiltr = (f: Filtr) => { setFiltrStan(f); setWylaczeniOn(false); pamiec.zapisz(KLUCZ_FILTR, f === 'wszyscy' ? null : f) }
   const klikNaglowka = (kol: Kolumna) => {
     const pierwszy = PIERWSZY_KIERUNEK[kol]
     // Pierwszy klik — kierunek najbardziej przydatny dla kolumny, drugi odwraca, trzeci wraca do kolejności serwera.
@@ -87,8 +97,14 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
     return sort ? sortuj(f, sort.kol, sort.kier) : f
   }, [wszyscy, filtr, szukaj, sort])
   const wybranyK = wszyscy.find(k => k.id === wybrany) ?? null
+  const wylaczeni = useMemo(() => l?.wylaczeni ?? [], [l])
+  const pokazWylaczonych = wylaczeniOn && wylaczeni.length > 0
+  const opisWybranego = opisOkresu(okresWybor, dzis, l?.start ?? '')
+  const okresSlowem = `${ETYKIETA_OKRESU_OBROTU[okresOk.okres]} · ${opisOkresu(okresOk, dzis, l?.start ?? '')}`
 
   const otworz = (k: Kontrahent) => { setKursor(k.id); setWybrany(k.id) }
+  // Kontrahent z kartoteki bez rozrachunków: karta (pusta) w module — tam saldo otwarcia, potem jest na liście.
+  const otworzNowego = (id: string, nazwa: string) => { setOkno(null); setNazwaNowego(nazwa); setWybrany(id) }
   // Powrót z karty — lista po cichu się odświeża (wpłata, wpis w dzienniku mogły zmienić saldo i przypomnienia).
   const wroc = useCallback(() => { doFokusu.current = wybrany; setWybrany(null); odswiez() }, [wybrany, odswiez])
   // Okna karty (wpłata, faktura, saldo otwarcia, druk, ustawienia). Po zapisie: karta i lista od nowa
@@ -121,8 +137,8 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
 
   const cmds = useMemo<Cmd[]>(() => [
     { id: 'reload', group: 1, label: 'Odśwież', icon: <RefreshCw size={17} />, run: odswiez },
-    { id: 'start', group: 2, label: 'Data startu rozliczeń', icon: <CalendarDays size={17} />, disabled: !l, tip: 'najpierw wczytaj rozrachunki',
-      run: () => setOkno('start') },
+    { id: 'dodaj', group: 2, label: 'Kontrahent', icon: <Plus size={17} />, disabled: !l, tip: l ? 'Dodaj kontrahenta z kartoteki — np. z samym saldem otwarcia' : 'najpierw wczytaj rozrachunki',
+      run: () => setOkno('dodaj') },
   ], [odswiez, l])
   useEffect(() => { if (active) setCmds(cmds) }, [active, cmds, setCmds])
   useEffect(() => {
@@ -160,7 +176,7 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
       {wybrany && (
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           <div className="dock-pad">
-            <KartaKlienta key={wybrany} clientId={wybrany} nazwa={wybranyK?.nazwa} wersja={wersjaKarty} onWroc={wroc} onOtworz={otworzOkno} />
+            <KartaKlienta key={wybrany} clientId={wybrany} nazwa={wybranyK?.nazwa ?? nazwaNowego} wersja={wersjaKarty} onWroc={wroc} onOtworz={otworzOkno} />
           </div>
         </div>
       )}
@@ -168,22 +184,34 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }} hidden={!!wybrany}>
         <div className="dock-pad rr">
           {blad}
-          {l && <Sumy l={l} />}
+          {l && (
+            <div className="rr-okres-pasek">
+              <span className="rr-okres-tyt">Obrót i kg za</span>
+              <WyborOkresu wybor={okresWybor} onChange={zmienOkres} dzis={dzis} opis={opisWybranego} />
+            </div>
+          )}
+          {l && <Sumy l={l} okres={okresSlowem} />}
 
-          {l && wszyscy.length > 0 && (
+          {l && (wszyscy.length > 0 || wylaczeni.length > 0) && (
             <div className="rr-bar">
               <div className="rr-chips" role="group" aria-label="Filtr kontrahentów">
                 {FILTRY.filter(f => f === filtr || ['wszyscy', 'poTerminie', 'nadplaty'].includes(f) || (liczniki[f] > 0
                   && (f === 'przypomnienia' || (liczniki.PLN > 0 && liczniki.EUR > 0)))).map(f => (
-                  <button key={f} type="button" className={`chip${filtr === f ? ' on' : ''}`} aria-pressed={filtr === f} onClick={() => setFiltr(f)}>
+                  <button key={f} type="button" className={`chip${filtr === f && !pokazWylaczonych ? ' on' : ''}`} aria-pressed={filtr === f && !pokazWylaczonych} onClick={() => setFiltr(f)}>
                     {ETYKIETA_FILTRA[f]}<span className={`count${f === 'poTerminie' && liczniki[f] ? ' crit' : f === 'przypomnienia' && liczniki[f] ? ' warn' : ''}`}>{liczniki[f]}</span>
                   </button>
                 ))}
+                {wylaczeni.length > 0 && (
+                  <button type="button" className={`chip rr-chip-wyl${pokazWylaczonych ? ' on' : ''}`} aria-pressed={pokazWylaczonych}
+                    data-tip="Kontrahenci, dla których nie prowadzisz rozrachunków — można ich przywrócić" onClick={() => setWylaczeniOn(v => !v)}>
+                    Wyłączeni<span className="count">{wylaczeni.length}</span>
+                  </button>
+                )}
               </div>
               <div className="field-wrap rr-szukaj">
                 <Search size={15} />
                 <input ref={szukajRef} className="field" value={szukaj} onChange={e => setSzukaj(e.target.value)} onKeyDown={naSzukaniu}
-                  placeholder="Szukaj kontrahenta lub NIP" aria-label="Szukaj kontrahenta" />
+                  aria-label="Szukaj kontrahenta" title="Szukaj po nazwie albo NIP" disabled={pokazWylaczonych} />
                 {!szukaj && <span className="kbd">Ctrl F</span>}
               </div>
             </div>
@@ -197,8 +225,11 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
             </div>
           )}
 
-          {l && wszyscy.length === 0
-            ? <Pusto ikona={<Wallet size={22} />} tytul="Nikt jeszcze nie ma rozliczeń — dodaj saldo otwarcia albo wystaw WZ">
+          {pokazWylaczonych
+            ? <ListaWylaczonych wylaczeni={wylaczeni} onPrzywrocono={odswiez} />
+            : l && wszyscy.length === 0
+            ? <Pusto ikona={<Wallet size={22} />} tytul="Nikt jeszcze nie ma rozliczeń — dodaj saldo otwarcia albo wystaw WZ"
+                akcja={<button type="button" className="btn sm" onClick={() => setOkno('dodaj')}><UserPlus size={14} />Dodaj kontrahenta</button>}>
                 Rozliczenia liczą się od {dataPl(l.start)}. Wycenione WZ wystawione od tego dnia pojawią się tu same,
                 a stan z arkusza wpiszesz jako saldo otwarcia klienta.</Pusto>
             : (l || res.loading) && (
@@ -209,7 +240,7 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
                       const on = sort?.kol === c.kol
                       return (
                         <th key={c.kol} className={c.num ? 'num' : undefined} aria-sort={on ? (sort!.kier === 'asc' ? 'ascending' : 'descending') : undefined}>
-                          <button type="button" className="rr-th" onClick={() => klikNaglowka(c.kol)} data-tip={c.tip}>
+                          <button type="button" className="rr-th" onClick={() => klikNaglowka(c.kol)} data-tip={c.okres ? `${c.label === 'kg' ? 'Sprzedane kg' : 'Obrót brutto'} · ${okresSlowem}` : c.tip}>
                             {c.label}<span className="sort" aria-hidden="true">{on ? (sort!.kier === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} />) : null}</span>
                           </button>
                         </th>
@@ -238,12 +269,8 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
 
       {oknoKarty && <OknoKarty o={oknoKarty} onClose={zamknijOkno} onZapisano={poZapisie} onOdswiez={odswiezKarte} />}
 
-      {okno === 'start' && l && (
-        <DataStartu start={l.start} onClose={() => setOkno(null)} onZapisano={nowa => {
-          setOkno(null)
-          app.toast({ kind: 'ok', title: `Data startu rozliczeń: ${dataPl(nowa)}`, detail: 'salda wszystkich kontrahentów przeliczone od tego dnia' })
-          odswiez()
-        }} />
+      {okno === 'dodaj' && l && (
+        <DodajKontrahentaDialog naLiscie={wszyscy} wylaczeni={wylaczeni} onClose={() => setOkno(null)} onWybierz={otworzNowego} />
       )}
     </>
   )
@@ -273,49 +300,68 @@ function WierszKontrahenta({ k, zebra, tabIndex, onOtworz, onFocus, onKey }: {
         <span className="rr-nazwa-w">
           <span className="rr-nazwa" title={k.nip ? `${k.nazwa} · NIP ${k.nip}` : k.nazwa}>{k.nazwa}</span>
           {k.przypomnienie && <span className="rr-dzwonek" role="img" aria-label="Przypomnienie na dziś" data-tip="Przypomnienie w dzienniku na dziś — zajrzyj do karty"><BellRing size={14} /></span>}
+          {k.fvBezKwoty > 0 && <span className="tag warn rr-fv-bez" data-tip="Faktury z papierów kursu czekają na kwotę — wpisz ją na karcie klienta. Do salda wejdą dopiero z kwotą.">FV bez kwoty ({k.fvBezKwoty})</span>}
         </span>
       </td>
       <td><span className="cc rr-waluta">{k.waluta}</span></td>
       <td className={`num${klasaSalda(k.saldoWz)}`}>{kwotaSalda(k.saldoWz, k.waluta)}</td>
       <td className={`num${klasaSalda(k.saldoFv)}`}>{kwotaSalda(k.saldoFv, k.waluta)}</td>
       <td className={`num rr-saldo${klasaSalda(k.saldo)}`}>{kwotaSalda(k.saldo, k.waluta)}</td>
-      <td className={`num${znakSalda(k.poTerminie) > 0 ? ' crit-ink' : ' faint'}`}>{znakSalda(k.poTerminie) > 0 ? kwota(k.poTerminie, k.waluta) : '–'}</td>
+      <td className={`num${klasaZaleglosci(k.poTerminie) || ' faint'}`}>{znakSalda(k.poTerminie) > 0 ? kwota(k.poTerminie, k.waluta) : '–'}</td>
       <td><span className={`tag ${KLASA_TONU[p.ton]}`}
         data-tip={k.stan === 'sprawdz_walute' ? `${pozycje(k.innaWaluta)} w innej walucie niż ${k.waluta} — poza saldem. Sprawdź walutę klienta w Ustawieniach karty.` : undefined}>{p.tekst}</span></td>
+      <td className={`num rr-okres-td${znakSalda(k.obrot) === 0 ? ' faint' : ''}`}>{znakSalda(k.obrot) === 0 ? '–' : kwota(k.obrot, k.waluta)}</td>
+      <td className={`num rr-okres-td${Math.round(k.kg * 10) === 0 ? ' faint' : ''}`}>{Math.round(k.kg * 10) === 0 ? '–' : kilogramy(k.kg)}</td>
     </tr>
   )
 }
 
-const ZERO = { naleznosci: 0, poTerminie: 0, gotowkaWz: 0, nadplaty: 0 }
+const ZERO = { naleznosci: 0, poTerminie: 0, gotowkaWz: 0, nadplaty: 0, obrot: 0, kg: 0 }
 
-/** Kafelki sum osobno dla każdej waluty — bez przeliczania kursów. Same zera — bez kafelków. */
-function Sumy({ l }: { l: ListaRozliczen }) {
+/**
+ * Kafelki KPI (D6): należności i po terminie (stan na dziś), obrót i sprzedane kg (za wybrany okres).
+ * Kwoty osobno dla każdej waluty — bez przeliczania kursów; kg razem. Gotówka z WZ i nadpłaty
+ * w pasku podpisu pod kafelkami. Same zera — bez kafelków.
+ */
+function Sumy({ l, okres }: { l: ListaRozliczen; okres: string }) {
   const waluty = walutyPodsumowania(l)
   if (!waluty.length) return null
   const suma = (w: string) => l.podsumowanie[w] ?? ZERO
   const nadplacajacy = l.kontrahenci.filter(k => znakSalda(k.saldoWz) > 0 || znakSalda(k.saldoFv) > 0).length
+  const poTerminieIlu = l.kontrahenci.filter(k => znakSalda(k.poTerminie) > 0).length
   const nadplaty = waluty.filter(w => znakSalda(suma(w).nadplaty) > 0)
+  const gotowka = waluty.filter(w => znakSalda(suma(w).gotowkaWz) > 0)
+  const zaleglosc = waluty.some(w => znakSalda(suma(w).poTerminie) > 0)
+  const kg = waluty.reduce((a, w) => a + suma(w).kg, 0)
+  const kupujacy = l.kontrahenci.filter(k => Math.round(k.kg * 10) !== 0).length
   return (
-    <div className="rr-sumy" role="group" aria-label="Sumy rozrachunków">
-      {waluty.map(w => {
-        const p = suma(w)
-        return (
-          <div key={w} className="rr-sum">
-            <span className="k">Należności {w}</span>
-            <span className={`v${klasaSalda(-p.naleznosci)}`}>{kwotaSalda(-p.naleznosci, w)}</span>
-            <span className="s">w tym po terminie <b className={znakSalda(p.poTerminie) > 0 ? 'crit-ink' : undefined}>{kwota(p.poTerminie, w)}</b></span>
-          </div>
-        )
-      })}
-      <div className="rr-sum">
-        <span className="k">Gotówka z WZ do odebrania</span>
-        <Kwoty className="v" kwoty={waluty.map(w => kwota(suma(w).gotowkaWz, w))} />
-        <span className="s">niezapłacone WZ płatne gotówką</span>
+    <div className="rr-sumy-w" role="group" aria-label="Sumy rozrachunków">
+      <div className="rr-sumy">
+        <div className="rr-sum">
+          <span className="k">Należności łącznie</span>
+          <Kwoty className="v" kwoty={waluty.map(w => kwota(suma(w).naleznosci, w))} />
+          <span className="s">do zapłaty przez kontrahentów, dziś</span>
+        </div>
+        <div className="rr-sum">
+          <span className="k">Po terminie</span>
+          <Kwoty className={`v${zaleglosc ? ' crit-ink' : ''}`} kwoty={waluty.map(w => kwota(suma(w).poTerminie, w))} />
+          <span className="s">{poTerminieIlu ? `kontrahentów z zaległością: ${poTerminieIlu}` : 'nikt nie zalega'}</span>
+        </div>
+        <div className="rr-sum rr-sum-okres">
+          <span className="k">Obrót</span>
+          <Kwoty className="v" kwoty={waluty.map(w => kwota(suma(w).obrot, w))} />
+          <span className="s">{okres}</span>
+        </div>
+        <div className="rr-sum rr-sum-okres">
+          <span className="k">Sprzedane kg</span>
+          <span className="v"><span className="rr-kw">{kilogramy(kg)}</span></span>
+          <span className="s">{kupujacy ? `kontrahentów z towarem: ${kupujacy}` : 'w tym okresie nic nie wyjechało'}</span>
+        </div>
       </div>
-      <div className="rr-sum">
-        <span className="k">Nadpłaty klientów</span>
-        <Kwoty className={`v${nadplaty.length ? ' ok-ink' : ''}`} kwoty={nadplaty.length ? nadplaty.map(w => kwotaSalda(suma(w).nadplaty, w)) : [kwota(0, waluty[0])]} />
-        <span className="s">{nadplacajacy ? `kontrahentów z nadpłatą: ${nadplacajacy}` : 'nikt nie ma nadpłaty'}</span>
+      <div className="rr-sumy-pod">
+        <span>Gotówka z WZ do odebrania <b className="tnum">{gotowka.length ? gotowka.map(w => kwota(suma(w).gotowkaWz, w)).join(' · ') : kwota(0, waluty[0])}</b></span>
+        <span>Nadpłaty klientów <b className={`tnum${nadplaty.length ? ' ok-ink' : ''}`}>{nadplaty.length ? nadplaty.map(w => kwotaSalda(suma(w).nadplaty, w)).join(' · ') : kwota(0, waluty[0])}</b>
+          {nadplacajacy > 0 && <span className="muted"> ({nadplacajacy === 1 ? '1 kontrahent' : `kontrahentów: ${nadplacajacy}`})</span>}</span>
       </div>
     </div>
   )
@@ -372,6 +418,7 @@ function ListaWzBezKontrahenta({ docs, onPrzypisano }: { docs: WzBezKontrahenta[
 
   return (
     <div className="rr-wz">
+      {klienciRes.loading && !klienci.length && <div className="muted rr-wz-info">Wczytuję kontrahentów z kartoteki…</div>}
       {klienciRes.error && <div className="crit-ink">Nie udało się wczytać kontrahentów: {klienciRes.error} <button type="button" className="btn sm" onClick={() => void klienciRes.refetch()}>Spróbuj ponownie</button></div>}
       <table className="tbl">
         <thead><tr><th>WZ</th><th>Data</th><th className="num">Kwota</th><th>Nabywca na WZ</th><th>Kontrahent</th><th /></tr></thead>
@@ -386,7 +433,7 @@ function ListaWzBezKontrahenta({ docs, onPrzypisano }: { docs: WzBezKontrahenta[
               <td className="rr-wz-wybor">
                 <Wybor id={`rr-wz-${d.id}`} label={`Kontrahent dla ${d.numer}`} items={items} value={v}
                   onChange={id => setWybor(w => ({ ...w, [d.id]: id }))} onDalej={() => przyciski.current[d.id]?.focus()}
-                  placeholder={klienciRes.loading ? 'Wczytuję kontrahentów…' : 'Wpisz nazwę lub NIP'} disabled={klienciRes.loading && !klienci.length} />
+                  disabled={klienciRes.loading && !klienci.length} />
                 {bledy[d.id] && <div className="crit-ink rr-wz-blad" role="alert">{bledy[d.id]}</div>}
               </td>
               <td className="r">
@@ -403,37 +450,84 @@ function ListaWzBezKontrahenta({ docs, onPrzypisano }: { docs: WzBezKontrahenta[
   )
 }
 
-/** Data startu rozliczeń: dokumenty i wpłaty od tego dnia liczą się w systemie, wcześniejsze siedzą w saldzie otwarcia. */
-function DataStartu({ start, onClose, onZapisano }: { start: string; onClose: () => void; onZapisano: (nowa: string) => void }) {
-  const [d, setD] = useState(start)
-  const [busy, setBusy] = useState(false)
-  const [blad, setBlad] = useState<string | null>(null)
+/** Wyłączeni z rozrachunków (D1): nie ma ich na liście ani w sumach; jednym przyciskiem wracają. */
+function ListaWylaczonych({ wylaczeni, onPrzywrocono }: { wylaczeni: Wylaczony[]; onPrzywrocono: () => void }) {
+  const app = useApp()
+  const [busy, setBusy] = useState<string | null>(null)
+  const [bledy, setBledy] = useState<Record<string, string>>({})
   const lock = useRef(false)
-  const ok = !!d && d !== start
-  const zapisz = async () => {
-    if (!ok || lock.current) return
-    lock.current = true; setBusy(true); setBlad(null)
+  const przywroc = async (k: Wylaczony) => {
+    if (lock.current) return
+    lock.current = true; setBusy(k.id); setBledy(b => ({ ...b, [k.id]: '' }))
     try {
-      const r = await rozliczeniaApi.ustawStart(d)
-      onZapisano(r?.start || d)
+      await rozliczeniaApi.ustawWylaczenie(k.id, false)
+      app.toast({ kind: 'ok', title: `${k.nazwa} wraca do rozrachunków`, detail: 'saldo znowu liczy się na liście, w sumach i na WZ' })
+      onPrzywrocono()
     } catch (e) {
-      setBlad(tekstBledu(e, 'Nie udało się zapisać daty startu'))
-    } finally { lock.current = false; setBusy(false) }
+      setBledy(b => ({ ...b, [k.id]: tekstBledu(e, 'Nie udało się przywrócić kontrahenta') }))
+    } finally { lock.current = false; setBusy(null) }
   }
   return (
-    <Dialog title="Data startu rozliczeń" icon={<CalendarDays size={20} />} onClose={onClose}
+    <div className="box">
+      <div className="rr-wyl-opis"><UserX size={16} /><span>Tych kontrahentów nie ma na liście ani w sumach, a na ich WZ nie drukuje się saldo.
+        Dokumenty dalej się zapisują — po przywróceniu nic nie zginie.</span></div>
+      <table className="tbl rr-tbl" aria-label="Wyłączeni z rozrachunków">
+        <thead><tr><th>Kontrahent</th><th>NIP</th><th>Waluta</th><th /></tr></thead>
+        <tbody>{wylaczeni.map((k, i) => (
+          <tr key={k.id} className={`row${i % 2 === 1 ? ' zebra' : ''}`}>
+            <td className="rr-nazwa-td"><span className="rr-nazwa" title={k.nazwa}>{k.nazwa}</span>
+              {bledy[k.id] && <div className="rr-pole-blad" role="alert">{bledy[k.id]}</div>}</td>
+            <td className="tnum">{k.nip || '—'}</td>
+            <td><span className="cc rr-waluta">{k.waluta}</span></td>
+            <td className="r">
+              <button type="button" className="btn sm" disabled={busy === k.id} onClick={() => void przywroc(k)}>
+                <Undo2 size={14} />{busy === k.id ? 'Przywracam…' : 'Przywróć do rozrachunków'}
+              </button>
+            </td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  )
+}
+
+/**
+ * „+ Kontrahent” (D11): klient z kartoteki, którego jeszcze nie ma na liście (np. same zaległości
+ * sprzed startu, bez nowych dokumentów). Wybór otwiera jego kartę — tam saldo otwarcia.
+ */
+function DodajKontrahentaDialog({ naLiscie, wylaczeni, onClose, onWybierz }: {
+  naLiscie: Kontrahent[]; wylaczeni: Wylaczony[]; onClose: () => void; onWybierz: (id: string, nazwa: string) => void
+}) {
+  const klienciRes = useApi(() => clientsApi.list())
+  const items = useMemo<WyborItem[]>(() => kandydaciDoDodania((klienciRes.data ?? []) as Array<{ id: string; name: string; displayName?: string; nip?: string; active?: boolean }>, naLiscie, wylaczeni)
+    .map(c => ({ id: c.id, label: c.displayName || c.name, sub: c.nip || undefined }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'pl')), [klienciRes.data, naLiscie, wylaczeni])
+  const [id, setId] = useState('')
+  const przycisk = useRef<HTMLButtonElement>(null)
+  const wybrany = items.find(i => i.id === id)
+  const otworz = () => { if (wybrany) onWybierz(wybrany.id, wybrany.label) }
+  const wczytuje = klienciRes.loading && !klienciRes.data
+  return (
+    <Dialog title="Dodaj kontrahenta do rozrachunków" icon={<UserPlus size={20} />} onClose={onClose}
       footer={<>
         <button type="button" className="btn" onClick={onClose}>Anuluj</button>
-        <button type="button" className="btn primary" disabled={!ok || busy} data-tip={ok ? undefined : d ? 'Data bez zmian' : 'Wpisz datę'}
-          onClick={() => void zapisz()}>{busy ? 'Zapisuję…' : 'Zapisz'}</button>
+        <button ref={przycisk} type="button" className="btn primary" disabled={!wybrany} data-tip={wybrany ? undefined : 'Najpierw wybierz kontrahenta'}
+          onClick={otworz}>Otwórz kartę</button>
       </>}>
-      <form onSubmit={e => { e.preventDefault(); void zapisz() }}>
-        <label className="fld"><span className="label">Data startu</span>
-          <input type="date" className="field" value={d} onChange={e => setD(e.target.value)} aria-label="Data startu" data-autofocus required /></label>
+      <form onSubmit={e => { e.preventDefault(); otworz() }}>
+        <div className="fld"><span className="label">Kontrahent z kartoteki</span>
+          <Wybor id="rr-dodaj-kontrahenta" label="Kontrahent z kartoteki" items={items} value={id} autoFocus disabled={wczytuje}
+            pusto={wczytuje ? 'Wczytuję kartotekę…' : 'Wszyscy kontrahenci z kartoteki są już w rozrachunkach'}
+            onChange={setId} onDalej={() => przycisk.current?.focus()} />
+          <span className="rr-pole-pod">{wczytuje ? 'Wczytuję kartotekę kontrahentów…' : 'Szukaj po nazwie albo NIP. Nie ma tu tych, którzy już są na liście, ani wyłączonych (te przywrócisz chipem „Wyłączeni”).'}</span>
+        </div>
       </form>
-      <p className="muted" style={{ margin: 0 }}>Liczą się dokumenty i wpłaty z tą datą i późniejsze. Wcześniejsze są w saldzie otwarcia klienta (stan na początek tego dnia).</p>
-      <div className="note"><FlagIcon level="info" size={15} /><div>Zmiana przelicza salda wszystkich kontrahentów.</div></div>
-      {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Serwer odmówił:</b> {blad}</div></div>}
+      <p className="muted" style={{ margin: 0 }}>Otworzy się karta kontrahenta. Wpisz saldo otwarcia albo zaległe dokumenty — wtedy kontrahent zostanie na liście.</p>
+      {klienciRes.error && (
+        <div className="note crit" role="alert"><FlagIcon level="crit" size={15} />
+          <div><b>Nie udało się wczytać kartoteki:</b> {klienciRes.error} <button type="button" className="btn sm" onClick={() => void klienciRes.refetch()}>Spróbuj ponownie</button></div>
+        </div>
+      )}
     </Dialog>
   )
 }

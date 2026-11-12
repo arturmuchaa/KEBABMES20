@@ -6,7 +6,8 @@ import { AppCtx, type AppApi, type Cmd } from '../../shell/context'
 import { SUROWA_KARTA, SUROWA_LISTA, SUROWY_PODGLAD } from './daneTestowe.fixture'
 
 /** Rozrachunki — lista kontrahentów. Dane w kształcie odpowiedzi `GET /api/rozliczenia`. */
-const api = vi.hoisted(() => ({ lista: vi.fn(), ustawStart: vi.fn(), przypiszWz: vi.fn(), karta: vi.fn(), podgladWplaty: vi.fn(), dodajWplate: vi.fn() }))
+const api = vi.hoisted(() => ({ lista: vi.fn(), ustawStart: vi.fn(), przypiszWz: vi.fn(), karta: vi.fn(), podgladWplaty: vi.fn(), dodajWplate: vi.fn(),
+  ustawWylaczenie: vi.fn() }))
 const klienci = vi.hoisted(() => ({ list: vi.fn() }))
 vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), rozliczeniaApi: api, clientsApi: klienci }))
 import { RozrachunkiModule } from './RozrachunkiModule'
@@ -14,7 +15,13 @@ import { RozrachunkiModule } from './RozrachunkiModule'
 const KLIENCI = [
   { id: 'c1', name: 'RONDO GRILL', displayName: '', nip: 'HU99000001', active: true },
   { id: 'c2', name: 'NABYWCA TESTOWY SP. Z O.O.', displayName: 'NABYWCA TESTOWY', nip: '7471234567', active: true },
+  { id: 'c7', name: 'KLIENT PRYWATNY TEST', displayName: '', nip: '', active: true },
+  { id: 'c8', name: 'NOWY ODBIORCA TEST', displayName: '', nip: '5250000008', active: true },
 ]
+/** Klient z długiem w terminie (−26 280 zł) — bez czerwieni (D5). */
+const W_TERMINIE = { id: 'c9', nazwa: 'W TERMINIE TEST', nip: '', waluta: 'PLN', saldo_wz: 0, saldo_fv: -26280, saldo: -26280, po_terminie: 0,
+  najstarsza_dni: 0, najblizszy_termin_dni: 9, stan: 'w_terminie', przypomnienie: false, inna_waluta: 0, obrot: 26280, kg: 1800, fv_bez_kwoty: 0 }
+const ostatnieKomendy = (setCmds: ReturnType<typeof vi.fn>) => setCmds.mock.calls[setCmds.mock.calls.length - 1]?.[0] as Cmd[]
 
 describe('Rozrachunki — lista kontrahentów', () => {
   const app = { toast: vi.fn(), appRef: { current: null }, scale: 1 } as unknown as AppApi
@@ -30,31 +37,168 @@ describe('Rozrachunki — lista kontrahentów', () => {
     api.lista.mockResolvedValue(SUROWA_LISTA)
     api.przypiszWz.mockResolvedValue({ ok: true })
     api.ustawStart.mockResolvedValue({ start: '2026-10-01' })
+    api.ustawWylaczenie.mockResolvedValue({ ok: true })
     api.karta.mockResolvedValue(SUROWA_KARTA)
     api.podgladWplaty.mockResolvedValue(SUROWY_PODGLAD)
     api.dodajWplate.mockResolvedValue({ ...SUROWY_PODGLAD, id: 'p9' })
     klienci.list.mockResolvedValue(KLIENCI)
   })
 
-  it('wiersz: nazwa, saldo z minusem typograficznym na czerwono, pigułka zaległości, dzwonek przypomnienia', async () => {
+  it('wiersz: nazwa, saldo z minusem typograficznym bez czerwieni, czerwień tylko w „Po terminie”, pigułka, dzwonek', async () => {
     mount()
     await screen.findByText('RONDO GRILL')
     const r = wiersz('RONDO GRILL')
-    const saldo = within(r).getByText(/−38 447,70/)
-    expect(saldo.closest('td')?.className).toMatch(/crit-ink/)
+    const saldo = within(r).getByText('−38 447,70 €')
+    expect(saldo.closest('td')?.className).not.toMatch(/crit-ink/)
+    expect(within(r).getByText('15 689,50 €').closest('td')?.className).toMatch(/crit-ink/)
     expect(within(r).getByText('13 dni po terminie').className).toMatch(/tag crit/)
     expect(within(r).getByLabelText('Przypomnienie na dziś')).toBeTruthy()
     const boss = within(wiersz('BAR PRZYKŁADOWY')).getAllByText('+350,00 zł')
     expect(boss[0].closest('td')?.className).toMatch(/ok-ink/)
-    // Kafelki sum: osobno PLN i EUR
-    expect(screen.getByText('Należności EUR')).toBeTruthy()
-    expect(screen.getByText('Należności PLN')).toBeTruthy()
-    // Kafelek z dwiema walutami: każda kwota w całości (bez łamania w środku), mniejszy krój.
-    const gotowka = screen.getByText('Gotówka z WZ do odebrania').closest('.rr-sum') as HTMLElement
-    const kwoty = gotowka.querySelectorAll('.v .rr-kw')
-    expect([...kwoty].map(k => k.textContent)).toEqual(['2 400,00 zł', '8 409,50 €'])
-    expect(gotowka.querySelector('.v')?.className).toMatch(/multi/)
-    expect(screen.getByText('Nadpłaty klientów')).toBeTruthy()
+  })
+
+  it('saldo w terminie (−26 280 zł) nie ma klasy czerwieni w żadnej komórce, po terminie ma', async () => {
+    api.lista.mockResolvedValue({ ...SUROWA_LISTA, kontrahenci: [...SUROWA_LISTA.kontrahenci, W_TERMINIE] })
+    mount()
+    await screen.findByText('W TERMINIE TEST')
+    const r = wiersz('W TERMINIE TEST')
+    expect(within(r).getAllByText('−26 280,00 zł').length).toBe(2)
+    expect(r.querySelectorAll('.crit-ink, .crit').length).toBe(0)
+    expect(wiersz('TESTOWA GASTRONOMIA').querySelectorAll('td.crit-ink').length).toBe(1)
+  })
+
+  it('kafelki KPI: Należności łącznie, Po terminie (czerwono), Obrót i Sprzedane kg za okres; gotówka i nadpłaty w podpisie', async () => {
+    mount()
+    await screen.findByText('RONDO GRILL')
+    const sumy = screen.getByRole('group', { name: 'Sumy rozrachunków' })
+    const kafel = (k: string) => within(sumy).getByText(k, { selector: '.k' }).closest('.rr-sum') as HTMLElement
+    const kwoty = (k: string) => [...kafel(k).querySelectorAll('.v .rr-kw')].map(x => x.textContent)
+    expect(kwoty('Należności łącznie')).toEqual(['17 700,00 zł', '38 447,70 €'])
+    expect(kafel('Należności łącznie').querySelector('.crit-ink')).toBeNull()
+    expect(kwoty('Po terminie')).toEqual(['15 300,00 zł', '15 689,50 €'])
+    expect(kafel('Po terminie').querySelector('.v')?.className).toMatch(/crit-ink/)
+    expect(kwoty('Obrót')).toEqual(['21 000,00 zł', '45 200,40 €'])
+    expect(within(kafel('Sprzedane kg')).getByText('6 680,5 kg')).toBeTruthy()
+    // Okres przy kafelkach okresowych
+    expect(within(kafel('Obrót')).getByText(/Ten miesiąc/)).toBeTruthy()
+    const pod = within(sumy).getByText('Gotówka z WZ do odebrania').closest('.rr-sumy-pod') as HTMLElement
+    expect(within(pod).getByText('2 400,00 zł · 8 409,50 €')).toBeTruthy()
+    expect(within(pod).getByText('+350,00 zł')).toBeTruthy()
+  })
+
+  it('tabela: kolumny Obrót i kg za okres, znacznik „FV bez kwoty (N)”', async () => {
+    mount()
+    await screen.findByText('RONDO GRILL')
+    expect(screen.getByRole('columnheader', { name: /Obrót/ })).toBeTruthy()
+    expect(screen.getByRole('columnheader', { name: /^kg/ })).toBeTruthy()
+    const r = wiersz('RONDO GRILL')
+    expect(within(r).getByText('45 200,40 €')).toBeTruthy()
+    expect(within(r).getByText('5 230 kg')).toBeTruthy()
+    const fv = within(r).getByText('FV bez kwoty (2)')
+    expect(fv.className).toMatch(/tag warn/)
+    expect(fv.closest('.rr-nazwa')).toBeNull() // poza ucinaną nazwą
+    expect(within(wiersz('TESTOWA GASTRONOMIA')).queryByText(/FV bez kwoty/)).toBeNull()
+  })
+
+  it('zmiana okresu woła lista(od, do) z datami okresu; wybór zapamiętany', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 10, 12, 10, 0))
+    try {
+      mount()
+      await screen.findByText('RONDO GRILL')
+      expect(api.lista).toHaveBeenLastCalledWith('2026-11-01', '2026-11-30')
+      const okres = screen.getByRole('group', { name: 'Okres obrotu i kg' })
+      fireEvent.click(within(okres).getByRole('button', { name: 'Poprzedni miesiąc' }))
+      await waitFor(() => expect(api.lista).toHaveBeenLastCalledWith('2026-10-01', '2026-10-31'))
+      // Opis z dat wybranych przez użytkownika (serwer dla okresu sprzed startu odda okres obcięty).
+      expect(screen.getAllByText(/01\.10–31\.10\.2026/).length).toBeGreaterThan(0)
+      fireEvent.click(within(okres).getByRole('button', { name: 'Ten rok' }))
+      await waitFor(() => expect(api.lista).toHaveBeenLastCalledWith('2026-01-01', '2026-12-31'))
+      fireEvent.click(within(okres).getByRole('button', { name: 'Od początku' }))
+      await waitFor(() => expect(api.lista).toHaveBeenLastCalledWith('', ''))
+      fireEvent.click(within(okres).getByRole('button', { name: 'Od–do' }))
+      await waitFor(() => expect(api.lista).toHaveBeenLastCalledWith('2026-11-01', '2026-11-12'))
+      const ile = api.lista.mock.calls.length
+      fireEvent.change(screen.getByLabelText('Okres od'), { target: { value: '2026-11-20' } })
+      expect(screen.getByRole('alert').textContent).toMatch(/wcześniejsza/)
+      expect(api.lista.mock.calls.length).toBe(ile) // zły zakres — bez zapytania
+      fireEvent.change(screen.getByLabelText('Okres od'), { target: { value: '2026-11-05' } })
+      await waitFor(() => expect(api.lista).toHaveBeenLastCalledWith('2026-11-05', '2026-11-12'))
+      expect(JSON.parse(window.localStorage.getItem('protrima.rozrachunki.okres') ?? 'null'))
+        .toEqual({ okres: 'zakres', od: '2026-11-05', do: '2026-11-12' })
+      cleanup()
+      mount()
+      await screen.findByText('RONDO GRILL')
+      expect(api.lista).toHaveBeenLastCalledWith('2026-11-05', '2026-11-12')
+    } finally { vi.useRealTimers() }
+  })
+
+  it('chip „Wyłączeni (1)” pokazuje wyłączonych; „Przywróć do rozrachunków” woła API, toast i odświeża listę', async () => {
+    mount()
+    await screen.findByText('RONDO GRILL')
+    expect(screen.queryByText('KLIENT PRYWATNY TEST')).toBeNull()
+    const chip = screen.getByRole('button', { name: /Wyłączeni/ })
+    expect(chip.textContent).toBe('Wyłączeni1')
+    fireEvent.click(chip)
+    expect(chip.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.queryByRole('table', { name: 'Kontrahenci z saldami' })).toBeNull()
+    const tab = screen.getByRole('table', { name: 'Wyłączeni z rozrachunków' })
+    expect(within(tab).getByText('KLIENT PRYWATNY TEST')).toBeTruthy()
+    const ile = api.lista.mock.calls.length
+    api.lista.mockResolvedValue({ ...SUROWA_LISTA, wylaczeni: [] })
+    fireEvent.click(within(tab).getByRole('button', { name: 'Przywróć do rozrachunków' }))
+    await waitFor(() => expect(api.ustawWylaczenie).toHaveBeenCalledWith('c7', false))
+    await waitFor(() => expect(app.toast).toHaveBeenCalledWith(expect.objectContaining({ kind: 'ok', title: expect.stringContaining('KLIENT PRYWATNY TEST') })))
+    await waitFor(() => expect(api.lista.mock.calls.length).toBe(ile + 1))
+    // Nikogo już nie ma wśród wyłączonych — wraca zwykła lista.
+    expect(await screen.findByRole('table', { name: 'Kontrahenci z saldami' })).toBeTruthy()
+  })
+
+  it('przywracanie odrzucone przez serwer — komunikat przy wierszu, bez toastu', async () => {
+    api.ustawWylaczenie.mockRejectedValueOnce(new Error('Brak uprawnień'))
+    mount()
+    fireEvent.click(await screen.findByRole('button', { name: /Wyłączeni/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Przywróć do rozrachunków' }))
+    expect(await screen.findByText(/Brak uprawnień/)).toBeTruthy()
+    expect(app.toast).not.toHaveBeenCalled()
+  })
+
+  it('„+ Kontrahent”: wybór z kartoteki (bez widocznych i wyłączonych) otwiera kartę klienta', async () => {
+    mount()
+    await screen.findByText('RONDO GRILL')
+    const cmds = ostatnieKomendy(setCmds)
+    act(() => { cmds.find(c => c.id === 'dodaj')!.run!() })
+    const dlg = await screen.findByRole('dialog')
+    expect(within(dlg).getByRole('heading').textContent).toContain('Dodaj kontrahenta')
+    const otworzK = within(dlg).getByRole('button', { name: 'Otwórz kartę' }) as HTMLButtonElement
+    expect(otworzK.disabled).toBe(true)
+    const pole = await within(dlg).findByRole('combobox', { name: 'Kontrahent z kartoteki' })
+    await waitFor(() => expect(klienci.list).toHaveBeenCalled())
+    fireEvent.focus(pole)
+    fireEvent.change(pole, { target: { value: 'test' } })
+    const opcje = within(document.body).getAllByRole('option').map(o => o.textContent)
+    expect(opcje.some(o => o?.includes('NOWY ODBIORCA TEST'))).toBe(true)
+    expect(opcje.some(o => o?.includes('KLIENT PRYWATNY TEST'))).toBe(false)
+    fireEvent.change(pole, { target: { value: 'nowy' } })
+    fireEvent.keyDown(pole, { key: 'Enter' })
+    expect(otworzK.disabled).toBe(false)
+    fireEvent.click(otworzK)
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(api.karta.mock.calls[api.karta.mock.calls.length - 1]?.[0]).toBe('c8'))
+    expect(screen.getByRole('button', { name: '← Kontrahenci' })).toBeTruthy()
+  })
+
+  it('bez komendy „Data startu rozliczeń”; data startu tylko w podtytule; pola listy bez placeholderów', async () => {
+    mount()
+    await screen.findByText('RONDO GRILL')
+    const cmds = ostatnieKomendy(setCmds)
+    expect(cmds.map(c => c.label)).toEqual(['Odśwież', 'Kontrahent'])
+    expect(cmds.some(c => /Data startu/.test(c.label))).toBe(false)
+    expect(screen.getByText(/salda odbiorców od 09\.11\.2026/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /WZ bez kontrahenta \(1\)/ }))
+    await screen.findByRole('combobox', { name: 'Kontrahent dla WZ 07/11' })
+    expect(document.querySelectorAll('[placeholder]').length).toBe(0)
+    expect(api.ustawStart).not.toHaveBeenCalled()
   })
 
   it('klient z samymi pozycjami w innej walucie: pigułka „sprawdź walutę” (ostrzeżenie), wiersz nie wyszarzony', async () => {
@@ -101,7 +245,7 @@ describe('Rozrachunki — lista kontrahentów', () => {
 
   it('pusta lista → komunikat z podpowiedzią, co zrobić', async () => {
     api.lista.mockResolvedValue({ ...SUROWA_LISTA, kontrahenci: [], bez_kontrahenta: [], inna_waluta: 0,
-      podsumowanie: { PLN: { naleznosci: 0, po_terminie: 0, gotowka_wz: 0, nadplaty: 0 } } })
+      wylaczeni: [], podsumowanie: { PLN: { naleznosci: 0, po_terminie: 0, gotowka_wz: 0, nadplaty: 0 } } })
     mount()
     expect(await screen.findByText('Nikt jeszcze nie ma rozliczeń — dodaj saldo otwarcia albo wystaw WZ')).toBeTruthy()
     expect(screen.queryByRole('table')).toBeNull()
@@ -111,7 +255,7 @@ describe('Rozrachunki — lista kontrahentów', () => {
 
   it('sumy same zera (tylko rozliczeni) → bez kafelków sum, tabela zostaje', async () => {
     api.lista.mockResolvedValue({ ...SUROWA_LISTA, kontrahenci: [SUROWA_LISTA.kontrahenci[3]], bez_kontrahenta: [], inna_waluta: 0,
-      podsumowanie: { PLN: { naleznosci: 0, po_terminie: 0, gotowka_wz: 0, nadplaty: 0 }, EUR: { naleznosci: 0, po_terminie: 0, gotowka_wz: 0, nadplaty: 0 } } })
+      podsumowanie: { PLN: { naleznosci: 0, po_terminie: 0, gotowka_wz: 0, nadplaty: 0, obrot: 0, kg: 0 }, EUR: { naleznosci: 0, po_terminie: 0, gotowka_wz: 0, nadplaty: 0, obrot: 0, kg: 0 } } })
     mount()
     await screen.findByText('PUNKT WZOROWY')
     expect(screen.queryByRole('group', { name: 'Sumy rozrachunków' })).toBeNull()
@@ -190,22 +334,6 @@ describe('Rozrachunki — lista kontrahentów', () => {
     expect(document.activeElement).toBe(wiersz('TESTOWA GASTRONOMIA'))
     fireEvent.keyDown(wiersz('TESTOWA GASTRONOMIA'), { key: 'ArrowUp' })
     expect(document.activeElement).toBe(wiersz('RONDO GRILL'))
-  })
-
-  it('komenda „Data startu rozliczeń” — dialog z datą zapisuje ustawStart', async () => {
-    mount()
-    await screen.findByText('RONDO GRILL')
-    const cmds = setCmds.mock.calls[setCmds.mock.calls.length - 1]?.[0] as Cmd[]
-    expect(cmds.map(c => c.label)).toEqual(['Odśwież', 'Data startu rozliczeń'])
-    act(() => { cmds.find(c => c.id === 'start')!.run!() })
-    const dlg = await screen.findByRole('dialog')
-    const pole = within(dlg).getByLabelText('Data startu') as HTMLInputElement
-    expect(pole.value).toBe('2026-11-09')
-    fireEvent.change(pole, { target: { value: '2026-10-01' } })
-    fireEvent.click(within(dlg).getByRole('button', { name: 'Zapisz' }))
-    await waitFor(() => expect(api.ustawStart).toHaveBeenCalledWith('2026-10-01'))
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    expect(app.toast).toHaveBeenCalledWith(expect.objectContaining({ title: expect.stringContaining('01.10.2026') }))
   })
 
   it('„+ Wpłata” na karcie otwiera okno; po zapisie karta i lista się odświeżają, fokus wraca na przycisk', async () => {

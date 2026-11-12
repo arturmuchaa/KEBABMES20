@@ -59,7 +59,7 @@ describe('Rozrachunki — karta klienta', () => {
     api.historiaZmian.mockResolvedValue(HISTORIA)
   })
 
-  it('nagłówek z ustawień i trzy kafelki sald z minusem typograficznym na czerwono', async () => {
+  it('nagłówek z ustawień i trzy kafelki sald z minusem typograficznym — saldo bez czerwieni, czerwony tylko podpis po terminie (D5)', async () => {
     mount()
     await gotowe()
     expect(api.karta).toHaveBeenCalledWith('c1')
@@ -72,7 +72,7 @@ describe('Rozrachunki — karta klienta', () => {
     const k = kafelki()
     for (const [tytul, saldo] of [['Saldo WZ', '−8 409,50 €'], ['Saldo FV', '−30 038,20 €'], ['Saldo łącznie', '−38 447,70 €']]) {
       const kafel = within(k).getByText(tytul).closest('.rr-sum') as HTMLElement
-      expect(within(kafel).getByText(saldo).className).toMatch(/crit-ink/)
+      expect(within(kafel).getByText(saldo).className).not.toMatch(/crit-ink/)
     }
     expect(within(k).getByText(/po terminie 8 409,50 € · najstarsza 13 dni/)).toBeTruthy()
     expect(within(k).getByText(/po terminie 15 689,50 € · najstarsza 13 dni/)).toBeTruthy()

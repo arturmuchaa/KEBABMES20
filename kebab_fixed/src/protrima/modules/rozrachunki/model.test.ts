@@ -3,6 +3,7 @@ import {
   etykietaStanu, filtruj, kwotaSalda, liczba, mapujKarte, mapujListe, mapujSzczegoly, opisPlatnosci, pigulka, podpowiedzKlienta,
   czesciRozliczenia, numerZSeria, rozliczyla, sortuj, symbolWaluty, uporzadkujDziennik, walutyPodsumowania, wOkresie, zakresOkresu,
   dodajDni, mapujPodglad, opisRozliczenia, poprzedniMiesiac, dni, doGroszy, formaDomyslna, FORMY, mapujHistorieZmian,
+  zakresObrotu, opisOkresu, bladZakresu, kilogramy, kandydaciDoDodania,
   type Kontrahent, type Wplata,
 } from './model'
 import { SUROWA_KARTA, SUROWA_KARTA_PELNA, SUROWA_LISTA, SUROWY_DOKUMENT, SUROWY_PODGLAD } from './daneTestowe.fixture'
@@ -15,19 +16,21 @@ describe('mapujListe — nie gubi pól', () => {
     const l = mapujListe(SUROWA_LISTA)
     const r = l.kontrahenci[0]
     expect(r).toEqual({ id: 'c1', nazwa: 'RONDO GRILL', nip: 'HU99000001', waluta: 'EUR', saldoWz: -8409.5, saldoFv: -30038.2, saldo: -38447.7,
-      poTerminie: 15689.5, najstarszaDni: 13, najblizszyTerminDni: 1, stan: 'po_terminie', przypomnienie: true, innaWaluta: 0 })
+      poTerminie: 15689.5, najstarszaDni: 13, najblizszyTerminDni: 1, stan: 'po_terminie', przypomnienie: true, innaWaluta: 0,
+      obrot: 45200.4, kg: 5230, fvBezKwoty: 2 })
     expect(r.saldoWz).toBe(-8409.5)
     expect(r.najstarszaDni).toBe(13)
     expect(l.kontrahenci[1].najblizszyTerminDni).toBeNull()
     expect(l.start).toBe('2026-11-09')
-    expect(l.podsumowanie.EUR).toEqual({ naleznosci: 38447.7, poTerminie: 15689.5, gotowkaWz: 8409.5, nadplaty: 0 })
+    expect(l.podsumowanie.EUR).toEqual({ naleznosci: 38447.7, poTerminie: 15689.5, gotowkaWz: 8409.5, nadplaty: 0, obrot: 45200.4, kg: 5230 })
+    expect(l.wylaczeni).toEqual([{ id: 'c7', nazwa: 'KLIENT PRYWATNY TEST', nip: '', waluta: 'PLN' }])
     expect(l.bezKontrahenta).toEqual([{ id: 'd1', numer: 'WZ 07/11', data: '2026-11-07', kwota: 1250.4, waluta: 'PLN', nabywca: 'NABYWCA TESTOWY' }])
     expect(l.innaWaluta).toBe(2)
     expect(mapujListe({ ...SUROWA_LISTA, kontrahenci: [{ ...SUROWA_LISTA.kontrahenci[0], inna_waluta: 3, stan: 'sprawdz_walute' }] })
       .kontrahenci[0]).toMatchObject({ innaWaluta: 3, stan: 'sprawdz_walute' })
   })
   it('pusta / uszkodzona odpowiedź → puste listy zamiast wyjątku', () => {
-    expect(mapujListe(null)).toEqual({ start: '', podsumowanie: {}, kontrahenci: [], bezKontrahenta: [], innaWaluta: 0 })
+    expect(mapujListe(null)).toEqual({ start: '', podsumowanie: {}, kontrahenci: [], bezKontrahenta: [], innaWaluta: 0, wylaczeni: [] })
   })
 })
 
@@ -311,5 +314,44 @@ describe('drobne wspólne: dni, grosze, forma domyślna', () => {
     expect(formaDomyslna('', 'wz')).toBe('gotowka')
     expect(formaDomyslna('karta', 'fv')).toBe('przelew')
     expect(FORMY.map(f => f[1])).toEqual(['Gotówka', 'Przelew'])
+  })
+})
+
+describe('okres obrotu i kg — lista i karta', () => {
+  const dzis = '2026-11-12'
+  it('ten miesiąc, poprzedni (także przez nowy rok), ten rok, od początku (domyślne serwera), od–do', () => {
+    expect(zakresObrotu({ okres: 'miesiac', od: '', do: '' }, dzis)).toEqual({ od: '2026-11-01', do: '2026-11-30' })
+    expect(zakresObrotu({ okres: 'poprzedni', od: '', do: '' }, dzis)).toEqual({ od: '2026-10-01', do: '2026-10-31' })
+    expect(zakresObrotu({ okres: 'poprzedni', od: '', do: '' }, '2027-01-05')).toEqual({ od: '2026-12-01', do: '2026-12-31' })
+    expect(zakresObrotu({ okres: 'rok', od: '', do: '' }, dzis)).toEqual({ od: '2026-01-01', do: '2026-12-31' })
+    expect(zakresObrotu({ okres: 'odPoczatku', od: '2026-01-01', do: '' }, dzis)).toEqual({ od: '', do: '' })
+    expect(zakresObrotu({ okres: 'zakres', od: '2026-11-03', do: '2026-11-09' }, dzis)).toEqual({ od: '2026-11-03', do: '2026-11-09' })
+  })
+  it('opis pokazuje daty wybrane przez użytkownika, nie obcięte przez serwer', () => {
+    expect(opisOkresu({ okres: 'poprzedni', od: '', do: '' }, dzis, '2026-11-12')).toBe('01.10–31.10.2026')
+    expect(opisOkresu({ okres: 'odPoczatku', od: '', do: '' }, dzis, '2026-11-12')).toBe('od 12.11.2026')
+    expect(opisOkresu({ okres: 'zakres', od: '2025-12-20', do: '2026-01-10' }, dzis, '2026-11-12')).toBe('20.12.2025–10.01.2026')
+  })
+  it('błąd własnego zakresu po polsku', () => {
+    expect(bladZakresu({ okres: 'miesiac', od: '', do: '' })).toBeNull()
+    expect(bladZakresu({ okres: 'zakres', od: '2026-11-01', do: '' })).toBe('Wpisz obie daty')
+    expect(bladZakresu({ okres: 'zakres', od: '2026-11-10', do: '2026-11-01' })).toMatch(/wcześniejsza/)
+    expect(bladZakresu({ okres: 'zakres', od: '2026-11-01', do: '2026-11-01' })).toBeNull()
+  })
+  it('kilogramy: spacja tysięcy, przecinek, bez zbędnych zer', () => {
+    expect(kilogramy(1234.5)).toBe('1 234,5 kg')
+    expect(kilogramy(5230)).toBe('5 230 kg')
+    expect(kilogramy(0)).toBe('0 kg')
+    expect(kilogramy(12.345)).toBe('12,3 kg')
+    expect(kilogramy(-40)).toBe('−40 kg')
+  })
+  it('walutyPodsumowania: waluta z samym obrotem albo kg też dostaje kafelek', () => {
+    const zero = { naleznosci: 0, poTerminie: 0, gotowkaWz: 0, nadplaty: 0, obrot: 0, kg: 0 }
+    const l = { ...mapujListe(SUROWA_LISTA), podsumowanie: { PLN: { ...zero, kg: 12.5 }, EUR: zero } }
+    expect(walutyPodsumowania(l)).toEqual(['PLN'])
+  })
+  it('kandydaciDoDodania: bez widocznych na liście, wyłączonych i nieaktywnych', () => {
+    const klienci = [{ id: 'c1' }, { id: 'c7' }, { id: 'c8' }, { id: 'c9', active: false }]
+    expect(kandydaciDoDodania(klienci, [{ id: 'c1' }], [{ id: 'c7' }]).map(c => c.id)).toEqual(['c8'])
   })
 })

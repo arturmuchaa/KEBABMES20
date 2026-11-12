@@ -8,21 +8,25 @@
 export const SUROWA_LISTA = {
   start: '2026-11-09',
   podsumowanie: {
-    PLN: { naleznosci: 17700, po_terminie: 15300, gotowka_wz: 2400, nadplaty: 350 },
-    EUR: { naleznosci: 38447.7, po_terminie: 15689.5, gotowka_wz: 8409.5, nadplaty: 0 },
+    PLN: { naleznosci: 17700, po_terminie: 15300, gotowka_wz: 2400, nadplaty: 350, obrot: 21000, kg: 1450.5 },
+    EUR: { naleznosci: 38447.7, po_terminie: 15689.5, gotowka_wz: 8409.5, nadplaty: 0, obrot: 45200.4, kg: 5230 },
   },
   kontrahenci: [
     { id: 'c1', nazwa: 'RONDO GRILL', nip: 'HU99000001', waluta: 'EUR', saldo_wz: -8409.5, saldo_fv: -30038.2, saldo: -38447.7,
-      po_terminie: 15689.5, najstarsza_dni: 13, najblizszy_termin_dni: 1, stan: 'po_terminie', przypomnienie: true, inna_waluta: 0 },
+      po_terminie: 15689.5, najstarsza_dni: 13, najblizszy_termin_dni: 1, stan: 'po_terminie', przypomnienie: true, inna_waluta: 0,
+      obrot: 45200.4, kg: 5230, fv_bez_kwoty: 2 },
     { id: 'c3', nazwa: 'TESTOWA GASTRONOMIA', nip: '000-111-22-33', waluta: 'PLN', saldo_wz: -2400, saldo_fv: -15300, saldo: -17700,
-      po_terminie: 15300, najstarsza_dni: 41, najblizszy_termin_dni: null, stan: 'po_terminie', przypomnienie: false },
+      po_terminie: 15300, najstarsza_dni: 41, najblizszy_termin_dni: null, stan: 'po_terminie', przypomnienie: false,
+      obrot: 21000, kg: 1450.5, fv_bez_kwoty: 0 },
     { id: 'c4', nazwa: 'BAR PRZYKŁADOWY', nip: '', waluta: 'PLN', saldo_wz: 350, saldo_fv: 0, saldo: 350,
-      po_terminie: 0, najstarsza_dni: 0, najblizszy_termin_dni: null, stan: 'nadplata', przypomnienie: false },
+      po_terminie: 0, najstarsza_dni: 0, najblizszy_termin_dni: null, stan: 'nadplata', przypomnienie: false, obrot: 0, kg: 0, fv_bez_kwoty: 0 },
     { id: 'c5', nazwa: 'PUNKT WZOROWY', nip: '', waluta: 'PLN', saldo_wz: 0, saldo_fv: 0, saldo: 0,
-      po_terminie: 0, najstarsza_dni: 0, najblizszy_termin_dni: null, stan: 'rozliczony', przypomnienie: false },
+      po_terminie: 0, najstarsza_dni: 0, najblizszy_termin_dni: null, stan: 'rozliczony', przypomnienie: false, obrot: 0, kg: 0, fv_bez_kwoty: 0 },
   ],
   bez_kontrahenta: [{ id: 'd1', numer: 'WZ 07/11', data: '2026-11-07', kwota: 1250.4, waluta: 'PLN', nabywca: 'NABYWCA TESTOWY' }],
   inna_waluta: 2,
+  okres: { od: '2026-11-09', do: null },
+  wylaczeni: [{ id: 'c7', nazwa: 'KLIENT PRYWATNY TEST', nip: '', waluta: 'PLN' }],
 }
 
 /** Odpowiedź `GET /api/rozliczenia/klienci/c1` (rozliczenia_service.karta). */

@@ -31,9 +31,18 @@ export interface Kontrahent {
   przypomnienie: boolean
   /** Dokumenty, wpłaty i otwarcia w innej walucie niż kontrahent (poza saldem). */
   innaWaluta: number
+  /** Obrót za wybrany okres (brutto, waluta kontrahenta; bez salda otwarcia). */
+  obrot: number
+  /** Sprzedane kg za wybrany okres (z FV bez kwoty, bez salda otwarcia). */
+  kg: number
+  /** Faktury z papierów kursu czekające na kwotę (bez względu na okres). */
+  fvBezKwoty: number
 }
 
-export interface SumaWaluty { naleznosci: number; poTerminie: number; gotowkaWz: number; nadplaty: number }
+export interface SumaWaluty { naleznosci: number; poTerminie: number; gotowkaWz: number; nadplaty: number; obrot: number; kg: number }
+
+/** Klient wyłączony z rozrachunków (nie ma go na liście ani w sumach) — do przywrócenia chipem „Wyłączeni”. */
+export interface Wylaczony { id: string; nazwa: string; nip: string; waluta: string }
 
 export interface WzBezKontrahenta { id: string; numer: string; data: string; kwota: number; waluta: string; nabywca: string }
 
@@ -44,6 +53,7 @@ export interface ListaRozliczen {
   bezKontrahenta: WzBezKontrahenta[]
   /** Liczba dokumentów, wpłat i otwarć w innej walucie niż kontrahent (poza saldami). */
   innaWaluta: number
+  wylaczeni: Wylaczony[]
 }
 
 /** Stan dokumentu z serwera (`stan_dokumentu`, dla dokumentów poza księgą — `usuniety`, `czeka_na_ceny`, …). */
@@ -122,7 +132,10 @@ const s = (v: unknown) => (v == null ? '' : String(v))
 const sNull = (v: unknown) => (v == null || v === '' ? null : String(v))
 
 function mapujSume(r: Surowy): SumaWaluty {
-  return { naleznosci: n(r.naleznosci), poTerminie: n(r.po_terminie), gotowkaWz: n(r.gotowka_wz), nadplaty: n(r.nadplaty) }
+  return {
+    naleznosci: n(r.naleznosci), poTerminie: n(r.po_terminie), gotowkaWz: n(r.gotowka_wz), nadplaty: n(r.nadplaty),
+    obrot: n(r.obrot), kg: n(r.kg),
+  }
 }
 
 function mapujKontrahenta(r: Surowy): Kontrahent {
@@ -134,6 +147,7 @@ function mapujKontrahenta(r: Surowy): Kontrahent {
     stan: (s(r.stan) || 'rozliczony') as StanKontrahenta,
     przypomnienie: !!r.przypomnienie,
     innaWaluta: n(r.inna_waluta),
+    obrot: n(r.obrot), kg: n(r.kg), fvBezKwoty: n(r.fv_bez_kwoty),
   }
 }
 
@@ -147,6 +161,7 @@ export function mapujListe(raw: unknown): ListaRozliczen {
       id: s(d.id), numer: s(d.numer), data: s(d.data), kwota: n(d.kwota), waluta: s(d.waluta), nabywca: s(d.nabywca),
     })),
     innaWaluta: n(r.inna_waluta),
+    wylaczeni: tab(r.wylaczeni).map(w => ({ id: s(w.id), nazwa: s(w.nazwa), nip: s(w.nip), waluta: s(w.waluta) })),
   }
 }
 
@@ -327,16 +342,16 @@ export function liczba(tekst: string): number {
 
 // ─── Lista: sortowanie, filtry, sumy ───────────────────────────────────
 
-export type Kolumna = 'nazwa' | 'waluta' | 'saldoWz' | 'saldoFv' | 'saldo' | 'poTerminie' | 'najstarszaDni'
+export type Kolumna = 'nazwa' | 'waluta' | 'saldoWz' | 'saldoFv' | 'saldo' | 'poTerminie' | 'najstarszaDni' | 'obrot' | 'kg'
 export type Kierunek = 'asc' | 'desc'
 export type Filtr = 'wszyscy' | 'poTerminie' | 'nadplaty' | 'przypomnienia' | 'PLN' | 'EUR'
 
-export const KOLUMNY: Kolumna[] = ['nazwa', 'waluta', 'saldoWz', 'saldoFv', 'saldo', 'poTerminie', 'najstarszaDni']
+export const KOLUMNY: Kolumna[] = ['nazwa', 'waluta', 'saldoWz', 'saldoFv', 'saldo', 'poTerminie', 'najstarszaDni', 'obrot', 'kg']
 export const FILTRY: Filtr[] = ['wszyscy', 'poTerminie', 'nadplaty', 'przypomnienia', 'PLN', 'EUR']
 
-/** Kierunek pierwszego kliknięcia: kwoty po terminie i dni — najwięcej na górze, salda — największy dłużnik (najbardziej ujemne). */
+/** Kierunek pierwszego kliknięcia: kwoty po terminie, dni, obrót i kg — najwięcej na górze, salda — największy dłużnik (najbardziej ujemne). */
 export const PIERWSZY_KIERUNEK: Record<Kolumna, Kierunek> = {
-  nazwa: 'asc', waluta: 'asc', saldoWz: 'asc', saldoFv: 'asc', saldo: 'asc', poTerminie: 'desc', najstarszaDni: 'desc',
+  nazwa: 'asc', waluta: 'asc', saldoWz: 'asc', saldoFv: 'asc', saldo: 'asc', poTerminie: 'desc', najstarszaDni: 'desc', obrot: 'desc', kg: 'desc',
 }
 
 const porownajNazwy = (a: Kontrahent, b: Kontrahent) => a.nazwa.localeCompare(b.nazwa, 'pl')
@@ -365,11 +380,77 @@ export function filtruj(lista: Kontrahent[], f: Filtr, szukaj: string): Kontrahe
   })
 }
 
-/** Waluty do kafelków sum — waluta z samymi zerami nie dostaje kafelka. */
+/** Waluty do kafelków sum — waluta z samymi zerami (także obrót i kg za okres) nie dostaje kafelka. */
 export function walutyPodsumowania(l: ListaRozliczen): string[] {
   return Object.entries(l.podsumowanie)
-    .filter(([, v]) => [v.naleznosci, v.poTerminie, v.gotowkaWz, v.nadplaty].some(x => grosze(x) !== 0))
+    .filter(([, v]) => [v.naleznosci, v.poTerminie, v.gotowkaWz, v.nadplaty, v.obrot].some(x => grosze(x) !== 0) || Math.round(v.kg * 1000) !== 0)
     .map(([w]) => w)
+}
+
+/** Kontrahenci z kartoteki do dodania („+ Kontrahent”): bez tych, którzy już są na liście, i bez wyłączonych (wracają chipem). */
+export function kandydaciDoDodania<C extends { id: string; active?: boolean }>(klienci: C[], naLiscie: Array<{ id: string }>, wylaczeni: Array<{ id: string }>): C[] {
+  const zajete = new Set([...naLiscie, ...wylaczeni].map(k => String(k.id)))
+  return klienci.filter(c => c.active !== false && !zajete.has(String(c.id)))
+}
+
+// ─── Okres obrotu i kilogramów (lista i karta) ─────────────────────────
+
+/** Okres obrotu i kg — `odPoczatku` = od daty startu rozliczeń. */
+export type OkresObrotu = 'miesiac' | 'poprzedni' | 'rok' | 'odPoczatku' | 'zakres'
+export const OKRESY_OBROTU: OkresObrotu[] = ['miesiac', 'poprzedni', 'rok', 'odPoczatku', 'zakres']
+export const ETYKIETA_OKRESU_OBROTU: Record<OkresObrotu, string> = {
+  miesiac: 'Ten miesiąc', poprzedni: 'Poprzedni miesiąc', rok: 'Ten rok', odPoczatku: 'Od początku', zakres: 'Od–do',
+}
+/** Wybór okresu: gotowy okres albo własne daty (`od`/`do` tylko dla `zakres`). */
+export interface WyborOkresuObrotu { okres: OkresObrotu; od: string; do: string }
+
+/**
+ * Daty do API (`lista(od, do)`, `karta(..., okresOd, okresDo)`); pusta — domyślna serwera
+ * (`od` = data startu, `do` = bez końca). Okres w całości przed startem serwer liczy jako zero.
+ */
+export function zakresObrotu(w: WyborOkresuObrotu, dzis: string): { od: string; do: string } {
+  const [r, m] = dzis.split('-').map(Number)
+  switch (w.okres) {
+    case 'miesiac': return { od: iso(r, m, 1), do: iso(r, m, ostatniDzien(r, m)) }
+    case 'poprzedni': return poprzedniMiesiac(dzis)
+    case 'rok': return { od: iso(r, 1, 1), do: iso(r, 12, 31) }
+    case 'zakres': return { od: w.od, do: w.do }
+    default: return { od: '', do: '' }
+  }
+}
+
+/** Błąd własnego zakresu po polsku; null — można liczyć. */
+export function bladZakresu(w: WyborOkresuObrotu): string | null {
+  if (w.okres !== 'zakres') return null
+  if (!w.od || !w.do) return 'Wpisz obie daty'
+  return w.do < w.od ? 'Data „do” jest wcześniejsza niż „od”' : null
+}
+
+/**
+ * Opis okresu, który wybrał użytkownik (nie ten z odpowiedzi serwera — okres sprzed startu
+ * serwer zwraca obcięty): `01.11–30.11.2026`, `od 12.11.2026`, `20.12.2025–10.01.2026`.
+ */
+export function opisOkresu(w: WyborOkresuObrotu, dzis: string, start: string): string {
+  const z = zakresObrotu(w, dzis)
+  if (!z.od && !z.do) return start ? `od ${dataKrotka(start, true)}` : 'od początku'
+  if (z.od && z.do) {
+    const tenSamRok = z.od.slice(0, 4) === z.do.slice(0, 4)
+    return `${dataKrotka(z.od, !tenSamRok)}–${dataKrotka(z.do, true)}`
+  }
+  return z.od ? `od ${dataKrotka(z.od, true)}` : `do ${dataKrotka(z.do, true)}`
+}
+const dataKrotka = (d: string, zRokiem: boolean) => {
+  const [r, m, dz] = d.split('-')
+  return zRokiem ? `${dz}.${m}.${r}` : `${dz}.${m}`
+}
+
+const FORMAT_KG = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 0, maximumFractionDigits: 1, useGrouping: 'always' } as unknown as Intl.NumberFormatOptions)
+
+/** Kilogramy: `1 234,5 kg`, `0 kg` (zwykła spacja tysięcy, minus typograficzny dla korekty). */
+export function kilogramy(x: number): string {
+  const v = Math.round((Number(x) || 0) * 10) / 10
+  const t = FORMAT_KG.format(Math.abs(v)).replace(/[\u00a0\u202f]/g, ' ')
+  return `${v < 0 ? '−' : ''}${t} kg`
 }
 
 /** Kontrahent dla WZ bez kontrahenta: nabywca z WZ równy nazwie albo nazwie skróconej klienta. */
