@@ -66,3 +66,13 @@ describe('WzDocumentView — dopisek dokumentu wewnętrznego (seria WM)', () => 
     expect(screen.queryByText(/DOKUMENT WEWNĘTRZNY/i)).toBeNull()
   })
 })
+
+describe('WzDocumentView — logo zakładu', () => {
+  it('logo ze wspólnej stałej (inny zakład podmienia jedno miejsce)', async () => {
+    const { LOGO_ZAKLADU } = await import('@/components/print/LogoZakladu')
+    const { container } = render(<WzDocumentView doc={DOC} />)
+    const img = container.querySelector('img')!
+    expect(img.getAttribute('src')).toBe(LOGO_ZAKLADU.src)
+    expect(img.getAttribute('alt')).toBe(LOGO_ZAKLADU.alt)
+  })
+})

@@ -1,7 +1,8 @@
 /**
  * „Zestawienie należności” — osobna kartka A4 z tabelką salda (spec p. 10.2).
  *
- * Ta sama treść co pod WZ, z nagłówkiem firmy i kontrahenta. Drukowana
+ * Ta sama treść co pod WZ, na kartce z logo zakładu, danymi firmy,
+ * nabywcą w ramce i stopką (NaglowekDruku / ArkuszDruku). Drukowana
  * z karty klienta („na dzień”, domyślnie dziś) i w dokumentach wysyłki,
  * gdy wszystko idzie na fakturę.
  *
@@ -14,8 +15,8 @@ import { rozliczeniaApi, settingsApi, type CompanySettings } from '@/lib/api'
 import { drukuj } from '@/lib/print'
 import { PrintToolbar } from '@/components/print/PrintToolbar'
 import { TabelaSalda } from '@/features/rozliczenia/TabelaSalda'
-import { CSS_DRUKU, NaglowekDruku, STYL_STRONY } from '@/features/rozliczenia/NaglowekDruku'
-import type { Zestawienie } from '@/features/rozliczenia/druk'
+import { ArkuszDruku, NaglowekDruku } from '@/features/rozliczenia/NaglowekDruku'
+import { dataPl, type Zestawienie } from '@/features/rozliczenia/druk'
 
 export function ZestawienieNaleznosciPrintPage() {
   const { clientId = '' } = useParams()
@@ -41,11 +42,13 @@ export function ZestawienieNaleznosciPrintPage() {
   if (!z || firma === undefined) return <div style={{ padding: 24, fontFamily: 'Arial' }}>Ładowanie…</div>
 
   return (
-    <div style={STYL_STRONY}>
+    <>
       <PrintToolbar powrot="/office" />
-      <style>{CSS_DRUKU}</style>
-      <NaglowekDruku firma={firma} klient={z.klient} tytul="Zestawienie należności" />
-      <TabelaSalda z={z} />
-    </div>
+      <ArkuszDruku firma={firma}>
+        <NaglowekDruku firma={firma} klient={z.klient} tytul="Zestawienie należności"
+          dane={[['Stan na dzień', dataPl(z.na_dzien)], ['Waluta', z.waluta]]} />
+        <TabelaSalda z={z} bezTytulu />
+      </ArkuszDruku>
+    </>
   )
 }

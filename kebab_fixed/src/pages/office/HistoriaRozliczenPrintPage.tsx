@@ -4,6 +4,9 @@
  * w kolejności dat z saldem narastającym, saldo na koniec — osobno WZ
  * i faktury, na końcu saldo łączne.
  *
+ * Kartka: logo zakładu, firma, nabywca w ramce, okres i waluta w nagłówku
+ * (NaglowekDruku), panel „Saldo łącznie na …” na końcu, stopka z kontaktem.
+ *
  * Dokument z niezapłaconą resztą po terminie (stan na koniec okresu) jest
  * czerwony, a liczba dni pogrubiona — czytelne też na drukarce czarno-białej.
  *
@@ -18,20 +21,22 @@ import { useParams, useSearchParams } from 'react-router-dom'
 import { rozliczeniaApi, settingsApi, type CompanySettings } from '@/lib/api'
 import { drukuj } from '@/lib/print'
 import { PrintToolbar } from '@/components/print/PrintToolbar'
-import { CSS_DRUKU, NaglowekDruku, STYL_STRONY } from '@/features/rozliczenia/NaglowekDruku'
+import { ArkuszDruku, DRUK, LICZBOWA, NaglowekDruku } from '@/features/rozliczenia/NaglowekDruku'
 import { dataPl, kwota, type HistoriaOkresu, type KsiegaHistorii } from '@/features/rozliczenia/druk'
 
-const RAMKA = '1px solid #9a9a9a'
-const CZERWONY = '#b00020'
 const S = {
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 10, marginBottom: 10 } as CSSProperties,
-  th: { border: RAMKA, background: '#d7d7d7', padding: '3px 5px', fontWeight: 700,
-        fontSize: 9.5, textAlign: 'left' } as CSSProperties,
-  td: { border: RAMKA, padding: '2px 5px' } as CSSProperties,
-  sum: { border: RAMKA, background: '#efefef', padding: '3px 5px', fontWeight: 700 } as CSSProperties,
+  table: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' } as CSSProperties,
+  th: { padding: '.35em .55em .4em', fontWeight: 600, fontSize: '.84em', color: DRUK.szary,
+        textAlign: 'left', borderBottom: `0.75pt solid ${DRUK.liniaMocna}`, verticalAlign: 'bottom' } as CSSProperties,
+  td: { padding: '.45em .55em', borderBottom: `0.5pt solid ${DRUK.linia}`, verticalAlign: 'baseline' } as CSSProperties,
+  /** Saldo na początek — wiersz otwierający, spokojny. */
+  pocz: { padding: '.45em .55em', borderBottom: `0.5pt solid ${DRUK.linia}`, color: DRUK.szary,
+          fontWeight: 600 } as CSSProperties,
+  /** Saldo na koniec — zamyka księgę mocniejszą linią. */
+  kon: { padding: '.5em .55em .3em', borderTop: `0.75pt solid ${DRUK.liniaMocna}`, fontWeight: 600 } as CSSProperties,
 }
-const liczbowa: CSSProperties = { textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }
 const KOLUMNY = ['Data', 'Opis', 'Obciążenie', 'Wpłata', 'Saldo', 'Dni po terminie']
+const dataKom: CSSProperties = { whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }
 
 function pusta(k: KsiegaHistorii): boolean {
   return k.wiersze.length === 0 && k.saldo_poczatek === 0 && k.saldo_koniec === 0
@@ -42,13 +47,13 @@ function Ksiega({ k, tytul, waluta, od, do_ }: {
 }) {
   const kw = (n: number) => (n ? kwota(n, waluta) : '')
   return (
-    <section>
-      <h2 style={{ fontSize: 12, fontWeight: 700, margin: '10px 0 4px' }}>{tytul}</h2>
+    <section style={{ marginBottom: '6mm' }}>
+      <h2 style={{ fontSize: '1.05em', fontWeight: 600, margin: '0 0 .35em' }}>{tytul}</h2>
       <table style={S.table}>
         <colgroup>
-          <col style={{ width: '22mm' }} /><col />
-          <col style={{ width: '25mm' }} /><col style={{ width: '25mm' }} /><col style={{ width: '28mm' }} />
-          <col style={{ width: '25mm' }} />
+          <col style={{ width: '19mm' }} /><col />
+          <col style={{ width: '27mm' }} /><col style={{ width: '27mm' }} /><col style={{ width: '29mm' }} />
+          <col style={{ width: '23mm' }} />
         </colgroup>
         <thead>
           <tr>
@@ -59,40 +64,44 @@ function Ksiega({ k, tytul, waluta, od, do_ }: {
         </thead>
         <tbody>
           <tr>
-            <td style={S.sum}>{dataPl(od)}</td>
-            <td style={S.sum} colSpan={3}>Saldo na początek okresu</td>
-            <td style={{ ...S.sum, ...liczbowa }}>{kwota(k.saldo_poczatek, waluta)}</td>
-            <td style={S.sum} />
+            <td style={{ ...S.pocz, ...dataKom }}>{dataPl(od)}</td>
+            <td style={S.pocz} colSpan={3}>Saldo na początek okresu</td>
+            <td style={{ ...S.pocz, ...LICZBOWA }}>{kwota(k.saldo_poczatek, waluta)}</td>
+            <td style={S.pocz} />
           </tr>
           {k.wiersze.map((w, i) => {
             const po = w.dni_po_terminie > 0
             return (
               <tr key={i} data-rodzaj={w.rodzaj} data-po-terminie={po ? '1' : undefined}
-                  style={po ? { color: CZERWONY } : undefined}>
-                <td style={{ ...S.td, whiteSpace: 'nowrap' }}>{dataPl(w.data)}</td>
-                <td style={S.td}>{w.opis}</td>
-                <td style={{ ...S.td, ...liczbowa }}>{kw(w.obciazenie)}</td>
-                <td style={{ ...S.td, ...liczbowa }}>{kw(w.wplata)}</td>
-                <td style={{ ...S.td, ...liczbowa }}>{kwota(w.saldo, waluta)}</td>
-                <td style={{ ...S.td, ...liczbowa, fontWeight: po ? 700 : undefined }}>
+                  style={po ? { color: DRUK.czerwony } : undefined}>
+                <td style={{ ...S.td, ...dataKom }}>{dataPl(w.data)}</td>
+                <td style={{ ...S.td, fontWeight: w.rodzaj === 'dokument' ? 500 : undefined }}>{w.opis}</td>
+                <td style={{ ...S.td, ...LICZBOWA }}>{kw(w.obciazenie)}</td>
+                <td style={{ ...S.td, ...LICZBOWA }}>{kw(w.wplata)}</td>
+                <td style={{ ...S.td, ...LICZBOWA }}>{kwota(w.saldo, waluta)}</td>
+                <td style={{ ...S.td, ...LICZBOWA, fontWeight: po ? 700 : undefined }}>
                   {po ? w.dni_po_terminie : '–'}
                 </td>
               </tr>
             )
           })}
           {k.wiersze.length === 0 && (
-            <tr><td style={S.td} colSpan={6}>Brak dokumentów i wpłat w tym okresie.</td></tr>
+            <tr><td style={{ ...S.td, color: DRUK.szary }} colSpan={6}>Brak dokumentów i wpłat w tym okresie.</td></tr>
           )}
           <tr>
-            <td style={S.sum}>{dataPl(do_)}</td>
-            <td style={S.sum} colSpan={3}>Saldo na koniec okresu</td>
-            <td style={{ ...S.sum, ...liczbowa }}>{kwota(k.saldo_koniec, waluta)}</td>
-            <td style={S.sum} />
+            <td style={{ ...S.kon, ...dataKom }}>{dataPl(do_)}</td>
+            <td style={S.kon} colSpan={3}>Saldo na koniec okresu</td>
+            <td style={{ ...S.kon, ...LICZBOWA }}>{kwota(k.saldo_koniec, waluta)}</td>
+            <td style={S.kon} />
           </tr>
         </tbody>
       </table>
     </section>
   )
+}
+
+const wierszPanelu: CSSProperties = {
+  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '1.5em',
 }
 
 export function HistoriaRozliczenPrintPage() {
@@ -126,19 +135,34 @@ export function HistoriaRozliczenPrintPage() {
   const pokaz = ksiegi.length ? ksiegi : ([['wz', 'WZ'], ['fv', 'Faktury']] as const)
 
   return (
-    <div style={STYL_STRONY}>
+    <>
       <PrintToolbar powrot="/office" />
-      <style>{CSS_DRUKU}</style>
-      <NaglowekDruku firma={firma} klient={h.klient}
-        tytul={`Historia rozliczeń ${dataPl(h.od)} – ${dataPl(h.do)}`}
-        podtytul="Saldo ujemne oznacza kwotę do zapłaty, dodatnie — nadpłatę." />
-      {pokaz.map(([ks, tytul]) => (
-        <Ksiega key={ks} k={h[ks]} tytul={tytul} waluta={h.waluta} od={h.od} do_={h.do} />
-      ))}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 24, fontSize: 12,
-                    borderTop: '1.5px solid #111', paddingTop: 6 }}>
-        <span>Saldo łącznie na {dataPl(h.do)}: <b>{kwota(h.saldo_koniec, h.waluta)}</b></span>
-      </div>
-    </div>
+      <ArkuszDruku firma={firma}>
+        <NaglowekDruku firma={firma} klient={h.klient} tytul="Historia rozliczeń"
+          dane={[['Okres', `${dataPl(h.od)} – ${dataPl(h.do)}`], ['Waluta', h.waluta]]} />
+        {pokaz.map(([ks, tytul]) => (
+          <Ksiega key={ks} k={h[ks]} tytul={tytul} waluta={h.waluta} od={h.od} do_={h.do} />
+        ))}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '8mm' }}>
+          <div style={{ fontSize: '.86em', color: DRUK.szary, maxWidth: '80mm' }}>
+            Saldo ujemne oznacza kwotę do zapłaty, dodatnie — nadpłatę.
+          </div>
+          <div style={{ minWidth: '48%', border: `0.75pt solid ${DRUK.linia}`,
+                        borderTop: `1.5pt solid ${DRUK.liniaMocna}`, background: DRUK.tlo,
+                        padding: '.65em .9em .7em', display: 'grid', rowGap: '.3em' }}>
+            {pokaz.length > 1 && pokaz.map(([ks, tytul]) => (
+              <div key={ks} style={wierszPanelu}>
+                <span>Saldo {tytul === 'WZ' ? 'WZ' : 'faktur'}</span>
+                <b style={{ ...LICZBOWA, fontWeight: 600 }}>{kwota(h[ks].saldo_koniec, h.waluta)}</b>
+              </div>
+            ))}
+            <div data-testid="saldo-lacznie" style={{ ...wierszPanelu, fontSize: '1.22em' }}>
+              <span style={{ fontWeight: 600 }}>Saldo łącznie na {dataPl(h.do)}</span>
+              <b style={{ ...LICZBOWA, fontWeight: 700 }}>{kwota(h.saldo_koniec, h.waluta)}</b>
+            </div>
+          </div>
+        </div>
+      </ArkuszDruku>
+    </>
   )
 }

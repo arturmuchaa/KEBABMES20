@@ -50,11 +50,22 @@ describe('TabelaSalda — RONDO GRILL', () => {
     expect(screen.getAllByRole('table')).toHaveLength(2)
   })
 
-  it('stopka sum: razem do zapłaty i w tym po terminie', () => {
-    const { container } = render(<TabelaSalda z={ZESTAWIENIE} />)
-    const tekst = container.textContent ?? ''
-    expect(tekst).toContain('Razem do zapłaty: 38 447,70 €')
-    expect(tekst).toContain('W tym po terminie: 15 689,50 €')
+  it('panel sumy: razem do zapłaty i w tym po terminie (czerwono)', () => {
+    render(<TabelaSalda z={ZESTAWIENIE} />)
+    const razem = screen.getByTestId('suma-razem')
+    expect(razem.textContent).toBe('Razem do zapłaty38 447,70 €')
+    const po = screen.getByTestId('suma-po-terminie')
+    expect(po.textContent).toBe('W tym po terminie15 689,50 €')
+    expect(po.style.color).toBe('rgb(176, 0, 32)')
+  })
+
+  it('nic po terminie — „w tym po terminie” bez czerwieni', () => {
+    const wTerminie = { ...ZESTAWIENIE, po_terminie: 0,
+      wz: { ...ZESTAWIENIE.wz, pozycje: ZESTAWIENIE.wz.pozycje.map(p => ({ ...p, dni_po_terminie: 0 })) },
+      fv: { ...ZESTAWIENIE.fv, pozycje: ZESTAWIENIE.fv.pozycje.map(p => ({ ...p, dni_po_terminie: 0 })) } }
+    const { container } = render(<TabelaSalda z={wTerminie} />)
+    expect(screen.getByTestId('suma-po-terminie').style.color).toBe('')
+    expect(container.querySelectorAll('[style*="176, 0, 32"]')).toHaveLength(0)
   })
 
   it('dokładnie trzy wiersze po terminie, na czerwono', () => {
@@ -92,7 +103,7 @@ describe('TabelaSalda — bez należności', () => {
 
   it('nadpłata zamiast podziękowania', () => {
     const { container } = render(<TabelaSalda z={{ ...PUSTE, nadplata_wz: 350 }} />)
-    expect(container.textContent).toContain('Nadpłata (WZ): 350,00 zł')
+    expect(screen.getByTestId('panel-sumy').textContent).toBe('Nadpłata (WZ)350,00 zł')
     expect(container.textContent).not.toContain('Brak należności')
   })
 
@@ -122,9 +133,53 @@ describe('TabelaSalda — czytelność wydruku', () => {
 
   it('pod WZ suma wszystkich dokumentów nazywa się inaczej niż „Razem do zapłaty” samego WZ', () => {
     const { container } = render(<TabelaSalda z={ZESTAWIENIE} naWz />)
-    const tekst = container.textContent ?? ''
-    expect(tekst).toContain('Łącznie do zapłaty (wszystkie niezapłacone dokumenty): 38 447,70 €')
-    expect(tekst).not.toContain('Razem do zapłaty')
+    expect(screen.getByTestId('suma-razem').textContent)
+      .toBe('Łącznie do zapłaty (wszystkie niezapłacone dokumenty)38 447,70 €')
+    expect(container.textContent).not.toContain('Razem do zapłaty')
+  })
+
+  it('nagłówki tabel bez ciężkiego szarego tła, kwoty do prawej', () => {
+    const { container } = render(<TabelaSalda z={ZESTAWIENIE} />)
+    const th = Array.from(container.querySelectorAll('th')) as HTMLElement[]
+    th.forEach(t => expect(t.style.background).toBe(''))
+    expect(th.find(t => t.textContent === 'Pozostało')!.style.textAlign).toBe('right')
+    const kw = screen.getByText('3 120,00 €') as HTMLElement
+    expect(kw.style.textAlign).toBe('right')
+    expect(kw.style.fontVariantNumeric).toBe('tabular-nums')
+  })
+
+  it('na osobnej kartce tytuł tabelki można pominąć (jest w nagłówku kartki)', () => {
+    render(<TabelaSalda z={ZESTAWIENIE} bezTytulu />)
+    expect(screen.queryByText(/Stan rozliczeń na dzień/)).toBeNull()
+    expect(screen.getByRole('heading', { name: 'WZ' })).toBeTruthy()
+  })
+})
+
+describe('TabelaSalda — zaległe dokumenty sprzed startu i saldo otwarcia (D13)', () => {
+  const Z: Zestawienie = {
+    ...PUSTE, waluta: 'PLN',
+    wz: { pozycje: [
+      { numer: 'Saldo otwarcia', data: '2026-11-12', termin: '2026-11-12', kwota: 1250, zaplacono: 0,
+        pozostalo: 1250, dni_po_terminie: 0, ten_dokument: false },
+    ], razem: 1250 },
+    fv: { pozycje: [
+      { numer: 'FV 431/2026', data: '2026-08-28', termin: '2026-09-04', kwota: 4380, zaplacono: 0,
+        pozostalo: 4380, dni_po_terminie: 69, ten_dokument: false },
+    ], razem: 4380 },
+    razem: 5630, po_terminie: 4380,
+  }
+
+  it('zaległa faktura drukuje się jak zwykły dokument: numer, data, termin', () => {
+    render(<TabelaSalda z={Z} />)
+    const w = screen.getByText('FV 431/2026').closest('tr')!
+    const komorki = Array.from(w.querySelectorAll('td')).map(td => td.textContent)
+    expect(komorki).toEqual(['FV 431/2026', '28.08.2026', '04.09.2026', '4 380,00 zł', '0,00 zł', '4 380,00 zł', '69'])
+    expect(w.textContent).not.toMatch(/saldo otwarcia/i)
+  })
+
+  it('kwota zbiorcza zostaje z napisem „Saldo otwarcia”', () => {
+    render(<TabelaSalda z={Z} />)
+    expect(screen.getByText('Saldo otwarcia').closest('tr')).toBeTruthy()
   })
 })
 

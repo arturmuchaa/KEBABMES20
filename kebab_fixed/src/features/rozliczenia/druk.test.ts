@@ -30,3 +30,10 @@ describe('dataPl', () => {
     expect(dataPl(null)).toBe('')
   })
 })
+
+describe('chwila wydruku', () => {
+  it('data i godzina po polsku, z zerami wiodącymi', async () => {
+    const { chwilaWydruku } = await import('./druk')
+    expect(chwilaWydruku(new Date(2026, 10, 2, 7, 5))).toBe('02.11.2026, 07:05')
+  })
+})

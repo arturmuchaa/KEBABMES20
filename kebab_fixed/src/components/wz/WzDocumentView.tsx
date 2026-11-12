@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from 'react'
 import { BlokSaldaWz } from '@/features/rozliczenia/BlokSaldaWz'
+import { LogoZakladu } from '@/components/print/LogoZakladu'
 import { WzDoc, WzLine } from '@/lib/api'
 import { fmtDatePl } from '@/lib/utils'
 import { buildHdiRows } from './hdiRows'
@@ -144,7 +145,7 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
       {/* ── Nagłówek: logo + firma po lewej, boksy dat po prawej (Subiekt) ── */}
       <div className="flex justify-between items-start">
         <div>
-          <img src="/logo-ksiezyc.png" alt="Księżyc" style={{ height: 72, width: 'auto' }} />
+          <LogoZakladu wysokosc={72} />
           <div className="mt-2 leading-snug">
             <div className="font-bold text-[11.5px]">{doc.seller?.name || (draft ? '—' : '')}</div>
             <div className="text-[10px] text-[#222] whitespace-pre-line">{doc.seller?.address}</div>

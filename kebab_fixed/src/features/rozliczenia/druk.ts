@@ -85,3 +85,9 @@ export function dataPl(iso: string | null | undefined): string {
   const [r, m, d] = String(iso).slice(0, 10).split('-')
   return d && m && r ? `${d}.${m}.${r}` : String(iso)
 }
+
+/** Chwila wydruku do stopki kartki: `12.11.2026, 13:05` (czas lokalny). */
+export function chwilaWydruku(d: Date = new Date()): string {
+  const z = (n: number) => String(n).padStart(2, '0')
+  return `${z(d.getDate())}.${z(d.getMonth() + 1)}.${d.getFullYear()}, ${z(d.getHours())}:${z(d.getMinutes())}`
+}
