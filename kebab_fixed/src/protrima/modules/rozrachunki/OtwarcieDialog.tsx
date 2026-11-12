@@ -34,14 +34,21 @@ const kwotaBezZnaku = (t: string) => {
   return Number.isFinite(x) && x >= 0 ? doGroszy(x) : NaN
 }
 
-/** Saldo otwarcia z karty w kształcie `doApi` — punkt odniesienia „co się zmieniło”. */
-const zKarty = (k: Karta, ks: Ksiega) => {
+type Dto = { kwota: number; zalegle_od: string | null; uwagi: string }
+
+/**
+ * Saldo otwarcia z karty w kształcie `doApi` — punkt odniesienia „co się zmieniło”.
+ * `null` — klient nie ma jeszcze żadnego salda otwarcia: zapisać trzeba obie księgi,
+ * także puste (= 0), bo dopiero wtedy saldo zaczyna drukować się na WZ.
+ */
+const zKarty = (k: Karta, ks: Ksiega): Dto | null => {
   const o = k.otwarcia[ks]
+  if (!o && !k.otwarcia.wz && !k.otwarcia.fv) return null
   return { kwota: o?.kwota ?? 0, zalegle_od: o?.zalegleOd ?? null, uwagi: o?.uwagi ?? '' }
 }
 
 /** Wartość do API: minus — klient winien, plus — nadpłata; „zaległe od” tylko przy długu. */
-const doApi = (s: Stan) => {
+const doApi = (s: Stan): Dto => {
   const k = kwotaBezZnaku(s.tekst)
   return {
     kwota: k === 0 ? 0 : s.kierunek === 'winien' ? -k : k,
@@ -67,7 +74,8 @@ export function OtwarcieDialog({ karta, ksiega, onClose, onZapisano, onOdswiez }
   const [stan, setStan] = useState<Record<Ksiega, Stan>>(() => ({ wz: poczatek(karta, 'wz'), fv: poczatek(karta, 'fv') }))
   const zapis = useZapis('Nie udało się zapisać salda otwarcia')
   // Stan na serwerze: z karty, a po częściowym zapisie — z tego, co już przeszło (ponowny zapis wysyła tylko resztę).
-  const [zapisane, setZapisane] = useState<Record<Ksiega, ReturnType<typeof doApi>>>(() => ({ wz: zKarty(karta, 'wz'), fv: zKarty(karta, 'fv') }))
+  const [zapisane, setZapisane] = useState<Record<Ksiega, Dto | null>>(() => ({ wz: zKarty(karta, 'wz'), fv: zKarty(karta, 'fv') }))
+  const nowyKlient = !karta.otwarcia.wz && !karta.otwarcia.fv
   const zmien = (ks: Ksiega, z: Partial<Stan>) => setStan(s => ({ ...s, [ks]: { ...s[ks], ...z } }))
 
   const bladKwoty = (ks: Ksiega) => (Number.isNaN(kwotaBezZnaku(stan[ks].tekst)) ? BLAD_KWOTY : null)
@@ -75,6 +83,7 @@ export function OtwarcieDialog({ karta, ksiega, onClose, onZapisano, onOdswiez }
     ? `Data „zaległe od” nie może być po dacie startu (${dataPl(karta.start)})` : null)
   const zmieniona = (ks: Ksiega) => {
     const teraz = doApi(stan[ks]), przed = zapisane[ks]
+    if (!przed) return true
     return doGroszy(teraz.kwota) !== doGroszy(przed.kwota)
       || (znakSalda(teraz.kwota) < 0 && teraz.zalegle_od !== przed.zalegle_od) || teraz.uwagi !== przed.uwagi
   }
@@ -122,6 +131,11 @@ export function OtwarcieDialog({ karta, ksiega, onClose, onZapisano, onOdswiez }
       <div className="note"><FlagIcon level="info" size={15} />
         <div>Stan na początek dnia {dataPl(karta.start)}. Dokumenty z tego dnia i późniejsze liczą się już w systemie.</div>
       </div>
+      {nowyKlient && (
+        <div className="note warn"><FlagIcon level="warn" size={15} />
+          <div>Klient nie ma jeszcze salda otwarcia, więc saldo nie drukuje się na WZ ani w papierach kursu. Wpisz stan z arkusza — puste pole to 0 (klient nic nie jest winien) i też można je zapisać.</div>
+        </div>
+      )}
       <div className="rr-otw">
         {KSIEGI.map(ks => {
           const s = stan[ks], n = NAZWA[ks], dto = doApi(s)

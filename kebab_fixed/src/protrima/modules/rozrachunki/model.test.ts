@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   etykietaStanu, filtruj, kwotaSalda, liczba, mapujKarte, mapujListe, mapujSzczegoly, opisPlatnosci, pigulka, podpowiedzKlienta,
   czesciRozliczenia, numerZSeria, rozliczyla, sortuj, symbolWaluty, uporzadkujDziennik, walutyPodsumowania, wOkresie, zakresOkresu,
-  dodajDni, mapujPodglad, opisRozliczenia, poprzedniMiesiac, dni, doGroszy, formaDomyslna, FORMY,
+  dodajDni, mapujPodglad, opisRozliczenia, poprzedniMiesiac, dni, doGroszy, formaDomyslna, FORMY, mapujHistorieZmian,
   type Kontrahent, type Wplata,
 } from './model'
 import { SUROWA_KARTA, SUROWA_KARTA_PELNA, SUROWA_LISTA, SUROWY_DOKUMENT, SUROWY_PODGLAD } from './daneTestowe.fixture'
@@ -15,7 +15,7 @@ describe('mapujListe — nie gubi pól', () => {
     const l = mapujListe(SUROWA_LISTA)
     const r = l.kontrahenci[0]
     expect(r).toEqual({ id: 'c1', nazwa: 'RONDO GRILL', nip: 'HU99000001', waluta: 'EUR', saldoWz: -8409.5, saldoFv: -30038.2, saldo: -38447.7,
-      poTerminie: 15689.5, najstarszaDni: 13, najblizszyTerminDni: 1, stan: 'po_terminie', przypomnienie: true })
+      poTerminie: 15689.5, najstarszaDni: 13, najblizszyTerminDni: 1, stan: 'po_terminie', przypomnienie: true, innaWaluta: 0 })
     expect(r.saldoWz).toBe(-8409.5)
     expect(r.najstarszaDni).toBe(13)
     expect(l.kontrahenci[1].najblizszyTerminDni).toBeNull()
@@ -23,6 +23,8 @@ describe('mapujListe — nie gubi pól', () => {
     expect(l.podsumowanie.EUR).toEqual({ naleznosci: 38447.7, poTerminie: 15689.5, gotowkaWz: 8409.5, nadplaty: 0 })
     expect(l.bezKontrahenta).toEqual([{ id: 'd1', numer: 'WZ 07/11', data: '2026-11-07', kwota: 1250.4, waluta: 'PLN', nabywca: 'NABYWCA TESTOWY' }])
     expect(l.innaWaluta).toBe(2)
+    expect(mapujListe({ ...SUROWA_LISTA, kontrahenci: [{ ...SUROWA_LISTA.kontrahenci[0], inna_waluta: 3, stan: 'sprawdz_walute' }] })
+      .kontrahenci[0]).toMatchObject({ innaWaluta: 3, stan: 'sprawdz_walute' })
   })
   it('pusta / uszkodzona odpowiedź → puste listy zamiast wyjątku', () => {
     expect(mapujListe(null)).toEqual({ start: '', podsumowanie: {}, kontrahenci: [], bezKontrahenta: [], innaWaluta: 0 })
@@ -40,7 +42,7 @@ describe('mapujKarte — nie gubi pól', () => {
     expect(c.otwarcia).toEqual({ wz: { kwota: -6300, zalegleOd: '2026-09-20', uwagi: 'z Excela' }, fv: null })
     expect(c.dokumenty.wz[0]).toEqual({ id: 'w21', numer: 'WZ 21/10', data: '2026-10-27', kwota: 6120, zaplacono: 3000, zostalo: 3120,
       termin: '2026-10-27', forma: 'gotowka', uwagi: '', zrodlo: 'mes_wz', otwarcie: false,
-      stan: { kod: 'po_terminie', dni: 13, czesciowo: true }, zamkniety: null, brakVat: true })
+      stan: { kod: 'po_terminie', dni: 13, czesciowo: true }, zamkniety: null, brakVat: true, korekta: false, rozliczyla: [] })
     expect(c.dokumenty.fv[0].zamkniety).toBe('2026-10-20')
     expect(c.wplaty[0]).toEqual({ id: 'p1', ksiega: 'fv', forma: 'przelew', kwota: 17325, data: '2026-10-20', uwagi: 'tytuł',
       utworzyl: 'biuro', dokumentId: null, przydzialy: [{ numer: 'FV 512/2026', kwota: 17325 }], reszta: 0 })
@@ -48,6 +50,24 @@ describe('mapujKarte — nie gubi pól', () => {
     expect(c.innaWaluta).toEqual([{ id: 'f9', numer: 'FV 9/2026', data: '2026-11-02', kwota: 500, waluta: 'PLN', rodzaj: 'dokument' }])
     expect(c.dziennik).toEqual([{ id: 'j1', tresc: 'obiecał przelew', przypomnij: '2026-11-12', odhaczono: null, kto: 'biuro',
       kiedy: '2026-11-09T10:00:00' }])
+    expect(c.rozliczeniaOtwarte).toBe(true)
+    expect(mapujKarte({ ...SUROWA_KARTA, rozliczenia_otwarte: false }).rozliczeniaOtwarte).toBe(false)
+  })
+  it('faktura korygująca: ujemna kwota, znacznik korekty i co zmniejszyła', () => {
+    const c = mapujKarte({ ...SUROWA_KARTA, dokumenty: { wz: [], fv: [{ ...SUROWA_KARTA.dokumenty.fv[0], id: 'k1', numer: 'FVK 1/2026', kwota: -200,
+      zaplacono: 0, zostalo: 0, stan: { kod: 'korekta', dni: 0, czesciowo: false }, korekta: true,
+      rozliczyla: [{ numer: 'FV 512/2026', kwota: 200 }] }] } })
+    expect(c.dokumenty.fv[0]).toMatchObject({ kwota: -200, korekta: true, rozliczyla: [{ numer: 'FV 512/2026', kwota: 200 }] })
+  })
+})
+
+describe('mapujHistorieZmian — historia zmian klienta', () => {
+  it('wpisy z serwera, usunięcia oznaczone; pusta odpowiedź → pusta lista', () => {
+    const h = mapujHistorieZmian({ wpisy: [{ id: 'h1', kiedy: '2026-11-10T09:15:00+00:00', kto: 'Szef', obiekt: 'wplata', akcja: 'usunieto',
+      czego: 'Wpłata 300,00 PLN z 10.11.2026', opis: 'usunięto wpłatę 300.00', powod: 'wpisana dwa razy', usuniete: true }], wiecej: true })
+    expect(h).toEqual({ wpisy: [{ id: 'h1', kiedy: '2026-11-10T09:15:00+00:00', kto: 'Szef', obiekt: 'wplata', akcja: 'usunieto',
+      czego: 'Wpłata 300,00 PLN z 10.11.2026', opis: 'usunięto wpłatę 300.00', powod: 'wpisana dwa razy', usuniete: true }], wiecej: true })
+    expect(mapujHistorieZmian(null)).toEqual({ wpisy: [], wiecej: false })
   })
 })
 
@@ -62,6 +82,8 @@ describe('pigulka — stan kontrahenta w kształcie', () => {
     expect(pigulka(k({ stan: 'w_terminie', najblizszyTerminDni: null }))).toEqual({ tekst: 'w terminie', ton: 'ok' })
     expect(pigulka(k({ stan: 'nadplata' }))).toEqual({ tekst: 'nadpłata', ton: 'ok' })
     expect(pigulka(k({ stan: 'rozliczony' }))).toEqual({ tekst: 'rozliczony', ton: 'zero' })
+    // Klient zagraniczny z domyślnym PLN: same pozycje w EUR — nie „rozliczony”.
+    expect(pigulka(k({ stan: 'sprawdz_walute', innaWaluta: 2 }))).toEqual({ tekst: 'sprawdź walutę', ton: 'soon' })
   })
 })
 

@@ -41,7 +41,7 @@ function pokaz() {
 const KURS = {
   id: 'k1', plate: 'KRA613FC', finished_at: '2026-09-12T10:00:00Z', printed_at: null,
   pozycje: [{
-    order_id: 'o1', order_no: 'YALCIN/Z/4/09/26', client_name: 'YALCIN', client_id: 'c1', wz_status: 'potwierdzony',
+    order_id: 'o1', order_no: 'YALCIN/Z/4/09/26', client_name: 'YALCIN', client_id: 'c1', rozliczenia_otwarte: true, wz_status: 'potwierdzony',
     kg_zaladowane: 300, zaladowano: [{ stock_id: 'f1', batch_no: '500', szt: 10 }],
     wz: [{ id: 'wm1', number: 'WM/3/09/26', doc_series: 'WM' },
          { id: 'wz1', number: 'WZ/21/09/26', doc_series: 'WZ' }],
@@ -65,6 +65,13 @@ describe('papiery kursu', () => {
     expect(screen.getByRole('link', { name: 'Zestawienie należności' }).getAttribute('href'))
       .toBe('/office/rozliczenia/c1/zestawienie/druk')
     expect(screen.queryByRole('link', { name: 'Rozliczenie tego kursu' })).toBeNull()
+  })
+
+  it('bez salda otwarcia klienta nie ma zestawienia należności w papierach', async () => {
+    stan.kurs = { ...KURS, pozycje: [{ ...KURS.pozycje[0], rozliczenia_otwarte: false }] }
+    pokaz()
+    expect(await screen.findByText('YALCIN')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Zestawienie należności' })).toBeNull()
   })
 
   it('rozjazd widać ZANIM biuro wydrukuje', async () => {

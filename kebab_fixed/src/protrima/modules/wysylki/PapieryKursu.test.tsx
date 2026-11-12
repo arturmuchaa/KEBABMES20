@@ -16,11 +16,14 @@ import { papieryPozycji, zamowieniaDoWystawienia, wpiszKg, calosc, PUSTA_DECYZJA
 const KURS_SALDO: Kurs = {
   id: 'k2', plate: 'KOL1', finished_at: '2026-10-30T07:08:40Z', printed_at: '2026-10-30T09:00:00Z',
   pozycje: [
-    { order_id: 'o1', order_no: 'A/1', client_id: 'c1', client_name: 'ISSA DISTRIB', wz_status: 'wystawiony', kg_zaladowane: 100, zaladowano: [],
+    { order_id: 'o1', order_no: 'A/1', client_id: 'c1', rozliczenia_otwarte: true, client_name: 'ODBIORCA PIERWSZY', wz_status: 'wystawiony', kg_zaladowane: 100, zaladowano: [],
       wz: [{ id: 'w1', number: 'WM/1/10/26', doc_series: 'WM' }], hdi: [], cmr: [] },
-    { order_id: 'o2', order_no: 'B/1', client_id: 'c2', client_name: 'POLAT', wz_status: 'wystawiony', kg_zaladowane: 100, zaladowano: [],
+    { order_id: 'o2', order_no: 'B/1', client_id: 'c2', rozliczenia_otwarte: true, client_name: 'ODBIORCA DRUGI', wz_status: 'wystawiony', kg_zaladowane: 100, zaladowano: [],
       wz: [{ id: 'w2', number: 'WZ/2/10/26', doc_series: 'WZ' }], hdi: [], cmr: [] },
     { order_id: 'o3', order_no: 'C/1', client_id: null, client_name: 'BEZ KLIENTA', wz_status: 'wystawiony', kg_zaladowane: 100, zaladowano: [],
+      wz: [], hdi: [], cmr: [] },
+    // Bez salda otwarcia saldo nie idzie do klienta (dostałby „Brak należności”, choć wisi z Excela).
+    { order_id: 'o4', order_no: 'D/1', client_id: 'c4', rozliczenia_otwarte: false, client_name: 'NIEOTWARTY', wz_status: 'wystawiony', kg_zaladowane: 100, zaladowano: [],
       wz: [], hdi: [], cmr: [] },
   ],
 }
@@ -126,7 +129,7 @@ describe('Papiery kursu — zestawienie należności', () => {
   const mount = () => render(<AppCtx.Provider value={app}><PapieryKursu kursId="k2" active setCmds={c => { cmds = c }} onDone={vi.fn()} /></AppCtx.Provider>)
   const dzis = new Date().toISOString().slice(0, 10)
 
-  it('bez WZ klienta: pozycja z tagiem i w „wszystkich”; z WZ: pojedynczo, ale poza „wszystkimi”; bez client_id: brak', async () => {
+  it('bez WZ klienta: pozycja z tagiem i w „wszystkich”; z WZ: pojedynczo, ale poza „wszystkimi”; bez client_id albo bez salda otwarcia: brak', async () => {
     api.get.mockResolvedValue(KURS_SALDO)
     mount()
     await screen.findByText('WM/1/10/26')
@@ -134,12 +137,13 @@ describe('Papiery kursu — zestawienie należności', () => {
     expect(przyciski).toHaveLength(2)
     expect(screen.getAllByText('do wydruku — brak WZ')).toHaveLength(1)
     fireEvent.click(przyciski[1])
-    await waitFor(() => expect(pdf).toHaveBeenCalledWith(expect.stringMatching(/\/rozliczenia\/klient\/c2\/zestawienie\/pdf/), `SALDO_POLAT_${dzis}.pdf`))
+    await waitFor(() => expect(pdf).toHaveBeenCalledWith(expect.stringMatching(/\/rozliczenia\/klient\/c2\/zestawienie\/pdf/), `SALDO_ODBIORCA_DRUGI_${dzis}.pdf`))
     pdf.mockClear()
     run('all')
     await waitFor(() => expect(pdf).toHaveBeenCalledTimes(3))
     const urle = (pdf.mock.calls as unknown as string[][]).map(c => c[0])
     expect(urle.some(u => /\/rozliczenia\/klient\/c1\/zestawienie\/pdf/.test(u))).toBe(true)
     expect(urle.some(u => /\/rozliczenia\/klient\/c2\//.test(u))).toBe(false)
+    expect(urle.some(u => /\/rozliczenia\/klient\/c4\//.test(u))).toBe(false)
   })
 })

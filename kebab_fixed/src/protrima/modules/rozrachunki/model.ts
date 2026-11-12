@@ -10,7 +10,8 @@ import { kwota } from '@/features/rozliczenia/druk'
 
 export type Ksiega = 'wz' | 'fv'
 export type Forma = 'gotowka' | 'przelew'
-export type StanKontrahenta = 'po_terminie' | 'w_terminie' | 'nadplata' | 'rozliczony'
+/** `sprawdz_walute` — nic w sumach, ale są pozycje w innej walucie niż kontrahent (np. klient zagraniczny z domyślnym PLN). */
+export type StanKontrahenta = 'po_terminie' | 'w_terminie' | 'nadplata' | 'sprawdz_walute' | 'rozliczony'
 
 export interface Kontrahent {
   id: string
@@ -28,6 +29,8 @@ export interface Kontrahent {
   stan: StanKontrahenta
   /** Wpis w dzienniku z przypomnieniem na dziś lub wcześniej, nieodhaczony. */
   przypomnienie: boolean
+  /** Dokumenty, wpłaty i otwarcia w innej walucie niż kontrahent (poza saldem). */
+  innaWaluta: number
 }
 
 export interface SumaWaluty { naleznosci: number; poTerminie: number; gotowkaWz: number; nadplaty: number }
@@ -61,6 +64,10 @@ export interface Dok {
   stan: Stan
   zamkniety: string | null
   brakVat: boolean
+  /** Faktura korygująca — kwota ujemna, sama zmniejsza inne dokumenty księgi. */
+  korekta: boolean
+  /** Korekta: dokumenty, które zmniejszyła (numer i kwota). */
+  rozliczyla: Array<{ numer: string; kwota: number }>
 }
 
 export interface Wplata {
@@ -90,6 +97,8 @@ export interface Karta {
     walutaPodpowiedz: string | null
   }
   start: string
+  /** Biuro wprowadziło saldo otwarcia (choćby 0) — dopiero wtedy saldo drukuje się na WZ i w papierach kursu. */
+  rozliczeniaOtwarte: boolean
   saldo: {
     wz: number; fv: number; lacznie: number
     poTerminieWz: number; poTerminieFv: number
@@ -124,6 +133,7 @@ function mapujKontrahenta(r: Surowy): Kontrahent {
     najblizszyTerminDni: r.najblizszy_termin_dni == null ? null : n(r.najblizszy_termin_dni),
     stan: (s(r.stan) || 'rozliczony') as StanKontrahenta,
     przypomnienie: !!r.przypomnienie,
+    innaWaluta: n(r.inna_waluta),
   }
 }
 
@@ -148,6 +158,7 @@ function mapujDok(r: Surowy): Dok {
     kwota: n(r.kwota), zaplacono: n(r.zaplacono), zostalo: n(r.zostalo),
     termin: sNull(r.termin), forma: s(r.forma), uwagi: s(r.uwagi), zrodlo: s(r.zrodlo),
     otwarcie: !!r.otwarcie, stan: mapujStan(obj(r.stan)), zamkniety: sNull(r.zamkniety), brakVat: !!r.brak_vat,
+    korekta: !!r.korekta, rozliczyla: tab(r.rozliczyla).map(p => ({ numer: s(p.numer), kwota: n(p.kwota) })),
   }
 }
 
@@ -166,6 +177,7 @@ export function mapujKarte(raw: unknown): Karta {
       notatka: s(k.notatka), walutaPodpowiedz: sNull(k.waluta_podpowiedz),
     },
     start: s(r.start),
+    rozliczeniaOtwarte: !!r.rozliczenia_otwarte,
     saldo: {
       wz: n(sa.wz), fv: n(sa.fv), lacznie: n(sa.lacznie),
       poTerminieWz: n(sa.po_terminie_wz), poTerminieFv: n(sa.po_terminie_fv),
@@ -204,12 +216,41 @@ export function mapujSzczegoly(raw: unknown): SzczegolyDokumentu {
   }
 }
 
+/** Wpis historii zmian klienta (`GET /api/rozliczenia/klient/:id/historia-zmian`). */
+export interface WpisHistorii {
+  id: string; kiedy: string; kto: string; obiekt: string; akcja: string
+  /** Czego dotyczy: numer dokumentu, „Wpłata 300,00 PLN z 10.11.2026”, „Saldo otwarcia WZ”, „Ustawienia klienta”. */
+  czego: string
+  opis: string; powod: string
+  /** Usunięta wpłata/faktura albo anulowana WZ. */
+  usuniete: boolean
+}
+export interface HistoriaZmian { wpisy: WpisHistorii[]; wiecej: boolean }
+
+export function mapujHistorieZmian(raw: unknown): HistoriaZmian {
+  const r = obj(raw)
+  return {
+    wpisy: tab(r.wpisy).map(w => ({
+      id: s(w.id), kiedy: s(w.kiedy), kto: s(w.kto), obiekt: s(w.obiekt), akcja: s(w.akcja), czego: s(w.czego),
+      opis: s(w.opis), powod: s(w.powod), usuniete: !!w.usuniete,
+    })),
+    wiecej: !!r.wiecej,
+  }
+}
+
 // ─── Stany w słowach ───────────────────────────────────────────────────
 
 export type Ton = 'late' | 'soon' | 'ok' | 'zero'
 
 /** Klasa znacznika powłoki (`.tag`) dla tonu: po terminie — czerwień, termin blisko — ostrzeżenie. */
 export const KLASA_TONU: Record<Ton, string> = { late: 'crit', soon: 'warn', ok: 'ok', zero: 'neutral' }
+
+/** `1 pozycja`, `2 pozycje`, `5 pozycji` (polska odmiana liczebnika). */
+export function pozycje(x: number): string {
+  const d = x % 10, s = x % 100
+  const slowo = x === 1 ? 'pozycja' : d >= 2 && d <= 4 && (s < 12 || s > 14) ? 'pozycje' : 'pozycji'
+  return `${x} ${slowo}`
+}
 
 /** Liczba dni słowem: `1 dzień`, `7 dni`. */
 export const dni = (x: number) => (x === 1 ? '1 dzień' : `${x} dni`)
@@ -227,6 +268,7 @@ export function pigulka(k: Kontrahent): { tekst: string; ton: Ton } {
       return { tekst: 'w terminie', ton: 'ok' }
     }
     case 'nadplata': return { tekst: 'nadpłata', ton: 'ok' }
+    case 'sprawdz_walute': return { tekst: 'sprawdź walutę', ton: 'soon' }
     default: return { tekst: 'rozliczony', ton: 'zero' }
   }
 }

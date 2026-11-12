@@ -17,6 +17,8 @@ describe('Rozrachunki — saldo otwarcia', () => {
   const onZapisano = vi.fn()
   const bez = mapujKarte({ ...SUROWA_KARTA, otwarcia: { wz: null, fv: null } })
   const z = mapujKarte(SUROWA_KARTA)
+  /** Rozliczenia już otwarte zerowym saldem FV — zapisuje się tylko to, co zmienione. */
+  const otwartaFv = mapujKarte({ ...SUROWA_KARTA, otwarcia: { wz: null, fv: { kwota: 0, zalegle_od: null, uwagi: '' } } })
   const onOdswiez = vi.fn()
   const mount = (karta = bez, ksiega?: 'wz' | 'fv') => render(
     <AppCtx.Provider value={app}><OtwarcieDialog karta={karta} ksiega={ksiega} onClose={onClose} onZapisano={onZapisano} onOdswiez={onOdswiez} /></AppCtx.Provider>)
@@ -31,12 +33,25 @@ describe('Rozrachunki — saldo otwarcia', () => {
     api.ustawOtwarcie.mockResolvedValue({ ok: true })
   })
 
-  it('tekst pomocy z datą startu; fokus na kwocie WZ; bez zmian zapis nieaktywny', () => {
-    mount()
+  it('tekst pomocy z datą startu; fokus na kwocie WZ; przy otwartych rozliczeniach bez zmian zapis nieaktywny', () => {
+    mount(otwartaFv)
     expect(screen.getByText('Stan na początek dnia 01.10.2026. Dokumenty z tego dnia i późniejsze liczą się już w systemie.')).toBeTruthy()
     expect(document.activeElement).toBe(kwotaW('WZ'))
     expect(zapisz().disabled).toBe(true)
     expect(zapisz().getAttribute('data-tip')).toBe('Nic nie zmieniono')
+    expect(screen.queryByText(/nie drukuje się/)).toBeNull()
+  })
+
+  it('klient bez salda otwarcia: puste pola można zapisać jako 0 — obie księgi idą do serwera', async () => {
+    mount()
+    expect(screen.getByText(/saldo nie drukuje się na WZ ani w papierach kursu/)).toBeTruthy()
+    expect(zapisz().disabled).toBe(false)
+    expect(zapisz().getAttribute('data-tip')).toBeNull()
+    fireEvent.click(zapisz())
+    await waitFor(() => expect(onZapisano).toHaveBeenCalled())
+    expect(api.ustawOtwarcie).toHaveBeenCalledWith('c1', 'wz', { kwota: 0, zalegle_od: null, uwagi: '' })
+    expect(api.ustawOtwarcie).toHaveBeenCalledWith('c1', 'fv', { kwota: 0, zalegle_od: null, uwagi: '' })
+    expect(app.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Saldo otwarcia zapisane', detail: 'WZ: zero · FV: zero' }))
   })
 
   it('podpowiedź w uwagach: dzień przed startem z ustawień, nie data wpisana na sztywno', () => {
@@ -48,7 +63,7 @@ describe('Rozrachunki — saldo otwarcia', () => {
   })
 
   it('„klient winien” + 6 300 → do API z minusem; nietknięta księga FV nie idzie', async () => {
-    mount()
+    mount(otwartaFv)
     expect(within(sekcja('WZ')).getByRole('button', { name: 'klient winien' }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.change(kwotaW('WZ'), { target: { value: '6 300' } })
     fireEvent.change(within(sekcja('WZ')).getByLabelText('Zaległe od WZ'), { target: { value: '2026-09-20' } })

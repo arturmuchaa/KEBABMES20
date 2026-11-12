@@ -262,7 +262,10 @@ def test_historia_zmian_limit_i_obcy_klient(db, przywroc_start):
     h = historia_zmian("k", limit=3)
 
     assert len(h["wpisy"]) == 3 and h["wiecej"] is True
-    assert all("termin_wz" in w["opis"] for w in h["wpisy"])
+    # Opis po ludzku, nie nazwa kolumny: „termin płatności WZ (dni): 4 → 5”.
+    assert [w["opis"] for w in h["wpisy"]] == [
+        "termin płatności WZ (dni): 4 → 5", "termin płatności WZ (dni): 3 → 4",
+        "termin płatności WZ (dni): 2 → 3"]
 
 
 def test_route_historia_zmian(db, przywroc_start):

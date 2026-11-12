@@ -6,7 +6,7 @@ import { SzkieletBloku } from '../../ui/Szkielet'
 import { useApi } from '@/hooks/useApi'
 import { rozliczeniaApi } from '@/lib/api'
 import { dataPl, kwota } from '@/features/rozliczenia/druk'
-import { FORMA_SLOWEM, KLASA_TONU, etykietaStanu, mapujSzczegoly, znakSalda, type Dok, type Forma, type SzczegolyDokumentu as Szczegoly } from './model'
+import { FORMA_SLOWEM, KLASA_TONU, etykietaStanu, mapujSzczegoly, numerZSeria, znakSalda, type Dok, type Forma, type SzczegolyDokumentu as Szczegoly } from './model'
 import { OdmowaSerwera, naEnter, useZapis } from './wspolne'
 
 const ZRODLO: Record<string, string> = { mes_wz: 'WZ z MES', reczna: 'faktura wpisana ręcznie', subiekt: 'faktura z Subiekta' }
@@ -49,6 +49,7 @@ export function SzczegolyDokumentu({ dokId, waluta, onClose, onZmiana, onWplata 
   const zmienione = Object.keys(zmiany).length > 0
   const ok = zmienione && !blednyTermin
   const reczna = d?.zrodlo === 'reczna'
+  const korekta = !!d?.korekta
   const wTrakcie = zapis.busy || usun.busy
 
   const zapisz = () => {
@@ -96,18 +97,21 @@ export function SzczegolyDokumentu({ dokId, waluta, onClose, onZmiana, onWplata 
           {d.brakVat && <div className="note warn"><FlagIcon level="warn" size={15} /><div><b>Bez VAT — sprawdź wycenę.</b> Klient z polskim NIP, a na WZ nie ma żadnej stawki VAT.</div></div>}
 
           <div className="rr-edycja">
-            <label className="fld"><span className="label">Termin płatności</span>
-              <input type="date" className={`field${blednyTermin ? ' invalid' : ''}`} value={e.termin} aria-label="Termin płatności"
-                aria-invalid={blednyTermin || undefined} onChange={x => setE({ ...e, termin: x.target.value })} onKeyDown={naEnter(zapisz)} />
-              {blednyTermin && <span className="rr-pole-blad">Termin nie może być przed datą dokumentu ({dataPl(d.data)})</span>}
-            </label>
-            <div className="fld"><span className="label">Forma płatności</span>
-              <div className="seg" role="group" aria-label="Forma płatności">
-                {(['gotowka', 'przelew'] as Forma[]).map(f => (
-                  <button key={f} type="button" aria-pressed={e.forma === f} onClick={() => setE({ ...e, forma: f })}>{FORMA_SLOWEM[f]}</button>
-                ))}
+            {/* Korekta nie ma własnego terminu ani formy płatności — sama zmniejsza inne faktury. */}
+            {!korekta && <>
+              <label className="fld"><span className="label">Termin płatności</span>
+                <input type="date" className={`field${blednyTermin ? ' invalid' : ''}`} value={e.termin} aria-label="Termin płatności"
+                  aria-invalid={blednyTermin || undefined} onChange={x => setE({ ...e, termin: x.target.value })} onKeyDown={naEnter(zapisz)} />
+                {blednyTermin && <span className="rr-pole-blad">Termin nie może być przed datą dokumentu ({dataPl(d.data)})</span>}
+              </label>
+              <div className="fld"><span className="label">Forma płatności</span>
+                <div className="seg" role="group" aria-label="Forma płatności">
+                  {(['gotowka', 'przelew'] as Forma[]).map(f => (
+                    <button key={f} type="button" aria-pressed={e.forma === f} onClick={() => setE({ ...e, forma: f })}>{FORMA_SLOWEM[f]}</button>
+                  ))}
+                </div>
               </div>
-            </div>
+            </>}
             <label className="fld rr-pole-szerokie"><span className="label">Uwagi</span>
               <input className="field" value={e.uwagi} aria-label="Uwagi" autoFocus placeholder="np. brakuje 426 €, reklamacja"
                 onChange={x => setE({ ...e, uwagi: x.target.value })} onKeyDown={naEnter(zapisz)} /></label>
@@ -118,13 +122,13 @@ export function SzczegolyDokumentu({ dokId, waluta, onClose, onZmiana, onWplata 
           {d.zrodlo === 'mes_wz' && <p className="muted rr-dlg-p">Kwotę, numer i datę zmienia się w dokumentach WZ — saldo przeliczy się samo, a zmiana trafi do historii.</p>}
           <OdmowaSerwera blad={zapis.blad} />
 
-          <Pokrycie d={d} waluta={waluta} />
+          {korekta ? <Zmniejszyla d={d} waluta={waluta} /> : <Pokrycie d={d} waluta={waluta} />}
           <HistoriaZmian d={d} />
 
           {reczna && (
             <div className="rr-usun">
               {!usuwanie
-                ? <button type="button" className="btn sm danger" onClick={() => setUsuwanie(true)}><Trash2 size={14} />Usuń fakturę…</button>
+                ? <button type="button" className="btn sm danger" onClick={() => setUsuwanie(true)}><Trash2 size={14} />{korekta ? 'Usuń korektę…' : 'Usuń fakturę…'}</button>
                 : <>
                     <label className="fld"><span className="label">Powód usunięcia (obowiązkowy, trafi do historii)</span>
                       <input className="field" value={powodUsuniecia} aria-label="Powód usunięcia" autoFocus placeholder="np. faktura wpisana dwa razy"
@@ -133,10 +137,12 @@ export function SzczegolyDokumentu({ dokId, waluta, onClose, onZmiana, onWplata 
                       <button type="button" className="btn sm" onClick={() => { setUsuwanie(false); setPowodUsuniecia('') }}>Nie usuwaj</button>
                       <button type="button" className="btn sm primary danger" disabled={!powodUsuniecia.trim() || wTrakcie} onClick={usunFakture}
                         data-tip={powodUsuniecia.trim() ? undefined : 'Wpisz powód usunięcia'}>
-                        <Trash2 size={14} />{usun.busy ? 'Usuwam…' : 'Usuń fakturę'}
+                        <Trash2 size={14} />{usun.busy ? 'Usuwam…' : korekta ? 'Usuń korektę' : 'Usuń fakturę'}
                       </button>
                     </div>
-                    <p className="muted rr-dlg-p">Faktura zniknie z salda, ale zostanie w historii. Wpłaty, które ją pokryły, przejdą na najstarsze otwarte faktury.</p>
+                    <p className="muted rr-dlg-p">{korekta
+                      ? 'Korekta zniknie z salda, ale zostanie w historii. Faktury, które zmniejszyła, wrócą do pełnej kwoty.'
+                      : 'Faktura zniknie z salda, ale zostanie w historii. Wpłaty, które ją pokryły, przejdą na najstarsze otwarte faktury.'}</p>
                     <OdmowaSerwera blad={usun.blad} />
                   </>}
             </div>
@@ -148,6 +154,14 @@ export function SzczegolyDokumentu({ dokId, waluta, onClose, onZmiana, onWplata 
 }
 
 function Fakty({ d, waluta }: { d: Szczegoly; waluta: string }) {
+  if (d.korekta) {
+    return (
+      <dl className="rr-fakty">
+        {([['Data', dataPl(d.data)], ['Kwota korekty', kwota(d.kwota, waluta), 'num'], ['Źródło', `korekta — ${ZRODLO[d.zrodlo] ?? d.zrodlo}`]] as Array<[string, string, string?]>)
+          .map(([k, v, cls]) => <div key={k}><dt className="label">{k}</dt><dd className={cls}>{v}</dd></div>)}
+      </dl>
+    )
+  }
   const fakty: Array<[string, React.ReactNode, string?]> = [
     ['Data', dataPl(d.data)],
     ['Kwota', kwota(d.kwota, waluta), 'num'],
@@ -183,6 +197,18 @@ function Pokrycie({ d, waluta }: { d: Szczegoly; waluta: string }) {
             ))}</tbody>
           </table>
         )}
+    </div>
+  )
+}
+
+/** Faktura korygująca: które dokumenty zmniejszyła i o ile (reszta zostaje nadpłatą księgi). */
+function Zmniejszyla({ d, waluta }: { d: Szczegoly; waluta: string }) {
+  return (
+    <div className="rr-sekcja">
+      <span className="label">Zmniejszyła</span>
+      {d.rozliczyla.length === 0
+        ? <p className="muted rr-dlg-p">Nie było czego zmniejszyć — kwota korekty zostaje jako nadpłata w księdze faktur.</p>
+        : <ul className="rr-hist">{d.rozliczyla.map((r, i) => <li key={i} className="tnum">{`${numerZSeria(r.numer, 'fv')}: ${kwota(r.kwota, waluta)}`}</li>)}</ul>}
     </div>
   )
 }

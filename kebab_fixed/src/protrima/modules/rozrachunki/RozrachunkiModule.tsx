@@ -9,7 +9,7 @@ import { useApi } from '@/hooks/useApi'
 import { clientsApi, rozliczeniaApi } from '@/lib/api'
 import { dataPl, kwota } from '@/features/rozliczenia/druk'
 import {
-  FILTRY, KLASA_TONU, KOLUMNY, PIERWSZY_KIERUNEK, filtruj, kwotaSalda, mapujListe, pigulka, podpowiedzKlienta, sortuj,
+  FILTRY, KLASA_TONU, KOLUMNY, PIERWSZY_KIERUNEK, filtruj, kwotaSalda, mapujListe, pigulka, podpowiedzKlienta, pozycje, sortuj,
   walutyPodsumowania, znakSalda,
   type Filtr, type Kierunek, type Kolumna, type Kontrahent, type ListaRozliczen, type WzBezKontrahenta,
 } from './model'
@@ -280,7 +280,8 @@ function WierszKontrahenta({ k, zebra, tabIndex, onOtworz, onFocus, onKey }: {
       <td className={`num${klasaSalda(k.saldoFv)}`}>{kwotaSalda(k.saldoFv, k.waluta)}</td>
       <td className={`num rr-saldo${klasaSalda(k.saldo)}`}>{kwotaSalda(k.saldo, k.waluta)}</td>
       <td className={`num${znakSalda(k.poTerminie) > 0 ? ' crit-ink' : ' faint'}`}>{znakSalda(k.poTerminie) > 0 ? kwota(k.poTerminie, k.waluta) : '–'}</td>
-      <td><span className={`tag ${KLASA_TONU[p.ton]}`}>{p.tekst}</span></td>
+      <td><span className={`tag ${KLASA_TONU[p.ton]}`}
+        data-tip={k.stan === 'sprawdz_walute' ? `${pozycje(k.innaWaluta)} w innej walucie niż ${k.waluta} — poza saldem. Sprawdź walutę klienta w Ustawieniach karty.` : undefined}>{p.tekst}</span></td>
     </tr>
   )
 }

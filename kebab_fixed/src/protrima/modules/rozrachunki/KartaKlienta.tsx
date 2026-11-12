@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Printer, Scale, Settings2, StickyNote, Trash2, Wallet } from 'lucide-react'
+import { AlertTriangle, ChevronRight, History, Printer, Scale, Settings2, StickyNote, Trash2, Wallet } from 'lucide-react'
 import { useApp, Dialog } from '../../shell/context'
 import { FlagIcon } from '../../ui/Glyphs'
 import { Pusto } from '../../ui/Pusto'
@@ -8,8 +8,8 @@ import { useApi } from '@/hooks/useApi'
 import { rozliczeniaApi } from '@/lib/api'
 import { dataPl, kwota } from '@/features/rozliczenia/druk'
 import {
-  FORMA_SLOWEM, KLASA_TONU, OKRESY, dni, dzisIso, etykietaStanu, kwotaBezWaluty, kwotaSalda, mapujKarte, opisPlatnosci, czesciRozliczenia, rozliczyla, symbolWaluty,
-  wOkresie, zakresOkresu,
+  FORMA_SLOWEM, KLASA_TONU, OKRESY, dni, dzisIso, etykietaStanu, kwotaBezWaluty, kwotaSalda, mapujHistorieZmian, mapujKarte, numerZSeria, opisPlatnosci,
+  czesciRozliczenia, rozliczyla, symbolWaluty, wOkresie, zakresOkresu,
   znakSalda, type Dok, type Karta, type Ksiega, type Okres, type Wplata, type Zakres,
 } from './model'
 import { Dziennik } from './Dziennik'
@@ -100,6 +100,13 @@ export function KartaKlienta({ clientId, onWroc, onOtworz, nazwa, wersja = 0 }: 
               <div>NIP wskazuje na rozliczenia w <b>{k.klient.walutaPodpowiedz}</b>, a ustawiona jest <b>{k.klient.waluta}</b>. Jeśli to pomyłka — zmień walutę w <button type="button" className="rr-link" onClick={() => otworz('ustawienia')}>Ustawieniach</button>.</div>
             </div>
           )}
+          {!k.rozliczeniaOtwarte && (
+            <div className="note warn rr-nieotwarte"><FlagIcon level="warn" size={15} />
+              <div><b>Saldo nie drukuje się jeszcze na WZ ani w papierach kursu — wprowadź saldo otwarcia (może być 0).</b>{' '}
+                To stan z arkusza na początek {dataPl(k.start)}; klient, który nic nie jest winien, ma 0.{' '}
+                <button type="button" className="btn sm" onClick={() => otworz('otwarcie')}><Scale size={14} />Wprowadź saldo otwarcia</button></div>
+            </div>
+          )}
           <Salda k={k} />
           {k.innaWaluta.length > 0 && (
             <div className="note warn"><FlagIcon level="warn" size={15} />
@@ -138,6 +145,7 @@ export function KartaKlienta({ clientId, onWroc, onOtworz, nazwa, wersja = 0 }: 
             <Wplaty k={k} onUsun={setUsunWplate} onDodaj={() => otworz('wplata')} />
             <Dziennik clientId={clientId} wpisy={k.dziennik} onZmiana={odswiez} />
           </div>
+          <HistoriaZmianKlienta clientId={clientId} karta={k} />
         </>
       )}
 
@@ -285,7 +293,9 @@ function Ksiega({ k, ksiega, zakres, ukryj, rok, onDokument, onBezCen, onPokazWs
                 <td className="rr-uwagi muted" title="WZ wejdzie do salda, gdy dostanie ceny">bez kwoty, dopóki nie ma cen</td>
               </tr>
             ))}
-            {docs.map(d => <WierszDokumentu key={d.id} d={d} waluta={w} rok={rok} tabIndex={tab(d.id)} onFocus={() => setKursor(d.id)} onOtworz={() => onDokument(d)} />)}
+            {docs.map(d => (d.korekta
+              ? <WierszKorekty key={d.id} d={d} ksiega={ksiega} waluta={w} rok={rok} tabIndex={tab(d.id)} onFocus={() => setKursor(d.id)} onOtworz={() => onDokument(d)} />
+              : <WierszDokumentu key={d.id} d={d} waluta={w} rok={rok} tabIndex={tab(d.id)} onFocus={() => setKursor(d.id)} onOtworz={() => onDokument(d)} />))}
             {docs.length === 0 && bezCen.length === 0 && (
               <tr><td colSpan={KOLUMNY_KSIEGI} className="docs-empty">
                 {wszystkie.length > 0
@@ -333,6 +343,97 @@ function WierszDokumentu({ d, waluta, rok, tabIndex, onFocus, onOtworz }: {
       </td>
       <td className="rr-uwagi" title={d.uwagi || undefined}>{d.uwagi}</td>
     </tr>
+  )
+}
+
+/**
+ * Faktura korygująca: kwota ujemna, bez „zapłacono/zostało” (sama zmniejsza inne
+ * dokumenty księgi), w kolumnie Stan — co zmniejszyła. Klik → szczegóły z usuwaniem.
+ */
+function WierszKorekty({ d, ksiega, waluta, rok, tabIndex, onFocus, onOtworz }: {
+  d: Dok; ksiega: Ksiega; waluta: string; rok: string; tabIndex: number; onFocus: () => void; onOtworz: () => void
+}) {
+  const co = d.rozliczyla.map(r => numerZSeria(r.numer, ksiega)).join(', ')
+  return (
+    <tr className="row click rr-korekta" data-numer={d.numer} tabIndex={tabIndex} onFocus={onFocus} onClick={onOtworz}
+      onKeyDown={e => naWierszu(e, onOtworz)} aria-label={`${d.numer}, korekta ${kwota(d.kwota, waluta)}`}
+      data-tip="Faktura korygująca — zmniejsza dług w księdze; kliknij, żeby zobaczyć szczegóły albo usunąć">
+      <td className="tnum" title={dataPl(d.data)}>{dataWiersza(d.data, rok)}</td>
+      <td className="code id-no">{d.numer}</td>
+      <td className="num">{kwotaBezWaluty(d.kwota)}</td>
+      <td className="num faint">—</td><td className="num faint">—</td>
+      <td className="faint">—</td>
+      <td className="rr-stan">
+        <span className="tag neutral">korekta</span>
+        <span className="rr-stan-2">{co ? `zmniejszyła ${co}` : 'nadpłata w księdze'}</span>
+      </td>
+      <td className="rr-uwagi" title={d.uwagi || undefined}>{d.uwagi}</td>
+    </tr>
+  )
+}
+
+/** Data i godzina wpisu historii w czasie lokalnym: `10.11.2026 15:05`. */
+function czasWpisu(iso: string): string {
+  const t = new Date(iso)
+  if (Number.isNaN(t.getTime())) return iso
+  const p = (x: number) => String(x).padStart(2, '0')
+  return `${p(t.getDate())}.${p(t.getMonth() + 1)}.${t.getFullYear()} ${p(t.getHours())}:${p(t.getMinutes())}`
+}
+
+/**
+ * Historia zmian klienta (spec 11): każda zmiana kwoty, wpłaty, salda otwarcia
+ * i ustawień, także usunięte wpłaty i faktury — z kim, kiedy i powodem.
+ * Zwinięta na starcie; wczytuje się dopiero po rozwinięciu i odświeża razem z kartą.
+ */
+function HistoriaZmianKlienta({ clientId, karta }: { clientId: string; karta: Karta }) {
+  const [otwarta, setOtwarta] = useState(false)
+  return (
+    <section className="box rr-panel rr-historia" aria-label="Historia zmian klienta">
+      <div className="rr-panel-h">
+        <h3>
+          <button type="button" className="rr-rozwin" aria-expanded={otwarta} onClick={() => setOtwarta(o => !o)}>
+            <ChevronRight size={16} className="rr-rozwin-ikona" /><History size={16} />Historia zmian
+            <small>kwoty, wpłaty, salda otwarcia, ustawienia — także usunięte</small>
+          </button>
+        </h3>
+      </div>
+      {otwarta && <ListaHistorii clientId={clientId} karta={karta} />}
+    </section>
+  )
+}
+
+function ListaHistorii({ clientId, karta }: { clientId: string; karta: Karta }) {
+  // `karta` w zależnościach: po każdym zapisie karta wczytuje się na nowo — historia też.
+  const res = useApi(() => rozliczeniaApi.historiaZmian(clientId).then(mapujHistorieZmian), [clientId, karta])
+  const h = res.data
+  if (res.error) {
+    return (
+      <div className="note crit" role="alert"><FlagIcon level="crit" size={15} />
+        <div><b>Nie udało się wczytać historii zmian:</b> {res.error} <button type="button" className="btn sm" onClick={() => void res.refetch()}>Spróbuj ponownie</button></div>
+      </div>
+    )
+  }
+  if (!h) return <SzkieletBloku linie={3} opis="Wczytywanie historii zmian…" />
+  if (!h.wpisy.length) {
+    return <Pusto tytul="Brak zmian">Tu pojawi się każda zmiana kwoty, wpłaty, salda otwarcia i ustawień klienta — z tym, kto i dlaczego ją zrobił.</Pusto>
+  }
+  return (
+    <div className="rr-przewin">
+      <table className="tbl rr-tbl rr-dok-tbl rr-hist-tbl" aria-label="Historia zmian">
+        <thead><tr><th>Kiedy</th><th>Kto</th><th>Czego dotyczy</th><th>Zmiana</th><th>Powód</th></tr></thead>
+        <tbody>{h.wpisy.map(w => (
+          <tr key={w.id} className={`row${w.usuniete ? ' rr-usuniete' : ''}`} data-id={w.id}>
+            <td className="tnum">{czasWpisu(w.kiedy)}</td>
+            <td className="muted">{w.kto || '—'}</td>
+            <td><span className="rr-hist-czego">{w.czego}</span>
+              {w.usuniete && <span className="tag crit rr-hist-tag">{w.akcja === 'anulowano' ? 'anulowana' : 'usunięte'}</span>}</td>
+            <td className="rr-hist-opis">{w.opis}</td>
+            <td className="rr-hist-powod">{w.powod || <span className="faint">—</span>}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+      {h.wiecej && <p className="muted rr-hist-wiecej">Pokazano {h.wpisy.length} najnowszych zmian.</p>}
+    </div>
   )
 }
 

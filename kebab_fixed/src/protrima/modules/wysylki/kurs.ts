@@ -14,6 +14,8 @@ export interface PozycjaKursu {
   client_name: string | null
   /** Kontrahent zamówienia — bez niego nie ma zestawienia należności. */
   client_id?: string | null
+  /** Biuro wprowadziło klientowi saldo otwarcia — bez tego zestawienie nie idzie do klienta. */
+  rozliczenia_otwarte?: boolean
   /** 'do_wystawienia' — czeka na biuro; 'wystawiony'; 'rozjazd' — dokument ≠ załadunek. */
   wz_status: string | null
   /** Co FAKTYCZNIE wyjechało tym kursem — z tego liczy się „całość”. */
@@ -109,12 +111,13 @@ export interface SaldoKursu extends PapierKursu {
 }
 
 /**
- * Zestawienie należności odbiorcy — papier „na dziś”. Odbiorca bez `client_id` nie ma go wcale.
+ * Zestawienie należności odbiorcy — papier „na dziś”. Odbiorca bez `client_id` nie ma go wcale,
+ * tak samo klient bez wprowadzonego salda otwarcia: wciąż winny z Excela dostałby „Brak należności”.
  * Gdy wysyłka idzie bez WZ do klienta (wszystko na fakturę; WM jest wewnętrzny), saldo nie ma
  * gdzie się pojawić, więc dochodzi do wydruku; przy WZ klienta jest już pod nim.
  */
 export function saldoPozycji(p: PozycjaKursu, dzis: string): SaldoKursu | null {
-  if (!p.client_id) return null
+  if (!p.client_id || !p.rozliczenia_otwarte) return null
   const brakWz = !p.wz.some(d => d.doc_series !== 'WM')
   const klient = (p.client_name || p.client_id).replace(/[\\/:*?"<>|\s]+/g, '_')
   return { key: `saldo-${p.client_id}`, etykieta: 'Zestawienie należności', numer: '', url: rozliczeniaPdf.zestawienie(p.client_id, dzis), plik: `SALDO_${klient}_${dzis}.pdf`, doWszystkich: brakWz }

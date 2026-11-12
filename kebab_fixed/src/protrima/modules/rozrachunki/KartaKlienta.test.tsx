@@ -8,10 +8,29 @@ import { SUROWA_KARTA_PELNA, SUROWY_DOKUMENT } from './daneTestowe.fixture'
 /** Karta klienta — dane RONDO GRILL w kształcie odpowiedzi `GET /api/rozliczenia/klienci/c1`. */
 const api = vi.hoisted(() => ({
   karta: vi.fn(), ustawKlienta: vi.fn(), dokument: vi.fn(), edytujDokument: vi.fn(), usunDokument: vi.fn(),
-  usunWplate: vi.fn(), dodajWpis: vi.fn(), odhaczWpis: vi.fn(),
+  usunWplate: vi.fn(), dodajWpis: vi.fn(), odhaczWpis: vi.fn(), historiaZmian: vi.fn(),
 }))
 vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), rozliczeniaApi: api }))
 import { KartaKlienta } from './KartaKlienta'
+
+/** Faktura korygująca w księdze FV — wiersz ujemny z tym, co zmniejszyła (najnowsza na górze). */
+const KOREKTA = {
+  id: 'k1', numer: 'FVK 3/2026', data: '2026-11-08', kwota: -426, zaplacono: 0, zostalo: 0, termin: '2026-11-15', forma: '', uwagi: 'reklamacja',
+  zrodlo: 'reczna', otwarcie: false, stan: { kod: 'korekta', dni: 0, czesciowo: false }, zamkniety: null, brak_vat: false,
+  korekta: true, rozliczyla: [{ numer: 'FV 528/2026', kwota: 426 }],
+}
+const Z_KOREKTA = { ...SUROWA_KARTA_PELNA, dokumenty: { ...SUROWA_KARTA_PELNA.dokumenty, fv: [KOREKTA, ...SUROWA_KARTA_PELNA.dokumenty.fv] } }
+
+/** Odpowiedź `GET /api/rozliczenia/klient/c1/historia-zmian` — najnowsze pierwsze. */
+const HISTORIA = {
+  wpisy: [
+    { id: 'h3', kiedy: '2026-11-10T14:05:00+00:00', kto: 'Szef', obiekt: 'wplata', akcja: 'usunieto', czego: 'Wpłata 300,00 € z 05.11.2026',
+      opis: 'usunięto wpłatę 300.00', powod: 'wpisana dwa razy', usuniete: true },
+    { id: 'h2', kiedy: '2026-11-09T10:00:00+00:00', kto: 'Anna', obiekt: 'otwarcie', akcja: 'zmiana', czego: 'Saldo otwarcia WZ',
+      opis: 'saldo otwarcia WZ: kwota z 0.00 na -6300.00', powod: '', usuniete: false },
+  ],
+  wiecej: false,
+}
 
 describe('Rozrachunki — karta klienta', () => {
   const app = { toast: vi.fn(), appRef: { current: null }, scale: 1 } as unknown as AppApi
@@ -37,6 +56,7 @@ describe('Rozrachunki — karta klienta', () => {
     api.dodajWpis.mockResolvedValue({ id: 'j9' })
     api.odhaczWpis.mockResolvedValue({ ok: true })
     api.ustawKlienta.mockResolvedValue({ ok: true })
+    api.historiaZmian.mockResolvedValue(HISTORIA)
   })
 
   it('nagłówek z ustawień i trzy kafelki sald z minusem typograficznym na czerwono', async () => {
@@ -265,6 +285,80 @@ describe('Rozrachunki — karta klienta', () => {
     fireEvent.change(pole, { target: { value: 'coś' } })
     fireEvent.keyDown(pole, { key: 'Escape' })
     expect((pole as HTMLInputElement).value).toBe('limit 20 000 €')
+  })
+
+  it('rozliczenia nieotwarte: podpowiedź, że saldo nie drukuje się na WZ, i przycisk do salda otwarcia', async () => {
+    api.karta.mockResolvedValue({ ...SUROWA_KARTA_PELNA, rozliczenia_otwarte: false, otwarcia: { wz: null, fv: null } })
+    mount()
+    await gotowe()
+    const nota = screen.getByText(/Saldo nie drukuje się jeszcze na WZ ani w papierach kursu/).closest('.note') as HTMLElement
+    expect(nota.textContent).toContain('Saldo nie drukuje się jeszcze na WZ ani w papierach kursu — wprowadź saldo otwarcia (może być 0).')
+    expect(nota.className).toMatch(/warn/)
+    fireEvent.click(within(nota).getByRole('button', { name: 'Wprowadź saldo otwarcia' }))
+    expect(onOtworz).toHaveBeenLastCalledWith(expect.objectContaining({ rodzaj: 'otwarcie' }))
+  })
+
+  it('rozliczenia otwarte: bez podpowiedzi o saldzie otwarcia', async () => {
+    mount()
+    await gotowe()
+    expect(screen.queryByText(/Saldo nie drukuje się jeszcze/)).toBeNull()
+  })
+
+  it('faktura korygująca: ujemny wiersz w księdze FV z pigułką „korekta”; klik → szczegóły z tym, co zmniejszyła, i „Usuń korektę…”', async () => {
+    api.karta.mockResolvedValue(Z_KOREKTA)
+    api.dokument.mockResolvedValue({ ...KOREKTA, pokrycie: [], historia: [] })
+    mount()
+    await gotowe()
+    const fv = ksiega('Faktury')
+    expect(numery(fv)[0]).toBe('FVK 3/2026')
+    const w = wiersz(fv, 'FVK 3/2026')
+    expect(w.className).toMatch(/rr-korekta/)
+    expect(within(w).getByText('−426,00')).toBeTruthy()
+    expect(within(w).getByText('korekta').className).toMatch(/tag/)
+    expect(within(w).getByText('zmniejszyła FV 528/2026')).toBeTruthy()
+    expect(w.getAttribute('aria-label')).toBe('FVK 3/2026, korekta −426,00 €')
+    fireEvent.click(w)
+    const dlg = await screen.findByRole('dialog')
+    await waitFor(() => expect(api.dokument).toHaveBeenCalledWith('k1'))
+    expect(await within(dlg).findByText('FV 528/2026: 426,00 €')).toBeTruthy()
+    expect(within(dlg).queryByRole('table', { name: 'Pokrycie wpłatami' })).toBeNull()
+    expect(within(dlg).queryByLabelText('Termin płatności')).toBeNull()
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Usuń korektę…' }))
+    fireEvent.change(within(dlg).getByLabelText('Powód usunięcia'), { target: { value: 'wpisana pomyłkowo' } })
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Usuń korektę' }))
+    await waitFor(() => expect(api.usunDokument).toHaveBeenCalledWith('k1', 'wpisana pomyłkowo'))
+  })
+
+  it('historia zmian: zwinięta (bez zapytania), po rozwinięciu najnowsze pierwsze, usunięcia oznaczone z powodem', async () => {
+    mount()
+    await gotowe()
+    const przycisk = screen.getByRole('button', { name: /Historia zmian/ })
+    expect(przycisk.getAttribute('aria-expanded')).toBe('false')
+    expect(api.historiaZmian).not.toHaveBeenCalled()
+    fireEvent.click(przycisk)
+    expect(przycisk.getAttribute('aria-expanded')).toBe('true')
+    const tab = await screen.findByRole('table', { name: 'Historia zmian' })
+    await waitFor(() => expect(api.historiaZmian).toHaveBeenCalledWith('c1'))
+    const wiersze = within(tab).getAllByRole('row').slice(1)
+    expect(wiersze.map(r => r.getAttribute('data-id'))).toEqual(['h3', 'h2'])
+    expect(within(wiersze[0]).getByText('usunięte').className).toMatch(/tag crit/)
+    expect(within(wiersze[0]).getByText('wpisana dwa razy')).toBeTruthy()
+    expect(within(wiersze[0]).getByText('Wpłata 300,00 € z 05.11.2026')).toBeTruthy()
+    expect(within(wiersze[0]).getByText('Szef')).toBeTruthy()
+    expect(wiersze[0].className).toMatch(/rr-usuniete/)
+    expect(within(wiersze[1]).queryByText('usunięte')).toBeNull()
+    fireEvent.click(przycisk)
+    expect(screen.queryByRole('table', { name: 'Historia zmian' })).toBeNull()
+  })
+
+  it('historia zmian: błąd → komunikat z „Spróbuj ponownie”; pusta — zdanie zamiast tabeli', async () => {
+    api.historiaZmian.mockRejectedValueOnce(new Error('Serwer nie odpowiada')).mockResolvedValueOnce({ wpisy: [], wiecej: false })
+    mount()
+    await gotowe()
+    fireEvent.click(screen.getByRole('button', { name: /Historia zmian/ }))
+    expect(await screen.findByText(/Serwer nie odpowiada/)).toBeTruthy()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Spróbuj ponownie' })[0])
+    expect(await screen.findByText(/Brak zmian/)).toBeTruthy()
   })
 
   it('błąd wczytania karty → komunikat z „Spróbuj ponownie”', async () => {

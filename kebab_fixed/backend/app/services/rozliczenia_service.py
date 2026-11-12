@@ -812,6 +812,13 @@ def ustaw_otwarcie(client_id: str, ksiega: str, *, kwota: Any, zalegle_od: Optio
 _POLA_KLIENTA = {"waluta": "settlement_currency", "termin_wz": "rozl_termin_wz",
                  "termin_fv": "rozl_termin_fv", "forma_wz": "rozl_forma_wz",
                  "forma_fv": "rozl_forma_fv", "notatka": "rozl_notatka"}
+_OPIS_KLIENTA = {"waluta": "waluta rozliczeń", "termin_wz": "termin płatności WZ (dni)",
+                 "termin_fv": "termin płatności FV (dni)", "forma_wz": "forma płatności WZ",
+                 "forma_fv": "forma płatności FV", "notatka": "notatka o kliencie"}
+
+
+def _wartosc_opisu(x: Any) -> str:
+    return "—" if x is None or x == "" else {"gotowka": "gotówka"}.get(str(x), str(x))
 
 
 def ustaw_klienta(client_id: str, zmiany: dict, kto: str) -> None:
@@ -846,7 +853,9 @@ def ustaw_klienta(client_id: str, zmiany: dict, kto: str) -> None:
         for pole, wartosc in rozne.items():
             przed = klient[_POLA_KLIENTA[pole]]
             historia(conn, client_id=client_id, obiekt="klient", obiekt_id=client_id,
-                     akcja="zmiana", opis=f"{pole} zmienione z {przed} na {wartosc}",
+                     akcja="zmiana",
+                     opis=f"{_OPIS_KLIENTA[pole]}: {_wartosc_opisu(przed)} → "
+                          f"{_wartosc_opisu(wartosc)}",
                      przed={pole: przed}, po={pole: wartosc}, kto=kto)
 
 

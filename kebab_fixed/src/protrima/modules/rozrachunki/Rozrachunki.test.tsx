@@ -57,6 +57,20 @@ describe('Rozrachunki — lista kontrahentów', () => {
     expect(screen.getByText('Nadpłaty klientów')).toBeTruthy()
   })
 
+  it('klient z samymi pozycjami w innej walucie: pigułka „sprawdź walutę” (ostrzeżenie), wiersz nie wyszarzony', async () => {
+    api.lista.mockResolvedValue({ ...SUROWA_LISTA, kontrahenci: [...SUROWA_LISTA.kontrahenci,
+      { id: 'c6', nazwa: 'ZAGRANICZNY TEST', nip: 'DE999', waluta: 'PLN', saldo_wz: 0, saldo_fv: 0, saldo: 0, po_terminie: 0, najstarsza_dni: 0,
+        najblizszy_termin_dni: null, stan: 'sprawdz_walute', przypomnienie: false, inna_waluta: 2 }] })
+    mount()
+    await screen.findByText('ZAGRANICZNY TEST')
+    const r = wiersz('ZAGRANICZNY TEST')
+    const pig = within(r).getByText('sprawdź walutę')
+    expect(pig.className).toMatch(/tag warn/)
+    expect(pig.getAttribute('data-tip')).toMatch(/2 pozycje w innej walucie/)
+    expect(r.className).not.toMatch(/closed/)
+    expect(wiersz('PUNKT WZOROWY').className).toMatch(/closed/)
+  })
+
   it('klik nagłówka „Saldo łącznie” sortuje od największego dłużnika, drugi klik odwraca; wybór zapamiętany', async () => {
     mount()
     await screen.findByText('RONDO GRILL')

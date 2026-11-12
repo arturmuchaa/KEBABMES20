@@ -3308,6 +3308,8 @@ export const rozliczeniaApi = {
     post<any>(`${rozlKlient(clientId)}/dziennik`, { tresc, przypomnij: przypomnij || null }),
   odhaczWpis: (wpisId: string) =>
     post<{ ok: boolean }>(`/rozliczenia/dziennik/${encodeURIComponent(wpisId)}/odhacz`, {}),
+  /** Historia zmian klienta (najnowsze pierwsze), także usunięte wpłaty i faktury. */
+  historiaZmian: (clientId: string) => get<any>(`${rozlKlient(clientId)}/historia-zmian`),
   /** Dokumenty niezapłacone na dzień (domyślnie dziś); `wzId` oznacza „ten dokument”. */
   zestawienie: (clientId: string, naDzien = '', wzId = '') =>
     get<Zestawienie>(`${rozlKlient(clientId)}/zestawienie${rozlQuery({ na_dzien: naDzien, wz_id: wzId })}`),

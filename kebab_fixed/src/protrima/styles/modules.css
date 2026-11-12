@@ -896,6 +896,26 @@ div.pstage { cursor: default; }
 .rr-mini { border-radius: var(--r-sm); box-shadow: inset 0 0 0 1px var(--line-soft); }
 .rr-mini th { position: static; }
 .rr-hist { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; color: var(--ink-2); }
+/* Faktura korygująca w księdze: zwykły wiersz z kreską po lewej (jak saldo otwarcia, tylko neutralnie). */
+.rr-tbl tbody tr.rr-korekta td:first-child { box-shadow: inset 3px 0 0 var(--line-strong); }
+/* Podpowiedź „saldo nie drukuje się na WZ” — przycisk w tej samej linii, gdy się mieści. */
+.rr-nieotwarte .btn { margin-left: 4px; vertical-align: middle; }
+/* Historia zmian klienta — nagłówek panelu jako przycisk rozwijania. */
+.rr-historia .rr-panel-h { border-bottom: 0; }
+.rr-historia:has(.rr-rozwin[aria-expanded="true"]) .rr-panel-h { border-bottom: 1px solid var(--line-soft); }
+.rr-rozwin { display: inline-flex; align-items: center; gap: 7px; font: inherit; font-weight: 600; color: var(--ink-1); background: none; border: 0; padding: 0; cursor: pointer; border-radius: var(--r-xs); }
+.rr-rozwin:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.rr-rozwin small { margin-left: 4px; }
+.rr-rozwin .rr-rozwin-ikona { transition: transform .15s ease; }
+.rr-rozwin[aria-expanded="true"] .rr-rozwin-ikona { transform: rotate(90deg); }
+.rr-hist-tbl td { padding-top: 5px; padding-bottom: 5px; vertical-align: top; }
+.rr-hist-tbl td.rr-hist-opis, .rr-hist-tbl td.rr-hist-powod { white-space: normal; overflow-wrap: anywhere; line-height: 1.35; }
+.rr-hist-tbl td.rr-hist-opis { min-width: 260px; width: 50%; color: var(--ink-2); }
+.rr-hist-tbl td.rr-hist-powod { min-width: 160px; width: 30%; }
+.rr-hist-czego { font-weight: 500; color: var(--ink-1); }
+.rr-hist-tag { margin-left: 8px; vertical-align: 1px; }
+.rr-hist-tbl tr.rr-usuniete .rr-hist-czego { text-decoration: line-through; text-decoration-color: var(--crit); }
+.rr-hist-wiecej { margin: 0; padding: 8px 12px; font-size: var(--fs-sm); }
 .rr-usun { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
 .rr-usun > .btn { align-self: flex-start; }
 .rr-usun-akcje { display: flex; gap: 8px; }

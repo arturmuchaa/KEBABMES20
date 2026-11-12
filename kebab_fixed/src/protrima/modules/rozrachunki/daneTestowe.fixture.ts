@@ -13,7 +13,7 @@ export const SUROWA_LISTA = {
   },
   kontrahenci: [
     { id: 'c1', nazwa: 'RONDO GRILL', nip: 'HU99000001', waluta: 'EUR', saldo_wz: -8409.5, saldo_fv: -30038.2, saldo: -38447.7,
-      po_terminie: 15689.5, najstarsza_dni: 13, najblizszy_termin_dni: 1, stan: 'po_terminie', przypomnienie: true },
+      po_terminie: 15689.5, najstarsza_dni: 13, najblizszy_termin_dni: 1, stan: 'po_terminie', przypomnienie: true, inna_waluta: 0 },
     { id: 'c3', nazwa: 'TESTOWA GASTRONOMIA', nip: '000-111-22-33', waluta: 'PLN', saldo_wz: -2400, saldo_fv: -15300, saldo: -17700,
       po_terminie: 15300, najstarsza_dni: 41, najblizszy_termin_dni: null, stan: 'po_terminie', przypomnienie: false },
     { id: 'c4', nazwa: 'BAR PRZYKŁADOWY', nip: '', waluta: 'PLN', saldo_wz: 350, saldo_fv: 0, saldo: 350,
@@ -30,6 +30,7 @@ export const SUROWA_KARTA = {
   klient: { id: 'c1', nazwa: 'RONDO GRILL', nip: 'HU99000001', waluta: 'EUR', termin_wz: 0, termin_fv: 7,
     forma_wz: 'gotowka', forma_fv: 'przelew', notatka: 'płaci w piątki', waluta_podpowiedz: null },
   start: '2026-10-01',
+  rozliczenia_otwarte: true,
   saldo: { wz: -8409.5, fv: -30038.2, lacznie: -38447.7, po_terminie_wz: 8409.5, po_terminie_fv: 7280,
     najstarsza_dni_wz: 13, najstarsza_dni_fv: 6 },
   otwarcia: { wz: { kwota: -6300, zalegle_od: '2026-09-20', uwagi: 'z Excela' }, fv: null },
