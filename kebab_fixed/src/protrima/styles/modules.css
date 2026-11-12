@@ -988,6 +988,9 @@ div.pstage { cursor: default; }
 .rr-dok-kafle .rr-sum .s .btn { align-self: flex-start; margin-top: 2px; }
 .rr-dok-kafle .rr-sum .s .tag { margin-top: 2px; }
 .rr-dok-cialo { display: contents; }
+/* Okno ma ograniczoną wysokość i przewija się — sekcje nie mogą się ściskać (kafelki traciły podpisy). */
+.rr-dok-cialo > * { flex-shrink: 0; }
+.rr-dok-wplaty .rr-mini td.rr-uwagi { max-width: 200px; }
 .rr-dok-meta { font-size: var(--fs-sm); }
 .rr-wpisz-kwote { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: var(--r-md); background: var(--warn-tint); color: var(--ink-1); }
 .rr-wpisz-kwote-f { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }

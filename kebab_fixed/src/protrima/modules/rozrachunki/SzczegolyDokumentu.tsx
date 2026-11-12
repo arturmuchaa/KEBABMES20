@@ -138,7 +138,7 @@ export function SzczegolyDokumentu({ dokId, waluta, start, terminFv, wpiszKwote,
   const coUsunac = korekta ? 'korektę' : d?.ksiega === 'wz' ? 'dokument' : 'fakturę'
   return (
     <Dialog wide icon={<FileText size={20} />} onClose={onClose}
-      title={<>{d?.numer ?? 'Dokument'}{st && <span className={`tag ${KLASA_TONU[st.ton]} rr-dlg-tag`}>{st.tekst}</span>}
+      title={<>{d ? numerZSeria(d.numer, d.ksiega) : 'Dokument'}{st && <span className={`tag ${KLASA_TONU[st.ton]} rr-dlg-tag`}>{st.tekst}</span>}
         {d?.zalegly && <span className="tag outline rr-dlg-tag">sprzed startu</span>}</>}
       footer={<>
         <button type="button" className="btn" onClick={onClose} {...(d && !maWplate && !(d.bezKwoty && wpisywanie) ? { 'data-autofocus': true } : {})}>Zamknij</button>
@@ -155,7 +155,7 @@ export function SzczegolyDokumentu({ dokId, waluta, start, terminFv, wpiszKwote,
       {!d && !res.error && <SzkieletBloku linie={5} opis="Wczytywanie dokumentu…" />}
       {d && e && (
         <div className="rr-dok-cialo" ref={cialo}>
-          <Kafle d={d} waluta={waluta} terminFv={terminFv} onWpiszKwote={() => setWpisywanie(true)} />
+          <Kafle d={d} waluta={waluta} terminFv={terminFv} onWpiszKwote={wpisywanie ? undefined : () => setWpisywanie(true)} />
           <p className="muted rr-dlg-p rr-dok-meta">
             {`Wystawiony ${dataPl(d.data)} · ${korekta ? `korekta — ${ZRODLO[zr] ?? zr}` : ZRODLO[zr] ?? zr}`}
             {d.zamkniety && ` · zapłacony ${dataPl(d.zamkniety)}`}
@@ -259,7 +259,7 @@ function Pole({ label, blad, szerokie, children }: { label: string; blad?: strin
 }
 
 /** Pasek kafelków na górze okna: kwota, zapłacono, zostało, kg, termin ze stanem. */
-function Kafle({ d, waluta, terminFv, onWpiszKwote }: { d: Szczegoly; waluta: string; terminFv: number; onWpiszKwote: () => void }) {
+function Kafle({ d, waluta, terminFv, onWpiszKwote }: { d: Szczegoly; waluta: string; terminFv: number; onWpiszKwote?: () => void }) {
   const poza = d.bezKwoty || d.nieLicz
   const po = d.stan.kod === 'po_terminie'
   const st = etykietaStanu({ ...d.stan, czesciowo: false })
@@ -271,7 +271,7 @@ function Kafle({ d, waluta, terminFv, onWpiszKwote }: { d: Szczegoly; waluta: st
       <div className="rr-sumy" role="group" aria-label="Podsumowanie dokumentu">
         {d.bezKwoty
           ? kafel('Kwota', 'czeka na kwotę',
-            <button type="button" className="btn sm primary" onClick={onWpiszKwote}>Wpisz kwotę</button>, ' rr-czeka')
+            onWpiszKwote ? <button type="button" className="btn sm primary" onClick={onWpiszKwote}>Wpisz kwotę</button> : 'wpisz ją poniżej', ' rr-czeka')
           : kafel(d.korekta ? 'Kwota korekty' : 'Kwota', kwota(d.kwota, waluta), d.nieLicz ? 'nie liczy się do salda' : undefined)}
         {!d.korekta && kafel('Zapłacono', poza ? '—' : kwota(d.zaplacono, waluta), undefined, poza ? ' faint' : '')}
         {!d.korekta && kafel('Zostało', poza ? '—' : kwota(d.zostalo, waluta), d.stan.czesciowo ? 'zapłacona częściowo' : undefined,
@@ -339,7 +339,7 @@ function WplatyDokumentu({ d, waluta, onWplata }: { d: Szczegoly; waluta: string
           : d.pokrycie.length === 0
             ? <div className="rr-dok-brak"><span>Brak wpłat</span>{przycisk}</div>
             : (
-              <table className="tbl rr-mini" aria-label="Pokrycie wpłatami">
+              <div className="rr-przewin"><table className="tbl rr-mini" aria-label="Pokrycie wpłatami">
                 <thead><tr><th>Data</th><th>Forma</th><th className="num">Na ten dokument</th><th className="num">Cała wpłata</th><th>Uwagi</th><th>Kto</th></tr></thead>
                 <tbody>{d.pokrycie.map((p, i) => (
                   <tr key={i} className="row">
@@ -351,7 +351,7 @@ function WplatyDokumentu({ d, waluta, onWplata }: { d: Szczegoly; waluta: string
                     <td className="muted">{p.kto || '—'}</td>
                   </tr>
                 ))}</tbody>
-              </table>
+              </table></div>
             )}
     </section>
   )
