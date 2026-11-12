@@ -141,3 +141,20 @@ def db():
     from app.db import execute
     execute("TRUNCATE " + ", ".join(_TRUNCATE) + " RESTART IDENTITY CASCADE")
     yield
+
+
+@pytest.fixture(autouse=True)
+def _nbp_bez_sieci(monkeypatch):
+    """Kurs NBP w testach NIGDY z internetu: `lista()` rozrachunków (D14) pyta
+    `fx_service` o kurs EUR, a test nie może zależeć od sieci ani czekać na
+    timeout. Domyślnie „NBP nie odpowiada” (kurs None); test, który potrzebuje
+    kursu, podmienia `fx_service._fetch` sam. Cache czyszczony per test."""
+    import urllib.error
+    from app.services import fx_service
+
+    def _bez_sieci(url):
+        raise urllib.error.URLError("sieć wyłączona w testach")
+    fx_service._CACHE.clear()
+    monkeypatch.setattr(fx_service, "_fetch", _bez_sieci)
+    yield
+    fx_service._CACHE.clear()

@@ -58,7 +58,9 @@ def _teraz() -> float:
 def nbp_eur_rate(on: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Kurs średni EUR obowiązujący w dniu `on` (RRRR-MM-DD, domyślnie dziś).
 
-    Zwraca {'rate': float, 'date': 'RRRR-MM-DD', 'table': 'A'} albo None.
+    Zwraca {'rate': float, 'date': 'RRRR-MM-DD', 'table': 'A',
+    'numer': '221/A/NBP/2026'} albo None. `numer` — numer tabeli NBP do
+    podpisu kursu (rozrachunki, D14); pusty, gdy NBP go nie podał.
     """
     day = on or date.today().isoformat()
     hit = _CACHE.get(day)
@@ -88,7 +90,8 @@ def nbp_eur_rate(on: Optional[str] = None) -> Optional[Dict[str, Any]]:
         if last and last.get("mid") is not None:
             result = {"rate": round(float(last["mid"]), 4),
                       "date": str(last.get("effectiveDate") or "")[:10],
-                      "table": "A"}
+                      "table": "A",
+                      "numer": str(last.get("no") or "")}
     except (urllib.error.URLError, OSError, ValueError, TypeError, KeyError, IndexError) as exc:
         # Brak kursu nie może wywalić raportu — dokument wyjdzie w PLN.
         logger.warning("fx.nbp.error", extra={"day": day, "error": str(exc)})

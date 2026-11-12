@@ -412,6 +412,46 @@ def _stan_klienta(wz: dict, fv: dict, inna_waluta: int = 0) -> str:
     return "rozliczony"
 
 
+#: Kwoty z podsumowania listy przeliczane na złotówki (D14).
+_POLA_PLN = ("naleznosci", "po_terminie", "obrot", "nadplaty")
+
+
+def _w_zlotowkach(podsumowanie: dict[str, dict], dzis: date) -> dict[str, Any]:
+    """Łączne kwoty KPI w PLN (D14): PLN + EUR × kurs średni NBP (tabela A,
+    ostatnia nie późniejsza niż `dzis`), half-up do groszy.
+
+    Kurs wyłącznie z `fx_service.nbp_eur_rate` (cache, krótki timeout, awaria
+    zapamiętana na minutę) — lista nie pada, gdy NBP nie odpowiada: wtedy
+    `kurs_eur` i kwoty `*_pln` są None, a UI pokazuje kwoty osobno. Gdy
+    w euro nie ma nic do przeliczenia, NBP nie jest pytany: `kurs_eur` None,
+    a kwoty `*_pln` to same złotówki. Inne waluty niż PLN/EUR — None
+    (nie ma dla nich kursu)."""
+    from app.services import fx_service
+    pln = podsumowanie.get("PLN", {})
+    eur = podsumowanie.get("EUR", {})
+    inne = [w for w, s in podsumowanie.items() if w not in ("PLN", "EUR")
+            and any(grosze(s.get(p)) != 0 for p in _POLA_PLN)]
+    puste = {"kurs_eur": None, **{f"{p}_pln": None for p in _POLA_PLN}}
+    if inne:
+        return puste
+    kurs: Optional[Decimal] = None
+    kurs_eur = None
+    if any(grosze(eur.get(p)) != 0 for p in _POLA_PLN):
+        r = fx_service.nbp_eur_rate(dzis.isoformat())
+        if not r or not r.get("rate"):
+            return puste
+        kurs = Decimal(str(r["rate"]))
+        kurs_eur = {"kurs": float(kurs), "tabela": r.get("numer") or "",
+                    "data": r.get("date") or ""}
+    wynik: dict[str, Any] = {"kurs_eur": kurs_eur}
+    for p in _POLA_PLN:
+        razem = grosze(pln.get(p))
+        if kurs is not None:
+            razem += grosze(eur.get(p)) * kurs
+        wynik[f"{p}_pln"] = _f(razem)
+    return wynik
+
+
 def lista(dzis: Optional[date] = None, od: Optional[date] = None,
           do: Optional[date] = None) -> dict:
     """Lista kontrahentów z saldami, obrotem i kg za okres oraz podsumowanie
@@ -499,10 +539,12 @@ def lista(dzis: Optional[date] = None, od: Optional[date] = None,
     # Rozliczeni zawsze na końcu (spec 8.1), reszta: najdłużej zalegający na górze.
     kontrahenci.sort(key=lambda r: (r["stan"] == "rozliczony", -r["najstarsza_dni"],
                                     r["saldo"]))
+    wynik_sum: dict[str, Any] = {w: {p: (_kg(v) if p == "kg" else _f(v)) for p, v in s.items()}
+                                 for w, s in podsumowanie.items()}
+    wynik_sum.update(_w_zlotowkach(podsumowanie, dzis))
     return {"start": start.isoformat(),
             "okres": {"od": p_od.isoformat(), "do": _d(p_do)},
-            "podsumowanie": {w: {p: (_kg(v) if p == "kg" else _f(v)) for p, v in s.items()}
-                             for w, s in podsumowanie.items()},
+            "podsumowanie": wynik_sum,
             "kontrahenci": kontrahenci, "bez_kontrahenta": bez_kontrahenta,
             "inna_waluta": inna_waluta, "wylaczeni": wylaczeni}
 

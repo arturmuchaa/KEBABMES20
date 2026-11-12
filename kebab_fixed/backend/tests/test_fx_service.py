@@ -35,7 +35,7 @@ def test_bierze_ostatni_kurs_nie_pozniejszy_niz_zadany_dzien(monkeypatch):
         {"no": "140/A/NBP/2026", "effectiveDate": "2026-07-28", "mid": 4.3242},
     ]))
     assert fx_service.nbp_eur_rate("2026-07-28") == {
-        "rate": 4.3242, "date": "2026-07-28", "table": "A"}
+        "rate": 4.3242, "date": "2026-07-28", "table": "A", "numer": "140/A/NBP/2026"}
 
 
 def test_weekend_bierze_kurs_z_ostatniego_dnia_roboczego(monkeypatch):
@@ -157,7 +157,7 @@ def test_PORAZKA_nie_blokuje_na_pol_dnia(monkeypatch):
     stan["zegar"] += fx_service._TTL_BLAD_S + 1
 
     assert fx_service.nbp_eur_rate("2026-07-28") == {
-        "rate": 4.3242, "date": "2026-07-28", "table": "A"}
+        "rate": 4.3242, "date": "2026-07-28", "table": "A", "numer": ""}
     assert stan["wolania"] == 2
 
 
@@ -183,3 +183,11 @@ def test_porazka_chroni_przed_mlynkiem_zapytan(monkeypatch):
         assert fx_service.nbp_eur_rate("2026-07-28") is None
 
     assert stan["wolania"] == 1
+
+
+def test_zwraca_numer_tabeli_nbp(monkeypatch):
+    """Numer tabeli (np. 221/A/NBP/2026) — do podpisu kursu przy kwotach w PLN."""
+    monkeypatch.setattr(fx_service, "_fetch", lambda url: _payload([
+        {"no": "221/A/NBP/2026", "effectiveDate": "2026-11-12", "mid": 4.2512},
+    ]))
+    assert fx_service.nbp_eur_rate("2026-11-12")["numer"] == "221/A/NBP/2026"
