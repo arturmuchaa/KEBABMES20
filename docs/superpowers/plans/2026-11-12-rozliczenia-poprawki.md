@@ -96,6 +96,13 @@ Moduł Rozrachunki działa na produkcji od 12.11.2026 (serwer 22079856, PROTRIMA
   - Wydruki: wiersze jak zwykłe dokumenty (numer, data, termin), bez napisu „saldo otwarcia”, chyba że to kwota zbiorcza.
   - Klient z samymi zaległymi dokumentami liczy się jako „otwarty” (bramka C1) i jest na liście.
   - UI: okno „Saldo otwarcia” dostaje dwie zakładki: `Zaległe dokumenty` (tabela do wpisywania wiersz po wierszu: Enter w kwocie dodaje następny wiersz, numer wymagany, termin domyślnie z daty + termin klienta) i `Jedna kwota` (dotychczasowe).
+- **D14. KPI w przeliczeniu na złotówki** (właściciel 12.11: „główna suma należności na KPI w przeliczeniu na złotówki według aktualnego kursu, a pod spodem ile w zł, a ile w euro”).
+  - Kurs: istniejący `backend/app/services/fx_service.py::nbp_eur_rate()` (NBP tabela A, kurs średni, ostatnia tabela nie późniejsza niż dziś, cache). Nie dublować pobierania.
+  - `lista()` w `podsumowanie` dodaje `kurs_eur: {kurs, tabela, data} | null` i łączne kwoty w PLN: `naleznosci_pln`, `po_terminie_pln`, `obrot_pln`, `nadplaty_pln` = PLN + EUR × kurs, zaokrąglone half-up do groszy. Gdy kursu brak, te pola są `null`. Nigdy nie zmyślać ani nie zaszywać kursu w kodzie.
+  - UI listy: kafelki `Należności łącznie`, `Po terminie`, `Obrót` pokazują główną liczbę w zł („≈ 73 412,55 zł”, czerwona tylko dla po terminie > 0). Pod nią mniejszym drukiem rozbicie `43 397,38 zł · 33 021,70 €` i podpis `kurs NBP 4,2512 · tabela 221/A/NBP/2026 z 12.11.2026`.
+  - Gdy kursu brak: główna liczba to dotychczasowe kwoty osobno, z dopiskiem „brak kursu NBP — kwoty osobno”.
+  - Gdy jest tylko jedna waluta: bez przeliczania i bez podpisu kursu.
+  - Salda na karcie i wydruki bez zmian (zawsze w walucie kontrahenta).
 - **Bez zmian:** konwencja znaku (minus = klient winien); osobne księgi WZ/FV; `api.ts` tylko addytywnie; stara część webowa zostaje; brak nazw firm w `src/protrima/modules`; migracje addytywne i idempotentne.
 
 ## Zadania
@@ -151,6 +158,17 @@ Moduł Rozrachunki działa na produkcji od 12.11.2026 (serwer 22079856, PROTRIMA
 - Pliki: `src/features/rozliczenia/NaglowekDruku.tsx`, `TabelaSalda.tsx`, `druk.ts`; `src/pages/office/ZestawienieNaleznosciPrintPage.tsx`, `HistoriaRozliczenPrintPage.tsx`; wspólny komponent/stała logo zakładu, używany też przez `WzDocumentView.tsx` zamiast bezpośredniej ścieżki; testy wydruków.
 - Zakres: D10. Nieliczone WZ i wyłączeni klienci nie pojawiają się na wydrukach (backend z Task 1 już to zapewnia; test front na danych).
 - Commit: `feat(rozliczenia): wydruk dla klienta z logo zakładu — nowy, czytelny układ`.
+
+### Task 7: KPI w złotówkach po kursie NBP
+- Pliki: `backend/app/services/rozliczenia_service.py` (lista → podsumowanie), test DB z podmienionym `fx_service._fetch` albo `nbp_eur_rate`; `src/protrima/modules/rozrachunki/RozrachunkiModule.tsx`, `model.ts`, testy, `modules.css`.
+- Zakres: D14.
+- Testy:
+  - przeliczenie (np. 1000 zł + 100 € przy kursie 4,25 daje 1425,00 zł) i half-up;
+  - brak kursu daje null i UI pokazuje kwoty osobno z dopiskiem;
+  - jedna waluta: brak podpisu kursu;
+  - podpis tabeli i daty.
+- Zrzut listy 1366 i 1920, jasny i ciemny.
+- Commit: `feat(rozliczenia): KPI należności w złotówkach po kursie NBP, z rozbiciem na zł i €`.
 
 ### Task 6: Weryfikacja i zrzuty
 - Pełny backend z `TEST_DATABASE_URL`, bez SKIP w `test_rozliczenia_*`. Do tego `npx tsc --noEmit`, `npx vitest run --pool=forks --poolOptions.forks.singleFork src/protrima src/features/rozliczenia src/features/wz src/components/wz src/pages/office` i `npm run build`.
