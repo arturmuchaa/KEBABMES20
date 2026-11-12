@@ -89,6 +89,13 @@ Moduł Rozrachunki działa na produkcji od 12.11.2026 (serwer 22079856, PROTRIMA
   - Na górze okna `SzczegolyDokumentu` jest wyraźny pasek kafelków: `Kwota` (lub „czeka na kwotę” z przyciskiem `Wpisz kwotę`), `Zapłacono`, `Zostało` (czerwone tylko po terminie), `kg`, `Termin` / stan.
   - Pod nim sekcja `Wpłaty do tego dokumentu` jako czytelna tabela: data, forma, kwota pokrycia, uwagi, kto. Dla częściowego pokrycia z wpłaty pokazać też całą kwotę wpłaty. Pusta sekcja pokazuje „Brak wpłat” i przycisk `+ Wpłata do tego dokumentu`, który otwiera WplataDialog z przypiętym dokumentem i księgą.
   - Historia zmian i edycja niżej, mniej eksponowane.
+- **D13. Saldo otwarcia jako lista zaległych dokumentów** (właściciel: „jak dam saldo otwarcia, to jak potem dodam, do której faktury była wpłata? może lepiej dodać ręcznie zaległe faktury”).
+  - Obok jednej kwoty (dotychczas, zostaje dla klientów bez szczegółów) można wpisać **zaległe dokumenty sprzed startu**: księga (WZ/FV), numer, data wystawienia, termin, kwota POZOSTAŁA do zapłaty, uwagi.
+  - Zapis: `rozl_dokumenty` ze `zrodlo='otwarcie'`, datą sprzed startu, ale WCHODZĄ do księgi (wyjątek od filtra daty startu tylko dla tego źródła). Każdy jest osobnym wierszem: wpłatę można do niego przypiąć, dni po terminie liczą się od prawdziwego terminu, rozliczanie od najstarszych obejmuje je naturalnie (najstarsze).
+  - Nigdy nie wchodzą do obrotu ani do kg (D3a). Edycja i usuwanie tylko z powodem, z historią, jak dokumenty ręczne. Unikalność numeru per klient i księga.
+  - Wydruki: wiersze jak zwykłe dokumenty (numer, data, termin), bez napisu „saldo otwarcia”, chyba że to kwota zbiorcza.
+  - Klient z samymi zaległymi dokumentami liczy się jako „otwarty” (bramka C1) i jest na liście.
+  - UI: okno „Saldo otwarcia” dostaje dwie zakładki: `Zaległe dokumenty` (tabela do wpisywania wiersz po wierszu: Enter w kwocie dodaje następny wiersz, numer wymagany, termin domyślnie z daty + termin klienta) i `Jedna kwota` (dotychczasowe).
 - **Bez zmian:** konwencja znaku (minus = klient winien); osobne księgi WZ/FV; `api.ts` tylko addytywnie; stara część webowa zostaje; brak nazw firm w `src/protrima/modules`; migracje addytywne i idempotentne.
 
 ## Zadania
@@ -107,7 +114,7 @@ Moduł Rozrachunki działa na produkcji od 12.11.2026 (serwer 22079856, PROTRIMA
 
 ### Task 2: Backend — FV z papierów kursu bez kwoty
 - Pliki: `backend/app/services/loading_service.py` (miejsce, gdzie `invoice_no` trafia do formy kursu), `rozliczenia_service.py` (funkcja upsert FV z kursu, stan „czeka_na_kwote”, wpisanie kwoty przez istniejące `edytuj_dokument`), testy `backend/tests/test_rozliczenia_fv_z_kursu_db.py`.
-- Zakres: D4.
+- Zakres: D4 oraz D13 backend (zrodlo 'otwarcie' w CHECK, wyjątek od filtra daty startu, CRUD zaległych dokumentów z historią, trasa + metody api.ts addytywnie; obrót/kg je pomijają; bramka C1 i lista je uwzględniają).
 - Testy:
   - wystawienie kursu z `invoice_no` i częścią fakturowaną tworzy FV bez kwoty z kg;
   - dwa zamówienia z tym samym numerem dają jedną FV z sumą kg;
@@ -131,6 +138,7 @@ Moduł Rozrachunki działa na produkcji od 12.11.2026 (serwer 22079856, PROTRIMA
 ### Task 4: PROTRIMA — karta: WZ nieliczone, FV bez kwoty, kg/obrót, Notatki, ustawienia klienta, bez placeholderów
 - Pliki: `KartaKlienta.tsx`, `SzczegolyDokumentu.tsx`, `Dziennik.tsx` (zmiana nazwy na Notatki, ewentualnie zmiana nazwy pliku z aktualizacją importów), `UstawieniaKlientaDialog.tsx`, `FakturaDialog.tsx` (pole kg), `WplataDialog.tsx`, `OtwarcieDialog.tsx`, `model.ts`, testy.
 - Zakres:
+  - D13 UI: okno salda otwarcia z zakładkami `Zaległe dokumenty` / `Jedna kwota`;
   - D12: szczegóły dokumentu z kafelkami kwota/zapłacono/zostało/kg/termin i wyraźną sekcją wpłat (+ wpłata do tego dokumentu);
   - D2 UI: akcja w szczegółach z powodem, tag, przełącznik „Pokaż nieliczone”;
   - D4 UI: wiersz „czeka na kwotę” z „Wpisz kwotę”;
