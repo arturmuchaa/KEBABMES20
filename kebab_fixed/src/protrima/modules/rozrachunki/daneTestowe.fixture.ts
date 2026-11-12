@@ -10,6 +10,8 @@ export const SUROWA_LISTA = {
   podsumowanie: {
     PLN: { naleznosci: 17700, po_terminie: 15300, gotowka_wz: 2400, nadplaty: 350, obrot: 21000, kg: 1450.5 },
     EUR: { naleznosci: 38447.7, po_terminie: 15689.5, gotowka_wz: 8409.5, nadplaty: 0, obrot: 45200.4, kg: 5230 },
+    // NBP nie odpowiedział (D14) — kwoty w złotówkach nieznane.
+    kurs_eur: null, naleznosci_pln: null, po_terminie_pln: null, obrot_pln: null, nadplaty_pln: null,
   },
   kontrahenci: [
     { id: 'c1', nazwa: 'RONDO GRILL', nip: 'HU99000001', waluta: 'EUR', saldo_wz: -8409.5, saldo_fv: -30038.2, saldo: -38447.7,
@@ -27,6 +29,16 @@ export const SUROWA_LISTA = {
   inna_waluta: 2,
   okres: { od: '2026-11-09', do: null },
   wylaczeni: [{ id: 'c7', nazwa: 'KLIENT PRYWATNY TEST', nip: '', waluta: 'PLN' }],
+}
+
+/** Ta sama lista z kursem NBP (D14): `kurs_eur` i kwoty w złotówkach = PLN + EUR × 4,2512 (half-up). */
+export const SUROWA_LISTA_Z_KURSEM = {
+  ...SUROWA_LISTA,
+  podsumowanie: {
+    ...SUROWA_LISTA.podsumowanie,
+    kurs_eur: { kurs: 4.2512, tabela: '221/A/NBP/2026', data: '2026-11-12' },
+    naleznosci_pln: 181148.86, po_terminie_pln: 81999.2, obrot_pln: 213155.94, nadplaty_pln: 350,
+  },
 }
 
 /** Odpowiedź `GET /api/rozliczenia/klienci/c1` (rozliczenia_service.karta). */

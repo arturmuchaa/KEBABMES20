@@ -3,7 +3,7 @@ import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor, within, act } from '@testing-library/react'
 import React from 'react'
 import { AppCtx, type AppApi, type Cmd } from '../../shell/context'
-import { SUROWA_KARTA, SUROWA_LISTA, SUROWY_PODGLAD } from './daneTestowe.fixture'
+import { SUROWA_KARTA, SUROWA_LISTA, SUROWA_LISTA_Z_KURSEM, SUROWY_PODGLAD } from './daneTestowe.fixture'
 
 /** Rozrachunki — lista kontrahentów. Dane w kształcie odpowiedzi `GET /api/rozliczenia`. */
 const api = vi.hoisted(() => ({ lista: vi.fn(), ustawStart: vi.fn(), przypiszWz: vi.fn(), karta: vi.fn(), podgladWplaty: vi.fn(), dodajWplate: vi.fn(),
@@ -84,6 +84,59 @@ describe('Rozrachunki — lista kontrahentów', () => {
     const pod = within(sumy).getByText('Gotówka z WZ do odebrania').closest('.rr-sumy-pod') as HTMLElement
     expect(within(pod).getByText('2 400,00 zł · 8 409,50 €')).toBeTruthy()
     expect(within(pod).getByText('+350,00 zł')).toBeTruthy()
+    // NBP nie odpowiedział — kwoty osobno, z dopiskiem; bez podpisu kursu
+    expect(within(sumy).getByText('brak kursu NBP — kwoty osobno')).toBeTruthy()
+    expect(within(sumy).queryByText(/kurs NBP \d/)).toBeNull()
+    expect(sumy.querySelector('.rr-rozbicie')).toBeNull()
+  })
+
+  it('KPI w złotówkach po kursie NBP (D14): główna liczba ≈ zł, pod nią rozbicie zł · €, podpis kursu z tabelą i datą', async () => {
+    api.lista.mockResolvedValue(SUROWA_LISTA_Z_KURSEM)
+    mount()
+    await screen.findByText('RONDO GRILL')
+    const sumy = screen.getByRole('group', { name: 'Sumy rozrachunków' })
+    const kafel = (k: string) => within(sumy).getByText(k, { selector: '.k' }).closest('.rr-sum') as HTMLElement
+    const glowna = (k: string) => [...kafel(k).querySelectorAll('.v .rr-kw')].map(x => x.textContent)
+    const rozbicie = (k: string) => kafel(k).querySelector('.rr-rozbicie')?.textContent
+    expect(glowna('Należności łącznie')).toEqual(['≈ 181 148,86 zł'])
+    expect(rozbicie('Należności łącznie')).toBe('17 700,00 zł · 38 447,70 €')
+    expect(kafel('Należności łącznie').querySelector('.crit-ink')).toBeNull()
+    expect(glowna('Po terminie')).toEqual(['≈ 81 999,20 zł'])
+    expect(kafel('Po terminie').querySelector('.v')?.className).toMatch(/crit-ink/)
+    expect(rozbicie('Po terminie')).toBe('15 300,00 zł · 15 689,50 €')
+    expect(glowna('Obrót')).toEqual(['≈ 213 155,94 zł'])
+    expect(rozbicie('Obrót')).toBe('21 000,00 zł · 45 200,40 €')
+    // jedna liczba w kafelku → kg tym samym, dużym krojem
+    expect(kafel('Sprzedane kg').querySelector('.v')?.className).not.toMatch(/multi/)
+    expect(within(sumy).getByText('kurs NBP 4,2512 · tabela 221/A/NBP/2026 z 12.11.2026')).toBeTruthy()
+    expect(within(sumy).queryByText(/brak kursu NBP/)).toBeNull()
+    expect(kafel('Należności łącznie').querySelector('.v')?.getAttribute('data-tip')).toMatch(/kurs NBP 4,2512/)
+  })
+
+  it('jedna waluta w kafelku: bez przeliczania i bez podpisu kursu', async () => {
+    const zero = { naleznosci: 0, po_terminie: 0, gotowka_wz: 0, nadplaty: 0, obrot: 0, kg: 0 }
+    api.lista.mockResolvedValue({ ...SUROWA_LISTA, kontrahenci: SUROWA_LISTA.kontrahenci.slice(1),
+      podsumowanie: { PLN: SUROWA_LISTA.podsumowanie.PLN, EUR: zero,
+        kurs_eur: null, naleznosci_pln: 17700, po_terminie_pln: 15300, obrot_pln: 21000, nadplaty_pln: 350 } })
+    mount()
+    await screen.findByText('TESTOWA GASTRONOMIA')
+    const sumy = screen.getByRole('group', { name: 'Sumy rozrachunków' })
+    const kafel = (k: string) => within(sumy).getByText(k, { selector: '.k' }).closest('.rr-sum') as HTMLElement
+    expect([...kafel('Należności łącznie').querySelectorAll('.v .rr-kw')].map(x => x.textContent)).toEqual(['17 700,00 zł'])
+    expect(sumy.querySelector('.rr-rozbicie')).toBeNull()
+    expect(within(sumy).queryByText(/kurs NBP/)).toBeNull()
+  })
+
+  it('kafelek z jedną walutą obok przeliczonych: ta waluta sama, bez ≈', async () => {
+    api.lista.mockResolvedValue({ ...SUROWA_LISTA_Z_KURSEM, podsumowanie: { ...SUROWA_LISTA_Z_KURSEM.podsumowanie,
+      EUR: { ...SUROWA_LISTA.podsumowanie.EUR, po_terminie: 0 }, po_terminie_pln: 15300 } })
+    mount()
+    await screen.findByText('RONDO GRILL')
+    const sumy = screen.getByRole('group', { name: 'Sumy rozrachunków' })
+    const kafel = (k: string) => within(sumy).getByText(k, { selector: '.k' }).closest('.rr-sum') as HTMLElement
+    expect([...kafel('Po terminie').querySelectorAll('.v .rr-kw')].map(x => x.textContent)).toEqual(['15 300,00 zł'])
+    expect(kafel('Po terminie').querySelector('.rr-rozbicie')).toBeNull()
+    expect([...kafel('Należności łącznie').querySelectorAll('.v .rr-kw')].map(x => x.textContent)).toEqual(['≈ 181 148,86 zł'])
   })
 
   it('tabela: kolumny Obrót i kg za okres, znacznik „FV bez kwoty (N)”', async () => {

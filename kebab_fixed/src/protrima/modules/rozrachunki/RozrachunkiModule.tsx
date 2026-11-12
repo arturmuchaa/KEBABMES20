@@ -10,8 +10,8 @@ import { clientsApi, rozliczeniaApi } from '@/lib/api'
 import { dataPl, kwota } from '@/features/rozliczenia/druk'
 import {
   ETYKIETA_OKRESU_OBROTU, FILTRY, KLASA_TONU, KOLUMNY, PIERWSZY_KIERUNEK, bladZakresu, dzisIso, filtruj, kandydaciDoDodania, kilogramy,
-  kwotaSalda, mapujListe, opisOkresu, pigulka, podpowiedzKlienta, pozycje, sortuj, walutyPodsumowania, zakresObrotu, znakSalda,
-  type Filtr, type Kierunek, type Kolumna, type Kontrahent, type ListaRozliczen, type Wylaczony, type WyborOkresuObrotu, type WzBezKontrahenta,
+  kafelekKpi, kwotaSalda, mapujListe, podpisKursu, opisOkresu, pigulka, podpowiedzKlienta, pozycje, sortuj, walutyPodsumowania, zakresObrotu, znakSalda,
+  type Filtr, type Kierunek, type Kolumna, type Kontrahent, type KafelekKpi, type ListaRozliczen, type Wylaczony, type WyborOkresuObrotu, type WzBezKontrahenta,
 } from './model'
 import { KartaKlienta, type Okno } from './KartaKlienta'
 import { WyborOkresu, klasaSalda, klasaZaleglosci, pamiec, tekstBledu, useOkresObrotu } from './wspolne'
@@ -320,9 +320,10 @@ function WierszKontrahenta({ k, zebra, tabIndex, onOtworz, onFocus, onKey }: {
 const ZERO = { naleznosci: 0, poTerminie: 0, gotowkaWz: 0, nadplaty: 0, obrot: 0, kg: 0 }
 
 /**
- * Kafelki KPI (D6): należności i po terminie (stan na dziś), obrót i sprzedane kg (za wybrany okres).
- * Kwoty osobno dla każdej waluty — bez przeliczania kursów; kg razem. Gotówka z WZ i nadpłaty
- * w pasku podpisu pod kafelkami. Same zera — bez kafelków.
+ * Kafelki KPI (D6, D14): należności i po terminie (stan na dziś), obrót i sprzedane kg (za wybrany okres).
+ * Przy dwóch walutach główna liczba to suma w złotówkach po kursie NBP (`≈`), pod nią rozbicie zł · €;
+ * kurs (tabela, data) raz, w pasku pod kafelkami. Bez kursu — kwoty osobno, z dopiskiem. Jedna waluta —
+ * sama kwota. kg razem. Gotówka z WZ i nadpłaty w pasku podpisu. Same zera — bez kafelków.
  */
 function Sumy({ l, okres }: { l: ListaRozliczen; okres: string }) {
   const waluty = walutyPodsumowania(l)
@@ -335,28 +336,34 @@ function Sumy({ l, okres }: { l: ListaRozliczen; okres: string }) {
   const zaleglosc = waluty.some(w => znakSalda(suma(w).poTerminie) > 0)
   const kg = waluty.reduce((a, w) => a + suma(w).kg, 0)
   const kupujacy = l.kontrahenci.filter(k => Math.round(k.kg * 10) !== 0).length
+  const naleznosci = kafelekKpi(l, 'naleznosci', waluty)
+  const poTerminie = kafelekKpi(l, 'poTerminie', waluty)
+  const obrot = kafelekKpi(l, 'obrot', waluty)
+  const kafle = [naleznosci, poTerminie, obrot]
+  const kurs = l.przeliczenie.kurs && kafle.some(k => k.wZlotowkach) ? podpisKursu(l.przeliczenie.kurs) : null
+  const brakKursu = kafle.some(k => k.brakKursu)
   return (
     <div className="rr-sumy-w" role="group" aria-label="Sumy rozrachunków">
       <div className="rr-sumy">
         <div className="rr-sum">
           <span className="k">Należności łącznie</span>
-          <Kwoty className="v" kwoty={waluty.map(w => kwota(suma(w).naleznosci, w))} />
+          <KwotyKpi className="v" kafel={naleznosci} kurs={kurs} />
           <span className="s">do zapłaty przez kontrahentów, dziś</span>
         </div>
         <div className="rr-sum">
           <span className="k">Po terminie</span>
-          <Kwoty className={`v${zaleglosc ? ' crit-ink' : ''}`} kwoty={waluty.map(w => kwota(suma(w).poTerminie, w))} />
+          <KwotyKpi className={`v${zaleglosc ? ' crit-ink' : ''}`} kafel={poTerminie} kurs={kurs} />
           <span className="s">{poTerminieIlu ? `kontrahentów z zaległością: ${poTerminieIlu}` : 'nikt nie zalega'}</span>
         </div>
         <div className="rr-sum rr-sum-okres">
           <span className="k">Obrót</span>
-          <Kwoty className="v" kwoty={waluty.map(w => kwota(suma(w).obrot, w))} />
+          <KwotyKpi className="v" kafel={obrot} kurs={kurs} />
           <span className="s">{okres}</span>
         </div>
         <div className="rr-sum rr-sum-okres">
           <span className="k">Sprzedane kg</span>
-          {/* Ten sam krój co kwoty obok (przy dwóch walutach mniejszy) — kafelki w jednej linii. */}
-          <span className={`v${waluty.length > 1 ? ' multi' : ''}`}><span className="rr-kw">{kilogramy(kg)}</span></span>
+          {/* Ten sam krój co kwoty obok (przy kwotach osobno mniejszy) — kafelki w jednej linii. */}
+          <span className={`v${naleznosci.kwoty.length > 1 ? ' multi' : ''}`}><span className="rr-kw">{kilogramy(kg)}</span></span>
           <span className="s">{kupujacy ? `kontrahentów z towarem: ${kupujacy}` : 'w tym okresie nic nie wyjechało'}</span>
         </div>
       </div>
@@ -364,15 +371,24 @@ function Sumy({ l, okres }: { l: ListaRozliczen; okres: string }) {
         <span>Gotówka z WZ do odebrania <b className="tnum">{gotowka.length ? gotowka.map(w => kwota(suma(w).gotowkaWz, w)).join(' · ') : kwota(0, waluty[0])}</b></span>
         <span>Nadpłaty klientów <b className={`tnum${nadplaty.length ? ' ok-ink' : ''}`}>{nadplaty.length ? nadplaty.map(w => kwotaSalda(suma(w).nadplaty, w)).join(' · ') : kwota(0, waluty[0])}</b>
           {nadplacajacy > 0 && <span className="muted"> ({nadplacajacy === 1 ? '1 kontrahent' : `kontrahentów: ${nadplacajacy}`})</span>}</span>
+        {kurs && <span className="rr-kurs" data-tip="Kwoty w euro przeliczone na złotówki po średnim kursie NBP (tabela A) — tylko w kafelkach; salda i wydruki zostają w walucie kontrahenta">{kurs}</span>}
+        {brakKursu && <span className="rr-kurs warn-ink" data-tip="Nie udało się pobrać kursu EUR z NBP — kafelki pokazują złotówki i euro osobno. Odśwież za chwilę.">brak kursu NBP — kwoty osobno</span>}
       </div>
     </div>
   )
 }
 
-/** Kwoty w kilku walutach w jednym kafelku — każda w całości, przy dwóch mniejszy krój. */
-const Kwoty = ({ className, kwoty }: { className: string; kwoty: string[] }) => (
-  <span className={`${className}${kwoty.length > 1 ? ' multi' : ''}`}>{kwoty.map(k => <span key={k} className="rr-kw">{k}</span>)}</span>
-)
+/** Główna liczba kafelka KPI: suma w zł (≈, z rozbiciem pod spodem) albo kwoty osobno — każda w całości, przy kilku mniejszy krój. */
+function KwotyKpi({ className, kafel, kurs }: { className: string; kafel: KafelekKpi; kurs: string | null }) {
+  return (
+    <>
+      <span className={`${className}${kafel.kwoty.length > 1 ? ' multi' : ''}`} data-tip={kafel.wZlotowkach && kurs ? `${kafel.rozbicie} · ${kurs}` : undefined}>
+        {kafel.kwoty.map(k => <span key={k} className="rr-kw">{k}</span>)}
+      </span>
+      {kafel.rozbicie && <span className="rr-rozbicie">{kafel.rozbicie}</span>}
+    </>
+  )
+}
 
 /** WZ bez kontrahenta: nie liczą się do żadnego salda, dopóki biuro nie wskaże odbiorcy. */
 function PasekWzBezKontrahenta({ docs, onPrzypisano }: { docs: WzBezKontrahenta[]; onPrzypisano: () => void }) {

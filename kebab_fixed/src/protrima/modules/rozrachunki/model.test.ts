@@ -4,10 +4,11 @@ import {
   czesciRozliczenia, numerZSeria, rozliczyla, sortuj, symbolWaluty, uporzadkujDziennik, walutyPodsumowania,
   dodajDni, mapujPodglad, opisRozliczenia, poprzedniMiesiac, dni, doGroszy, formaDomyslna, FORMY, mapujHistorieZmian,
   zakresObrotu, opisOkresu, bladZakresu, kilogramy, kandydaciDoDodania, bledyZaleglego, pustyZalegly, ileDokumentow,
+  kafelekKpi, podpisKursu,
   type WierszZaleglego,
   type Kontrahent, type Wplata,
 } from './model'
-import { SUROWA_KARTA, SUROWA_KARTA_PELNA, SUROWA_LISTA, SUROWY_DOKUMENT, SUROWY_PODGLAD } from './daneTestowe.fixture'
+import { SUROWA_KARTA, SUROWA_KARTA_PELNA, SUROWA_LISTA, SUROWA_LISTA_Z_KURSEM, SUROWY_DOKUMENT, SUROWY_PODGLAD } from './daneTestowe.fixture'
 
 const lista = () => mapujListe(SUROWA_LISTA).kontrahenci
 const k = (o: Partial<Kontrahent>): Kontrahent => ({ ...lista()[0], ...o })
@@ -31,7 +32,8 @@ describe('mapujListe — nie gubi pól', () => {
       .kontrahenci[0]).toMatchObject({ innaWaluta: 3, stan: 'sprawdz_walute' })
   })
   it('pusta / uszkodzona odpowiedź → puste listy zamiast wyjątku', () => {
-    expect(mapujListe(null)).toEqual({ start: '', podsumowanie: {}, kontrahenci: [], bezKontrahenta: [], innaWaluta: 0, wylaczeni: [] })
+    expect(mapujListe(null)).toEqual({ start: '', podsumowanie: {}, kontrahenci: [], bezKontrahenta: [], innaWaluta: 0, wylaczeni: [],
+      przeliczenie: { kurs: null, naleznosci: null, poTerminie: null, obrot: null, nadplaty: null } })
   })
 })
 
@@ -182,6 +184,33 @@ describe('kwotaSalda — znak salda', () => {
     expect(kwotaSalda(350, 'PLN')).toBe('+350,00 zł')
     expect(kwotaSalda(0, 'PLN')).toBe('0,00 zł')
     expect(kwotaSalda(0.001, 'PLN')).toBe('0,00 zł')
+  })
+})
+
+describe('przeliczenie na złotówki (D14)', () => {
+  it('mapuje kurs NBP i kwoty *_pln; podsumowanie zostaje tylko z walutami', () => {
+    const l = mapujListe(SUROWA_LISTA_Z_KURSEM)
+    expect(Object.keys(l.podsumowanie)).toEqual(['PLN', 'EUR'])
+    expect(l.przeliczenie).toEqual({ kurs: { kurs: 4.2512, tabela: '221/A/NBP/2026', data: '2026-11-12' },
+      naleznosci: 181148.86, poTerminie: 81999.2, obrot: 213155.94, nadplaty: 350 })
+  })
+  it('brak kursu → null (nie zero)', () => {
+    expect(mapujListe(SUROWA_LISTA).przeliczenie).toEqual({ kurs: null, naleznosci: null, poTerminie: null, obrot: null, nadplaty: null })
+  })
+  it('podpis kursu: kurs z 4 miejscami po przecinku, numer tabeli i data po polsku', () => {
+    expect(podpisKursu({ kurs: 4.25, tabela: '221/A/NBP/2026', data: '2026-11-12' })).toBe('kurs NBP 4,2500 · tabela 221/A/NBP/2026 z 12.11.2026')
+    expect(podpisKursu({ kurs: 4.2512, tabela: '', data: '2026-11-12' })).toBe('kurs NBP 4,2512 z 12.11.2026')
+  })
+  it('kafelekKpi: dwie waluty i kurs → ≈ zł z rozbiciem; bez kursu → osobno z flagą; jedna waluta → sama', () => {
+    const z = mapujListe(SUROWA_LISTA_Z_KURSEM)
+    expect(kafelekKpi(z, 'naleznosci', ['PLN', 'EUR'])).toEqual({ kwoty: ['≈ 181 148,86 zł'], wZlotowkach: true,
+      rozbicie: '17 700,00 zł · 38 447,70 €', brakKursu: false })
+    expect(kafelekKpi(mapujListe(SUROWA_LISTA), 'naleznosci', ['PLN', 'EUR'])).toEqual({ kwoty: ['17 700,00 zł', '38 447,70 €'],
+      wZlotowkach: false, rozbicie: null, brakKursu: true })
+    expect(kafelekKpi(z, 'nadplaty', ['PLN', 'EUR'])).toEqual({ kwoty: ['350,00 zł'], wZlotowkach: false, rozbicie: null, brakKursu: false })
+    // same zera — kwota zero w pierwszej walucie
+    const zera = mapujListe({ ...SUROWA_LISTA, podsumowanie: { EUR: { naleznosci: 0 } } })
+    expect(kafelekKpi(zera, 'naleznosci', ['EUR']).kwoty).toEqual(['0,00 €'])
   })
 })
 

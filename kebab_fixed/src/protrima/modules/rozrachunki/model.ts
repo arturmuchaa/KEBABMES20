@@ -46,9 +46,27 @@ export interface Wylaczony { id: string; nazwa: string; nip: string; waluta: str
 
 export interface WzBezKontrahenta { id: string; numer: string; data: string; kwota: number; waluta: string; nabywca: string }
 
+/** Kurs średni EUR z NBP (tabela A), po którym serwer przeliczył KPI na złotówki (D14). */
+export interface KursEur { kurs: number; tabela: string; data: string }
+
+/**
+ * KPI listy w złotówkach (D14): PLN + EUR × kurs NBP, policzone przez serwer (half-up do groszy).
+ * `null` — kursu brak (NBP nie odpowiedział): UI pokazuje kwoty osobno. Gdy w euro nic nie ma,
+ * `kurs` jest null, a kwoty to same złotówki.
+ */
+export interface Przeliczenie {
+  kurs: KursEur | null
+  naleznosci: number | null
+  poTerminie: number | null
+  obrot: number | null
+  nadplaty: number | null
+}
+
 export interface ListaRozliczen {
   start: string
+  /** Sumy per waluta (klucze: kody walut). */
   podsumowanie: Record<string, SumaWaluty>
+  przeliczenie: Przeliczenie
   kontrahenci: Kontrahent[]
   bezKontrahenta: WzBezKontrahenta[]
   /** Liczba dokumentów, wpłat i otwarć w innej walucie niż kontrahent (poza saldami). */
@@ -171,11 +189,26 @@ function mapujKontrahenta(r: Surowy): Kontrahent {
   }
 }
 
+const nNull = (v: unknown) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v))
+/** Klucz sumy waluty w `podsumowanie` (obok niego serwer kładzie `kurs_eur` i kwoty `*_pln`). */
+const KOD_WALUTY = /^[A-Z]{3}$/
+
+function mapujPrzeliczenie(p: Surowy): Przeliczenie {
+  const k = p.kurs_eur == null ? null : obj(p.kurs_eur)
+  return {
+    kurs: k && nNull(k.kurs) ? { kurs: n(k.kurs), tabela: s(k.tabela), data: s(k.data) } : null,
+    naleznosci: nNull(p.naleznosci_pln), poTerminie: nNull(p.po_terminie_pln),
+    obrot: nNull(p.obrot_pln), nadplaty: nNull(p.nadplaty_pln),
+  }
+}
+
 export function mapujListe(raw: unknown): ListaRozliczen {
   const r = obj(raw)
+  const p = obj(r.podsumowanie)
   return {
     start: s(r.start),
-    podsumowanie: Object.fromEntries(Object.entries(obj(r.podsumowanie)).map(([w, v]) => [w, mapujSume(obj(v))])),
+    podsumowanie: Object.fromEntries(Object.entries(p).filter(([w]) => KOD_WALUTY.test(w)).map(([w, v]) => [w, mapujSume(obj(v))])),
+    przeliczenie: mapujPrzeliczenie(p),
     kontrahenci: tab(r.kontrahenci).map(mapujKontrahenta),
     bezKontrahenta: tab(r.bez_kontrahenta).map(d => ({
       id: s(d.id), numer: s(d.numer), data: s(d.data), kwota: n(d.kwota), waluta: s(d.waluta), nabywca: s(d.nabywca),
@@ -428,6 +461,48 @@ export function walutyPodsumowania(l: ListaRozliczen): string[] {
   return Object.entries(l.podsumowanie)
     .filter(([, v]) => [v.naleznosci, v.poTerminie, v.gotowkaWz, v.nadplaty, v.obrot].some(x => grosze(x) !== 0) || Math.round(v.kg * 1000) !== 0)
     .map(([w]) => w)
+}
+
+/** Kafelki KPI przeliczane na złotówki (D14). */
+export type PoleKpi = 'naleznosci' | 'poTerminie' | 'obrot' | 'nadplaty'
+
+export interface KafelekKpi {
+  /** Główna liczba kafelka: `≈ 73 412,55 zł` albo kwoty osobno w walutach. */
+  kwoty: string[]
+  wZlotowkach: boolean
+  /** Pod główną liczbą: `43 397,38 zł · 33 021,70 €` (tylko przy przeliczeniu). */
+  rozbicie: string | null
+  /** Dwie waluty, a kursu NBP brak — kwoty osobno, z dopiskiem. */
+  brakKursu: boolean
+}
+
+/**
+ * Co pokazać w kafelku KPI (D14). Waluta z zerem w tym kafelku się nie liczy: jedna waluta —
+ * sama kwota, bez przeliczania i bez podpisu kursu; PLN i EUR z kursem — `≈` suma w zł z rozbiciem;
+ * bez kursu — kwoty osobno z flagą `brakKursu` (dla innych walut nie ma kursu, więc bez flagi).
+ */
+export function kafelekKpi(l: ListaRozliczen, pole: PoleKpi, waluty: string[]): KafelekKpi {
+  const wart = (w: string) => l.podsumowanie[w]?.[pole] ?? 0
+  const niezerowe = waluty.filter(w => znakSalda(wart(w)) !== 0)
+  if (niezerowe.length <= 1) {
+    const w = niezerowe[0] ?? waluty[0] ?? 'PLN'
+    return { kwoty: [kwota(wart(w), w)], wZlotowkach: false, rozbicie: null, brakKursu: false }
+  }
+  const osobno = niezerowe.map(w => kwota(wart(w), w))
+  const pln = l.przeliczenie[pole]
+  if (pln != null && l.przeliczenie.kurs) {
+    return { kwoty: [`≈ ${kwota(pln, 'PLN')}`], wZlotowkach: true, rozbicie: osobno.join(' · '), brakKursu: false }
+  }
+  return { kwoty: osobno, wZlotowkach: false, rozbicie: null, brakKursu: niezerowe.every(w => w === 'PLN' || w === 'EUR') }
+}
+
+const FORMAT_KURSU = new Intl.NumberFormat('pl-PL', { minimumFractionDigits: 4, maximumFractionDigits: 4 })
+
+/** `kurs NBP 4,2512 · tabela 221/A/NBP/2026 z 12.11.2026` — skąd wzięła się kwota w złotówkach. */
+export function podpisKursu(k: KursEur): string {
+  const tabela = k.tabela ? ` · tabela ${k.tabela}` : ''
+  const data = /^\d{4}-\d{2}-\d{2}$/.test(k.data) ? ` z ${dataKrotka(k.data, true)}` : ''
+  return `kurs NBP ${FORMAT_KURSU.format(k.kurs)}${tabela}${data}`
 }
 
 /** Kontrahenci z kartoteki do dodania („+ Kontrahent”): bez tych, którzy już są na liście, i bez wyłączonych (wracają chipem). */

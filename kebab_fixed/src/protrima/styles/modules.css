@@ -789,6 +789,10 @@ div.pstage { cursor: default; }
 .rr-sum .v .rr-kw { white-space: nowrap; }
 .rr-sum .v.multi .rr-kw + .rr-kw::before { content: '·'; margin-right: 8px; color: var(--ink-3); }
 .rr-sum .s { font-size: var(--fs-sm); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+/* D14: pod sumą w złotówkach rozbicie zł · € (mniejszym drukiem); kurs NBP raz, w pasku pod kafelkami. */
+.rr-sum .rr-rozbicie { font-size: var(--fs-sm); color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.rr-sumy-pod .rr-kurs { margin-left: auto; font-variant-numeric: tabular-nums; }
+.rr-sumy-pod .rr-kurs.warn-ink { color: var(--warn-ink); }
 .rr-bar { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
 .rr-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .rr-chips .chip { padding: 0 10px; }
