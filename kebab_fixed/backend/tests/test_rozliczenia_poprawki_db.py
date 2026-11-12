@@ -344,3 +344,27 @@ def test_usuniecie_klienta_z_wplata_odrzucone(db):
     with pytest.raises(psycopg2.IntegrityError):
         execute("DELETE FROM clients WHERE id='k'")
     assert query_one("SELECT 1 FROM rozl_wplaty WHERE id='w1'")
+
+
+def test_historia_zmian_opisy_po_polsku(db, przywroc_start):
+    """Opisy czytelne dla biura: kwoty z przecinkiem, daty DD.MM.RRRR, bez None."""
+    _klient("k", waluta="PLN")
+    ustaw_otwarcie("k", "wz", kwota=-1250, zalegle_od=date(2026, 9, 20), uwagi="z arkusza",
+                   kto="biuro")
+    wp = dodaj_wplate("k", ksiega="wz", forma="gotowka", kwota=15000, data=date(2026, 11, 10),
+                      dokument_id=None, uwagi="", kto="biuro")
+    usun_wplate(wp["id"], "pomyłka", "biuro")
+    fv = dodaj_fakture("k", numer="FV 1/11", data=date(2026, 11, 10), kwota=1000,
+                       termin=None, forma=None, uwagi="", kto="biuro")
+    from app.services.rozliczenia_service import edytuj_dokument
+    edytuj_dokument(fv["id"], {"kwota": 1200.5, "termin": date(2026, 11, 20)}, "biuro", "korekta ceny")
+
+    opisy = {w["opis"] for w in historia_zmian("k")["wpisy"]}
+
+    assert "saldo otwarcia WZ: kwota 0,00 → −1 250,00" in opisy
+    assert "saldo otwarcia WZ: zaległe od — → 20.09.2026" in opisy
+    assert "saldo otwarcia WZ: uwagi — → z arkusza" in opisy
+    assert "wpłata 15 000,00 PLN do księgi WZ" in opisy
+    assert "usunięto wpłatę 15 000,00 PLN" in opisy
+    assert "FV 1/11: kwota 1 000,00 → 1 200,50" in opisy
+    assert "FV 1/11: termin płatności 17.11.2026 → 20.11.2026" in opisy

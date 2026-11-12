@@ -96,7 +96,7 @@ export const SUROWA_KARTA_PELNA = {
 export const SUROWY_DOKUMENT = {
   ...SUROWA_KARTA.dokumenty.fv[0],
   pokrycie: [{ data: '2026-10-20', forma: 'przelew', kwota: 17325, uwagi: 'tytuł' }],
-  historia: [{ akcja: 'termin', opis: 'FV 512/2026: termin płatności zmieniona z 2026-10-22 na 2026-10-25',
+  historia: [{ akcja: 'termin', opis: 'FV 512/2026: termin płatności 22.10.2026 → 25.10.2026',
     przed: { termin: '2026-10-22' }, po: { termin: '2026-10-25' }, powod: 'ustalenie z klientem', kto: 'Anna', kiedy: '2026-10-19T09:30:00' }],
 }
 

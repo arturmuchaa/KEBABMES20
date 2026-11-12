@@ -25,9 +25,9 @@ const Z_KOREKTA = { ...SUROWA_KARTA_PELNA, dokumenty: { ...SUROWA_KARTA_PELNA.do
 const HISTORIA = {
   wpisy: [
     { id: 'h3', kiedy: '2026-11-10T14:05:00+00:00', kto: 'Szef', obiekt: 'wplata', akcja: 'usunieto', czego: 'Wpłata 300,00 € z 05.11.2026',
-      opis: 'usunięto wpłatę 300.00', powod: 'wpisana dwa razy', usuniete: true },
+      opis: 'usunięto wpłatę 300,00 PLN', powod: 'wpisana dwa razy', usuniete: true },
     { id: 'h2', kiedy: '2026-11-09T10:00:00+00:00', kto: 'Anna', obiekt: 'otwarcie', akcja: 'zmiana', czego: 'Saldo otwarcia WZ',
-      opis: 'saldo otwarcia WZ: kwota z 0.00 na -6300.00', powod: '', usuniete: false },
+      opis: 'saldo otwarcia WZ: kwota 0,00 → −6 300,00', powod: '', usuniete: false },
   ],
   wiecej: false,
 }

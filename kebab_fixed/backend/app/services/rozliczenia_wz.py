@@ -177,7 +177,8 @@ def _stan(wz: dict, kwota) -> str:
 
 
 def _kwota_txt(k) -> str:
-    return str(grosze(k))
+    """Kwota w opisie historii po polsku: `1 050,00` (minus typograficzny)."""
+    return f"{grosze(k):,.2f}".replace(",", " ").replace(".", ",").replace("-", "−")
 
 
 def synchronizuj_wz() -> dict:

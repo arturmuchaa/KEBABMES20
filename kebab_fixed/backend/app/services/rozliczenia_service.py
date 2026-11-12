@@ -512,6 +512,18 @@ def _json(x: Any) -> Any:
     return x
 
 
+def _w_opisie(x: Any) -> str:
+    """Wartość w opisie historii po polsku: kwota `1 250,00` (minus typograficzny),
+    data `20.09.2026`, pusta — `—`."""
+    if x is None or x == "":
+        return "—"
+    if isinstance(x, (Decimal, float)) and not isinstance(x, bool):
+        return _kwota_pl(x)
+    if isinstance(x, date):
+        return _pl(x)
+    return str(x)
+
+
 def _powod(powod: Optional[str], komunikat: str) -> str:
     powod = (powod or "").strip()
     if not powod:
@@ -643,7 +655,8 @@ def edytuj_dokument(dokument_id: str, zmiany: dict, kto: str, powod: str = "") -
             historia(conn, client_id=dok["client_id"], obiekt="dokument",
                      obiekt_id=dokument_id,
                      akcja=pole if pole in ("kwota", "termin", "forma", "uwagi") else "zmiana",
-                     opis=f"{dok['numer']}: {_OPIS_POLA[pole]} zmieniona z {przed} na {po}",
+                     opis=f"{dok['numer']}: {_OPIS_POLA[pole]} {_w_opisie(dok[_KOLUMNA[pole]])} "
+                          f"→ {_w_opisie(wartosc)}",
                      przed={pole: przed}, po={pole: po}, powod=powod, kto=kto)
     return _dok(dokument_id)
 
@@ -734,7 +747,7 @@ def dodaj_wplate(client_id: str, *, ksiega: str, forma: str, kwota: Any, data: d
             (wplata_id, client_id, ksiega, forma, k, klient["settlement_currency"], data,
              dokument_id, uwagi or "", kto or ""))
         historia(conn, client_id=client_id, obiekt="wplata", obiekt_id=wplata_id,
-                 akcja="dodano", opis=f"wpłata {grosze(k)} {klient['settlement_currency']} "
+                 akcja="dodano", opis=f"wpłata {_kwota_pl(k)} {klient['settlement_currency']} "
                                       f"do księgi {ksiega.upper()}",
                  po={"kwota": float(k), "ksiega": ksiega, "forma": forma,
                      "data": data.isoformat()}, kto=kto)
@@ -744,7 +757,7 @@ def dodaj_wplate(client_id: str, *, ksiega: str, forma: str, kwota: Any, data: d
 def usun_wplate(wplata_id: str, powod: str, kto: str) -> None:
     """Miękkie usunięcie wpłaty (z powodem); rozliczenie przelicza się od zera."""
     with transaction() as conn:
-        w = cx_query_one(conn, "SELECT id, client_id, ksiega, kwota, usuniety_at "
+        w = cx_query_one(conn, "SELECT id, client_id, ksiega, kwota, waluta, usuniety_at "
                                "FROM rozl_wplaty WHERE id=%s FOR UPDATE", (wplata_id,))
         if not w:
             raise HTTPException(404, "Wpłata nie znaleziona")
@@ -754,11 +767,15 @@ def usun_wplate(wplata_id: str, powod: str, kto: str) -> None:
         cx_execute(conn, "UPDATE rozl_wplaty SET usuniety_at=now(), usuniety_przez=%s, "
                          "powod_usuniecia=%s WHERE id=%s", (kto or "", powod, wplata_id))
         historia(conn, client_id=w["client_id"], obiekt="wplata", obiekt_id=wplata_id,
-                 akcja="usunieto", opis=f"usunięto wpłatę {grosze(w['kwota'])}",
+                 akcja="usunieto", opis=f"usunięto wpłatę {_kwota_pl(w['kwota'])} {w['waluta']}",
                  przed={"kwota": float(w["kwota"])}, powod=powod, kto=kto)
 
 
 # ── Saldo otwarcia ──────────────────────────────────────────────────────
+
+_OPIS_OTWARCIA = {"kwota": "kwota", "waluta": "waluta", "zalegle_od": "zaległe od",
+                  "uwagi": "uwagi"}
+
 
 def ustaw_otwarcie(client_id: str, ksiega: str, *, kwota: Any, zalegle_od: Optional[date],
                    uwagi: str, kto: str) -> None:
@@ -797,13 +814,13 @@ def ustaw_otwarcie(client_id: str, ksiega: str, *, kwota: Any, zalegle_od: Optio
             historia(conn, client_id=client_id, obiekt="otwarcie",
                      obiekt_id=f"otwarcie-{ksiega}", akcja="dodano",
                      opis=f"saldo otwarcia {ksiega.upper()} wprowadzone: "
-                          f"{grosze(k)} {nowe['waluta']}",
+                          f"{_kwota_pl(k)} {nowe['waluta']}",
                      po={"kwota": float(k)}, kto=kto)
         for pole in rozne:
             historia(conn, client_id=client_id, obiekt="otwarcie",
                      obiekt_id=f"otwarcie-{ksiega}", akcja="zmiana",
-                     opis=f"saldo otwarcia {ksiega.upper()}: {pole} "
-                          f"z {_json(przed[pole])} na {_json(nowe[pole])}",
+                     opis=f"saldo otwarcia {ksiega.upper()}: {_OPIS_OTWARCIA[pole]} "
+                          f"{_w_opisie(przed[pole])} → {_w_opisie(nowe[pole])}",
                      przed={pole: _json(przed[pole])}, po={pole: _json(nowe[pole])}, kto=kto)
 
 
@@ -1042,8 +1059,8 @@ _USUNIECIA = ("usunieto", "anulowano")
 
 
 def _kwota_pl(x: Any) -> str:
-    """`1234.5` → `1 234,50` (do opisów w historii)."""
-    return f"{grosze(x):,.2f}".replace(",", " ").replace(".", ",")
+    """`1234.5` → `1 234,50`, `-50` → `−50,00` (do opisów w historii)."""
+    return f"{grosze(x):,.2f}".replace(",", " ").replace(".", ",").replace("-", "−")
 
 
 def _czego(r: dict) -> str:

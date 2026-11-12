@@ -188,7 +188,7 @@ def test_zmiana_kwoty_w_historii_a_bez_zmian_nic(db):
     assert [r["akcja"] for r in h] == ["dodano", "kwota"]
     assert h[1]["przed"] == {"kwota": 1050.0}
     assert h[1]["po"] == {"kwota": 2100.0}
-    assert h[1]["opis"] == "kwota zmieniona z 1050.00 na 2100.00"
+    assert h[1]["opis"] == "kwota zmieniona z 1 050,00 na 2 100,00"
     assert h[1]["kto"] == "MES"
 
     assert synchronizuj_wz() == {"dodane": 0, "zmienione": 0, "anulowane": 0}

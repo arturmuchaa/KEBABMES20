@@ -64,9 +64,9 @@ describe('mapujKarte — nie gubi pól', () => {
 describe('mapujHistorieZmian — historia zmian klienta', () => {
   it('wpisy z serwera, usunięcia oznaczone; pusta odpowiedź → pusta lista', () => {
     const h = mapujHistorieZmian({ wpisy: [{ id: 'h1', kiedy: '2026-11-10T09:15:00+00:00', kto: 'Szef', obiekt: 'wplata', akcja: 'usunieto',
-      czego: 'Wpłata 300,00 PLN z 10.11.2026', opis: 'usunięto wpłatę 300.00', powod: 'wpisana dwa razy', usuniete: true }], wiecej: true })
+      czego: 'Wpłata 300,00 PLN z 10.11.2026', opis: 'usunięto wpłatę 300,00 PLN', powod: 'wpisana dwa razy', usuniete: true }], wiecej: true })
     expect(h).toEqual({ wpisy: [{ id: 'h1', kiedy: '2026-11-10T09:15:00+00:00', kto: 'Szef', obiekt: 'wplata', akcja: 'usunieto',
-      czego: 'Wpłata 300,00 PLN z 10.11.2026', opis: 'usunięto wpłatę 300.00', powod: 'wpisana dwa razy', usuniete: true }], wiecej: true })
+      czego: 'Wpłata 300,00 PLN z 10.11.2026', opis: 'usunięto wpłatę 300,00 PLN', powod: 'wpisana dwa razy', usuniete: true }], wiecej: true })
     expect(mapujHistorieZmian(null)).toEqual({ wpisy: [], wiecej: false })
   })
 })
@@ -247,7 +247,7 @@ describe('mapujSzczegoly — dokument z pokryciem i historią', () => {
     expect(s.numer).toBe('FV 512/2026')
     expect(s.zrodlo).toBe('reczna')
     expect(s.pokrycie).toEqual([{ data: '2026-10-20', forma: 'przelew', kwota: 17325, uwagi: 'tytuł' }])
-    expect(s.historia).toEqual([{ akcja: 'termin', opis: 'FV 512/2026: termin płatności zmieniona z 2026-10-22 na 2026-10-25',
+    expect(s.historia).toEqual([{ akcja: 'termin', opis: 'FV 512/2026: termin płatności 22.10.2026 → 25.10.2026',
       powod: 'ustalenie z klientem', kto: 'Anna', kiedy: '2026-10-19T09:30:00' }])
     expect(mapujSzczegoly(null).pokrycie).toEqual([])
   })
