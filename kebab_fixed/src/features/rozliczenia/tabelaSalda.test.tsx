@@ -107,6 +107,11 @@ describe('TabelaSalda — bez należności', () => {
     expect(container.textContent).not.toContain('Brak należności')
   })
 
+  it('bez kwoty do zapłaty i bez nadpłaty — żadnego pustego panelu sumy', () => {
+    render(<TabelaSalda z={{ ...ZESTAWIENIE, razem: 0, po_terminie: 0 }} />)
+    expect(screen.queryByTestId('panel-sumy')).toBeNull()
+  })
+
   it('pokazuje tylko tabelę, która ma pozycje', () => {
     render(<TabelaSalda z={{ ...ZESTAWIENIE, fv: { pozycje: [], razem: 0 } }} />)
     expect(screen.getAllByRole('table')).toHaveLength(1)
@@ -142,6 +147,8 @@ describe('TabelaSalda — czytelność wydruku', () => {
     const { container } = render(<TabelaSalda z={ZESTAWIENIE} />)
     const th = Array.from(container.querySelectorAll('th')) as HTMLElement[]
     th.forEach(t => expect(t.style.background).toBe(''))
+    // nagłówki w jednej linii, jak w historii rozliczeń
+    th.forEach(t => expect(t.style.whiteSpace).toBe('nowrap'))
     expect(th.find(t => t.textContent === 'Pozostało')!.style.textAlign).toBe('right')
     const kw = screen.getByText('3 120,00 €') as HTMLElement
     expect(kw.style.textAlign).toBe('right')

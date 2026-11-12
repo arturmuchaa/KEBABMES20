@@ -27,7 +27,7 @@ const S = {
   h: { fontSize: '1.05em', fontWeight: 600, margin: '0 0 .7em' } as CSSProperties,
   ks: { fontSize: '1em', fontWeight: 600, margin: '1.1em 0 .35em' } as CSSProperties,
   table: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' } as CSSProperties,
-  th: { padding: '.35em .55em .4em', fontWeight: 600, fontSize: '.84em', color: DRUK.szary,
+  th: { padding: '.35em .55em .4em', fontWeight: 600, fontSize: '.8em', color: DRUK.szary, whiteSpace: 'nowrap',
         textAlign: 'left', borderBottom: `0.75pt solid ${DRUK.liniaMocna}`, verticalAlign: 'bottom' } as CSSProperties,
   td: { padding: '.42em .55em', borderBottom: `0.5pt solid ${DRUK.linia}`, verticalAlign: 'baseline' } as CSSProperties,
   sum: { padding: '.5em .55em .2em', fontWeight: 600 } as CSSProperties,
@@ -35,7 +35,7 @@ const S = {
 
 const KOLUMNY = ['Dokument', 'Data wystawienia', 'Termin płatności', 'Kwota', 'Zapłacono', 'Pozostało', 'Dni po terminie']
 /** Te same szerokości w tabeli WZ i faktur — kolumny stoją jedna pod drugą. */
-const SZEROKOSCI = ['22%', '13%', '13%', '14%', '13%', '14%', '11%']
+const SZEROKOSCI = ['18%', '14%', '14%', '14%', '13%', '14%', '13%']
 
 function Ksiega({ k, naglowek, tytul, waluta }: { k: KsiegaZestawienia; naglowek: string; tytul: string; waluta: string }) {
   if (k.pozycje.length === 0) return null
@@ -116,7 +116,7 @@ export function TabelaSalda({ z, naWz = false, bezTytulu = false }: {
           <Ksiega k={z.wz} naglowek="WZ" tytul="Razem WZ" waluta={z.waluta} />
           <Ksiega k={z.fv} naglowek="Faktury" tytul="Razem faktury" waluta={z.waluta} />
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.1em' }}>
+          {(z.razem > 0 || nadplata) && <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.1em' }}>
             <div data-testid="panel-sumy" className="druk-panel" style={{
               minWidth: '48%', border: `0.75pt solid ${DRUK.linia}`, borderTop: `1.5pt solid ${DRUK.liniaMocna}`,
               background: DRUK.tlo, padding: '.65em .9em .7em', display: 'grid', rowGap: '.3em',
@@ -149,7 +149,7 @@ export function TabelaSalda({ z, naWz = false, bezTytulu = false }: {
                 </div>
               )}
             </div>
-          </div>
+          </div>}
 
           <div style={{ marginTop: '.9em', fontSize: '.86em', color: DRUK.szary }}>
             Wpłaty zaksięgowane do {dzien}. Jeżeli zapłacili Państwo w ostatnich dniach,

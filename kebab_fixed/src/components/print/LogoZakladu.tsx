@@ -7,6 +7,11 @@
  * `znak` to prostokąt samego logo w pikselach pliku: wariant `przyciete`
  * pokazuje tylko jego, z tego samego pliku, żeby logo w nagłówku kartki
  * stało równo z tekstem pod spodem.
+ *
+ * DRUGIE miejsce z logo zakładu: `logoDokumentu()` w `src/protrima/zaklad/zaklad.ts`
+ * (dokumenty PROTRIMA: zamówienie dla klienta, stan magazynu; plik przycięty
+ * `/logo-ksiezyc-print.png`). Przy podmianie logo zmień oba
+ * (docs/protrima-ui/WDROZENIE_ZAKLADU.md).
  */
 import type { CSSProperties } from 'react'
 

@@ -57,6 +57,10 @@ export const profilZakladu = (): ProfilZakladu => PROFIL_DOMYSLNY
  * Przejściowo: plik pierwszego zakładu jest w paczce aplikacji i pokazuje się
  * TYLKO, gdy serwer przedstawia się jego nazwą — inny zakład dostaje dokument
  * bez cudzego logo. Docelowo logo przychodzi z serwera zakładu (BRAKI_API).
+ *
+ * DRUGIE miejsce z logo zakładu: `LOGO_ZAKLADU` w `src/components/print/LogoZakladu.tsx`
+ * (WZ, zestawienie należności, historia rozliczeń — ten sam znak, plik z marginesem).
+ * Przy podmianie logo dla innego zakładu zmień oba (docs/protrima-ui/WDROZENIE_ZAKLADU.md).
  */
 export function logoDokumentu(firma: Firma | null | undefined): string | null {
   return (firma?.name ?? '').toLocaleLowerCase('pl').includes('księżyc') ? '/logo-ksiezyc-print.png' : null

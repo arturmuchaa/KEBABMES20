@@ -32,8 +32,13 @@ describe('dataPl', () => {
 })
 
 describe('chwila wydruku', () => {
-  it('data i godzina po polsku, z zerami wiodącymi', async () => {
+  it('czas polski niezależnie od strefy przeglądarki (render PDF na serwerze w UTC)', async () => {
     const { chwilaWydruku } = await import('./druk')
-    expect(chwilaWydruku(new Date(2026, 10, 2, 7, 5))).toBe('02.11.2026, 07:05')
+    // 13:23 UTC w listopadzie (CET, UTC+1) = 14:23 w Polsce
+    expect(chwilaWydruku(new Date(Date.UTC(2026, 10, 12, 13, 23)))).toBe('12.11.2026, 14:23')
+    // tuż przed północą UTC to już następny dzień w Polsce
+    expect(chwilaWydruku(new Date(Date.UTC(2026, 10, 11, 23, 5)))).toBe('12.11.2026, 00:05')
+    // lato (CEST, UTC+2), zera wiodące
+    expect(chwilaWydruku(new Date(Date.UTC(2026, 6, 2, 5, 7)))).toBe('02.07.2026, 07:07')
   })
 })

@@ -15,6 +15,7 @@ osobna baza), patrz `deploy/` i `deploy/nowy-klient.sh`.
 | Próg kontroli HACCP przyjęć | serwer (`app_settings.haccp_checks_from`, ustawiany przy wdrożeniu) | ✅ PROTRIMA bierze listę z `haccp-pending` |
 | Standard pakowania palet (szt./paletę wg wagi, warianty, max kg resztek) | `src/protrima/zaklad/zaklad.ts` → `PROFIL_DOMYSLNY` | ⚠️ w kodzie (jedno miejsce); docelowo serwer — BRAKI_API |
 | Logo firmy na dokumentach | przejściowo plik w paczce + warunek po nazwie firmy (`logoDokumentu`) | ⚠️ docelowo serwer — BRAKI_API |
+| Logo na WZ i wydrukach rozrachunków (zestawienie należności, historia rozliczeń) | plik w paczce przez jedną stałą `LOGO_ZAKLADU` (`src/components/print/LogoZakladu.tsx`: plik + prostokąt znaku); przy podmianie logo zmienić RAZEM z `logoDokumentu` | ⚠️ docelowo serwer — BRAKI_API |
 | Włączone moduły (np. zakład bez rozbioru ćwiartki) | — | ❌ do zrobienia: profil zakładu + menu z profilu |
 | Adres serwera zakładu (aplikacja desktopowa) | dziś w `src/lib/api.ts` (próba: kopia :8090) | ❌ do zrobienia przy buildzie produkcyjnym (niżej) |
 | Marka produktu PROTRIMA (logo, nazwa okna) | kod — wspólna dla wszystkich | ✅ celowo stała |

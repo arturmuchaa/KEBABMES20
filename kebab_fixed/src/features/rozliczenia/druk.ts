@@ -86,8 +86,15 @@ export function dataPl(iso: string | null | undefined): string {
   return d && m && r ? `${d}.${m}.${r}` : String(iso)
 }
 
-/** Chwila wydruku do stopki kartki: `12.11.2026, 13:05` (czas lokalny). */
+const CZAS_PL = new Intl.DateTimeFormat('pl-PL', {
+  timeZone: 'Europe/Warsaw', day: '2-digit', month: '2-digit', year: 'numeric',
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+})
+
+/** Chwila wydruku do stopki kartki: `12.11.2026, 13:05` — zawsze czas
+ *  polski. PDF renderuje headless Chrome na serwerze w UTC, więc lokalne
+ *  getHours() przeglądarki dawałoby godzinę (a koło północy dzień) wstecz. */
 export function chwilaWydruku(d: Date = new Date()): string {
-  const z = (n: number) => String(n).padStart(2, '0')
-  return `${z(d.getDate())}.${z(d.getMonth() + 1)}.${d.getFullYear()}, ${z(d.getHours())}:${z(d.getMinutes())}`
+  const c = Object.fromEntries(CZAS_PL.formatToParts(d).map(p => [p.type, p.value]))
+  return `${c.day}.${c.month}.${c.year}, ${c.hour}:${c.minute}`
 }
