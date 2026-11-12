@@ -486,3 +486,68 @@ def test_kurs_papiery_widza_klienta_z_zaleglymi_jako_otwartego(db):
     dodaj_zalegle("c1", [_wiersz("FV 1/10", date(2026, 10, 1), 10)], "biuro")
 
     assert zaladunek(kurs)["pozycje"][0]["rozliczenia_otwarte"] is True
+
+
+# ── Fix round 1: kurs wystawiany po kawałku ────────────────────────────
+
+def test_kurs_wystawiany_w_dwoch_wywolaniach_ten_sam_numer_sumuje_kg(db):
+    """Biuro wystawia tylko zamówienia „do wystawienia” — drugie wywołanie
+    z tym samym numerem dolicza kg, a nie nadpisuje."""
+    kurs = _kurs_dwoch_odbiorcow()
+
+    _wystaw(kurs, [{"order_id": "o1", "cel_kg": 300.0, "invoice_no": "FV 7/11/2026"}])
+    _wystaw(kurs, [{"order_id": "o2", "cel_kg": 120.0, "invoice_no": "FV 7/11/2026"}])
+
+    [fv] = _fv_kursu()
+    assert float(fv["kg"]) == 420.0
+    assert fv["kurs_zamowienia"] == {f"{kurs}/o1": 300.0, f"{kurs}/o2": 120.0}
+
+    # Ponowne wystawienie jednego z nich nic nie psuje.
+    _wystaw(kurs, [{"order_id": "o1", "cel_kg": 300.0, "invoice_no": "FV 7/11/2026"}])
+    [fv] = _fv_kursu()
+    assert float(fv["kg"]) == 420.0
+
+
+def test_kurs_wystawiany_w_dwoch_wywolaniach_rozne_numery_to_dwie_fv(db):
+    kurs = _kurs_dwoch_odbiorcow()
+    _wystaw(kurs, [{"order_id": "o1", "cel_kg": 300.0, "invoice_no": "FV A"}])
+    [a] = _fv_kursu()
+    edytuj_dokument(a["id"], {"kwota": 900}, "biuro")
+
+    _wystaw(kurs, [{"order_id": "o2", "cel_kg": 120.0, "invoice_no": "FV B"}])
+
+    fv = {r["numer"]: r for r in _fv_kursu()}
+    assert set(fv) == {"FV A", "FV B"}
+    assert fv["FV A"]["id"] == a["id"]
+    assert float(fv["FV A"]["kwota"]) == 900.0 and float(fv["FV A"]["kg"]) == 300.0
+    assert fv["FV B"]["kwota"] is None and float(fv["FV B"]["kg"]) == 120.0
+
+    # Prawdziwa poprawka numeru (wszystkie zamówienia FV A pod nowym numerem)
+    # zmienia numer i zostawia wpisaną kwotę.
+    _wystaw(kurs, [{"order_id": "o1", "cel_kg": 300.0, "invoice_no": "FV C"}])
+    fv = {r["numer"]: r for r in _fv_kursu()}
+    assert set(fv) == {"FV C", "FV B"}
+    assert fv["FV C"]["id"] == a["id"] and float(fv["FV C"]["kwota"]) == 900.0
+
+
+def test_zamowienie_przeniesione_pod_inny_numer_odchodzi_ze_starej_fv(db):
+    kurs = _kurs_dwoch_odbiorcow()
+    _wystaw(kurs, [{"order_id": "o1", "cel_kg": 300.0, "invoice_no": "FV A"},
+                   {"order_id": "o2", "cel_kg": 120.0, "invoice_no": "FV A"}])
+
+    _wystaw(kurs, [{"order_id": "o2", "cel_kg": 120.0, "invoice_no": "FV B"}])
+
+    fv = {r["numer"]: r for r in _fv_kursu()}
+    assert float(fv["FV A"]["kg"]) == 300.0 and float(fv["FV B"]["kg"]) == 120.0
+
+
+def test_ponowne_wystawienie_bez_numeru_zostawia_fv_i_ostrzega(db, caplog):
+    kurs = _kurs_do_wystawienia()
+    _wystaw(kurs, [{"order_id": "o1", "cel_kg": 180.0, "invoice_no": "FV 10/11/2026"}])
+
+    _wystaw(kurs, [{"order_id": "o1", "cel_kg": 180.0, "invoice_no": ""}])
+
+    [fv] = _fv_kursu()
+    assert float(fv["kg"]) == 180.0
+    assert any("bez_faktury_przy_ponownym" in r.getMessage() and r.levelname == "WARNING"
+               for r in caplog.records)

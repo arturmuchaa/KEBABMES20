@@ -36,6 +36,7 @@ Na granicy API kwoty to `float` zaokrąglony do 2 miejsc, daty — ISO.
 """
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -43,7 +44,7 @@ from typing import Any, Optional
 
 from fastapi import HTTPException
 
-from app.db import cx_execute, cx_query_one, execute, query_all, query_one, transaction
+from app.db import cx_execute, cx_query_all, cx_query_one, execute, query_all, query_one, transaction
 from app.services.rozliczenia_ksiega import (faktura_bez_kwoty, grosze, kilogramy,
                                              na_dzien as _na_dzien, obrot_okresu,
                                              rozlicz_ksiege, stan_dokumentu,
@@ -1019,26 +1020,55 @@ def dodaj_zalegle(client_id: str, dokumenty: list, kto: str) -> list[dict]:
 
 # ── FV z papierów kursu (D4) ────────────────────────────────────────────
 
+def _klucz_kursu(loading_id: str, order_id: Any) -> str:
+    """Klucz zamówienia kursu w `rozl_dokumenty.kurs_zamowienia`."""
+    return f"{loading_id}/{order_id}"
+
+
+def _mapa(x: Any) -> dict:
+    if isinstance(x, str):
+        x = json.loads(x or "{}")
+    return dict(x or {})
+
+
+def _kg_mapy(mapa: dict) -> Decimal:
+    return kilogramy(sum((Decimal(str(v)) for v in mapa.values()), Decimal(0)))
+
+
 def zapisz_fv_z_kursu(loading_id: str, pozycje: list[dict]) -> list[str]:
     """Faktury z papierów kursu do rozrachunków — BEZ KWOTY.
 
     `pozycje`: `[{"order_id", "invoice_no", "kg"}]` — numer faktury, który
     poszedł na CMR odbiorcy, i kg części fakturowanej zamówienia. Pozycje bez
-    numeru albo bez kg (brak części fakturowanej) są pomijane. Ten sam numer
-    u tego samego klienta (kilka zamówień w kursie) to jedna FV z sumą kg.
+    numeru albo bez kg (brak części fakturowanej) nic nie zapisują (gdy
+    zamówienie już zasila FV z kursu — ostrzeżenie w logu, nic nie usuwamy).
 
-    Upsert: FV z kursu o tym numerze — aktualizuje kg (kwoty wpisanej przez
-    biuro nie rusza); FV z tego kursu pod starym numerem (biuro poprawiło
-    numer przy ponownym wystawieniu) — zmienia numer; usunięta przez biuro
-    FV z tego kursu — nie wraca; faktura o tym numerze z innego źródła
-    (wpisana ręcznie) — zostaje, nic nie dublujemy. Wołający (wystawienie
-    kursu) łapie każdy błąd: rozrachunki nigdy nie blokują papierów.
-    Zwraca id zapisanych/zmienionych dokumentów."""
+    Każda FV z kursu pamięta, które zamówienia ją zasilają
+    (`kurs_zamowienia`: `{"<kurs>/<zamówienie>": kg}`), a jej kg to suma tej
+    mapy — więc kursy wystawiane po kawałku (biuro wystawia tylko zamówienia
+    „do wystawienia”) i ten sam numer na kilku zamówieniach dają jedną FV
+    z pełną sumą kg. Zamówienie, które przy ponownym wystawieniu dostało inny
+    numer, przechodzi do FV o nowym numerze; gdy WSZYSTKIE zamówienia starej
+    FV przechodzą razem pod numer, którego jeszcze nie ma — to poprawka numeru:
+    stara FV zmienia numer (wpisana kwota zostaje). Kwoty wpisanej przez biuro
+    upsert nie rusza nigdy. FV usunięta przez biuro (ten kurs, ten numer) nie
+    wraca; faktura o tym numerze z innego źródła (ręczna) — zostaje, nic nie
+    dublujemy. Wołający (wystawienie kursu) łapie każdy błąd: rozrachunki
+    nigdy nie blokują papierów. Zwraca id zapisanych/zmienionych dokumentów."""
     grupy: dict[tuple, dict] = {}
     for p in pozycje or []:
         numer = str(p.get("invoice_no") or "").strip()
         kg = kilogramy(p.get("kg"))
+        klucz = _klucz_kursu(loading_id, p.get("order_id"))
         if not numer or kg <= 0:
+            stara = query_one(
+                "SELECT numer FROM rozl_dokumenty WHERE zrodlo='kurs' AND usuniety_at IS NULL "
+                "AND kurs_zamowienia ? %s", (klucz,))
+            if stara:
+                logger.warning("rozliczenia.fv_z_kursu.bez_faktury_przy_ponownym",
+                               extra={"loading_id": loading_id, "order_id": p.get("order_id"),
+                                      "numer": stara["numer"],
+                                      "powod": "brak numeru" if not numer else "kg 0"})
             continue
         zam = query_one("SELECT client_id FROM client_orders WHERE id=%s",
                         (p.get("order_id"),))
@@ -1046,86 +1076,95 @@ def zapisz_fv_z_kursu(loading_id: str, pozycje: list[dict]) -> list[str]:
             logger.warning("rozliczenia.fv_z_kursu.bez_klienta",
                            extra={"loading_id": loading_id, "order_id": p.get("order_id")})
             continue
-        g = grupy.setdefault((zam["client_id"], numer), {"kg": kilogramy(0), "zamowienia": []})
-        g["kg"] += kg
-        g["zamowienia"].append(p.get("order_id"))
+        g = grupy.setdefault((zam["client_id"], numer), {})
+        g[klucz] = float(kg)
     if not grupy:
         return []
     zapisane: list[str] = []
     dzis = date.today()
+    _SQL = ("SELECT id, zrodlo, kg, numer, source_id, kurs_zamowienia FROM rozl_dokumenty "
+            "WHERE client_id=%s AND ksiega='fv' AND usuniety_at IS NULL ")
     with transaction() as conn:
         zablokuj_ksiege_wz(conn)
-        for (client_id, numer), g in sorted(grupy.items()):
+
+        def ustaw_mape(dok: dict, mapa: dict, numer: str) -> None:
+            kg = _kg_mapy(mapa)
+            cx_execute(conn, "UPDATE rozl_dokumenty SET kurs_zamowienia=%s::jsonb, kg=%s "
+                             "WHERE id=%s", (json.dumps(mapa), kg, dok["id"]))
+            if dok["kg"] is None or kilogramy(dok["kg"]) != kg:
+                historia(conn, client_id=dok.get("client_id"), obiekt="dokument",
+                         obiekt_id=dok["id"], akcja="zmiana",
+                         opis=f"{numer}: kilogramy {_kg_pl(dok['kg'])} → {_kg_pl(kg)} "
+                              "(papiery kursu)",
+                         przed={"kg": _json(dok["kg"])}, po={"kg": float(kg)}, kto=KTO_MES)
+
+        for (client_id, numer), nowe in sorted(grupy.items()):
             klient = _klient_cx(conn, client_id)
-            obecny = cx_query_one(
-                conn, "SELECT id, zrodlo, kg, numer, source_id FROM rozl_dokumenty "
-                      "WHERE client_id=%s AND ksiega='fv' AND numer=%s "
-                      "AND usuniety_at IS NULL FOR UPDATE",
-                (client_id, numer))
+            obecny = cx_query_one(conn, _SQL + "AND numer=%s FOR UPDATE", (client_id, numer))
             if obecny is not None and obecny["zrodlo"] != ZRODLO_KURS:
                 logger.info("rozliczenia.fv_z_kursu.juz_wpisana",
                             extra={"loading_id": loading_id, "numer": numer})
-                continue
-            if obecny is not None and obecny["source_id"] != loading_id:
-                # Ten sam numer z INNEGO kursu — kg tamtego kursu zostają
-                # (biuro poprawi je ręcznie, jeśli faktura obejmuje oba kursy).
-                logger.warning("rozliczenia.fv_z_kursu.inny_kurs",
-                               extra={"loading_id": loading_id, "numer": numer})
                 continue
             if obecny is None and cx_query_one(
                     conn, "SELECT 1 FROM rozl_dokumenty WHERE client_id=%s AND ksiega='fv' "
                           "AND zrodlo='kurs' AND source_id=%s AND numer=%s "
                           "AND usuniety_at IS NOT NULL", (client_id, loading_id, numer)):
                 continue  # biuro usunęło — ponowne wystawienie jej nie wskrzesza
+            # FV z kursu tego klienta, które dziś zasilają zamówienia z tego
+            # wywołania pod INNYM numerem.
+            inne = [d for d in cx_query_all(
+                conn, _SQL + "AND zrodlo='kurs' AND numer<>%s AND kurs_zamowienia ?| %s "
+                             "ORDER BY utworzono, id FOR UPDATE",
+                (client_id, numer, list(nowe)))]
             if obecny is None:
-                # Ten kurs, ten klient, numer, którego już nie ma wśród numerów
-                # kursu — biuro poprawiło numer przy ponownym wystawieniu.
-                numery = [n for (c, n) in grupy if c == client_id]
-                obecny = cx_query_one(
-                    conn, "SELECT id, zrodlo, kg, numer, source_id FROM rozl_dokumenty "
-                          "WHERE client_id=%s AND ksiega='fv' AND zrodlo='kurs' "
-                          "AND source_id=%s AND usuniety_at IS NULL AND NOT (numer = ANY(%s)) "
-                          "ORDER BY utworzono, id LIMIT 1 FOR UPDATE",
-                    (client_id, loading_id, numery))
-                if obecny is not None:
+                # Poprawka numeru: wszystkie zamówienia starej FV przechodzą
+                # razem pod numer, którego jeszcze nie ma.
+                kandydat = next((d for d in inne
+                                 if _mapa(d["kurs_zamowienia"])
+                                 and set(_mapa(d["kurs_zamowienia"])) <= set(nowe)), None)
+                if kandydat is not None:
                     cx_execute(conn, "UPDATE rozl_dokumenty SET numer=%s WHERE id=%s",
-                               (numer, obecny["id"]))
+                               (numer, kandydat["id"]))
                     historia(conn, client_id=client_id, obiekt="dokument",
-                             obiekt_id=obecny["id"], akcja="zmiana",
-                             opis=f"{obecny['numer']}: numer {obecny['numer']} → {numer} "
+                             obiekt_id=kandydat["id"], akcja="zmiana",
+                             opis=f"{kandydat['numer']}: numer {kandydat['numer']} → {numer} "
                                   "(papiery kursu)",
-                             przed={"numer": obecny["numer"]}, po={"numer": numer},
+                             przed={"numer": kandydat["numer"]}, po={"numer": numer},
                              kto=KTO_MES)
+                    inne = [d for d in inne if d["id"] != kandydat["id"]]
+                    obecny = {**kandydat, "numer": numer}
+            # Zamówienia przeniesione pod nowy numer znikają ze starych FV.
+            for d in inne:
+                mapa = {k: v for k, v in _mapa(d["kurs_zamowienia"]).items() if k not in nowe}
+                ustaw_mape({**d, "client_id": client_id}, mapa, d["numer"])
+                if not mapa:
+                    logger.warning("rozliczenia.fv_z_kursu.fv_bez_zamowien",
+                                   extra={"loading_id": loading_id, "numer": d["numer"]})
             if obecny is not None:
-                if obecny["kg"] is None or kilogramy(obecny["kg"]) != g["kg"]:
-                    cx_execute(conn, "UPDATE rozl_dokumenty SET kg=%s WHERE id=%s",
-                               (g["kg"], obecny["id"]))
-                    historia(conn, client_id=client_id, obiekt="dokument",
-                             obiekt_id=obecny["id"], akcja="zmiana",
-                             opis=f"{numer}: kilogramy {_kg_pl(obecny['kg'])} → "
-                                  f"{_kg_pl(g['kg'])} (papiery kursu)",
-                             przed={"kg": _json(obecny["kg"])}, po={"kg": float(g["kg"])},
-                             kto=KTO_MES)
+                mapa = {**_mapa(obecny["kurs_zamowienia"]), **nowe}
+                ustaw_mape({**obecny, "client_id": client_id}, mapa, numer)
                 zapisane.append(obecny["id"])
                 continue
             dok_id = cuid()
             termin = dzis + timedelta(days=klient["rozl_termin_fv"])
+            kg = _kg_mapy(nowe)
             cx_execute(
                 conn,
                 "INSERT INTO rozl_dokumenty (id, client_id, ksiega, zrodlo, source_id, numer, "
-                " data_dok, kwota, waluta, termin, forma, stan_zrodla, kg, utworzyl) "
-                "VALUES (%s,%s,'fv','kurs',%s,%s,%s,NULL,%s,%s,%s,'czeka_na_kwote',%s,%s)",
+                " data_dok, kwota, waluta, termin, forma, stan_zrodla, kg, kurs_zamowienia, "
+                " utworzyl) "
+                "VALUES (%s,%s,'fv','kurs',%s,%s,%s,NULL,%s,%s,%s,'czeka_na_kwote',%s,%s::jsonb,%s)",
                 (dok_id, client_id, loading_id, numer, dzis, klient["settlement_currency"],
-                 termin, klient["rozl_forma_fv"], g["kg"], KTO_MES))
+                 termin, klient["rozl_forma_fv"], kg, json.dumps(nowe), KTO_MES))
             historia(conn, client_id=client_id, obiekt="dokument", obiekt_id=dok_id,
                      akcja="dodano",
-                     opis=f"faktura {numer} z papierów kursu — czeka na kwotę "
-                          f"({_kg_pl(g['kg'])})",
-                     po={"kg": float(g["kg"]), "zamowienia": g["zamowienia"]}, kto=KTO_MES)
+                     opis=f"faktura {numer} z papierów kursu — czeka na kwotę ({_kg_pl(kg)})",
+                     po={"kg": float(kg), "zamowienia": sorted(nowe)}, kto=KTO_MES)
             zapisane.append(dok_id)
     logger.info("rozliczenia.fv_z_kursu", extra={"loading_id": loading_id,
                                                   "dokumenty": len(zapisane)})
     return zapisane
+
 
 # ── Wpłaty ──────────────────────────────────────────────────────────────
 

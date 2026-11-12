@@ -2054,6 +2054,10 @@ _DDL: list[str] = [
     "ALTER TABLE rozl_dokumenty ALTER COLUMN kwota DROP NOT NULL",
     # Numer zaległego dokumentu unikalny per klient i księga (dla FV pilnuje
     # tego już uq_rozl_dok_fv — dla każdego źródła).
+    # FV z kursu: które zamówienia kursu ją zasilają i ile kg każde
+    # (`{"<kurs>/<zamówienie>": kg}`) — kg FV to suma, także gdy biuro
+    # wystawia kurs po kawałku.
+    "ALTER TABLE rozl_dokumenty ADD COLUMN IF NOT EXISTS kurs_zamowienia JSONB",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_rozl_dok_otwarcie "
     "ON rozl_dokumenty(client_id, ksiega, numer) "
     "WHERE zrodlo='otwarcie' AND usuniety_at IS NULL",
@@ -2210,7 +2214,7 @@ def _rozl_poszerz_checki() -> None:
                                  f"{_ROZL_CHECKI[nazwa][1]}")
         logger.info("migrations.rozl_checki", extra={"zmienione": do_zmiany})
     except Exception as exc:
-        logger.warning("migrations.rozl_checki.failed", extra={"error": str(exc)})
+        logger.error("migrations.rozl_checki.failed", extra={"error": str(exc)})
 
 
 def _rozl_klucze_bez_kaskady() -> None:
