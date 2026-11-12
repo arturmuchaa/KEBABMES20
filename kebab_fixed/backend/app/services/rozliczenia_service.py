@@ -253,10 +253,13 @@ def _wiersze_karty(ks: dict, numery: dict, w_okresie, nieliczone: list) -> list[
 
 def _okres(od: Optional[date], do: Optional[date], start: date) -> tuple[date, Optional[date]]:
     """Okres obrotu/kg: bez `od` — od daty startu; wcześniej niż start też od
-    startu (dokumenty sprzed startu siedzą w saldzie otwarcia)."""
-    od = max(od, start) if od is not None else start
-    if do is not None and do < od:
+    startu (dokumenty sprzed startu siedzą w saldzie otwarcia). Najpierw
+    sprawdzamy surowe `do < od`, dopiero potem obcinamy: okres w całości przed
+    startem (np. poprzedni miesiąc) jest poprawny i pusty — obrót i kg 0
+    (wtedy w odpowiedzi `od` > `do`)."""
+    if od is not None and do is not None and do < od:
         raise HTTPException(400, "Data „do” jest wcześniejsza niż „od”")
+    od = max(od, start) if od is not None else start
     return od, do
 
 
@@ -322,7 +325,9 @@ def karta(client_id: str, dzis: Optional[date] = None, od: Optional[date] = None
         "fv_bez_kwoty": obrot["fv_bez_kwoty"],
         # Rozliczenia „otwarte” = biuro wprowadziło saldo otwarcia (choćby 0).
         # Dopiero wtedy saldo drukuje się na WZ i w papierach kursu.
-        "rozliczenia_otwarte": bool(otwarcia),
+        # Saldo drukuje się na WZ i w papierach kursu tylko wtedy (jak
+        # `rozliczenia_otwarte()`): wyłączony klient — nigdy.
+        "rozliczenia_otwarte": bool(otwarcia) and not klient["rozl_wylaczony"],
         "saldo": {"wz": _f(wz["saldo"]), "fv": _f(fv["saldo"]),
                   "lacznie": _f(wz["saldo"] + fv["saldo"]),
                   "po_terminie_wz": _f(wz["po_terminie"]), "po_terminie_fv": _f(fv["po_terminie"]),
@@ -403,7 +408,7 @@ def lista(dzis: Optional[date] = None, od: Optional[date] = None,
             "SELECT d.id, d.numer, d.data_dok, d.kwota, d.waluta, w.buyer_name "
             "FROM rozl_dokumenty d LEFT JOIN wz_documents w ON w.id = d.source_id "
             "WHERE d.client_id IS NULL AND d.zrodlo='mes_wz' AND d.usuniety_at IS NULL "
-            "  AND d.stan_zrodla <> 'anulowany' AND d.data_dok >= %s "
+            "  AND d.stan_zrodla <> 'anulowany' AND NOT d.nie_licz AND d.data_dok >= %s "
             "ORDER BY d.data_dok, d.numer", (start,))]
 
     zero = {"naleznosci": _ZERO, "po_terminie": _ZERO, "gotowka_wz": _ZERO, "nadplaty": _ZERO,
@@ -415,7 +420,9 @@ def lista(dzis: Optional[date] = None, od: Optional[date] = None,
         docs = [r for r in dokumenty[cid] if r["stan_zrodla"] != "anulowany"]
         # Wiersz salda otwarcia (choćby 0) wystarcza, żeby klient był na liście
         # (kontrahent dodany bez dokumentów); do ksiąg idą tylko niezerowe.
-        if not docs and not wplaty[cid] and not otwarcia[cid]:
+        # WZ „nie licz” same w sobie nie robią z klienta pozycji listy.
+        liczone = [r for r in docs if not r["nie_licz"]]
+        if not liczone and not wplaty[cid] and not otwarcia[cid]:
             continue
         otw = [o for o in otwarcia[cid] if grosze(o["kwota"]) != 0]
         k = _zbuduj(klient, docs, wplaty[cid], otw, start, None, dzis)
@@ -571,9 +578,9 @@ def _kg_wartosc(x: Any) -> Optional[Decimal]:
     try:
         d = Decimal(str(x))
     except (ArithmeticError, ValueError, TypeError):
-        raise HTTPException(400, "Nieprawidłowe kilogramy")
+        raise HTTPException(400, "Nieprawidłowa liczba kg")
     if isinstance(x, bool) or not d.is_finite():
-        raise HTTPException(400, "Nieprawidłowe kilogramy")
+        raise HTTPException(400, "Nieprawidłowa liczba kg")
     d = kilogramy(d)
     if d < 0:
         raise HTTPException(400, "Kilogramy nie mogą być ujemne")

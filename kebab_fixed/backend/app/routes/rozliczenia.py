@@ -60,6 +60,14 @@ def _kwota(wartosc: Any) -> Any:
     raise HTTPException(400, "Nieprawidłowa kwota")
 
 
+def _kg(wartosc: Any) -> Any:
+    """Kilogramy jak kwota (liczba albo `"1 250,5"`), z własnym komunikatem."""
+    try:
+        return _kwota(wartosc)
+    except HTTPException:
+        raise HTTPException(400, "Nieprawidłowa liczba kg")
+
+
 def _kto(request: Request) -> str:
     # Sesja biura (auth_service._office_public) niesie `name` (nazwa wyświetlana
     # albo login) — bez tego w księdze lądowało surowe id użytkownika.
@@ -126,7 +134,7 @@ def dodaj_fakture(client_id: str, body: Dict[str, Any], request: Request):
         client_id, numer=_tekst(body, "numer"), data=_data(body.get("data")),
         kwota=_kwota(body.get("kwota")), termin=_data(body.get("termin")),
         forma=body.get("forma") or None, uwagi=_tekst(body, "uwagi"),
-        kto=_kto(request), kg=_kwota(body.get("kg")))
+        kto=_kto(request), kg=_kg(body.get("kg")))
 
 
 @router.post("/klient/{client_id}/wplaty/podglad")
@@ -159,9 +167,10 @@ def dokument(dokument_id: str):
 @router.patch("/dokumenty/{dokument_id}")
 def edytuj_dokument(dokument_id: str, body: Dict[str, Any], request: Request):
     zmiany = {k: v for k, v in body.items() if k != "powod"}
-    for pole in ("kwota", "kg"):
-        if pole in zmiany:
-            zmiany[pole] = _kwota(zmiany[pole])
+    if "kwota" in zmiany:
+        zmiany["kwota"] = _kwota(zmiany["kwota"])
+    if "kg" in zmiany:
+        zmiany["kg"] = _kg(zmiany["kg"])
     for pole in ("data", "termin"):
         if pole in zmiany:
             zmiany[pole] = _data(zmiany[pole])

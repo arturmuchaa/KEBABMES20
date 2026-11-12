@@ -78,9 +78,11 @@ def obrot_okresu(dokumenty: Iterable[dict], waluta: str, od: date,
     """Obrót i sprzedane kg klienta za okres [od, do] (`do` None = bez końca).
 
     Obrót = suma brutto dokumentów liczonych (aktywne, w walucie kontrahenta,
-    bez WZ „nie licz”), z datą w okresie — korekty ujemne odejmują. Kg = kg tych
-    samych dokumentów plus kg faktur bez kwoty (towar wyjechał). Saldo otwarcia
-    nie jest dokumentem, więc nie wchodzi nigdzie. `fv_bez_kwoty` — liczba
+    bez WZ „nie licz”), z datą w okresie — korekty ujemne odejmują.
+    Kg („ile kg wziął klient”) = kg dokumentów aktywnych bez względu na walutę
+    (kg nie ma waluty), plus WZ czekające na ceny i faktury bez kwoty (towar
+    wyjechał); korekta ujemna z kg odejmuje kg. Bez WZ „nie licz” i anulowanych.
+    Saldo otwarcia nie jest dokumentem, więc nie wchodzi nigdzie. `fv_bez_kwoty` — liczba
     faktur czekających na kwotę, bez względu na okres.
     Wejście: wiersze `rozl_dokumenty` (nieusunięte, od daty startu).
     """
@@ -93,13 +95,16 @@ def obrot_okresu(dokumenty: Iterable[dict], waluta: str, od: date,
             bez_kwoty += 1
         if r["data_dok"] < od or (do is not None and r["data_dok"] > do):
             continue
-        if brak_kwoty:
-            kg += kilogramy(r.get("kg"))
+        kg_r = abs(kilogramy(r.get("kg")))
+        if brak_kwoty or r["stan_zrodla"] == "czeka_na_ceny":
+            kg += kg_r
             continue
-        if r["stan_zrodla"] != "aktywny" or r["waluta"] != waluta:
+        if r["stan_zrodla"] != "aktywny":
             continue
-        obrot += grosze(r["kwota"])
-        kg += kilogramy(r.get("kg"))
+        kwota = grosze(r["kwota"])
+        kg += -kg_r if kwota < 0 else kg_r
+        if r["waluta"] == waluta:
+            obrot += kwota
     return {"obrot": obrot, "kg": kg, "fv_bez_kwoty": bez_kwoty}
 
 

@@ -348,11 +348,16 @@ def test_obrot_okresu_faktura_bez_kwoty_daje_kg_bez_obrotu():
             dok(kwota=Decimal("100"), kg=Decimal("10")),
             dok(kwota=Decimal("50"), waluta="EUR", kg=Decimal("3")),
             dok(ksiega="wz", kwota=Decimal("10"), stan_zrodla="czeka_na_ceny",
-                kg=Decimal("9"))]
+                kg=Decimal("9")),
+            dok(kwota=Decimal("-20"), kg=Decimal("4")),
+            dok(ksiega="wz", kwota=Decimal("70"), stan_zrodla="anulowany", kg=Decimal("100")),
+            dok(ksiega="wz", kwota=Decimal("70"), nie_licz=True, kg=Decimal("100"))]
 
     w = obrot_okresu(docs, "PLN", date(2026, 11, 1), date(2026, 11, 30))
 
-    assert w == {"obrot": Decimal("100.00"), "kg": Decimal("40.000"), "fv_bez_kwoty": 3}
+    # kg: 25 + 5 (bez kwoty) + 10 + 3 (EUR — kg nie ma waluty) + 9 (czeka na ceny)
+    # − 4 (korekta); obrót: 100 − 20 (EUR i bez ceny poza obrotem).
+    assert w == {"obrot": Decimal("80.00"), "kg": Decimal("48.000"), "fv_bez_kwoty": 3}
 
 
 def test_faktura_reczna_z_kg_i_edycja_kg(db):
@@ -476,3 +481,71 @@ def test_dokument_ma_kg_zaplacono_zostalo_i_pelna_kwote_wplaty(db):
                               "kwota_wplaty": 1500.0, "uwagi": "przelew zbiorczy",
                               "kto": "ala", "rodzaj": "wplata", "wplata_id": w["id"]}]
     assert dokument(a["id"])["pokrycie"][0]["kwota"] == 1000.0
+
+
+# ── Poprawki po przeglądzie (runda 1) ───────────────────────────────────
+
+def test_okres_w_calosci_przed_startem_daje_zero_a_nie_400(obroty):
+    l = lista(od=date(2026, 10, 1), do=date(2026, 10, 31))
+    k = karta("k", okres_od=date(2026, 10, 1), okres_do=date(2026, 10, 31))
+    r = route.lista(od="2026-10-01", do="2026-10-31")
+
+    assert (_po_id(l)["k"]["obrot"], _po_id(l)["k"]["kg"]) == (0.0, 0.0)
+    assert l["podsumowanie"]["PLN"]["obrot"] == 0.0
+    assert (k["obrot"], k["kg"]) == (0.0, 0.0)
+    assert _po_id(r)["k"]["obrot"] == 0.0
+    with pytest.raises(HTTPException) as e:
+        lista(od=date(2026, 10, 31), do=date(2026, 10, 1))
+    assert e.value.status_code == 400
+
+
+def test_kg_obejmuje_wz_czekajace_na_ceny(db):
+    _klient("k", "KLIENT")
+    _wz("w1", "k", numer="WZ 1/11", release_date="2026-11-10", valued=False,
+        lines=_linie(0, kg_szt=10, szt=5), buyer_name="KLIENT")
+    synchronizuj_wz()
+
+    k = karta("k")
+
+    assert (k["obrot"], k["kg"]) == (0.0, 50.0)
+
+
+def test_klient_z_samymi_wz_nieliczonymi_nie_jest_na_liscie(db):
+    _klient("k", "KLIENT")
+    _wz("w1", "k", numer="WZ 1/11", release_date="2026-11-10", buyer_name="KLIENT")
+    synchronizuj_wz()
+    ustaw_nie_licz(_dok("w1")["id"], True, "nie nasze", "biuro")
+
+    assert lista()["kontrahenci"] == []
+
+
+def test_bez_kontrahenta_pomija_wz_nieliczone(db):
+    _wz("w1", None, numer="WZ 1/11", release_date="2026-11-10", buyer_name="NIKT")
+    _wz("w2", None, numer="WZ 2/11", release_date="2026-11-10", buyer_name="NIKT")
+    synchronizuj_wz()
+    ustaw_nie_licz(_dok("w2")["id"], True, "próbka", "biuro")
+
+    assert [r["numer"] for r in lista()["bez_kontrahenta"]] == ["WZ 1/11"]
+
+
+def test_karta_rozliczenia_otwarte_falsz_dla_wylaczonego(db):
+    _klient("k", "KLIENT")
+    _otworz("k", 0)
+    assert karta("k")["rozliczenia_otwarte"] is True
+
+    ustaw_klienta("k", {"wylaczony": True}, "biuro")
+
+    assert karta("k")["rozliczenia_otwarte"] is False
+
+
+def test_zle_kg_maja_wlasny_komunikat(db):
+    _klient("k", "KLIENT")
+    with pytest.raises(HTTPException) as e:
+        route.dodaj_fakture("k", {"numer": "FV 3/11", "data": "2026-11-10", "kwota": 10,
+                                  "kg": "abc"}, KTO)
+    assert (e.value.status_code, e.value.detail) == (400, "Nieprawidłowa liczba kg")
+    fv = dodaj_fakture("k", numer="FV 4/11", data=date(2026, 11, 10), kwota=10, termin=None,
+                       forma=None, uwagi="", kto="biuro")
+    with pytest.raises(HTTPException) as e:
+        route.edytuj_dokument(fv["id"], {"kg": "x"}, KTO)
+    assert e.value.detail == "Nieprawidłowa liczba kg"
