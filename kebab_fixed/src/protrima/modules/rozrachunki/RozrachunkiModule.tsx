@@ -354,7 +354,8 @@ function Sumy({ l, okres }: { l: ListaRozliczen; okres: string }) {
         </div>
         <div className="rr-sum rr-sum-okres">
           <span className="k">Sprzedane kg</span>
-          <span className="v"><span className="rr-kw">{kilogramy(kg)}</span></span>
+          {/* Ten sam krój co kwoty obok (przy dwóch walutach mniejszy) — kafelki w jednej linii. */}
+          <span className={`v${waluty.length > 1 ? ' multi' : ''}`}><span className="rr-kw">{kilogramy(kg)}</span></span>
           <span className="s">{kupujacy ? `kontrahentów z towarem: ${kupujacy}` : 'w tym okresie nic nie wyjechało'}</span>
         </div>
       </div>
@@ -503,6 +504,7 @@ function DodajKontrahentaDialog({ naLiscie, wylaczeni, onClose, onWybierz }: {
     .map(c => ({ id: c.id, label: c.displayName || c.name, sub: c.nip || undefined }))
     .sort((a, b) => a.label.localeCompare(b.label, 'pl')), [klienciRes.data, naLiscie, wylaczeni])
   const [id, setId] = useState('')
+  // Po wyborze (Enter) fokus na „Otwórz kartę” — dopiero po przerysowaniu, gdy przycisk przestał być wyłączony; drugi Enter otwiera.
   const przycisk = useRef<HTMLButtonElement>(null)
   const wybrany = items.find(i => i.id === id)
   const otworz = () => { if (wybrany) onWybierz(wybrany.id, wybrany.label) }
@@ -516,9 +518,9 @@ function DodajKontrahentaDialog({ naLiscie, wylaczeni, onClose, onWybierz }: {
       </>}>
       <form onSubmit={e => { e.preventDefault(); otworz() }}>
         <div className="fld"><span className="label">Kontrahent z kartoteki</span>
-          <Wybor id="rr-dodaj-kontrahenta" label="Kontrahent z kartoteki" items={items} value={id} autoFocus disabled={wczytuje}
+          <Wybor id="rr-dodaj-kontrahenta" label="Kontrahent z kartoteki" items={items} value={id} autoFocus
             pusto={wczytuje ? 'Wczytuję kartotekę…' : 'Wszyscy kontrahenci z kartoteki są już w rozrachunkach'}
-            onChange={setId} onDalej={() => przycisk.current?.focus()} />
+            onChange={setId} onDalej={() => setTimeout(() => przycisk.current?.focus(), 0)} />
           <span className="rr-pole-pod">{wczytuje ? 'Wczytuję kartotekę kontrahentów…' : 'Szukaj po nazwie albo NIP. Nie ma tu tych, którzy już są na liście, ani wyłączonych (te przywrócisz chipem „Wyłączeni”).'}</span>
         </div>
       </form>

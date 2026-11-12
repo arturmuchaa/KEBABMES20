@@ -121,6 +121,7 @@ export function Wybor({ id, label, items, value, onChange, onDalej, noneLabel, p
         aria-expanded={open} aria-controls={listaId} aria-autocomplete="list" aria-invalid={invalid || undefined}
         aria-activedescendant={open && lista[hi] ? `${id}-o-${hi}` : undefined}
         autoComplete="off" spellCheck={false} autoFocus={autoFocus} disabled={disabled} placeholder={placeholder}
+        {...(autoFocus ? { 'data-autofocus': true } : {})}
         value={q ?? sel?.label ?? ''} title={sel?.label}
         onChange={e => { setQ(e.target.value); setHi(0); setOpen(true) }}
         onFocus={e => { e.currentTarget.select(); swiezyFocus.current = true }}

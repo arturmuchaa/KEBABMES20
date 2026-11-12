@@ -106,7 +106,7 @@ select.field { appearance: none; -webkit-appearance: none; padding-right: 28px; 
 .wybor-ch { position: absolute; right: 8px; color: var(--ink-3); pointer-events: none; }
 .wybor > .field:disabled + .wybor-ch { color: var(--ink-4); }
 .wybor-lista {
-  position: fixed; z-index: 55; overflow-y: auto; padding: 4px;
+  position: fixed; z-index: 75; /* nad oknem dialogowym (70) — lista wyboru bywa w oknie */ overflow-y: auto; padding: 4px;
   background: var(--surface); border-radius: var(--r-md); box-shadow: var(--e2); animation: menu-in .12s var(--ease);
 }
 .wybor-lista [role="option"] {
