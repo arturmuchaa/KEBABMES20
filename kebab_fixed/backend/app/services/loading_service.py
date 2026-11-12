@@ -714,8 +714,11 @@ def zaladunek(loading_id: str) -> Dict[str, Any]:
             # Rozliczenia „otwarte” (biuro wprowadziło saldo otwarcia) — dopiero
             # wtedy zestawienie należności może iść do klienta w papierach kursu.
             # Klient wyłączony z rozrachunków nigdy go nie dostaje.
-            "       EXISTS (SELECT 1 FROM rozl_otwarcia ro JOIN clients rc ON rc.id = ro.client_id "
-            "               WHERE ro.client_id = o.client_id AND NOT rc.rozl_wylaczony) AS rozliczenia_otwarte "
+            # Zaległe dokumenty sprzed startu też „otwierają” rozliczenia.
+            "       (EXISTS (SELECT 1 FROM clients rc WHERE rc.id = o.client_id AND NOT rc.rozl_wylaczony) "
+            "        AND (EXISTS (SELECT 1 FROM rozl_otwarcia ro WHERE ro.client_id = o.client_id) "
+            "             OR EXISTS (SELECT 1 FROM rozl_dokumenty rd WHERE rd.client_id = o.client_id "
+            "                        AND rd.zrodlo='otwarcie' AND rd.usuniety_at IS NULL))) AS rozliczenia_otwarte "
             "FROM loading_orders lo LEFT JOIN client_orders o ON o.id = lo.order_id "
             "WHERE lo.loading_id=%s ORDER BY o.client_name", (loading_id,)):
         oid = r["order_id"]
@@ -884,6 +887,7 @@ def wystaw_z_kursu(loading_id: str, decyzje: List[Dict[str, Any]],
         "SELECT order_id FROM loading_orders WHERE loading_id=%s", (loading_id,))}
 
     wyniki: List[Dict[str, Any]] = []
+    faktury: List[Dict[str, Any]] = []
     for d in sorted(decyzje or [], key=lambda d: str(d.get("order_id") or "")):
         oid = str(d.get("order_id") or "")
         # Zamówienie spoza kursu odrzucamy — inaczej zapis kursu nie znaczyłby
@@ -894,7 +898,9 @@ def wystaw_z_kursu(loading_id: str, decyzje: List[Dict[str, Any]],
 
         with shipment_context(oid, loading_id):
             wyniki.append(_wystaw_odbiorce_z_kursu(loading_id, oid, d, forma_cmr, hdi_fv))
+            faktury.append(_faktura_do_rozrachunkow(oid, d, forma_cmr))
 
+    _dopisz_fv_do_rozrachunkow(loading_id, faktury)
     logger.info("loading.documents.issued", extra={
         "loading_id": loading_id, "orders": len(wyniki)})
     return {"ok": True, "loading_id": loading_id, "orders": wyniki}
@@ -925,6 +931,38 @@ def _wystaw_odbiorce_z_kursu(loading_id, oid, d, forma_cmr, hdi_fv):
         "WHERE loading_id=%s AND order_id=%s",
         (wm.get("id"), loading_id, oid))
     return {"order_id": oid, **komplet}
+
+
+def _faktura_do_rozrachunkow(oid: str, d: Dict[str, Any],
+                             forma_cmr: Dict[str, Any]) -> Dict[str, Any]:
+    """Numer faktury odbiorcy (ten, który poszedł na CMR — własny albo z
+    formularza kursu) i kg części fakturowanej (Σ qty_invoice × kg_per_unit
+    z podziału tej wysyłki). Nigdy nie rzuca — rozrachunki nie mogą zatrzymać
+    papierów kursu."""
+    from app.services.shipment_documents import current
+    numer = str(d.get("invoice_no") or "").strip() or str(
+        (forma_cmr or {}).get("invoice_no") or "").strip()
+    kg = 0.0
+    try:
+        linie = (current(oid) or {}).get("lines") or []
+        kg = round(sum(int(l.get("qty_invoice") or 0) * float(l.get("kg_per_unit") or 0)
+                       for l in linie), 3)
+    except Exception:
+        logger.exception("loading.rozliczenia.kg_faktury", extra={"order_id": oid})
+    return {"order_id": oid, "invoice_no": numer, "kg": kg}
+
+
+def _dopisz_fv_do_rozrachunkow(loading_id: str, faktury: List[Dict[str, Any]]) -> None:
+    """D4 (12.11.2026): faktury z papierów kursu trafiają do rozrachunków bez
+    kwoty. Błąd zostaje w punkcie zapisu (savepoint) i w logu — wystawienie
+    papierów idzie dalej."""
+    from app.services import rozliczenia_service
+    try:
+        with transaction():
+            rozliczenia_service.zapisz_fv_z_kursu(loading_id, faktury)
+    except Exception:
+        logger.exception("loading.rozliczenia.fv_z_kursu_failed",
+                         extra={"loading_id": loading_id})
 
 
 def oznacz_wydrukowany(loading_id: str, operator: str = "") -> Dict[str, Any]:

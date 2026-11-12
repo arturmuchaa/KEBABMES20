@@ -3293,6 +3293,29 @@ export const rozliczeniaApi = {
     termin?: string | null; forma?: FormaPlatnosci | null; uwagi?: string
     kg?: number | string | null
   }) => post<any>(`${rozlKlient(clientId)}/faktury`, dto),
+  /** Zaległe dokumenty sprzed startu (saldo otwarcia rozpisane na dokumenty).
+   *  `kwota` — pozostała do zapłaty (> 0); `termin` pusty = data + termin klienta.
+   *  Zapis w całości albo wcale; błąd wiersza zaczyna się od „Wiersz N:”.
+   *  Zwraca `{ dokumenty: Dok[] }` (zrodlo 'otwarcie'). */
+  dodajZalegle: (clientId: string, dokumenty: Array<{
+    ksiega: KsiegaRozliczen; numer: string; data: string; kwota: number | string
+    termin?: string | null; uwagi?: string
+  }>) => post<{ dokumenty: any[] }>(`${rozlKlient(clientId)}/zalegle`, { dokumenty }),
+  /** Zmiana zaległego dokumentu (kwota z powodem, numer, data sprzed startu,
+   *  termin, uwagi) — ta sama trasa co `edytujDokument`. */
+  edytujZalegly: (dokumentId: string,
+                  zmiany: { kwota?: number | string; numer?: string; data?: string
+                            termin?: string; uwagi?: string; powod?: string }) =>
+    patch<any>(`/rozliczenia/dokumenty/${encodeURIComponent(dokumentId)}`, zmiany),
+  /** Usunięcie zaległego dokumentu z powodem — ta sama trasa co `usunDokument`. */
+  usunZalegly: (dokumentId: string, powod: string) =>
+    post<{ ok: boolean }>(`/rozliczenia/dokumenty/${encodeURIComponent(dokumentId)}/usun`, { powod }),
+  /** Wpisanie kwoty FV z papierów kursu („czeka na kwotę”). Pierwsza kwota bez
+   *  powodu (faktura wchodzi do salda, termin z daty i terminu FV klienta);
+   *  zmiana już wpisanej — z powodem. */
+  wpiszKwoteFv: (dokumentId: string, kwota: number | string, powod = '') =>
+    patch<any>(`/rozliczenia/dokumenty/${encodeURIComponent(dokumentId)}`,
+      powod ? { kwota, powod } : { kwota }),
   podgladWplaty: (clientId: string,
                   dto: { ksiega: KsiegaRozliczen; kwota: number | string; dokument_id?: string | null }) =>
     post<any>(`${rozlKlient(clientId)}/wplaty/podglad`, dto),

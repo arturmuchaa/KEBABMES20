@@ -82,13 +82,15 @@ def obrot_okresu(dokumenty: Iterable[dict], waluta: str, od: date,
     Kg („ile kg wziął klient”) = kg dokumentów aktywnych bez względu na walutę
     (kg nie ma waluty), plus WZ czekające na ceny i faktury bez kwoty (towar
     wyjechał); korekta ujemna z kg odejmuje kg. Bez WZ „nie licz” i anulowanych.
-    Saldo otwarcia nie jest dokumentem, więc nie wchodzi nigdzie. `fv_bez_kwoty` — liczba
+    Saldo otwarcia nie wchodzi nigdzie — także rozpisane na zaległe dokumenty
+    (`zrodlo='otwarcie'`). `fv_bez_kwoty` — liczba
     faktur czekających na kwotę, bez względu na okres.
     Wejście: wiersze `rozl_dokumenty` (nieusunięte, od daty startu).
     """
     obrot, kg, bez_kwoty = _ZERO, _ZERO_KG, 0
     for r in dokumenty:
-        if r.get("nie_licz"):
+        # Zaległe dokumenty sprzed startu to saldo otwarcia (D3a, D13).
+        if r.get("nie_licz") or r.get("zrodlo") == "otwarcie":
             continue
         brak_kwoty = faktura_bez_kwoty(r)
         if brak_kwoty:

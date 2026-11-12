@@ -137,6 +137,24 @@ def dodaj_fakture(client_id: str, body: Dict[str, Any], request: Request):
         kto=_kto(request), kg=_kg(body.get("kg")))
 
 
+@router.post("/klient/{client_id}/zalegle")
+def dodaj_zalegle(client_id: str, body: Dict[str, Any], request: Request):
+    """Zaległe dokumenty sprzed startu: `{dokumenty: [{ksiega, numer, data,
+    termin?, kwota, uwagi?}]}` (kwota — pozostała do zapłaty) → `{dokumenty: [Dok]}`.
+    Zapis w całości albo wcale; błąd wiersza zaczyna się od „Wiersz N:”."""
+    wiersze = body.get("dokumenty")
+    if not isinstance(wiersze, list):
+        raise HTTPException(400, "Podaj listę zaległych dokumentów")
+    dane = []
+    for w in wiersze:
+        if not isinstance(w, dict):
+            raise HTTPException(400, "Nieprawidłowy wiersz")
+        dane.append({"ksiega": _tekst(w, "ksiega"), "numer": _tekst(w, "numer"),
+                     "data": _data(w.get("data")), "termin": _data(w.get("termin")),
+                     "kwota": _kwota(w.get("kwota")), "uwagi": _tekst(w, "uwagi")})
+    return {"dokumenty": svc.dodaj_zalegle(client_id, dane, _kto(request))}
+
+
 @router.post("/klient/{client_id}/wplaty/podglad")
 def podglad_wplaty(client_id: str, body: Dict[str, Any]):
     return svc.podglad_wplaty(

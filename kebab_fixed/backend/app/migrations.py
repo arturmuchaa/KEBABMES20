@@ -1943,18 +1943,18 @@ _DDL: list[str] = [
         client_id TEXT REFERENCES clients(id) ON DELETE SET NULL,
         przypisano_recznie BOOLEAN NOT NULL DEFAULT false,
         ksiega TEXT NOT NULL CHECK (ksiega IN ('wz','fv')),
-        zrodlo TEXT NOT NULL CHECK (zrodlo IN ('mes_wz','reczna','subiekt')),
+        zrodlo TEXT NOT NULL CHECK (zrodlo IN ('mes_wz','reczna','subiekt','kurs','otwarcie')),
         source_id TEXT NOT NULL DEFAULT '',
         external_id TEXT NOT NULL DEFAULT '',
         numer TEXT NOT NULL,
         data_dok DATE NOT NULL,
-        kwota NUMERIC(14,2) NOT NULL DEFAULT 0,
+        kwota NUMERIC(14,2) DEFAULT 0,
         waluta TEXT NOT NULL DEFAULT 'PLN',
         termin DATE NOT NULL,
         termin_reczny BOOLEAN NOT NULL DEFAULT false,
         forma TEXT NOT NULL DEFAULT 'przelew' CHECK (forma IN ('gotowka','przelew')),
         stan_zrodla TEXT NOT NULL DEFAULT 'aktywny'
-            CHECK (stan_zrodla IN ('aktywny','czeka_na_ceny','anulowany')),
+            CHECK (stan_zrodla IN ('aktywny','czeka_na_ceny','anulowany','czeka_na_kwote')),
         brak_vat BOOLEAN NOT NULL DEFAULT false,
         uwagi TEXT NOT NULL DEFAULT '',
         usuniety_at TIMESTAMPTZ,
@@ -2046,6 +2046,17 @@ _DDL: list[str] = [
     # Notatki (dawniej dziennik ustaleń) — usuwane miękko.
     "ALTER TABLE rozl_dziennik ADD COLUMN IF NOT EXISTS usunieto_at TIMESTAMPTZ",
     "ALTER TABLE rozl_dziennik ADD COLUMN IF NOT EXISTS usunieto_przez TEXT",
+    # FV z papierów kursu (`zrodlo='kurs'`) przychodzi BEZ KWOTY
+    # (`stan_zrodla='czeka_na_kwote'`, kwota NULL) — kwotę wpisuje biuro.
+    # Zaległe dokumenty sprzed startu (`zrodlo='otwarcie'`) — saldo otwarcia
+    # rozpisane na dokumenty. CHECK-i poszerza `_rozl_poszerz_checki()`
+    # (istniejąca baza ma stare definicje); NULL w kwocie tylko dla FV z kursu.
+    "ALTER TABLE rozl_dokumenty ALTER COLUMN kwota DROP NOT NULL",
+    # Numer zaległego dokumentu unikalny per klient i księga (dla FV pilnuje
+    # tego już uq_rozl_dok_fv — dla każdego źródła).
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_rozl_dok_otwarcie "
+    "ON rozl_dokumenty(client_id, ksiega, numer) "
+    "WHERE zrodlo='otwarcie' AND usuniety_at IS NULL",
     # Data startu rozliczeń (saldo otwarcia = stan na początek tego dnia).
     """INSERT INTO app_settings (key, value)
        VALUES ('rozliczenia_start', '"2026-11-09"'::jsonb)
@@ -2153,11 +2164,53 @@ def _run_migrations_locked() -> None:
     _reconcile_deboning_ledger()
     _zapewnij_unikat_wz_seria()
     _rozl_klucze_bez_kaskady()
+    _rozl_poszerz_checki()
     _backfill_vehicle_loading_orders()
     logger.info("migrations.done")
 
 
 _ROZL_TABELE_Z_KLIENTEM = ("rozl_wplaty", "rozl_otwarcia", "rozl_dziennik")
+
+# Docelowe CHECK-i `rozl_dokumenty`: nazwa → (słowo, którego brak oznacza starą
+# definicję, nowa definicja).
+_ROZL_CHECKI = {
+    "rozl_dokumenty_zrodlo_check": (
+        "'otwarcie'",
+        "CHECK (zrodlo IN ('mes_wz','reczna','subiekt','kurs','otwarcie'))"),
+    "rozl_dokumenty_stan_zrodla_check": (
+        "'czeka_na_kwote'",
+        "CHECK (stan_zrodla IN ('aktywny','czeka_na_ceny','anulowany','czeka_na_kwote'))"),
+    "rozl_dokumenty_kwota_check": (
+        "kwota IS NOT NULL",
+        "CHECK (kwota IS NOT NULL OR (zrodlo = 'kurs' AND ksiega = 'fv'))"),
+}
+
+
+def _rozl_poszerz_checki() -> None:
+    """CHECK-i `rozl_dokumenty` dla FV z kursu bez kwoty i zaległych dokumentów
+    sprzed startu (12.11.2026).
+
+    `CREATE TABLE IF NOT EXISTS` nie poprawi istniejącej definicji, więc
+    czytamy `pg_constraint`: CHECK, którego definicja nie zna nowej wartości
+    (albo którego nie ma), podmieniamy — DROP + ADD w jednej transakcji, żeby
+    tabela nie została bez ograniczenia. Gdy wszystko aktualne — czysty no-op.
+    """
+    try:
+        obecne = {r["conname"]: r["def"] for r in query_all(
+            "SELECT conname, pg_get_constraintdef(oid) AS def FROM pg_constraint "
+            "WHERE conrelid = to_regclass('rozl_dokumenty') AND contype = 'c'")}
+        do_zmiany = [n for n, (znak, _) in _ROZL_CHECKI.items()
+                     if znak not in (obecne.get(n) or "")]
+        if not do_zmiany:
+            return
+        with transaction() as conn:
+            for nazwa in do_zmiany:
+                cx_execute(conn, f'ALTER TABLE rozl_dokumenty DROP CONSTRAINT IF EXISTS "{nazwa}"')
+                cx_execute(conn, f'ALTER TABLE rozl_dokumenty ADD CONSTRAINT "{nazwa}" '
+                                 f"{_ROZL_CHECKI[nazwa][1]}")
+        logger.info("migrations.rozl_checki", extra={"zmienione": do_zmiany})
+    except Exception as exc:
+        logger.warning("migrations.rozl_checki.failed", extra={"error": str(exc)})
 
 
 def _rozl_klucze_bez_kaskady() -> None:

@@ -24,6 +24,14 @@ nie pojawia się na liście ani w sumach, a saldo nie drukuje mu się na WZ.
 Obrót i sprzedane kg za okres liczy `rozliczenia_ksiega.obrot_okresu`
 (saldo otwarcia nie wchodzi — „liczymy od dzisiaj”).
 
+FV z papierów kursu (`zrodlo='kurs'`, `zapisz_fv_z_kursu`) przychodzi bez
+kwoty (`stan_zrodla='czeka_na_kwote'`): na karcie jest wierszem „czeka na
+kwotę”, liczy się do kg, ale do salda i obrotu wchodzi dopiero po wpisaniu
+kwoty przez biuro (`edytuj_dokument`). Zaległe dokumenty sprzed startu
+(`zrodlo='otwarcie'`, `dodaj_zalegle`) to saldo otwarcia rozpisane na
+dokumenty: wchodzą do księgi mimo daty sprzed startu (jedyny wyjątek od
+filtra daty), nigdy do obrotu ani kg.
+
 Na granicy API kwoty to `float` zaokrąglony do 2 miejsc, daty — ISO.
 """
 from __future__ import annotations
@@ -40,9 +48,12 @@ from app.services.rozliczenia_ksiega import (faktura_bez_kwoty, grosze, kilogram
                                              na_dzien as _na_dzien, obrot_okresu,
                                              rozlicz_ksiege, stan_dokumentu,
                                              waluta_z_nip)
-from app.services.rozliczenia_wz import (data_startu, historia, synchronizuj_wz,
+from app.logging_config import get_logger
+from app.services.rozliczenia_wz import (KTO_MES, data_startu, historia, synchronizuj_wz,
                                          zablokuj_ksiege_wz)
 from app.utils.ids import cuid
+
+logger = get_logger(__name__)
 
 KSIEGI = ("wz", "fv")
 _ZERO = Decimal("0.00")
@@ -57,6 +68,15 @@ _SQL_WPLATY = ("SELECT id, client_id, ksiega, forma, kwota, waluta, data, dokume
                "       uwagi, utworzyl "
                "FROM rozl_wplaty WHERE usuniety_at IS NULL")
 _SQL_OTWARCIA = "SELECT client_id, ksiega, kwota, waluta, zalegle_od, uwagi FROM rozl_otwarcia"
+# Zaległe dokumenty sprzed startu (saldo otwarcia rozpisane na dokumenty).
+ZRODLO_OTWARCIE = "otwarcie"
+ZRODLO_KURS = "kurs"
+
+
+def _w_ksiedze_od(r: dict, start: date) -> bool:
+    """Czy dokument jest w okresie rozliczeń: od daty startu, a zaległe
+    dokumenty sprzed startu — zawsze (to one są saldem otwarcia)."""
+    return r["data_dok"] >= start or r["zrodlo"] == ZRODLO_OTWARCIE
 
 
 # ── Konwersje na granicy API ────────────────────────────────────────────
@@ -127,7 +147,8 @@ def _zbuduj(klient: dict, dokumenty: list[dict], wplaty: list[dict], otwarcia: l
     waluta = klient["settlement_currency"]
     # Pozycje sprzed startu siedzą w saldzie otwarcia (spec 5) — także wtedy,
     # gdy biuro przesunęło datę startu po zapisaniu dokumentów i wpłat.
-    dokumenty = [r for r in dokumenty if r["data_dok"] >= start]
+    # Wyjątek: zaległe dokumenty sprzed startu (`zrodlo='otwarcie'`).
+    dokumenty = [r for r in dokumenty if _w_ksiedze_od(r, start)]
     wplaty = [w for w in wplaty if w["data"] >= start]
     # WZ „nie licz” — poza wszystkimi sumami; karta pokazuje je osobno.
     nieliczone = [r for r in dokumenty if r.get("nie_licz")]
@@ -148,9 +169,12 @@ def _zbuduj(klient: dict, dokumenty: list[dict], wplaty: list[dict], otwarcia: l
     wplaty = [w for w in wplaty if w["waluta"] == waluta]
     otwarcia = [o for o in otwarcia if o["waluta"] == waluta]
     czeka = [r for r in dokumenty if r["stan_zrodla"] == "czeka_na_ceny"]
+    # FV z kursu czekające na kwotę — poza saldem, ale widoczne na karcie.
+    bez_kwoty = [r for r in dokumenty if faktura_bez_kwoty(r)
+                 and r["stan_zrodla"] != "anulowany"]
     wynik: dict[str, Any] = {"klient": klient, "inna_waluta": inna_waluta,
                              "czeka_na_ceny": czeka, "nieliczone": nieliczone,
-                             "wiersze": wszystkie}
+                             "bez_kwoty": bez_kwoty, "wiersze": wszystkie}
     for ksiega in KSIEGI:
         docs, kredyty = _wejscie_ksiegi(
             klient, ksiega,
@@ -239,15 +263,30 @@ def _nieliczona_json(r: dict) -> dict:
             "nie_licz": True, "nie_licz_powod": r.get("nie_licz_powod")}
 
 
-def _wiersze_karty(ks: dict, numery: dict, w_okresie, nieliczone: list) -> list[dict]:
+def _bez_kwoty_json(r: dict) -> dict:
+    """FV z papierów kursu czekająca na kwotę — wiersz karty poza rozliczeniem
+    (`kwota: None`, `stan.kod = "czeka_na_kwote"`)."""
+    return {"id": r["id"], "numer": r["numer"], "data": _d(r["data_dok"]),
+            "kwota": None, "zaplacono": 0.0, "zostalo": 0.0,
+            "termin": _d(r["termin"]), "forma": r["forma"], "uwagi": r["uwagi"] or "",
+            "zrodlo": r["zrodlo"], "otwarcie": False,
+            "stan": {"kod": "czeka_na_kwote", "dni": 0, "czesciowo": False},
+            "zamkniety": None, "brak_vat": bool(r["brak_vat"]), "korekta": False,
+            "kg": _kg(r.get("kg")), "nie_licz": False, "nie_licz_powod": None}
+
+
+def _wiersze_karty(ks: dict, numery: dict, w_okresie, nieliczone: list,
+                   bez_kwoty: list = ()) -> list[dict]:
     """Dokumenty i korekty księgi do karty — najnowsze na górze; WZ „nie licz”
-    wmieszane po dacie, z `nie_licz: true`."""
+    i FV czekające na kwotę wmieszane po dacie."""
     wiersze = [((d["data"], str(d["numer"]), str(d["id"])), _dok_json(d))
                for d in ks["dokumenty"] if w_okresie(d)]
     wiersze += [((kr["data"], str(kr["numer"]), str(kr["id"])), _korekta_json(kr, numery))
                 for kr in ks["kredyty"] if kr["rodzaj"] == "korekta" and w_okresie(kr)]
     wiersze += [((r["data_dok"], str(r["numer"]), str(r["id"])), _nieliczona_json(r))
                 for r in nieliczone if w_okresie({"data": r["data_dok"]})]
+    wiersze += [((r["data_dok"], str(r["numer"]), str(r["id"])), _bez_kwoty_json(r))
+                for r in bez_kwoty if w_okresie({"data": r["data_dok"]})]
     return [w for _, w in sorted(wiersze, key=lambda x: x[0], reverse=True)]
 
 
@@ -326,8 +365,11 @@ def karta(client_id: str, dzis: Optional[date] = None, od: Optional[date] = None
         # Rozliczenia „otwarte” = biuro wprowadziło saldo otwarcia (choćby 0).
         # Dopiero wtedy saldo drukuje się na WZ i w papierach kursu.
         # Saldo drukuje się na WZ i w papierach kursu tylko wtedy (jak
-        # `rozliczenia_otwarte()`): wyłączony klient — nigdy.
-        "rozliczenia_otwarte": bool(otwarcia) and not klient["rozl_wylaczony"],
+        # `rozliczenia_otwarte()`): wyłączony klient — nigdy. Zaległe
+        # dokumenty sprzed startu też „otwierają” rozliczenia.
+        "rozliczenia_otwarte": ((bool(otwarcia) or any(
+            r["zrodlo"] == ZRODLO_OTWARCIE for r in k["wiersze"]))
+            and not klient["rozl_wylaczony"]),
         "saldo": {"wz": _f(wz["saldo"]), "fv": _f(fv["saldo"]),
                   "lacznie": _f(wz["saldo"] + fv["saldo"]),
                   "po_terminie_wz": _f(wz["po_terminie"]), "po_terminie_fv": _f(fv["po_terminie"]),
@@ -339,7 +381,8 @@ def karta(client_id: str, dzis: Optional[date] = None, od: Optional[date] = None
                      for ks in KSIEGI},
         "dokumenty": {ks: _wiersze_karty(
             k[ks], numery, w_okresie,
-            [r for r in k["nieliczone"] if r["ksiega"] == ks and r["stan_zrodla"] != "anulowany"])
+            [r for r in k["nieliczone"] if r["ksiega"] == ks and r["stan_zrodla"] != "anulowany"],
+            [r for r in k["bez_kwoty"] if r["ksiega"] == ks])
             for ks in KSIEGI},
         "wplaty": wplaty,
         "czeka_na_ceny": [{"id": r["id"], "numer": r["numer"], "data": _d(r["data_dok"])}
@@ -389,8 +432,8 @@ def lista(dzis: Optional[date] = None, od: Optional[date] = None,
           "waluta": k["settlement_currency"]} for k in wszyscy if k["rozl_wylaczony"]),
         key=lambda r: (r["nazwa"].lower(), r["id"]))
     dokumenty: dict[str, list] = defaultdict(list)
-    for r in query_all(_SQL_DOKUMENTY + " AND client_id IS NOT NULL AND data_dok >= %s",
-                       (start,)):
+    for r in query_all(_SQL_DOKUMENTY + " AND client_id IS NOT NULL "
+                       "AND (data_dok >= %s OR zrodlo='otwarcie')", (start,)):
         dokumenty[r["client_id"]].append(r)
     wplaty: dict[str, list] = defaultdict(list)
     for r in query_all(_SQL_WPLATY + " AND data >= %s", (start,)):
@@ -721,17 +764,50 @@ def dodaj_fakture(client_id: str, *, numer: str, data: date, kwota: Any,
 
 _POLA_KAZDEGO = ("termin", "forma", "uwagi")
 _POLA_RECZNEJ = ("kwota", "numer", "data", "kg")
+# Pola poza `_POLA_KAZDEGO`, które wolno zmienić — wg źródła dokumentu.
+_POLA_ZRODLA = {"reczna": set(_POLA_RECZNEJ),
+                ZRODLO_OTWARCIE: {"kwota", "numer", "data"},
+                ZRODLO_KURS: {"kwota", "kg"}}
+_ODMOWA_ZRODLA = {"mes_wz": "Kwotę, numer i datę WZ zmienia się w dokumentach WZ",
+                  "subiekt": "Fakturę z Subiekta poprawia się w Subiekcie",
+                  ZRODLO_OTWARCIE: "Zaległy dokument sprzed startu nie ma kilogramów — "
+                                   "nie wchodzi do obrotu ani kg",
+                  ZRODLO_KURS: "Numer i datę faktury z kursu zmienia się w papierach kursu"}
 _KOLUMNA = {"termin": "termin", "forma": "forma", "uwagi": "uwagi", "kwota": "kwota",
             "numer": "numer", "data": "data_dok", "kg": "kg"}
 _OPIS_POLA = {"termin": "termin płatności", "forma": "forma płatności", "uwagi": "uwagi",
               "kwota": "kwota", "numer": "numer", "data": "data dokumentu", "kg": "kilogramy"}
 
 
+def _numer_wolny_w_ksiedze(conn, client_id: str, ksiega: str, numer: str,
+                           poza_id: str = "") -> None:
+    """Numer dokumentu wolny w księdze klienta (FV — każde źródło; WZ — też)."""
+    if ksiega == "fv":
+        _numer_wolny(conn, client_id, numer, poza_id)
+        return
+    if cx_query_one(conn, "SELECT 1 FROM rozl_dokumenty WHERE client_id=%s AND numer=%s "
+                          "AND ksiega='wz' AND usuniety_at IS NULL AND id<>%s "
+                          "AND stan_zrodla<>'anulowany'",
+                    (client_id, numer, poza_id)):
+        raise HTTPException(400, f"Dokument {numer} jest już w księdze WZ tego kontrahenta")
+
+
+def _przed_startem(d: date) -> None:
+    """Data zaległego dokumentu — ściśle przed datą startu rozliczeń."""
+    start = data_startu()
+    if d >= start:
+        raise HTTPException(400, "Zaległy dokument musi mieć datę sprzed startu rozliczeń "
+                                 f"({_pl(start)}) — późniejsze wpisuje się zwykle")
+
+
 def edytuj_dokument(dokument_id: str, zmiany: dict, kto: str, powod: str = "") -> dict:
     """Zmiana pól dokumentu. `termin`/`forma`/`uwagi` — każdy dokument (ręczny
-    termin przeżywa synchronizację WZ); `kwota`/`numer`/`data`/`kg` — tylko
-    ręczne (zmiana kwoty z powodem; `kg` None czyści). Każde zmienione pole →
-    wiersz historii."""
+    termin przeżywa synchronizację WZ); `kwota`/`numer`/`data`/`kg` — ręczne;
+    `kwota`/`numer`/`data` — zaległe sprzed startu (data dalej przed startem);
+    `kwota`/`kg` — FV z kursu. Zmiana kwoty z powodem — poza PIERWSZYM
+    wpisaniem kwoty FV z kursu: wtedy faktura wchodzi do salda, a termin
+    (gdy nie był ustawiony ręcznie) liczy się od daty i terminu FV klienta.
+    Każde zmienione pole → wiersz historii."""
     nieznane = set(zmiany) - set(_POLA_KAZDEGO) - set(_POLA_RECZNEJ)
     if nieznane:
         raise HTTPException(400, f"Nie można zmienić pola: {', '.join(sorted(nieznane))}")
@@ -743,8 +819,10 @@ def edytuj_dokument(dokument_id: str, zmiany: dict, kto: str, powod: str = "") -
             raise HTTPException(404, "Dokument nie znaleziony")
         if dok["usuniety_at"] is not None:
             raise HTTPException(400, "Dokument jest usunięty")
-        if dok["zrodlo"] != "reczna" and set(zmiany) & set(_POLA_RECZNEJ):
-            raise HTTPException(400, "Kwotę, numer i datę WZ zmienia się w dokumentach WZ")
+        dozwolone = _POLA_ZRODLA.get(dok["zrodlo"], set())
+        if set(zmiany) & (set(_POLA_RECZNEJ) - dozwolone):
+            raise HTTPException(400, _ODMOWA_ZRODLA.get(dok["zrodlo"], _ODMOWA_ZRODLA["mes_wz"]))
+        czeka_na_kwote = dok["zrodlo"] == ZRODLO_KURS and dok["kwota"] is None
 
         nowe: dict[str, Any] = {}
         for pole, wartosc in zmiany.items():
@@ -757,11 +835,15 @@ def edytuj_dokument(dokument_id: str, zmiany: dict, kto: str, powod: str = "") -
             elif pole == "numer":
                 wartosc = str(wartosc or "").strip()
                 if not wartosc:
-                    raise HTTPException(400, "Podaj numer faktury")
+                    raise HTTPException(400, "Podaj numer dokumentu" if dok["ksiega"] == "wz"
+                                        else "Podaj numer faktury")
             elif pole == "kwota":
                 wartosc = _kwota(wartosc)
-                if wartosc == 0:
-                    raise HTTPException(400, "Kwota faktury nie może być zerowa")
+                if dok["zrodlo"] == "reczna":
+                    if wartosc == 0:
+                        raise HTTPException(400, "Kwota faktury nie może być zerowa")
+                elif wartosc <= 0:
+                    raise HTTPException(400, "Kwota musi być większa od zera")
             elif pole == "kg":
                 wartosc = _kg_wartosc(wartosc)
             if wartosc != dok[_KOLUMNA[pole]]:
@@ -769,17 +851,30 @@ def edytuj_dokument(dokument_id: str, zmiany: dict, kto: str, powod: str = "") -
         if not nowe:
             return _dok(dokument_id)
 
-        if "kwota" in nowe:
+        if "kwota" in nowe and not czeka_na_kwote:
             powod = _powod(powod, "Podaj powód zmiany kwoty")
         if "data" in nowe:
-            _po_starcie(nowe["data"], "Faktura")
-        if "numer" in nowe and dok["ksiega"] == "fv":
-            _numer_wolny(conn, dok["client_id"], nowe["numer"], dokument_id)
+            if dok["zrodlo"] == ZRODLO_OTWARCIE:
+                _przed_startem(nowe["data"])
+            else:
+                _po_starcie(nowe["data"], "Faktura")
+        if "numer" in nowe:
+            _numer_wolny_w_ksiedze(conn, dok["client_id"], dok["ksiega"], nowe["numer"],
+                                   dokument_id)
+        dodatkowe: list[str] = []
+        if "kwota" in nowe and czeka_na_kwote:
+            # Pierwsza kwota FV z kursu: faktura wchodzi do salda.
+            dodatkowe.append("stan_zrodla='aktywny'")
+            if "termin" not in nowe and not dok["termin_reczny"] and dok["client_id"]:
+                klient = _klient_cx(conn, dok["client_id"])
+                termin = dok["data_dok"] + timedelta(days=klient["rozl_termin_fv"])
+                if termin != dok["termin"]:
+                    nowe["termin"] = termin
         if nowe.get("termin", dok["termin"]) < nowe.get("data", dok["data_dok"]):
             raise HTTPException(400, "Termin płatności nie może być przed datą dokumentu")
 
-        ustaw = [f"{_KOLUMNA[p]}=%s" for p in nowe]
-        if "termin" in nowe:
+        ustaw = [f"{_KOLUMNA[p]}=%s" for p in nowe] + dodatkowe
+        if "termin" in zmiany and "termin" in nowe:
             ustaw.append("termin_reczny=true")
         cx_execute(conn, f"UPDATE rozl_dokumenty SET {', '.join(ustaw)} WHERE id=%s",
                    (*nowe.values(), dokument_id))
@@ -825,8 +920,10 @@ def ustaw_nie_licz(dokument_id: str, nie_licz: Any, powod: str, kto: str) -> dic
 
 
 def usun_dokument(dokument_id: str, powod: str, kto: str) -> None:
-    """Miękkie usunięcie dokumentu wpisanego ręcznie (z powodem). Wpłaty do niego
-    przypięte nie giną — w rozliczeniu idą na najstarsze otwarte dokumenty."""
+    """Miękkie usunięcie dokumentu wpisanego ręcznie, zaległego sprzed startu
+    albo FV z kursu (z powodem; ponowne wystawienie kursu jej nie wskrzesza).
+    Wpłaty do niego przypięte nie giną — w rozliczeniu idą na najstarsze
+    otwarte dokumenty."""
     with transaction() as conn:
         zablokuj_ksiege_wz(conn)
         dok = cx_query_one(conn, "SELECT id, client_id, zrodlo, numer, kwota, usuniety_at "
@@ -835,7 +932,7 @@ def usun_dokument(dokument_id: str, powod: str, kto: str) -> None:
             raise HTTPException(404, "Dokument nie znaleziony")
         if dok["zrodlo"] == "mes_wz":
             raise HTTPException(400, "WZ anuluje się w dokumentach WZ")
-        if dok["zrodlo"] != "reczna":
+        if dok["zrodlo"] not in ("reczna", ZRODLO_OTWARCIE, ZRODLO_KURS):
             raise HTTPException(400, "Fakturę z Subiekta poprawia się w Subiekcie")
         if dok["usuniety_at"] is not None:
             raise HTTPException(400, "Dokument jest już usunięty")
@@ -844,8 +941,191 @@ def usun_dokument(dokument_id: str, powod: str, kto: str) -> None:
                          "powod_usuniecia=%s WHERE id=%s", (kto or "", powod, dokument_id))
         historia(conn, client_id=dok["client_id"], obiekt="dokument", obiekt_id=dokument_id,
                  akcja="usunieto", opis=f"usunięto {dok['numer']}",
-                 przed={"kwota": float(dok["kwota"])}, powod=powod, kto=kto)
+                 przed={"kwota": None if dok["kwota"] is None else float(dok["kwota"])},
+                 powod=powod, kto=kto)
 
+
+# ── Zaległe dokumenty sprzed startu (saldo otwarcia rozpisane) ─────────
+
+def dodaj_zalegle(client_id: str, dokumenty: list, kto: str) -> list[dict]:
+    """Zaległe dokumenty sprzed startu rozliczeń (`zrodlo='otwarcie'`) — paczka
+    wierszy `{ksiega, numer, data, termin?, kwota, uwagi?}`, zapisywana w całości
+    albo wcale. `kwota` to kwota POZOSTAŁA do zapłaty (> 0); termin domyślnie
+    data + termin klienta tej księgi; forma — domyślna klienta dla księgi.
+    Wchodzą do księgi (wpłatę można do nich przypiąć, dni po terminie od
+    prawdziwego terminu), nigdy do obrotu ani kg. Zwraca listę `Dok`."""
+    if not isinstance(dokumenty, list) or not dokumenty:
+        raise HTTPException(400, "Dodaj co najmniej jeden zaległy dokument")
+    wiele = len(dokumenty) > 1
+    wiersze: list[dict] = []
+    for i, w in enumerate(dokumenty, start=1):
+        try:
+            if not isinstance(w, dict):
+                raise HTTPException(400, "Nieprawidłowy wiersz")
+            ksiega = _ksiega(w.get("ksiega"))
+            numer = str(w.get("numer") or "").strip()
+            if not numer:
+                raise HTTPException(400, "Podaj numer dokumentu")
+            data = _data(w.get("data"), "data wystawienia")
+            _przed_startem(data)
+            k = _kwota(w.get("kwota"))
+            if k <= 0:
+                raise HTTPException(400, "Kwota do zapłaty musi być większa od zera")
+            termin = None if w.get("termin") in (None, "") else _data(w.get("termin"), "termin")
+            if termin is not None and termin < data:
+                raise HTTPException(400, "Termin płatności nie może być przed datą dokumentu")
+            if any(x["ksiega"] == ksiega and x["numer"] == numer for x in wiersze):
+                raise HTTPException(400, f"Numer {numer} powtarza się na liście")
+        except HTTPException as e:
+            if wiele:
+                raise HTTPException(e.status_code, f"Wiersz {i}: {e.detail}")
+            raise
+        wiersze.append({"ksiega": ksiega, "numer": numer, "data": data, "kwota": k,
+                        "termin": termin, "uwagi": str(w.get("uwagi") or ""), "nr": i})
+    ids: list[str] = []
+    with transaction() as conn:
+        zablokuj_ksiege_wz(conn)
+        klient = _klient_cx(conn, client_id)
+        for w in wiersze:
+            try:
+                _numer_wolny_w_ksiedze(conn, client_id, w["ksiega"], w["numer"])
+            except HTTPException as e:
+                if wiele:
+                    raise HTTPException(e.status_code, f"Wiersz {w['nr']}: {e.detail}")
+                raise
+            termin = w["termin"] or w["data"] + timedelta(
+                days=klient[f"rozl_termin_{w['ksiega']}"])
+            forma = klient[f"rozl_forma_{w['ksiega']}"]
+            dok_id = cuid()
+            cx_execute(
+                conn,
+                "INSERT INTO rozl_dokumenty (id, client_id, ksiega, zrodlo, numer, data_dok, "
+                " kwota, waluta, termin, termin_reczny, forma, uwagi, utworzyl) "
+                "VALUES (%s,%s,%s,'otwarcie',%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (dok_id, client_id, w["ksiega"], w["numer"], w["data"], w["kwota"],
+                 klient["settlement_currency"], termin, w["termin"] is not None, forma,
+                 w["uwagi"], kto or ""))
+            historia(conn, client_id=client_id, obiekt="dokument", obiekt_id=dok_id,
+                     akcja="dodano",
+                     opis=f"dodano zaległy dokument {w['numer']} ({w['ksiega'].upper()}) "
+                          f"z {_pl(w['data'])}: do zapłaty {_kwota_pl(w['kwota'])} "
+                          f"{klient['settlement_currency']}",
+                     po={"ksiega": w["ksiega"], "kwota": float(w["kwota"]),
+                         "data": w["data"].isoformat(), "termin": termin.isoformat()},
+                     kto=kto)
+            ids.append(dok_id)
+    return [_dok(i) for i in ids]
+
+
+# ── FV z papierów kursu (D4) ────────────────────────────────────────────
+
+def zapisz_fv_z_kursu(loading_id: str, pozycje: list[dict]) -> list[str]:
+    """Faktury z papierów kursu do rozrachunków — BEZ KWOTY.
+
+    `pozycje`: `[{"order_id", "invoice_no", "kg"}]` — numer faktury, który
+    poszedł na CMR odbiorcy, i kg części fakturowanej zamówienia. Pozycje bez
+    numeru albo bez kg (brak części fakturowanej) są pomijane. Ten sam numer
+    u tego samego klienta (kilka zamówień w kursie) to jedna FV z sumą kg.
+
+    Upsert: FV z kursu o tym numerze — aktualizuje kg (kwoty wpisanej przez
+    biuro nie rusza); FV z tego kursu pod starym numerem (biuro poprawiło
+    numer przy ponownym wystawieniu) — zmienia numer; usunięta przez biuro
+    FV z tego kursu — nie wraca; faktura o tym numerze z innego źródła
+    (wpisana ręcznie) — zostaje, nic nie dublujemy. Wołający (wystawienie
+    kursu) łapie każdy błąd: rozrachunki nigdy nie blokują papierów.
+    Zwraca id zapisanych/zmienionych dokumentów."""
+    grupy: dict[tuple, dict] = {}
+    for p in pozycje or []:
+        numer = str(p.get("invoice_no") or "").strip()
+        kg = kilogramy(p.get("kg"))
+        if not numer or kg <= 0:
+            continue
+        zam = query_one("SELECT client_id FROM client_orders WHERE id=%s",
+                        (p.get("order_id"),))
+        if not zam or not zam.get("client_id"):
+            logger.warning("rozliczenia.fv_z_kursu.bez_klienta",
+                           extra={"loading_id": loading_id, "order_id": p.get("order_id")})
+            continue
+        g = grupy.setdefault((zam["client_id"], numer), {"kg": kilogramy(0), "zamowienia": []})
+        g["kg"] += kg
+        g["zamowienia"].append(p.get("order_id"))
+    if not grupy:
+        return []
+    zapisane: list[str] = []
+    dzis = date.today()
+    with transaction() as conn:
+        zablokuj_ksiege_wz(conn)
+        for (client_id, numer), g in sorted(grupy.items()):
+            klient = _klient_cx(conn, client_id)
+            obecny = cx_query_one(
+                conn, "SELECT id, zrodlo, kg, numer, source_id FROM rozl_dokumenty "
+                      "WHERE client_id=%s AND ksiega='fv' AND numer=%s "
+                      "AND usuniety_at IS NULL FOR UPDATE",
+                (client_id, numer))
+            if obecny is not None and obecny["zrodlo"] != ZRODLO_KURS:
+                logger.info("rozliczenia.fv_z_kursu.juz_wpisana",
+                            extra={"loading_id": loading_id, "numer": numer})
+                continue
+            if obecny is not None and obecny["source_id"] != loading_id:
+                # Ten sam numer z INNEGO kursu — kg tamtego kursu zostają
+                # (biuro poprawi je ręcznie, jeśli faktura obejmuje oba kursy).
+                logger.warning("rozliczenia.fv_z_kursu.inny_kurs",
+                               extra={"loading_id": loading_id, "numer": numer})
+                continue
+            if obecny is None and cx_query_one(
+                    conn, "SELECT 1 FROM rozl_dokumenty WHERE client_id=%s AND ksiega='fv' "
+                          "AND zrodlo='kurs' AND source_id=%s AND numer=%s "
+                          "AND usuniety_at IS NOT NULL", (client_id, loading_id, numer)):
+                continue  # biuro usunęło — ponowne wystawienie jej nie wskrzesza
+            if obecny is None:
+                # Ten kurs, ten klient, numer, którego już nie ma wśród numerów
+                # kursu — biuro poprawiło numer przy ponownym wystawieniu.
+                numery = [n for (c, n) in grupy if c == client_id]
+                obecny = cx_query_one(
+                    conn, "SELECT id, zrodlo, kg, numer, source_id FROM rozl_dokumenty "
+                          "WHERE client_id=%s AND ksiega='fv' AND zrodlo='kurs' "
+                          "AND source_id=%s AND usuniety_at IS NULL AND NOT (numer = ANY(%s)) "
+                          "ORDER BY utworzono, id LIMIT 1 FOR UPDATE",
+                    (client_id, loading_id, numery))
+                if obecny is not None:
+                    cx_execute(conn, "UPDATE rozl_dokumenty SET numer=%s WHERE id=%s",
+                               (numer, obecny["id"]))
+                    historia(conn, client_id=client_id, obiekt="dokument",
+                             obiekt_id=obecny["id"], akcja="zmiana",
+                             opis=f"{obecny['numer']}: numer {obecny['numer']} → {numer} "
+                                  "(papiery kursu)",
+                             przed={"numer": obecny["numer"]}, po={"numer": numer},
+                             kto=KTO_MES)
+            if obecny is not None:
+                if obecny["kg"] is None or kilogramy(obecny["kg"]) != g["kg"]:
+                    cx_execute(conn, "UPDATE rozl_dokumenty SET kg=%s WHERE id=%s",
+                               (g["kg"], obecny["id"]))
+                    historia(conn, client_id=client_id, obiekt="dokument",
+                             obiekt_id=obecny["id"], akcja="zmiana",
+                             opis=f"{numer}: kilogramy {_kg_pl(obecny['kg'])} → "
+                                  f"{_kg_pl(g['kg'])} (papiery kursu)",
+                             przed={"kg": _json(obecny["kg"])}, po={"kg": float(g["kg"])},
+                             kto=KTO_MES)
+                zapisane.append(obecny["id"])
+                continue
+            dok_id = cuid()
+            termin = dzis + timedelta(days=klient["rozl_termin_fv"])
+            cx_execute(
+                conn,
+                "INSERT INTO rozl_dokumenty (id, client_id, ksiega, zrodlo, source_id, numer, "
+                " data_dok, kwota, waluta, termin, forma, stan_zrodla, kg, utworzyl) "
+                "VALUES (%s,%s,'fv','kurs',%s,%s,%s,NULL,%s,%s,%s,'czeka_na_kwote',%s,%s)",
+                (dok_id, client_id, loading_id, numer, dzis, klient["settlement_currency"],
+                 termin, klient["rozl_forma_fv"], g["kg"], KTO_MES))
+            historia(conn, client_id=client_id, obiekt="dokument", obiekt_id=dok_id,
+                     akcja="dodano",
+                     opis=f"faktura {numer} z papierów kursu — czeka na kwotę "
+                          f"({_kg_pl(g['kg'])})",
+                     po={"kg": float(g["kg"]), "zamowienia": g["zamowienia"]}, kto=KTO_MES)
+            zapisane.append(dok_id)
+    logger.info("rozliczenia.fv_z_kursu", extra={"loading_id": loading_id,
+                                                  "dokumenty": len(zapisane)})
+    return zapisane
 
 # ── Wpłaty ──────────────────────────────────────────────────────────────
 
@@ -1158,12 +1438,16 @@ def zestawienie(client_id: str, na_dzien: Optional[date] = None,
 
 
 def rozliczenia_otwarte(client_id: Optional[str]) -> bool:
-    """Czy biuro wprowadziło klientowi saldo otwarcia (choćby 0). Bez tego
+    """Czy biuro wprowadziło klientowi saldo otwarcia (choćby 0) albo zaległe
+    dokumenty sprzed startu. Bez tego
     saldo nie drukuje się klientowi — klient wciąż winny z Excela dostałby
     „Brak należności — dziękujemy”."""
     return bool(client_id) and bool(query_one(
-        "SELECT 1 FROM rozl_otwarcia o JOIN clients c ON c.id = o.client_id "
-        "WHERE o.client_id=%s AND NOT c.rozl_wylaczony LIMIT 1", (client_id,)))
+        "SELECT 1 FROM clients c WHERE c.id=%s AND NOT c.rozl_wylaczony AND ("
+        "  EXISTS (SELECT 1 FROM rozl_otwarcia o WHERE o.client_id = c.id) "
+        "  OR EXISTS (SELECT 1 FROM rozl_dokumenty d WHERE d.client_id = c.id "
+        "             AND d.zrodlo='otwarcie' AND d.usuniety_at IS NULL))",
+        (client_id,)))
 
 
 def zestawienie_dla_wz(wz_id: str) -> Optional[dict]:
