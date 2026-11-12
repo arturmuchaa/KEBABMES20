@@ -85,6 +85,10 @@ Moduł Rozrachunki działa na produkcji od 12.11.2026 (serwer 22079856, PROTRIMA
   - Po zapisaniu salda otwarcia klient pojawia się na liście. Lista pokazuje każdego niewyłączonego klienta, który ma dokument, wpłatę albo wiersz `rozl_otwarcia`.
   - Backend: `karta()` dla istniejącego klienta bez danych zwraca pustą kartę, nie 404.
 - **D3a. Saldo otwarcia nigdy nie wchodzi do obrotu ani do kg** (słowa właściciela: „liczymy od dzisiaj”). Test na to.
+- **D12. Szczegóły dokumentu (WZ/FV) czytelniej** (właściciel: „jak wchodzę w dokument np. FV, to też widoczne kg, kwota i wpłata do tego dokumentu bardziej widoczna”).
+  - Na górze okna `SzczegolyDokumentu` jest wyraźny pasek kafelków: `Kwota` (lub „czeka na kwotę” z przyciskiem `Wpisz kwotę`), `Zapłacono`, `Zostało` (czerwone tylko po terminie), `kg`, `Termin` / stan.
+  - Pod nim sekcja `Wpłaty do tego dokumentu` jako czytelna tabela: data, forma, kwota pokrycia, uwagi, kto. Dla częściowego pokrycia z wpłaty pokazać też całą kwotę wpłaty. Pusta sekcja pokazuje „Brak wpłat” i przycisk `+ Wpłata do tego dokumentu`, który otwiera WplataDialog z przypiętym dokumentem i księgą.
+  - Historia zmian i edycja niżej, mniej eksponowane.
 - **Bez zmian:** konwencja znaku (minus = klient winien); osobne księgi WZ/FV; `api.ts` tylko addytywnie; stara część webowa zostaje; brak nazw firm w `src/protrima/modules`; migracje addytywne i idempotentne.
 
 ## Zadania
@@ -127,6 +131,7 @@ Moduł Rozrachunki działa na produkcji od 12.11.2026 (serwer 22079856, PROTRIMA
 ### Task 4: PROTRIMA — karta: WZ nieliczone, FV bez kwoty, kg/obrót, Notatki, ustawienia klienta, bez placeholderów
 - Pliki: `KartaKlienta.tsx`, `SzczegolyDokumentu.tsx`, `Dziennik.tsx` (zmiana nazwy na Notatki, ewentualnie zmiana nazwy pliku z aktualizacją importów), `UstawieniaKlientaDialog.tsx`, `FakturaDialog.tsx` (pole kg), `WplataDialog.tsx`, `OtwarcieDialog.tsx`, `model.ts`, testy.
 - Zakres:
+  - D12: szczegóły dokumentu z kafelkami kwota/zapłacono/zostało/kg/termin i wyraźną sekcją wpłat (+ wpłata do tego dokumentu);
   - D2 UI: akcja w szczegółach z powodem, tag, przełącznik „Pokaż nieliczone”;
   - D4 UI: wiersz „czeka na kwotę” z „Wpisz kwotę”;
   - D3 na karcie: kafelki/podpisy kg i obrót za okres z wyborem okresu;
