@@ -61,20 +61,22 @@
   .print-sheet .dz-tbl tbody tr:nth-child(even) td { background: #f6f7f9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 
-/* ─── Stan magazynowy dla klienta (dwujęzyczny) ───────────────────────── */
-.doc-stan .ds-kind2 { font-size: 11pt; color: #5d646d; margin: 1px 0 8px; }
-.doc-stan .dz-title .dz-kind { margin-bottom: 0; }
-.doc-stan .dz-title dl { margin-top: 6px; }
-.doc-stan .ds-opis { justify-content: center; }
-.doc-stan .ds-opis strong { font-size: 10pt; }
-.doc-stan .ds-opis span { color: #5d646d; }
-.doc-stan .dz-tbl th { vertical-align: bottom; }
-.doc-stan .dz-tbl th [data-drugi-jezyk] { color: #c5ccd6 !important; font-size: 7pt !important; letter-spacing: 0; }
-.doc-stan .ds-partie { font-size: 8pt; color: #333; white-space: nowrap; }
-.doc-stan .ds-partie span { display: block; }
-.doc-stan .ds-foot { display: block; margin-top: 22px; border-top: 1px solid #d8dde3; padding-top: 6px; }
-.doc-stan .ds-foot p { margin: 0 0 3px; text-align: left; font-size: 8pt; color: #555; }
-.doc-stan .ds-foot p + p { color: #888; font-size: 7.5pt; }
+/* ─── Stan magazynowy dla klienta — szablon dokumentów rozrachunków ───── */
+.doc-stan { display: flex; flex-direction: column; background: #fff; color: #1a1d21; font-family: 'Fira Sans', 'Segoe UI', Arial, sans-serif;
+  font-size: 9.5pt; line-height: 1.38; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.doc-stan h1, .doc-stan h3 { margin: 0; color: #1a1d21; text-transform: none; letter-spacing: normal; }
+.doc-stan .ds-tresc { flex: 1 0 auto; }
+.doc-stan tr, .doc-stan .druk-panel, .doc-stan footer { break-inside: avoid; }
+.doc-paper:has(> .doc-stan) { padding: 12mm 14mm 11mm; display: flex; min-height: 240mm; }
+.doc-paper > .doc-stan { flex: 1; }
+@media print {
+  .print-sheet.doc-print:has(> .doc-stan) { font-size: 9.5pt; }
+  .print-sheet .doc-stan { min-height: 268mm; }
+  .print-sheet .doc-stan th, .print-sheet .doc-stan td { border: 0; background: transparent !important; }
+  .print-sheet .doc-stan th { border-bottom: 0.75pt solid #1a1d21 !important; color: #5d646d !important; }
+  .print-sheet .doc-stan td { border-bottom: 0.5pt solid #d3d8de !important; }
+  .print-sheet .doc-stan h1 { font-size: 19pt; }
+}
 
 /* ─── Lista kompletacji (wewnętrzna) ─────────────────────────────────── */
 .doc-komp .dk-mut { color: #666; }

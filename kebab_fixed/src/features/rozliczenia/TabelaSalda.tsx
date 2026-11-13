@@ -23,6 +23,7 @@ import type { CSSProperties } from 'react'
 import { dataPl, kwota, type KsiegaZestawienia, type Zestawienie } from './druk'
 import { DRUK, LICZBOWA } from './NaglowekDruku'
 import { Dw, jezykKlienta, type Jezyk, type Klucz } from './jezykDruku'
+import { KontoDoWplat } from './KontoDoWplat'
 
 const S = {
   h: { fontSize: '1.05em', fontWeight: 600, margin: '0 0 .7em' } as CSSProperties,
@@ -98,8 +99,10 @@ const wierszPanelu: CSSProperties = {
  * `bezTytulu` — osobna kartka ma stan na dzień w nagłówku, więc tytuł
  * tabelki byłby powtórzeniem.
  */
-export function TabelaSalda({ z, naWz = false, bezTytulu = false }: {
+export function TabelaSalda({ z, naWz = false, bezTytulu = false, odbiorcaPrzelewu }: {
   z: Zestawienie; naWz?: boolean; bezTytulu?: boolean
+  /** Nazwa firmy przy rachunku do wpłat (osobna kartka; pod WZ sprzedawca jest już na dokumencie). */
+  odbiorcaPrzelewu?: string
 }) {
   const dzien = dataPl(z.na_dzien)
   const nadplata = z.nadplata_wz > 0 || z.nadplata_fv > 0
@@ -156,6 +159,7 @@ export function TabelaSalda({ z, naWz = false, bezTytulu = false }: {
           <div style={{ marginTop: '.9em', fontSize: '.86em', color: DRUK.szary }}>
             <Dw k="wplaty_do" j={j} d={dzien} pod />
           </div>
+          {z.razem > 0 && <KontoDoWplat konto={z.konto} odbiorca={odbiorcaPrzelewu} j={j} />}
         </>
       )}
     </div>

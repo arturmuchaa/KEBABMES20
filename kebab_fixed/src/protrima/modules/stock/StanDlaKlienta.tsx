@@ -1,14 +1,20 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { Printer } from 'lucide-react'
 import { Dialog } from '../../shell/context'
 import { fmtDate, kg, num } from '../../data/model'
 import { posKg, type StockPos } from '../../data/stock'
-import { logoDokumentu, type Firma } from '../../zaklad/zaklad'
+import type { Firma } from '../../zaklad/zaklad'
 import { useFirma } from '../../zaklad/firma'
 import { useApi } from '@/hooks/useApi'
-import { clientsApi } from '@/lib/api'
-import { Dw, NAZWA_JEZYKA, jezykKlienta, obcy, pl, type Jezyk } from '@/features/rozliczenia/jezykDruku'
+import { clientsApi, type CompanySettings } from '@/lib/api'
+import { DRUK, LICZBOWA, NaglowekDruku, StopkaDruku } from '@/features/rozliczenia/NaglowekDruku'
+// Krój dokumentów dla klienta (ten sam co zestawienie należności) — PROTRIMA sama go nie ładuje.
+import '@fontsource/fira-sans/400.css'
+import '@fontsource/fira-sans/500.css'
+import '@fontsource/fira-sans/600.css'
+import '@fontsource/fira-sans/700.css'
+import { Dw, NAZWA_JEZYKA, jezykKlienta, type Jezyk } from '@/features/rozliczenia/jezykDruku'
 
 /** Klucz klienta na wierszu magazynu; wiersz bez zamówienia = wolny wyrób. */
 export const WOLNE = '— wolny wyrób —'
@@ -102,86 +108,71 @@ export function StanDlaKlientaDialog({ stock, start, onClose }: { stock: StockPo
 
 const nf = (v: number) => num(v)
 
-/** Dokument dla odbiorcy — ten sam krój co „Zamówienie dla klienta” (style `doc-zam` w print.css). */
+const T = {
+  th: { padding: '.35em .55em .4em', fontWeight: 600, fontSize: '.8em', color: DRUK.szary, textAlign: 'left',
+        borderBottom: `0.75pt solid ${DRUK.liniaMocna}`, verticalAlign: 'bottom' } as CSSProperties,
+  td: { padding: '.42em .55em', borderBottom: `0.5pt solid ${DRUK.linia}`, verticalAlign: 'baseline' } as CSSProperties,
+}
+const wierszPanelu: CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '1.5em' }
+
+/**
+ * Dokument dla odbiorcy — TEN SAM szablon co „Zestawienie należności” i „Historia
+ * rozliczeń” (NaglowekDruku: logo zakładu, firma, tytuł, odbiorca w ramce; jasna
+ * tabela z cienkimi liniami; panel sumy; stopka). Właściciel 13.11.2026: dokumenty
+ * wysyłane klientowi mają być spójne.
+ */
 export function ArkuszStanu({ odbiorca, rows, partie, jezyk, firma, teraz = new Date() }: {
   odbiorca: OdbiorcaStanu; rows: Wiersz[]; partie: boolean; jezyk: Jezyk; firma: Firma | null; teraz?: Date
 }) {
-  const logo = logoDokumentu(firma)
-  const f = firma ?? {}
+  const f = firma as CompanySettings | null
   const tot = rows.reduce((a, r) => ({ qty: a.qty + r.qty, kg: a.kg + r.kg }), { qty: 0, kg: 0 })
   const dzien = teraz.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' })
   const godz = teraz.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })
   const j = jezyk
+  const adres = [odbiorca.adres, odbiorca.miasto].filter(Boolean).join(', ')
+  const r: CSSProperties = { ...LICZBOWA }
   return (
-    <article className="doc-zam doc-stan" aria-label="Stan magazynowy dla klienta">
-      <header className="dz-head">
-        <div className="dz-firm">
-          {logo && <img src={logo} alt="" />}
-          <div>
-            <strong>{f.name || 'Dane firmy nie zostały skonfigurowane'}</strong>
-            {f.address && <span>{f.address}</span>}
-            <span>{[f.postalCode, f.city].filter(Boolean).join(' ')}</span>
-            <span>{[f.nip && `NIP ${f.nip}`, f.vetNumber && `Wet. ${f.vetNumber}`].filter(Boolean).join(' · ')}</span>
-            <span>{[f.phone, f.email].filter(Boolean).join(' · ')}</span>
+    <article className="doc-stan" aria-label="Stan magazynowy dla klienta">
+      <div className="ds-tresc">
+        <NaglowekDruku firma={f} klient={{ nazwa: odbiorca.nazwa, adres, nip: odbiorca.nip ?? '' }} tytul="t_stan" jezyk={j} strona="odbiorca"
+          dane={[['stan_na', `${dzien}, ${godz}`]]} />
+        <h3 style={{ fontSize: '1em', fontWeight: 600, margin: '0 0 .35em' }}><Dw k="stan_podtytul" j={j} /></h3>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr>
+            <th style={{ ...T.th, width: '8mm' }}><Dw k="s_lp" j={j} pod /></th><th style={T.th}><Dw k="s_wyrob" j={j} pod /></th><th style={T.th}><Dw k="s_opakowanie" j={j} pod /></th>
+            <th style={{ ...T.th, textAlign: 'right' }}><Dw k="s_gramatura" j={j} pod /></th><th style={{ ...T.th, textAlign: 'right' }}><Dw k="s_sztuk" j={j} pod /></th>
+            <th style={{ ...T.th, textAlign: 'right' }}><Dw k="s_masa" j={j} pod /></th>
+            {partie && <th style={T.th}><Dw k="s_partie" j={j} pod /></th>}
+          </tr></thead>
+          <tbody>
+            {rows.length === 0 && <tr><td style={{ ...T.td, color: DRUK.szary }} colSpan={partie ? 7 : 6}><Dw k="s_brak" j={j} pod /></td></tr>}
+            {rows.map((w, i) => (
+              <tr key={i}>
+                <td style={{ ...T.td, color: DRUK.szary }}>{i + 1}</td>
+                <td style={T.td}><span style={{ fontWeight: 600 }}>{w.recipe}</span>{w.product && <span style={{ display: 'block', fontSize: '.86em', color: DRUK.szary }}>{w.product}</span>}</td>
+                <td style={T.td}>{w.packaging || '—'}</td>
+                <td style={{ ...T.td, ...r }}>{nf(w.kgPerUnit)} kg</td>
+                <td style={{ ...T.td, ...r, fontWeight: 600 }}>{nf(w.qty)}</td>
+                <td style={{ ...T.td, ...r }}>{nf(w.kg)} kg</td>
+                {partie && <td style={{ ...T.td, fontSize: '.86em', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                  {w.batches.map((b, n) => <span key={n} style={{ display: 'block' }}>{b.batch}{b.date ? ` · ${fmtDate(b.date)}` : ''} · {nf(b.qty)}</span>)}</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {rows.length > 0 && <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.1em' }}>
+          <div data-testid="panel-sumy" className="druk-panel" style={{ minWidth: '48%', border: `0.75pt solid ${DRUK.linia}`, borderTop: `1.5pt solid ${DRUK.liniaMocna}`,
+            background: DRUK.tlo, padding: '.65em .9em .7em', display: 'grid', rowGap: '.3em' }}>
+            <div style={wierszPanelu}><span><Dw k="s_pozycji" j={j} /></span><b style={{ ...LICZBOWA, fontWeight: 600 }}>{rows.length}</b></div>
+            <div style={wierszPanelu}><span><Dw k="s_razem_szt" j={j} /></span><b style={{ ...LICZBOWA, fontWeight: 600 }}>{nf(tot.qty)}</b></div>
+            <div style={{ ...wierszPanelu, fontSize: '1.22em' }}><span style={{ fontWeight: 600 }}><Dw k="s_razem_kg" j={j} /></span><b style={{ ...LICZBOWA, fontWeight: 700 }}>{nf(tot.kg)} kg</b></div>
           </div>
-        </div>
-        <div className="dz-title">
-          <span className="dz-kind">{pl('t_stan')}</span>
-          {j !== 'pl' && <span className="ds-kind2" data-drugi-jezyk={j}>{obcy('t_stan', j)}</span>}
-          <dl>
-            <dt><Dw k="stan_na" j={j} /></dt><dd>{dzien}, {godz}</dd>
-          </dl>
-        </div>
-      </header>
+        </div>}
 
-      <section className="dz-parties">
-        <div><h3><Dw k="odbiorca" j={j} /></h3>
-          <strong>{odbiorca.nazwa}</strong>
-          {odbiorca.adres && <span>{odbiorca.adres}</span>}
-          {odbiorca.miasto && <span>{odbiorca.miasto}</span>}
-          {odbiorca.nip && <span><Dw k="nip" j={j} />: {odbiorca.nip}</span>}
-        </div>
-        <div className="ds-opis">
-          <strong>{pl('stan_podtytul')}</strong>
-          {j !== 'pl' && <span data-drugi-jezyk={j}>{obcy('stan_podtytul', j)}</span>}
-        </div>
-      </section>
-
-      <table className="dz-tbl">
-        <thead><tr>
-          <th className="c-lp"><Dw k="s_lp" j={j} pod /></th><th><Dw k="s_wyrob" j={j} pod /></th><th><Dw k="s_opakowanie" j={j} pod /></th>
-          <th className="r"><Dw k="s_gramatura" j={j} pod /></th><th className="r"><Dw k="s_sztuk" j={j} pod /></th><th className="r"><Dw k="s_masa" j={j} pod /></th>
-          {partie && <th><Dw k="s_partie" j={j} pod /></th>}
-        </tr></thead>
-        <tbody>
-          {rows.length === 0 && <tr><td colSpan={partie ? 7 : 6}><Dw k="s_brak" j={j} pod /></td></tr>}
-          {rows.map((r, i) => (
-            <tr key={i}>
-              <td className="c-lp">{i + 1}</td>
-              <td><b>{r.recipe}</b>{r.product && <small>{r.product}</small>}</td>
-              <td>{r.packaging || '—'}</td>
-              <td className="r">{nf(r.kgPerUnit)} kg</td>
-              <td className="r"><b>{nf(r.qty)}</b></td>
-              <td className="r">{nf(r.kg)} kg</td>
-              {partie && <td className="ds-partie">{r.batches.map((b, n) => <span key={n}>{b.batch}{b.date ? ` · ${fmtDate(b.date)}` : ''} · {nf(b.qty)}</span>)}</td>}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {rows.length > 0 && <section className="dz-sum">
-        <div className="dz-notes" />
-        <dl className="dz-totals">
-          <dt><Dw k="s_pozycji" j={j} /></dt><dd>{rows.length}</dd>
-          <dt><Dw k="s_razem_szt" j={j} /></dt><dd>{nf(tot.qty)}</dd>
-          <dt className="big"><Dw k="s_razem_kg" j={j} /></dt><dd className="big">{nf(tot.kg)} kg</dd>
-        </dl>
-      </section>}
-
-      <footer className="dz-foot ds-foot">
-        <p><Dw k="s_stopka" j={j} pod /></p>
-        <p>{[f.name, `${pl('wydrukowano')}${j !== 'pl' ? ` / ${obcy('wydrukowano', j)}` : ''} ${dzien}, ${godz}`].filter(Boolean).join(' · ')}</p>
-      </footer>
+        <div style={{ marginTop: '.9em', fontSize: '.86em', color: DRUK.szary }}><Dw k="s_stopka" j={j} pod /></div>
+      </div>
+      <StopkaDruku firma={f} jezyk={j} />
     </article>
   )
 }

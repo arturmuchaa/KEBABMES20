@@ -202,3 +202,18 @@ describe('TabelaSalda — dwa języki', () => {
     expect(pl.container.querySelector('[data-drugi-jezyk]')).toBeNull()
   })
 })
+
+describe('TabelaSalda — rachunek do wpłat', () => {
+  const konto = { numer: 'PL27114020040000300201355387', bank: 'Bank B', swift: 'BREXPLPW', waluta: 'EUR' }
+  it('jest pod sumą, numer czwórkami, z odbiorcą przelewu; bez numeru w ustawieniach — bloku nie ma', () => {
+    const { unmount } = render(<TabelaSalda z={{ ...ZESTAWIENIE, konto }} odbiorcaPrzelewu="Zakład Testowy" />)
+    const blok = screen.getByTestId('konto-do-wplat')
+    expect(blok.textContent).toContain('Rachunek do wpłat (EUR)')
+    expect(blok.textContent).toContain('PL27 1140 2004 0000 3002 0135 5387')
+    expect(blok.textContent).toContain('Bank B · SWIFT/BIC BREXPLPW')
+    expect(blok.textContent).toContain('Zakład Testowy')
+    unmount()
+    render(<TabelaSalda z={{ ...ZESTAWIENIE, konto: null }} />)
+    expect(screen.queryByTestId('konto-do-wplat')).toBeNull()
+  })
+})

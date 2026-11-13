@@ -24,6 +24,7 @@ import { PrintToolbar } from '@/components/print/PrintToolbar'
 import { ArkuszDruku, DRUK, LICZBOWA, NaglowekDruku } from '@/features/rozliczenia/NaglowekDruku'
 import { dataPl, kwota, type HistoriaOkresu, type KsiegaHistorii } from '@/features/rozliczenia/druk'
 import { Dw, jezykKlienta, type Jezyk, type Klucz } from '@/features/rozliczenia/jezykDruku'
+import { KontoDoWplat } from '@/features/rozliczenia/KontoDoWplat'
 
 const S = {
   table: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', lineHeight: 1.3 } as CSSProperties,
@@ -165,6 +166,7 @@ export function HistoriaRozliczenPrintPage() {
             </div>
           </div>
         </div>
+        {h.saldo_koniec < 0 && <KontoDoWplat konto={h.konto} odbiorca={firma?.name} j={j} />}
       </ArkuszDruku>
     </>
   )

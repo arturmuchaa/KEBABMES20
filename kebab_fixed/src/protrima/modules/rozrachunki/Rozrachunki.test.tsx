@@ -271,7 +271,7 @@ describe('Rozrachunki — lista kontrahentów', () => {
     mount()
     await screen.findByText('RONDO GRILL')
     const cmds = ostatnieKomendy(setCmds)
-    expect(cmds.map(c => c.label)).toEqual(['Odśwież', 'Kontrahent'])
+    expect(cmds.map(c => c.label)).toEqual(['Odśwież', 'Kontrahent', 'Rachunki do wpłat'])
     expect(cmds.some(c => /Data startu/.test(c.label))).toBe(false)
     expect(screen.getByText(/salda odbiorców od 09\.11\.2026/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /WZ bez kontrahenta \(1\)/ }))

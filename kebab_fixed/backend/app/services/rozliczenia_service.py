@@ -37,6 +37,7 @@ Na granicy API kwoty to `float` zaokrąglony do 2 miejsc, daty — ISO.
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -1518,6 +1519,52 @@ def _adres_klienta(client_id: str) -> str:
     return ", ".join(x for x in (ulica, miasto) if x)
 
 
+# ── Rachunki bankowe do wpłat (PLN i EUR) ───────────────────────────────
+# Osobny klucz ustawień, nie „company": dane firmy zapisuje też stary MES
+# całym obiektem i starszy klient zgubiłby nowe pola.
+KONTA_KEY = "rozliczenia_konta"
+_WALUTY_KONT = ("pln", "eur")
+_POLA_KONTA = ("numer", "bank", "swift")
+
+
+def konta() -> dict:
+    """Rachunki do wpłat: `{pln: {numer, bank, swift}, eur: {...}}` (puste = nie podano)."""
+    row = query_one("SELECT value FROM app_settings WHERE key=%s", (KONTA_KEY,))
+    val = (row or {}).get("value") or {}
+    if isinstance(val, str):
+        try:
+            val = json.loads(val)
+        except ValueError:
+            val = {}
+    return {w: {p: str(((val.get(w) or {}).get(p)) or "") for p in _POLA_KONTA} for w in _WALUTY_KONT}
+
+
+def ustaw_konta(dane: dict, kto: str) -> dict:
+    """Zapis rachunków do wpłat. Numer: litery/cyfry/spacje, do 42 znaków."""
+    nowe = {}
+    for w in _WALUTY_KONT:
+        wej = (dane or {}).get(w) or {}
+        k = {p: " ".join(str(wej.get(p) or "").split())[:80] for p in _POLA_KONTA}
+        k["numer"] = k["numer"].upper()
+        k["swift"] = k["swift"].upper().replace(" ", "")
+        if k["numer"] and not re.fullmatch(r"[A-Z0-9 ]{10,42}", k["numer"]):
+            raise HTTPException(400, f"Numer rachunku {w.upper()} może mieć tylko litery, cyfry i spacje (10–42 znaki)")
+        if k["swift"] and not re.fullmatch(r"[A-Z0-9]{8}([A-Z0-9]{3})?", k["swift"]):
+            raise HTTPException(400, f"SWIFT/BIC rachunku {w.upper()} ma 8 albo 11 znaków")
+        nowe[w] = k
+    execute("""INSERT INTO app_settings (key, value, updated_at) VALUES (%s, %s::jsonb, now())
+               ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()""",
+            (KONTA_KEY, json.dumps(nowe)))
+    logger.info("rozliczenia.konta.zapis")
+    return konta()
+
+
+def _konto_do_wplat(waluta: str) -> Optional[dict]:
+    """Rachunek w walucie kontrahenta na dokumenty dla klienta; None, gdy nie podano."""
+    k = konta().get((waluta or "").lower())
+    return {**k, "waluta": (waluta or "").upper()} if k and k["numer"] else None
+
+
 def _jezyk_klienta(klient: dict) -> str:
     """Drugi język dokumentów klienta — jak w HDI: kartoteka, a gdy pusta, prefiks NIP."""
     from app.utils.hdi_lang import lang_from_nip
@@ -1546,7 +1593,8 @@ def zestawienie(client_id: str, na_dzien: Optional[date] = None,
         ten_id = r["id"] if r else None
     wynik: dict[str, Any] = {
         "klient": _klient_wydruku(k["klient"]), "waluta": k["klient"]["settlement_currency"],
-        "na_dzien": dzien.isoformat(), "policzono": datetime.now().isoformat(timespec="seconds")}
+        "na_dzien": dzien.isoformat(), "policzono": datetime.now().isoformat(timespec="seconds"),
+        "konto": _konto_do_wplat(k["klient"]["settlement_currency"])}
     po_terminie = _ZERO
     for ks in KSIEGI:
         pozycje, razem = [], _ZERO
@@ -1656,7 +1704,8 @@ def historia_okresu(client_id: str, od: date, do: date) -> dict:
     po = ksiegi_klienta(client_id, na_dzien=do, dzis=do)
     wynik: dict[str, Any] = {"klient": _klient_wydruku(po["klient"]),
                              "waluta": po["klient"]["settlement_currency"],
-                             "od": od.isoformat(), "do": do.isoformat()}
+                             "od": od.isoformat(), "do": do.isoformat(),
+                             "konto": _konto_do_wplat(po["klient"]["settlement_currency"])}
     for ks in KSIEGI:
         wynik[ks] = _wiersze_ksiegi(po[ks], przed[ks]["saldo"], od, do)
     wynik["saldo_poczatek"] = _f(przed["wz"]["saldo"] + przed["fv"]["saldo"])

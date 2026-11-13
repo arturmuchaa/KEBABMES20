@@ -49,7 +49,7 @@ export function ZestawienieNaleznosciPrintPage() {
       <ArkuszDruku firma={firma} jezyk={j}>
         <NaglowekDruku firma={firma} klient={z.klient} tytul="t_zestawienie" jezyk={j}
           dane={[['stan_na', dataPl(z.na_dzien)], ['waluta', z.waluta]]} />
-        <TabelaSalda z={z} bezTytulu />
+        <TabelaSalda z={z} bezTytulu odbiorcaPrzelewu={firma?.name} />
       </ArkuszDruku>
     </>
   )

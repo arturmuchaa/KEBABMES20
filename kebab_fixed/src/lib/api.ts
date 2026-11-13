@@ -3293,6 +3293,9 @@ export const rozliczeniaApi = {
   lista: (od = '', do_ = '') => get<any>(`/rozliczenia${rozlQuery({ od, do: do_ })}`),
   ustawienia: () => get<{ start: string }>('/rozliczenia/ustawienia'),
   ustawStart: (start: string) => put<{ start: string }>('/rozliczenia/ustawienia', { start }),
+  /** Rachunki bankowe do wpłat (PLN, EUR) — drukują się na dokumentach dla klienta. */
+  konta: () => get<KontaDoWplat>('/rozliczenia/konta'),
+  ustawKonta: (dto: KontaDoWplat) => put<KontaDoWplat>('/rozliczenia/konta', dto),
   /** Karta klienta. `od`/`do` — filtr listy dokumentów (po dacie);
    *  `okresOd`/`okresDo` — okres obrotu i kg (puste = od daty startu). */
   karta: (clientId: string, od = '', do_ = '', okresOd = '', okresDo = '') =>
@@ -3383,6 +3386,9 @@ export const rozliczeniaApi = {
   historia: (clientId: string, od: string, do_: string) =>
     get<HistoriaOkresu>(`${rozlKlient(clientId)}/historia${rozlQuery({ od, do: do_ })}`),
 }
+
+export interface RachunekBankowy { numer: string; bank: string; swift: string }
+export interface KontaDoWplat { pln: RachunekBankowy; eur: RachunekBankowy }
 
 /** Adresy PDF (render serwerowy) — dla `downloadDocPdf` / `openDocument`. */
 export const rozliczeniaPdf = {

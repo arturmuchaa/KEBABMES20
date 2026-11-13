@@ -78,6 +78,10 @@ export const TEKSTY = {
     'Platby zaúčtované do {d}. Pokud jste v posledních dnech zaplatili, považujte tento přehled za neaktuální.',
     'Plačila knjižena do {d}. Če ste v zadnjih dneh plačali, tega pregleda ne upoštevajte.',
     'Paiements comptabilisés jusqu’au {d}. Si vous avez payé ces derniers jours, veuillez ne pas tenir compte de ce relevé.'),
+  konto_tytul: w('Rachunek do wpłat', 'Bankverbindung', 'Bank account for payments', 'Účet pre platby', 'Účet pro platby', 'Račun za plačila', 'Coordonnées bancaires'),
+  konto_numer: w('Nr rachunku', 'IBAN', 'Account no. (IBAN)', 'Číslo účtu (IBAN)', 'Číslo účtu (IBAN)', 'Št. računa (IBAN)', 'IBAN'),
+  konto_bank: w('Bank', 'Bank', 'Bank', 'Banka', 'Banka', 'Banka', 'Banque'),
+  konto_odbiorca: w('Odbiorca przelewu', 'Zahlungsempfänger', 'Beneficiary', 'Príjemca platby', 'Příjemce platby', 'Prejemnik plačila', 'Bénéficiaire'),
   // ── historia rozliczeń ──
   t_historia: w('Historia rozliczeń', 'Kontoauszug', 'Account statement', 'Výpis zúčtovania', 'Výpis vyúčtování', 'Izpisek prometa', 'Relevé de compte'),
   h_data: w('Data', 'Datum', 'Date', 'Dátum', 'Datum', 'Datum', 'Date'),

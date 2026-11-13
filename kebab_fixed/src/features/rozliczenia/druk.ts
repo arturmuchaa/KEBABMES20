@@ -27,6 +27,9 @@ export interface PozycjaZestawienia {
 
 export interface KsiegaZestawienia { pozycje: PozycjaZestawienia[]; razem: number }
 
+/** Rachunek do wpłat w walucie kontrahenta (ustawienia Rozrachunków); brak = nie podano. */
+export interface KontoWydruku { numer: string; bank: string; swift: string; waluta: string }
+
 export interface Zestawienie {
   klient: KlientWydruku
   waluta: string
@@ -38,6 +41,7 @@ export interface Zestawienie {
   po_terminie: number
   nadplata_wz: number
   nadplata_fv: number
+  konto?: KontoWydruku | null
 }
 
 /** Wiersz wyciągu. Saldo otwarcia przychodzi jako `dokument` z opisem
@@ -64,6 +68,7 @@ export interface HistoriaOkresu {
   fv: KsiegaHistorii
   saldo_poczatek: number
   saldo_koniec: number
+  konto?: KontoWydruku | null
 }
 
 const SYMBOL: Record<string, string> = { PLN: 'zł', EUR: '€' }

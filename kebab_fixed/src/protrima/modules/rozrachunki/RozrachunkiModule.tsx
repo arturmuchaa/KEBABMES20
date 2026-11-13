@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Wallet, RefreshCw, Search, ArrowUp, ArrowDown, BellRing, ChevronDown, ChevronRight, Link2, Plus, UserPlus, Undo2, UserX } from 'lucide-react'
+import { Wallet, RefreshCw, Search, ArrowUp, ArrowDown, BellRing, ChevronDown, ChevronRight, Link2, Plus, UserPlus, Undo2, UserX, Landmark } from 'lucide-react'
+import { KontaDialog } from './KontaDialog'
 import { useApp, CommandBar, Dialog, type Cmd } from '../../shell/context'
 import { FlagIcon } from '../../ui/Glyphs'
 import { Pusto } from '../../ui/Pusto'
@@ -65,7 +66,7 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
   const [wybrany, setWybrany] = useState<string | null>(null)
   const [nazwaNowego, setNazwaNowego] = useState<string | undefined>(undefined)
   const [nowyZKartoteki, setNowyZKartoteki] = useState(false)
-  const [okno, setOkno] = useState<'dodaj' | null>(null)
+  const [okno, setOkno] = useState<'dodaj' | 'konta' | null>(null)
   const [wylaczeniOn, setWylaczeniOn] = useState(false)
   const [oknoKarty, setOknoKarty] = useState<Okno | null>(null)
   const [wersjaKarty, setWersjaKarty] = useState(0)
@@ -139,6 +140,7 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
     { id: 'reload', group: 1, label: 'Odśwież', icon: <RefreshCw size={17} />, run: odswiez },
     { id: 'dodaj', group: 2, label: 'Kontrahent', icon: <Plus size={17} />, disabled: !l, tip: l ? 'Dodaj kontrahenta z kartoteki — np. z samym saldem otwarcia' : 'najpierw wczytaj rozrachunki',
       run: () => setOkno('dodaj') },
+    { id: 'konta', group: 3, label: 'Rachunki do wpłat', icon: <Landmark size={17} />, tip: 'Numery rachunków PLN i EUR drukowane na dokumentach dla klienta', run: () => setOkno('konta') },
   ], [odswiez, l])
   useEffect(() => { if (active) setCmds(cmds) }, [active, cmds, setCmds])
   useEffect(() => {
@@ -270,6 +272,7 @@ export function RozrachunkiModule({ active, setCtx, setCmds }: { active: boolean
 
       {oknoKarty && <OknoKarty o={oknoKarty} onClose={zamknijOkno} onZapisano={poZapisie} onOdswiez={odswiezKarte} />}
 
+      {okno === 'konta' && <KontaDialog onClose={() => setOkno(null)} />}
       {okno === 'dodaj' && l && (
         <DodajKontrahentaDialog naLiscie={wszyscy} wylaczeni={wylaczeni} onClose={() => setOkno(null)} onWybierz={otworzNowego} />
       )}

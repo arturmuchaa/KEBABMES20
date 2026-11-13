@@ -78,7 +78,7 @@ export function ArkuszDruku({ firma, jezyk = 'pl', children }: { firma: CompanyS
   )
 }
 
-function StopkaDruku({ firma, jezyk }: { firma: CompanySettings | null; jezyk: Jezyk }) {
+export function StopkaDruku({ firma, jezyk }: { firma: CompanySettings | null; jezyk: Jezyk }) {
   const kontakt = firma
     ? [firma.name, adresFirmy(firma), firma.phone && `tel. ${firma.phone}`, firma.email].filter(Boolean)
     : []

@@ -387,3 +387,23 @@ def test_wz_reczna_wchodzi_do_ksiegi_wz_i_salda(db, przywroc_start):
     for zle in (dict(numer="WZ R/1/11", kwota=10), dict(numer="WZ R/2/11", kwota=0), dict(numer="WZ R/3/11", kwota=-5)):
         with pytest.raises(HTTPException):
             dodaj_wz_reczna("k", data=date(2026, 11, 10), termin=None, forma=None, uwagi="", kto="biuro", **zle)
+
+
+# ── Rachunki do wpłat na dokumentach (właściciel 13.11.2026) ────────────
+
+def test_konto_do_wplat_w_walucie_klienta_na_zestawieniu_i_historii(db, przywroc_start):
+    from fastapi import HTTPException
+    from app.services.rozliczenia_service import konta, ustaw_konta, zestawienie
+    execute("DELETE FROM app_settings WHERE key='rozliczenia_konta'")
+    _klient("k", waluta="EUR")
+    _otworz("k")
+    assert zestawienie("k")["konto"] is None            # nie podano — bloku nie ma
+    ustaw_konta({"pln": {"numer": "61 1090 1014 0000 0712 1981 2874", "bank": "Bank A"},
+                 "eur": {"numer": "pl27 1140 2004 0000 3002 0135 5387", "bank": "Bank B", "swift": "breXplpw"}}, "biuro")
+    assert konta()["eur"] == {"numer": "PL27 1140 2004 0000 3002 0135 5387", "bank": "Bank B", "swift": "BREXPLPW"}
+    assert zestawienie("k")["konto"] == {"numer": "PL27 1140 2004 0000 3002 0135 5387", "bank": "Bank B",
+                                         "swift": "BREXPLPW", "waluta": "EUR"}
+    assert historia_okresu("k", date(2026, 11, 1), date(2026, 11, 30))["konto"]["waluta"] == "EUR"
+    with pytest.raises(HTTPException):
+        ustaw_konta({"pln": {"numer": "61-1090!"}}, "biuro")
+    execute("DELETE FROM app_settings WHERE key='rozliczenia_konta'")

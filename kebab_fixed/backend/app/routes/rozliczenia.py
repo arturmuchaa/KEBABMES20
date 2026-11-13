@@ -91,6 +91,17 @@ def ustawienia():
     return {"start": wz.data_startu().isoformat()}
 
 
+@router.get("/konta")
+def konta():
+    """Rachunki bankowe do wpłat (PLN, EUR) drukowane na dokumentach dla klienta."""
+    return svc.konta()
+
+
+@router.put("/konta")
+def ustaw_konta(body: Dict[str, Any], request: Request):
+    return svc.ustaw_konta(body, _kto(request))
+
+
 @router.put("/ustawienia")
 def ustaw_ustawienia(body: Dict[str, Any], request: Request):
     # Data startu ustawiona na produkcji (12.11.2026) — przypadkowa zmiana
