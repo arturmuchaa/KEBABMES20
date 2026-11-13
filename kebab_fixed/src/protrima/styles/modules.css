@@ -1108,3 +1108,128 @@ div.pstage { cursor: default; }
 .rc-siatka td .wybor, .rc-siatka td .wybor > .field { width: 100%; max-width: none; }
 .rc-glowa .wybor { width: 100%; }
 .rc-siatka td .fld-err { display: block; white-space: normal; text-align: left; margin-top: 3px; }
+
+/* ─── Plan masowania ──────────────────────────────────────────────────── */
+.pm-toolbar { gap: 10px; }
+.pm-dni { display: flex; align-items: center; gap: 2px; }
+.pm-dni .field { width: 148px; font-weight: 600; }
+.pm-figi { display: flex; gap: 22px; align-items: flex-end; }
+.pm-figi > div, .pm-bilans > div { display: flex; flex-direction: column; gap: 1px; }
+.pm-figi .k, .pm-bilans .k { font-size: var(--fs-xs); color: var(--ink-3); white-space: nowrap; }
+.pm-figi .v, .pm-bilans .v { font-family: var(--font-mono, 'IBM Plex Mono', monospace); font-weight: 600; font-variant-numeric: tabular-nums; font-size: 15px; color: var(--ink-1); white-space: nowrap; }
+.pm-figi .crit .v, .pm-bilans .crit .v { color: var(--crit-ink); }
+.pm-uklad { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) clamp(340px, 30vw, 440px); }
+.pm-lewa { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px 0 0 12px; }
+.pm-lewa > .note { margin-right: 12px; }
+.pm-tbl-wrap { border-top: 1px solid var(--line-soft); border-radius: var(--r-md) 0 0 0; box-shadow: var(--e1); }
+.pm-tbl td { vertical-align: top; height: auto; padding-top: 5px; padding-bottom: 5px; }
+.pm-tbl td .wybor, .pm-tbl td .wybor > .field { width: 100%; }
+.pm-tbl td.c, .pm-tbl td.muted, .pm-tbl td.num, .pm-tbl td:nth-child(6), .pm-tbl td:nth-child(7) { padding-top: 10px; }
+.pm-tbl td.num:has(.field) { padding-top: 5px; }
+.pm-tbl .pm-lp { color: var(--ink-3); font-weight: 600; }
+.pm-tbl tr.pm-ogon td { background: var(--surface-alt); }
+.pm-tbl tr.pm-gotowe td { color: var(--ink-3); }
+.pm-tbl tr.pm-gotowe td b { color: var(--ink-2); }
+.pm-tbl .fld-err { display: block; white-space: normal; text-align: left; margin-top: 3px; color: var(--crit-ink); font-size: var(--fs-sm); line-height: 1.3; }
+.pm-kg { display: inline-flex; align-items: center; gap: 6px; }
+.pm-kg .field { width: 78px; font-weight: 600; }
+.pm-kg > span { color: var(--ink-3); font-size: var(--fs-sm); }
+.pm-uwaga { display: flex; gap: 5px; align-items: center; margin-top: 3px; color: var(--ink-3); font-size: var(--fs-sm); white-space: normal; }
+.pm-uwaga svg { flex: none; }
+.pm-partie { display: inline-flex; flex-wrap: wrap; gap: 5px; align-items: center; text-align: left; white-space: normal; }
+button.pm-partie { border-radius: var(--r-sm); padding: 2px 4px; margin: -2px -4px; cursor: pointer; }
+button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-shadow: 0 0 0 1px var(--line); }
+.pm-chip { display: inline-flex; gap: 5px; align-items: baseline; padding: 1px 6px; border-radius: var(--r-xs); background: var(--surface-sunk); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.pm-chip b { font-family: var(--font-mono, 'IBM Plex Mono', monospace); color: var(--ink-1); }
+.pm-chip.inne { box-shadow: inset 0 0 0 1px var(--warn); background: var(--warn-tint); }
+.pm-dobierz { color: var(--warn-ink); font-weight: 500; font-size: var(--fs-sm); white-space: nowrap; }
+.pm-stan { display: inline-flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.pm-stan .sub { margin-left: 0; }
+.pm-pasek { display: inline-block; width: 64px; height: 6px; border-radius: 3px; background: var(--surface-sunk); overflow: hidden; }
+.pm-pasek i { display: block; height: 100%; background: var(--warn); border-radius: 3px; transition: width .15s; }
+.pm-pasek i.ok { background: var(--ok); }
+.pm-pasek i.crit { background: var(--crit); }
+.pm-akcje { white-space: nowrap; }
+.pm-akcje .btn.icon { opacity: .55; }
+.pm-tbl tr:hover .pm-akcje .btn.icon, .pm-tbl tr.sel .pm-akcje .btn.icon { opacity: 1; }
+.pm-skroty { margin: 0; padding: 0 12px 8px 2px; font-size: var(--fs-sm); }
+.pm-zalegle ul { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.pm-zalegle li { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; justify-content: space-between; }
+.pm-zal-akcje { display: inline-flex; gap: 6px; }
+
+.pm-panel { min-height: 0; display: flex; flex-direction: column; background: var(--surface); box-shadow: -1px 0 0 var(--line); }
+.pm-panel .dock-tabs { flex: none; padding: 0 8px; }
+.pm-panel .dock-tab { display: inline-flex; gap: 6px; align-items: center; }
+.pm-panel-body { flex: 1; min-height: 0; overflow: auto; padding: 12px; }
+.pm-opis { margin: 0 0 10px; font-size: var(--fs-sm); line-height: 1.45; }
+.pm-pad { margin: 0; }
+.pm-potrzeby, .pm-partie-panel, .pm-przyprawy { display: flex; flex-direction: column; gap: 10px; }
+.pm-potrzeby .pm-opis, .pm-przyprawy .pm-opis, .pm-partie-panel .pm-opis { margin: 0; }
+.pm-potrzeba { padding: 10px 12px; border-radius: var(--r-md); background: var(--surface); box-shadow: var(--e1); display: flex; flex-direction: column; gap: 6px; }
+.pm-potrzeba .l1 { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.pm-potrzeba .l1 .sub { color: var(--ink-3); font-size: var(--fs-sm); white-space: nowrap; }
+.pm-potrzeba .l2 { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.pm-brak { color: var(--warn-ink); }
+.pm-brak b { font-variant-numeric: tabular-nums; }
+.pm-rozwin { text-align: left; color: var(--ink-3); font-size: var(--fs-sm); line-height: 1.4; cursor: pointer; }
+.pm-rozwin:hover { color: var(--ink-1); text-decoration: underline; }
+.pm-zam { margin: 0; padding: 6px 0 0; list-style: none; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-sm); }
+.pm-zam li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 64px; gap: 8px; align-items: baseline; }
+.pm-zam .num { text-align: right; }
+.pm-pokryte summary { cursor: pointer; color: var(--ink-3); font-size: var(--fs-sm); }
+.pm-pokryta { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; font-size: var(--fs-sm); border-bottom: 1px solid var(--line-soft); }
+.pm-wybrana { padding: 10px 12px; border-radius: var(--r-md); background: var(--accent-tint-2); display: flex; flex-direction: column; gap: 8px; }
+.pm-wybrana .l1 { display: flex; justify-content: space-between; gap: 10px; }
+.pm-pokrycie { display: flex; align-items: center; gap: 10px; }
+.pm-pokrycie .pm-pasek { flex: 1; height: 8px; background: var(--surface); }
+.pm-bilans { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 8px 12px; border-radius: var(--r-md); background: var(--surface-alt); }
+.pm-h { margin: 4px 0 4px; font-size: var(--fs-sm); font-weight: 600; display: flex; justify-content: space-between; gap: 10px; }
+.pm-h .muted { font-weight: 500; }
+.pm-partie-tbl td { height: auto; padding: 5px 6px; vertical-align: middle; }
+.pm-partie-tbl td:not(.num) .sub { display: block; margin-left: 0; white-space: normal; }
+.pm-partie-tbl td.num { white-space: nowrap; }
+.pm-partie-tbl td .field { width: 72px; }
+.pm-partie-tbl .pm-termin { color: var(--ink-3); font-size: var(--fs-sm); white-space: nowrap; }
+.pm-partie-tbl tr.pm-zajeta td { color: var(--ink-4); }
+.pm-okno-poz { padding: 10px 12px; border-radius: var(--r-md); background: var(--surface-alt); line-height: 1.5; }
+.pm-okno-opis { margin: 0; line-height: 1.5; }
+.pm-podzial .field { width: 92px; }
+.pm-dzien-wybor { display: flex; gap: 10px; align-items: center; }
+@media (max-width: 1180px) {
+  .pm-uklad { grid-template-columns: minmax(0, 1fr) 320px; }
+  .pm-figi { gap: 14px; }
+}
+
+/* Wydruk planu masowania (podgląd w oknie i kartka A4) */
+.pm-druk { font-family: var(--font-ui); color: #111; font-size: 9.5pt; line-height: 1.3; }
+.pm-druk .pmd-head { display: flex; align-items: center; gap: 12px; border-bottom: 2px solid #111; padding-bottom: 6px; margin-bottom: 6px; }
+.pm-druk .pmd-head img { height: 44px; width: auto; }
+.pm-druk h1 { margin: 0; font-size: 16pt; letter-spacing: .01em; }
+.pm-druk .pmd-sub { font-size: 10pt; color: #333; }
+.pm-druk .pmd-sumy { margin-left: auto; text-align: right; font-size: 10.5pt; }
+.pm-druk .pmd-sumy span { display: block; font-size: 8pt; color: #555; }
+.pm-druk h2 { margin: 8px 0 3px; font-size: 9pt; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.pm-druk h2 span { font-weight: 500; text-transform: none; letter-spacing: 0; color: #333; }
+.pm-druk table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.pm-druk th, .pm-druk td { border: 1px solid #9a9a9a; padding: 2px 5px; text-align: left; vertical-align: middle; height: auto; background: #fff; color: #111; }
+.pm-druk th { background: #ededed; font-size: 7.5pt; font-weight: 700; text-transform: uppercase; }
+.pm-druk .num { text-align: right; }
+.pm-druk .c { text-align: center; }
+.pm-druk tr.z td { background: #f4f4f4; }
+.pm-druk tfoot td { font-weight: 700; background: #ededed; }
+.pm-druk .pmd-uwagi { font-size: 8.5pt; font-style: italic; font-weight: 500; }
+.pm-druk .pmd-przepisy { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.pm-druk .pmd-przepisy section, .pm-druk .pmd-lacznie { break-inside: avoid; }
+.pm-druk .pmd-lacznie table { max-width: 95mm; }
+.pm-druk footer { margin-top: 8px; padding-top: 4px; border-top: 1px solid #aaa; font-size: 7.5pt; color: #555; }
+@media print {
+  .print-sheet .pm-druk tr.z td { background: #f4f4f4 !important; }
+  .print-sheet .pm-druk th, .print-sheet .pm-druk tfoot td { background: #ededed !important; }
+}
+.pm-lp-w { display: inline-flex; align-items: center; gap: 6px; }
+.pm-kolej { display: inline-flex; flex-direction: column; opacity: 0; }
+.pm-tbl tr:hover .pm-kolej, .pm-tbl tr.sel .pm-kolej, .pm-tbl tr:focus-within .pm-kolej { opacity: 1; }
+.pm-kolej button { display: flex; height: 13px; align-items: center; color: var(--ink-3); border-radius: 3px; cursor: pointer; }
+.pm-kolej button:hover:not(:disabled) { color: var(--ink-1); background: var(--surface-sunk); }
+.pm-kolej button:disabled { opacity: .25; cursor: default; }
+.pm-wsady { display: block; margin-top: 2px; color: var(--ink-3); font-size: var(--fs-xs); text-align: right; white-space: nowrap; }

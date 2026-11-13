@@ -4237,6 +4237,8 @@ export const mixingOrdersApi = {
     meatKg: number
     seq: number
     meatLots: { meatLotId: string; kgPlanned: number }[]
+    /** Uwagi dla operatora. `undefined` = nie ruszaj (stary ekran), '' = skasuj. */
+    notes?: string
   }[], date?: string) =>
     put<any>('/mixing-orders/day-plan', {
       date,
@@ -4245,6 +4247,7 @@ export const mixingOrdersApi = {
         recipeId: i.recipeId,
         meatKg: i.meatKg,
         seq: i.seq,
+        ...(i.notes !== undefined ? { notes: i.notes } : {}),
         meatLots: i.meatLots.map(l => ({
           meatLotId: l.meatLotId,
           kgPlanned: l.kgPlanned,
@@ -4290,7 +4293,34 @@ export const mixingOrdersApi = {
     patch<any>(`/mixing-orders/${id}/auto-approve`, {}).then(mapMixingOrder),
   cancel:      (id: string) =>
     patch<any>(`/mixing-orders/${id}/cancel`, {}).then(mapMixingOrder),
+  /** Potrzeby masowania z otwartych zamówień, per receptura (PROTRIMA). */
+  demand:      (date?: string) =>
+    get<{ planDate: string; items: MixingDemandRow[] }>(`/mixing-orders/demand${date ? `?date=${date}` : ''}`),
+  /** Niewykonane zlecenia z minionych dni — trzymają rezerwacje mięsa. */
+  stale:       () =>
+    get<any[]>('/mixing-orders/stale').then(r => (Array.isArray(r) ? r : []).map(o => ({
+      ...mapMixingOrder(o), planDate: String(o.planDate ?? ''), reservedKg: Number(o.reservedKg ?? 0),
+    }) as StaleMixingOrder)),
+  /** Przenieś niewykonane zlecenie (z rezerwacjami mięsa) na inny dzień. */
+  move:        (id: string, date: string) =>
+    patch<any>(`/mixing-orders/${id}/move`, { date }).then(mapMixingOrder),
 }
+
+export interface MixingDemandRow {
+  recipeId: string
+  recipeName: string
+  /** Niezrobiona część otwartych zamówień (kg wyrobu = kg półproduktu). */
+  orderedKg: number
+  seasonedFreeKg: number
+  productionPlanKg: number
+  plannedMixingKg: number
+  plannedMixingThisDayKg: number
+  missingOutputKg: number
+  missingMeatKg: number
+  nearestDelivery: string | null
+  orders: Array<{ id: string; orderNo: string; clientName: string; deliveryDate: string | null; kg: number }>
+}
+export type StaleMixingOrder = MixingOrder & { planDate: string; reservedKg: number }
 
 // ─── Blokady maszyn ───────────────────────────────────────────
 function mapMachineLock(raw: any): MachineLock {

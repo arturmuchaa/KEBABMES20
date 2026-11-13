@@ -24,7 +24,7 @@ export const AREAS: AreaDef[] = [
   ] },
   { key: 'planowanie', label: 'Planowanie', icon: CalendarRange, modules: [
     { key: 'plan-produkcji', label: 'Plan produkcji', icon: ClipboardList, info: ['Plan z importem pozycji zamówień', 'Rezerwacja mięsa przyprawionego z wielu partii', 'Zalecenia produkcyjne'] },
-    { key: 'plan-masowania', label: 'Plan masowania', icon: Layers, info: ['Zlecenia masowania z przyrostem masy', 'Alokacja surowca wg FEFO'] },
+    { key: 'plan-masowania', label: 'Plan masowania', icon: Layers, info: ['Kolejka dnia dla masowni z partiami mięsa (FEFO)', 'Potrzeby z zamówień i braki przypraw', 'Potwierdzanie wykonania, wydruk dla operatora'] },
     { key: 'receptury', label: 'Receptury', icon: BookOpen, info: ['Skład na 100 kg mięsa, udziały i stan przypraw', 'Kalkulator na dowolną ilość mięsa', 'Gdzie użyta, kopia, wycofanie'] },
     { key: 'katalog', label: 'Katalog wyrobów', icon: Tags, info: ['Rodzaj × receptura × gramatura × opakowanie', 'Szablony etykiet i drukarki Zebra'] },
   ] },
@@ -64,7 +64,7 @@ export const AREAS: AreaDef[] = [
 export const PINNED = ['zamowienia', 'plan-produkcji', 'magazyn-wg', 'wysylki']
 
 /** Moduły z własnym ekranem w PROTRIMA. Pozostałe działają na razie w starym MES (zaślepka z drogowskazem). */
-export const W_PROTRIMA = new Set(['pulpit', 'zamowienia', 'przyjecia', 'magazyn-wg', 'rozbior', 'rozrachunki', 'receptury'])
+export const W_PROTRIMA = new Set(['pulpit', 'zamowienia', 'przyjecia', 'magazyn-wg', 'rozbior', 'rozrachunki', 'receptury', 'plan-masowania'])
 export const wProtrima = (key: string) => W_PROTRIMA.has(key)
 
 /** Czy konto o tej roli widzi i otwiera moduł. Serwer i tak pilnuje uprawnień — tu chodzi o to,
@@ -98,7 +98,7 @@ export const areaOf = (key: string) => AREAS.find(a => a.modules.some(m => m.key
  */
 export const NAV_SECTIONS: Array<{ label: string; keys: string[] }> = [
   { label: 'Sprzedaż', keys: ['zamowienia', 'kontrahenci', 'wysylki', 'dokumenty', 'rozrachunki'] },
-  { label: 'Produkcja', keys: ['plan-produkcji', 'rozbior', 'masowanie', 'realizacja', 'receptury'] },
+  { label: 'Produkcja', keys: ['plan-produkcji', 'plan-masowania', 'rozbior', 'masowanie', 'realizacja', 'receptury'] },
   { label: 'Magazyn', keys: ['przyjecia', 'surowce', 'magazyn-wg', 'palety'] },
   { label: 'Jakość i analiza', keys: ['sledzenie', 'haccp', 'raporty'] },
 ]

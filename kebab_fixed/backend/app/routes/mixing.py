@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, Query
 
 from app.models.mixing import FinishMixingSessionDto, MixingOrderCreate
+from app.services import mixing_plan_service as plan_svc
 from app.services import mixing_service as svc
 from app.utils.auth import require_admin
 
@@ -26,6 +27,18 @@ def save_day_plan(body: dict):
     """Upsert planu dla danego dnia (domyślnie dziś): edycja/kolejność/
     anulowanie pozycji w kolejce."""
     return svc.save_day_plan(body.get("items") or [], body.get("date") or None)
+
+
+@router.get("/demand")
+def mixing_demand(date: str = Query("")):
+    """Potrzeby masowania z otwartych zamówień, per receptura (PROTRIMA)."""
+    return plan_svc.mixing_demand(date or None)
+
+
+@router.get("/stale")
+def stale_orders():
+    """Niewykonane zlecenia z minionych dni — trzymają rezerwacje mięsa."""
+    return plan_svc.stale_orders()
 
 
 @router.get("/{order_id}")
@@ -77,6 +90,12 @@ def auto_approve_mixing(order_id: str):
 @router.patch("/{order_id}/cancel")
 def cancel_mixing_order(order_id: str):
     return svc.cancel_mixing_order(order_id)
+
+
+@router.patch("/{order_id}/move")
+def move_mixing_order(order_id: str, body: dict):
+    """Przenieś niewykonane zlecenie (z rezerwacjami mięsa) na inny dzień."""
+    return plan_svc.move_order(order_id, str(body.get("date") or ""))
 
 
 @router.patch("/{order_id}/undo-confirm")

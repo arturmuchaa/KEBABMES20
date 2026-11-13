@@ -17,6 +17,7 @@ import { PrzyjeciaModule } from './modules/przyjecia/PrzyjeciaModule'
 import { RozbiorModule } from './modules/rozbior/RozbiorModule'
 import { RozrachunkiModule } from './modules/rozrachunki/RozrachunkiModule'
 import { RecepturyModule } from './modules/receptury/RecepturyModule'
+import { PlanMasowaniaModule } from './modules/plan-masowania/PlanMasowaniaModule'
 import { OrderEditor } from './modules/orders/edytor/OrderEditor'
 import { ZamowienieDrukDialog } from './modules/orders/druk/ZamowienieDruk'
 import { KartkiPaletDialog } from './modules/orders/druk/KartkiPalet'
@@ -268,7 +269,7 @@ function Shell() {
       const inField = /INPUT|TEXTAREA|SELECT/.test((e.target as HTMLElement)?.tagName ?? '')
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette(p => !p) }
       else if (mod && e.key.toLowerCase() === 'b') { e.preventDefault(); toggleNav() }
-      else if (mod && e.key.toLowerCase() === 'n' && !e.shiftKey) { e.preventDefault(); if (/^(przyjecia|new-rec:|edit-rec:)/.test(active)) newReception(); else if (active === 'receptury') runCmd('new'); else newOrder() }
+      else if (mod && e.key.toLowerCase() === 'n' && !e.shiftKey) { e.preventDefault(); if (/^(przyjecia|new-rec:|edit-rec:)/.test(active)) newReception(); else if (active === 'receptury' || active === 'plan-masowania') runCmd('new'); else newOrder() }
       else if (mod && e.key.toLowerCase() === 'w') { e.preventDefault(); closeTab(active) }
       else if (mod && e.key.toLowerCase() === 'p') { e.preventDefault(); const pc = modCmds.find(c => c.id === 'print'); const first = pc?.menu?.find(m => m.onSelect && !m.disabled); if (first?.onSelect) first.onSelect(); else if (!runCmd('print')) demo('Drukowanie') }
       else if (mod && e.key.toLowerCase() === 'd' && !inField) { e.preventDefault(); runCmd('duplicate') }
@@ -437,6 +438,7 @@ function Shell() {
     if (t.key === 'rozbior') return <RozbiorModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'rozrachunki') return <RozrachunkiModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'receptury') return <RecepturyModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
+    if (t.key === 'plan-masowania') return <PlanMasowaniaModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'system') return <DesignSystem />
     const def = moduleDef(t.key)
     return def ? <Placeholder def={def} /> : null

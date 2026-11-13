@@ -1402,6 +1402,17 @@ def validate_day_plan_item(
             )
 
 
+def _uwagi(item: Dict[str, Any]) -> Optional[str]:
+    """Uwagi biura dla operatora przy pozycji planu.
+
+    Brak klucza `notes` (stary ekran planowania go nie wysyła) → None, czyli
+    „nie ruszaj tego, co jest"; pusty tekst z PROTRIMA kasuje uwagę.
+    """
+    if "notes" not in item:
+        return None
+    return str(item.get("notes") or "").strip()[:300]
+
+
 def _today_iso() -> str:
     return now_iso()[:10]
 
@@ -1501,11 +1512,11 @@ def save_day_plan(
                     """
                     UPDATE mixing_orders
                     SET day_seq=%s, recipe_id=%s, recipe_name=%s, meat_kg=%s,
-                        planned_output_kg=%s
+                        planned_output_kg=%s, notes=COALESCE(%s, notes)
                     WHERE id=%s AND status IN ('planned','confirmed')
                     """,
                     (seq, recipe["id"], recipe["name"], meat_kg,
-                     calc_kg_output(recipe["id"], meat_kg), oid),
+                     calc_kg_output(recipe["id"], meat_kg), _uwagi(it), oid),
                 )
                 # Re-rezerwacja: zwolnij stare loty, zarezerwuj nowe
                 _release_order_lots_cx(conn, oid)
@@ -1527,11 +1538,12 @@ def save_day_plan(
                 INSERT INTO mixing_orders
                     (id, order_no, recipe_id, recipe_name, meat_kg,
                      planned_output_kg, kg_done, machine_id, status,
-                     day_seq, plan_date, created_at)
-                VALUES (%s,%s,%s,%s,%s,%s,0,NULL,'confirmed',%s,%s,%s)
+                     day_seq, plan_date, created_at, notes)
+                VALUES (%s,%s,%s,%s,%s,%s,0,NULL,'confirmed',%s,%s,%s,%s)
                 """,
                 (new_oid, order_no, recipe["id"], recipe["name"], meat_kg,
-                 calc_kg_output(recipe["id"], meat_kg), seq, pd, now_iso()),
+                 calc_kg_output(recipe["id"], meat_kg), seq, pd, now_iso(),
+                 _uwagi(it) or None),
             )
             _reserve_order_lots_cx(conn, new_oid, lots)
 
