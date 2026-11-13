@@ -17,6 +17,7 @@ import { PrintToolbar } from '@/components/print/PrintToolbar'
 import { TabelaSalda } from '@/features/rozliczenia/TabelaSalda'
 import { ArkuszDruku, NaglowekDruku } from '@/features/rozliczenia/NaglowekDruku'
 import { dataPl, type Zestawienie } from '@/features/rozliczenia/druk'
+import { jezykKlienta } from '@/features/rozliczenia/jezykDruku'
 
 export function ZestawienieNaleznosciPrintPage() {
   const { clientId = '' } = useParams()
@@ -41,12 +42,13 @@ export function ZestawienieNaleznosciPrintPage() {
   if (err) return <div style={{ padding: 24, fontFamily: 'Arial' }}>Błąd: {err}</div>
   if (!z || firma === undefined) return <div style={{ padding: 24, fontFamily: 'Arial' }}>Ładowanie…</div>
 
+  const j = jezykKlienta(z.klient.jezyk, z.klient.nip)
   return (
     <>
       <PrintToolbar powrot="/office" />
-      <ArkuszDruku firma={firma}>
-        <NaglowekDruku firma={firma} klient={z.klient} tytul="Zestawienie należności"
-          dane={[['Stan na dzień', dataPl(z.na_dzien)], ['Waluta', z.waluta]]} />
+      <ArkuszDruku firma={firma} jezyk={j}>
+        <NaglowekDruku firma={firma} klient={z.klient} tytul="t_zestawienie" jezyk={j}
+          dane={[['stan_na', dataPl(z.na_dzien)], ['waluta', z.waluta]]} />
         <TabelaSalda z={z} bezTytulu />
       </ArkuszDruku>
     </>

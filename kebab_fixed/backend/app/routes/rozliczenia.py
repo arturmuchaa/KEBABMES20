@@ -137,6 +137,16 @@ def dodaj_fakture(client_id: str, body: Dict[str, Any], request: Request):
         kto=_kto(request), kg=_kg(body.get("kg")))
 
 
+@router.post("/klient/{client_id}/wz")
+def dodaj_wz_reczna(client_id: str, body: Dict[str, Any], request: Request):
+    """WZ wpisana ręcznie do księgi WZ (obok WZ z MES)."""
+    return svc.dodaj_wz_reczna(
+        client_id, numer=_tekst(body, "numer"), data=_data(body.get("data")),
+        kwota=_kwota(body.get("kwota")), termin=_data(body.get("termin")),
+        forma=body.get("forma") or None, uwagi=_tekst(body, "uwagi"),
+        kto=_kto(request), kg=_kg(body.get("kg")))
+
+
 @router.post("/klient/{client_id}/zalegle")
 def dodaj_zalegle(client_id: str, body: Dict[str, Any], request: Request):
     """Zaległe dokumenty sprzed startu: `{dokumenty: [{ksiega, numer, data,

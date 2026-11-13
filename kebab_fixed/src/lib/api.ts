@@ -3311,6 +3311,12 @@ export const rozliczeniaApi = {
     termin?: string | null; forma?: FormaPlatnosci | null; uwagi?: string
     kg?: number | string | null
   }) => post<any>(`${rozlKlient(clientId)}/faktury`, dto),
+  /** WZ wpisana ręcznie do księgi WZ (towar wydany poza MES); kwota brutto > 0. */
+  dodajWzReczna: (clientId: string, dto: {
+    numer: string; data: string; kwota: number | string
+    termin?: string | null; forma?: FormaPlatnosci | null; uwagi?: string
+    kg?: number | string | null
+  }) => post<any>(`${rozlKlient(clientId)}/wz`, dto),
   /** Zaległe dokumenty sprzed startu (saldo otwarcia rozpisane na dokumenty).
    *  `kwota` — pozostała do zapłaty (> 0); `termin` pusty = data + termin klienta.
    *  Zapis w całości albo wcale; błąd wiersza zaczyna się od „Wiersz N:”.

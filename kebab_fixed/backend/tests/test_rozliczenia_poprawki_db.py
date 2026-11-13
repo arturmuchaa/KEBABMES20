@@ -368,3 +368,22 @@ def test_historia_zmian_opisy_po_polsku(db, przywroc_start):
     assert "usunięto wpłatę 15 000,00 PLN" in opisy
     assert "FV 1/11: kwota 1 000,00 → 1 200,50" in opisy
     assert "FV 1/11: termin płatności 17.11.2026 → 20.11.2026" in opisy
+
+
+# ── WZ wpisana ręcznie (właściciel 13.11.2026) ──────────────────────────
+
+def test_wz_reczna_wchodzi_do_ksiegi_wz_i_salda(db, przywroc_start):
+    from fastapi import HTTPException
+    from app.services.rozliczenia_service import dodaj_wz_reczna, zestawienie
+    _klient("k", waluta="PLN")
+    _otworz("k")
+    d = dodaj_wz_reczna("k", numer="WZ R/1/11", data=date(2026, 11, 10), kwota=1500,
+                        termin=None, forma=None, uwagi="wydane poza MES", kto="biuro", kg=70)
+    assert d["ksiega"] == "wz" and d["zrodlo"] == "reczna"
+    z = zestawienie("k", na_dzien=date(2026, 11, 12))
+    assert [p["numer"] for p in z["wz"]["pozycje"]] == ["WZ R/1/11"]
+    assert z["wz"]["razem"] == 1500 and z["fv"]["pozycje"] == []
+    # ten sam numer drugi raz, kwota zerowa/ujemna — odmowa
+    for zle in (dict(numer="WZ R/1/11", kwota=10), dict(numer="WZ R/2/11", kwota=0), dict(numer="WZ R/3/11", kwota=-5)):
+        with pytest.raises(HTTPException):
+            dodaj_wz_reczna("k", data=date(2026, 11, 10), termin=None, forma=None, uwagi="", kto="biuro", **zle)

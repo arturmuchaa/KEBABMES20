@@ -17,12 +17,11 @@ function show(header: Record<string, unknown>) {
   </Routes></MemoryRouter>)
 }
 
-it('PDF i druk oznaczają wersję wstępną, bez fikcyjnej daty wysyłki', async () => {
+it('HDI przed załadunkiem: bez adnotacji „wstępne” na dokumencie i bez fikcyjnej daty wysyłki', async () => {
   const view = show({ preliminary: true })
-  const label = await screen.findByTestId('hdi-preliminary')
-  expect(label.textContent).toContain('HDI WSTĘPNE / PRELIMINARY HDI')
-  expect(label.closest('.hdi')).toBeTruthy()
-  expect(label.closest('.no-print')).toBeNull()
+  await screen.findByText('1/10/26', { exact: false })
+  expect(screen.queryByTestId('hdi-preliminary')).toBeNull()
+  expect(view.container.textContent).not.toMatch(/WSTĘPNE|PRELIMINARY/)
   expect(view.container.querySelector('.ship-row')?.textContent).toContain('—')
   expect(view.container.querySelector('.meta-table')?.textContent).toContain('30.10.2026')
 })

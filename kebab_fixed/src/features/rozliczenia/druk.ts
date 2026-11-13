@@ -6,7 +6,11 @@
  * wydruk i panel pokazują dokładnie to samo — tu tylko formatujemy.
  */
 
-export interface KlientWydruku { nazwa: string; nip: string; adres: string }
+export interface KlientWydruku {
+  nazwa: string; nip: string; adres: string
+  /** Drugi język dokumentu (kartoteka klienta albo prefiks NIP); brak = z NIP. */
+  jezyk?: string | null
+}
 
 /** Pozycja niezapłacona w zestawieniu na dzień. */
 export interface PozycjaZestawienia {

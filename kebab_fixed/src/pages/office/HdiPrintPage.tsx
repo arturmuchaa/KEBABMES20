@@ -437,13 +437,9 @@ export function HdiPrintPage() {
           }
         </div>
 
-        {h.preliminary === true && (
-          <div data-testid="hdi-preliminary" style={{ border: '1px solid #000', padding: '4px 6px', marginBottom: '4px', textAlign: 'center' }}>
-            <b>HDI WSTĘPNE / PRELIMINARY HDI</b><br />
-            Przed załadunkiem — ilości i partie wymagają potwierdzenia skanowaniem.<br />
-            Before loading — quantities and batches must be confirmed by scanning.
-          </div>
-        )}
+        {/* HDI wystawione przed załadunkiem idzie do klienta BEZ adnotacji „wstępne”
+            (właściciel 13.11.2026). Znacznik `preliminary` zostaje w danych: po
+            załadunku ten sam numer przelicza się ze skanów; tu tylko brak daty wysyłki. */}
 
         {/* ── Numer + data ── */}
         <table className="meta-table" style={{ marginBottom: '2px' }}>

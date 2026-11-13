@@ -12,35 +12,39 @@ const normNumer = (t: string) => t.trim().replace(/\s+/g, ' ').toUpperCase()
  * Faktura wpisana ręcznie do księgi faktur (z Subiekta przepisuje ją biuro).
  * Termin liczy się sam z daty i terminu FV klienta, dopóki biuro go nie zmieni.
  * Kwota ujemna = faktura korygująca.
+ *
+ * `ksiega="wz"` — to samo okno dla WZ wpisanej ręcznie do księgi WZ (towar
+ * wydany poza MES): termin i forma z ustawień WZ klienta, kwota tylko dodatnia.
  */
-export function FakturaDialog({ karta, onClose, onZapisano }: { karta: Karta; onClose: () => void; onZapisano: () => void }) {
+export function FakturaDialog({ karta, ksiega = 'fv', onClose, onZapisano }: { karta: Karta; ksiega?: 'fv' | 'wz'; onClose: () => void; onZapisano: () => void }) {
   const app = useApp()
   const w = karta.klient.waluta
-  const terminFv = karta.klient.terminFv
+  const wz = ksiega === 'wz'
+  const terminFv = wz ? karta.klient.terminWz : karta.klient.terminFv
   const [numer, setNumer] = useState('')
   const [data, setData] = useState(dzisIso)
   const [tekst, setTekst] = useState('')
   const [termin, setTermin] = useState(() => dodajDni(dzisIso(), terminFv))
   const [terminReczny, setTerminReczny] = useState(false)
-  const [forma, setForma] = useState<Forma>(() => formaDomyslna(karta.klient.formaFv, 'fv'))
+  const [forma, setForma] = useState<Forma>(() => formaDomyslna(wz ? karta.klient.formaWz : karta.klient.formaFv, ksiega))
   const [uwagi, setUwagi] = useState('')
   const [kgTekst, setKgTekst] = useState('')
-  const zapis = useZapis('Nie udało się dodać faktury')
+  const zapis = useZapis(wz ? 'Nie udało się dodać WZ' : 'Nie udało się dodać faktury')
 
   const zmienDate = (d: string) => { setData(d); if (!terminReczny) setTermin(dodajDni(d, terminFv)) }
   const kw = kwotaZPola(tekst)
   const kwR = Number.isFinite(kw) ? doGroszy(kw) : NaN
-  const okKwota = Number.isFinite(kwR) && kwR !== 0
-  const bladKwoty = tekst.trim() && !okKwota ? 'Wpisz kwotę różną od zera (ujemna = korekta)' : null
-  const duplikat = numer.trim() ? karta.dokumenty.fv.find(d => !d.otwarcie && normNumer(d.numer) === normNumer(numer)) : undefined
-  const bladNumeru = duplikat ? `Faktura ${duplikat.numer} jest już na karcie tego klienta` : null
+  const okKwota = Number.isFinite(kwR) && (wz ? kwR > 0 : kwR !== 0)
+  const bladKwoty = tekst.trim() && !okKwota ? (wz ? 'Wpisz kwotę większą od zera' : 'Wpisz kwotę różną od zera (ujemna = korekta)') : null
+  const duplikat = numer.trim() ? karta.dokumenty[ksiega].find(d => !d.otwarcie && normNumer(d.numer) === normNumer(numer)) : undefined
+  const bladNumeru = duplikat ? `${wz ? 'WZ' : 'Faktura'} ${duplikat.numer} jest już na karcie tego klienta` : null
   const bladDaty = !data ? 'Wpisz datę wystawienia'
-    : data < karta.start ? `Faktura sprzed startu rozliczeń (${dataPl(karta.start)}) — wpisz ją w saldzie otwarcia` : null
+    : data < karta.start ? `${wz ? 'WZ' : 'Faktura'} sprzed startu rozliczeń (${dataPl(karta.start)}) — wpisz ją w saldzie otwarcia` : null
   const bladTerminu = termin && data && termin < data ? 'Termin nie może być przed datą wystawienia' : null
   const kgL = kgTekst.trim() ? liczba(kgTekst) : null
   const bladKg = kgL !== null && !(Number.isFinite(kgL) && kgL >= 0) ? 'Wpisz liczbę kilogramów (0 lub więcej)' : null
   const ok = !!numer.trim() && okKwota && !bladNumeru && !bladDaty && !bladTerminu && !bladKg
-  const tip = !numer.trim() ? 'Wpisz numer faktury' : !okKwota ? 'Wpisz kwotę brutto' : bladNumeru ?? bladDaty ?? bladTerminu ?? bladKg ?? undefined
+  const tip = !numer.trim() ? (wz ? 'Wpisz numer WZ' : 'Wpisz numer faktury') : !okKwota ? 'Wpisz kwotę brutto' : bladNumeru ?? bladDaty ?? bladTerminu ?? bladKg ?? undefined
   const korekta = okKwota && kwR < 0
 
   const zapisz = () => {
@@ -48,9 +52,9 @@ export function FakturaDialog({ karta, onClose, onZapisano }: { karta: Karta; on
     const nr = numer.trim().replace(/\s+/g, ' ')
     void zapis.zapisz(async () => {
       const kg = kgL === null ? {} : { kg: Math.round(kgL * 1000) / 1000 }
-      await rozliczeniaApi.dodajFakture(karta.klient.id, { numer: nr, data, kwota: kwR, termin: termin || null, forma, uwagi: uwagi.trim(), ...kg })
+      await (wz ? rozliczeniaApi.dodajWzReczna : rozliczeniaApi.dodajFakture)(karta.klient.id, { numer: nr, data, kwota: kwR, termin: termin || null, forma, uwagi: uwagi.trim(), ...kg })
       app.toast({
-        kind: 'ok', title: `${korekta ? 'Korekta' : 'Faktura'} ${nr} dodana — ${kwota(kwR, w)}`,
+        kind: 'ok', title: `${korekta ? 'Korekta' : wz ? 'WZ' : 'Faktura'} ${nr} dodana — ${kwota(kwR, w)}`,
         detail: [korekta ? 'zmniejsza dług w księdze faktur' : `termin ${termin ? dataPl(termin) : `za ${dni(terminFv)}`} · ${FORMA_SLOWEM[forma]}`,
           kgL !== null ? kilogramy(kgL) : ''].filter(Boolean).join(' · '),
       })
@@ -60,12 +64,12 @@ export function FakturaDialog({ karta, onClose, onZapisano }: { karta: Karta; on
 
   return (
     <Dialog icon={<FilePlus2 size={20} />} onClose={onClose}
-      title={<>Faktura <span className="rr-dlg-klient">{karta.klient.nazwa}</span></>}
+      title={<>{wz ? 'WZ wpisana ręcznie' : 'Faktura'} <span className="rr-dlg-klient">{karta.klient.nazwa}</span></>}
       footer={<>
         <span className="left"><span className="kbd">Enter</span> zapisuje</span>
         <button type="button" className="btn" onClick={onClose}>Anuluj</button>
         <button type="button" className="btn primary" disabled={!ok || zapis.busy} data-tip={tip} onClick={zapisz}>
-          {zapis.busy ? 'Zapisuję…' : korekta ? 'Dodaj korektę' : 'Dodaj fakturę'}
+          {zapis.busy ? 'Zapisuję…' : korekta ? 'Dodaj korektę' : wz ? 'Dodaj WZ' : 'Dodaj fakturę'}
         </button>
       </>}>
       <div className="rr-form">
@@ -81,7 +85,7 @@ export function FakturaDialog({ karta, onClose, onZapisano }: { karta: Karta; on
         </label>
         <div className="fld"><span className="label">Kwota brutto ({w})</span>
           <PoleKwoty label="Kwota brutto" value={tekst} onChange={setTekst} waluta={w} blad={bladKwoty} onEnter={zapisz} duze />
-          {!bladKwoty && <span className="rr-pole-pod">ujemna = faktura korygująca</span>}
+          {!bladKwoty && <span className="rr-pole-pod">{wz ? 'WZ z MES wchodzą same — tu tylko dokument spoza systemu' : 'ujemna = faktura korygująca'}</span>}
         </div>
         <label className="fld"><span className="label">Termin</span>
           <input type="date" className={`field${bladTerminu ? ' invalid' : ''}`} value={termin} min={data || undefined} aria-label="Termin"

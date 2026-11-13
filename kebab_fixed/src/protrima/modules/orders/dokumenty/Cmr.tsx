@@ -82,9 +82,10 @@ export function CmrDialog({ orderId, orderNo, onClose }: { orderId: string; orde
 }
 
 /** HDI z zamówienia: serwer generuje (albo pokazuje zamrożone dla zamkniętego), potem PDF. */
-export async function generujHdi(orderId: string, toast: (t: { kind?: 'ok' | 'info' | 'warn'; title: string; detail?: string }) => void): Promise<void> {
+export async function generujHdi(orderId: string, toast: (t: { kind?: 'ok' | 'info' | 'warn'; title: string; detail?: string }) => void, przedZaladunkiem = false): Promise<void> {
   try {
-    const r = await hdiApi.generate(orderId)
+    // Przed załadunkiem: HDI z rozpisu zamówienia, bez skanów — do wysłania klientowi z wyprzedzeniem.
+    const r = await hdiApi.generate(orderId, przedZaladunkiem)
     toast(r.incomplete
       ? { kind: 'warn', title: `HDI ${r.number} — na stan faktyczny`, detail: `Nie wszystko wyprodukowano: ${r.totals?.qty ?? 0} szt. / ${Math.round(r.totals?.kg ?? 0)} kg.` }
       : { kind: 'ok', title: `HDI ${r.number}`, detail: 'Otwieram PDF.' })

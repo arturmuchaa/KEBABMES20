@@ -15,7 +15,7 @@ vi.mock('@/lib/api', () => ({
     zestawienie: (...a: unknown[]) => {
       stan.wywolania.push(['zestawienie', ...a])
       return Promise.resolve({
-        klient: { nazwa: 'RONDO GRILL', nip: 'DE123456789', adres: 'Hauptstr. 1, Berlin' },
+        klient: { nazwa: 'RONDO GRILL', nip: 'DE123456789', adres: 'Hauptstr. 1, Berlin', jezyk: 'pl' },
         waluta: 'EUR', na_dzien: '2026-11-09', policzono: '2026-11-09T10:00:00',
         wz: { pozycje: [], razem: 0 },
         fv: { pozycje: [

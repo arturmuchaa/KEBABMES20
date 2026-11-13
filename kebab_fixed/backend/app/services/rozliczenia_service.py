@@ -805,6 +805,47 @@ def dodaj_fakture(client_id: str, *, numer: str, data: date, kwota: Any,
     return _dok(dok_id)
 
 
+def dodaj_wz_reczna(client_id: str, *, numer: str, data: date, kwota: Any,
+                    termin: Optional[date], forma: Optional[str], uwagi: str,
+                    kto: str, kg: Any = None) -> dict:
+    """Ręczna WZ w księdze WZ — towar wydany poza MES albo dokument, którego
+    system nie wystawił (właściciel 13.11.2026: „jak w FV: z systemu +
+    możliwość ręcznego dodania WZ"). Kwota brutto > 0; korekty robi się
+    wpłatą/edycją, nie ujemną WZ. Zwraca `Dok`."""
+    numer = (numer or "").strip()
+    if not numer:
+        raise HTTPException(400, "Podaj numer WZ")
+    data = _data(data, "data WZ")
+    k = _kwota(kwota)
+    if k <= 0:
+        raise HTTPException(400, "Kwota WZ musi być większa od zera")
+    _po_starcie(data, "WZ")
+    kg = _kg_wartosc(kg)
+    dok_id = cuid()
+    with transaction() as conn:
+        zablokuj_ksiege_wz(conn)
+        klient = _klient_cx(conn, client_id)
+        termin = (_data(termin, "termin") if termin is not None
+                  else data + timedelta(days=klient["rozl_termin_wz"]))
+        if termin < data:
+            raise HTTPException(400, "Termin płatności nie może być przed datą WZ")
+        forma = _forma(forma if forma is not None else klient["rozl_forma_wz"])
+        _numer_wolny_w_ksiedze(conn, client_id, "wz", numer)
+        cx_execute(
+            conn,
+            "INSERT INTO rozl_dokumenty (id, client_id, ksiega, zrodlo, numer, data_dok, "
+            " kwota, waluta, termin, termin_reczny, forma, uwagi, utworzyl, kg) "
+            "VALUES (%s,%s,'wz','reczna',%s,%s,%s,%s,%s,true,%s,%s,%s,%s)",
+            (dok_id, client_id, numer, data, k, klient["settlement_currency"], termin, forma,
+             uwagi or "", kto or "", kg))
+        po = {"kwota": float(k), "termin": termin.isoformat(), "forma": forma}
+        if kg is not None:
+            po["kg"] = float(kg)
+        historia(conn, client_id=client_id, obiekt="dokument", obiekt_id=dok_id,
+                 akcja="dodano", opis=f"dodano ręcznie WZ {numer}", po=po, kto=kto)
+    return _dok(dok_id)
+
+
 _POLA_KAZDEGO = ("termin", "forma", "uwagi")
 _POLA_RECZNEJ = ("kwota", "numer", "data", "kg")
 # Pola poza `_POLA_KAZDEGO`, które wolno zmienić — wg źródła dokumentu.
@@ -882,7 +923,10 @@ def edytuj_dokument(dokument_id: str, zmiany: dict, kto: str, powod: str = "") -
                                         else "Podaj numer faktury")
             elif pole == "kwota":
                 wartosc = _kwota(wartosc)
-                if dok["zrodlo"] == "reczna":
+                if dok["zrodlo"] == "reczna" and dok["ksiega"] == "wz":
+                    if wartosc <= 0:
+                        raise HTTPException(400, "Kwota WZ musi być większa od zera")
+                elif dok["zrodlo"] == "reczna":
                     if wartosc == 0:
                         raise HTTPException(400, "Kwota faktury nie może być zerowa")
                 elif wartosc <= 0:
@@ -1474,9 +1518,16 @@ def _adres_klienta(client_id: str) -> str:
     return ", ".join(x for x in (ulica, miasto) if x)
 
 
+def _jezyk_klienta(klient: dict) -> str:
+    """Drugi język dokumentów klienta — jak w HDI: kartoteka, a gdy pusta, prefiks NIP."""
+    from app.utils.hdi_lang import lang_from_nip
+    row = query_one("SELECT language FROM clients WHERE id=%s", (klient["id"],)) or {}
+    return (row.get("language") or "").strip().lower() or lang_from_nip(klient.get("nip") or "")
+
+
 def _klient_wydruku(klient: dict) -> dict:
     return {"nazwa": _nazwa(klient), "nip": klient["nip"] or "",
-            "adres": _adres_klienta(klient["id"])}
+            "adres": _adres_klienta(klient["id"]), "jezyk": _jezyk_klienta(klient)}
 
 
 def zestawienie(client_id: str, na_dzien: Optional[date] = None,

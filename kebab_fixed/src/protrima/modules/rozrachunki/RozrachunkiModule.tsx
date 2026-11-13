@@ -283,6 +283,7 @@ function OknoKarty({ o, onClose, onZapisano, onOdswiez }: { o: Okno; onClose: ()
   switch (o.rodzaj) {
     case 'wplata': return <WplataDialog {...p} ksiega={o.ksiega} dokumentId={o.dokumentId} />
     case 'faktura': return <FakturaDialog {...p} />
+    case 'wz': return <FakturaDialog {...p} ksiega="wz" />
     case 'otwarcie': return <OtwarcieDialog {...p} ksiega={o.ksiega} zakladka={o.zakladka} onOdswiez={onOdswiez} />
     case 'ustawienia': return <UstawieniaKlientaDialog {...p} />
     case 'druk': return <DrukSaldaDialog {...p} />

@@ -157,7 +157,7 @@ export function SzczegolyDokumentu({ dokId, waluta, start, terminFv, wpiszKwote,
         <div className="rr-dok-cialo" ref={cialo}>
           <Kafle d={d} waluta={waluta} terminFv={terminFv} onWpiszKwote={wpisywanie ? undefined : () => setWpisywanie(true)} />
           <p className="muted rr-dlg-p rr-dok-meta">
-            {`Wystawiony ${dataPl(d.data)} · ${korekta ? `korekta — ${ZRODLO[zr] ?? zr}` : ZRODLO[zr] ?? zr}`}
+            {`Wystawiony ${dataPl(d.data)} · ${korekta ? `korekta — ${ZRODLO[zr] ?? zr}` : zr === 'reczna' && d.ksiega === 'wz' ? 'WZ wpisana ręcznie' : ZRODLO[zr] ?? zr}`}
             {d.zamkniety && ` · zapłacony ${dataPl(d.zamkniety)}`}
           </p>
           {d.bezKwoty && wpisywanie && <WpiszKwote d={d} waluta={waluta} terminFv={terminFv} onZapisano={onZmiana} />}

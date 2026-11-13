@@ -15,6 +15,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import type { CompanySettings } from '@/lib/api'
 import { LogoZakladu } from '@/components/print/LogoZakladu'
 import { chwilaWydruku, type KlientWydruku } from './druk'
+import { Dw, DRUGI_JEZYK, type Jezyk, type Klucz, obcy, pl } from './jezykDruku'
 
 /** Kolory kartki — druk bywa czarno-biały, więc treść niesie tusz,
  *  a szarości tylko porządkują (etykiety, linie). */
@@ -67,17 +68,17 @@ function adresFirmy(f: CompanySettings): string {
 }
 
 /** Arkusz ze stopką na dole. Treść kartki to `children`. */
-export function ArkuszDruku({ firma, children }: { firma: CompanySettings | null; children: ReactNode }) {
+export function ArkuszDruku({ firma, jezyk = 'pl', children }: { firma: CompanySettings | null; jezyk?: Jezyk; children: ReactNode }) {
   return (
     <div className="druk-arkusz">
       <style>{CSS_DRUKU}</style>
       <div className="druk-tresc">{children}</div>
-      <StopkaDruku firma={firma} />
+      <StopkaDruku firma={firma} jezyk={jezyk} />
     </div>
   )
 }
 
-function StopkaDruku({ firma }: { firma: CompanySettings | null }) {
+function StopkaDruku({ firma, jezyk }: { firma: CompanySettings | null; jezyk: Jezyk }) {
   const kontakt = firma
     ? [firma.name, adresFirmy(firma), firma.phone && `tel. ${firma.phone}`, firma.email].filter(Boolean)
     : []
@@ -89,7 +90,7 @@ function StopkaDruku({ firma }: { firma: CompanySettings | null }) {
     }}>
       <div>{kontakt.join('  ·  ')}</div>
       <div style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-        <div>Wydrukowano {chwilaWydruku()}</div>
+        <div>Wydrukowano{jezyk !== 'pl' ? ` / ${obcy('wydrukowano', jezyk)}` : ''} {chwilaWydruku()}</div>
         <div>Dokument wygenerowany w systemie PROTRIMA</div>
       </div>
     </footer>
@@ -101,12 +102,16 @@ export const ETYKIETA: CSSProperties = {
   color: DRUK.szary,
 }
 
-export function NaglowekDruku({ firma, klient, tytul, dane }: {
+export function NaglowekDruku({ firma, klient, tytul, dane, jezyk = 'pl', strona = 'nabywca' }: {
   firma: CompanySettings | null
   klient: KlientWydruku
-  tytul: string
+  /** Klucz tytułu — drukuje się po polsku, a pod spodem w języku klienta. */
+  tytul: Klucz
   /** Pary etykieta–wartość obok ramki nabywcy (np. „Stan na dzień”, „Waluta”). */
-  dane: [string, ReactNode][]
+  dane: [Klucz, ReactNode][]
+  jezyk?: Jezyk
+  /** Jak nazwać stronę w ramce: nabywca (rozliczenia) albo odbiorca (stan magazynu). */
+  strona?: 'nabywca' | 'odbiorca'
 }) {
   const adres = firma ? adresFirmy(firma) : ''
   return (
@@ -125,7 +130,8 @@ export function NaglowekDruku({ firma, klient, tytul, dane }: {
         </div>
         <h1 style={{ fontSize: '19pt', fontWeight: 600, letterSpacing: '-.01em', lineHeight: 1.15,
                      textAlign: 'right', paddingTop: '1mm', maxWidth: '85mm' }}>
-          {tytul}
+          {pl(tytul)}
+          {jezyk !== 'pl' && <span data-drugi-jezyk={jezyk} style={{ ...DRUGI_JEZYK, display: 'block', fontSize: '11pt', marginTop: '1mm' }}>{obcy(tytul, jezyk)}</span>}
         </h1>
       </div>
 
@@ -135,10 +141,10 @@ export function NaglowekDruku({ firma, klient, tytul, dane }: {
           flex: '0 1 98mm', border: `0.75pt solid ${DRUK.linia}`, borderRadius: '1.5mm',
           padding: '2.4mm 3.6mm', lineHeight: 1.4,
         }}>
-          <div style={{ ...ETYKIETA, marginBottom: '.8mm' }}>Nabywca</div>
+          <div style={{ ...ETYKIETA, marginBottom: '.8mm' }}><Dw k={strona} j={jezyk} /></div>
           <div style={{ fontWeight: 600, fontSize: '11pt' }}>{klient.nazwa}</div>
           {klient.adres && <div>{klient.adres}</div>}
-          {klient.nip && <div>NIP {klient.nip}</div>}
+          {klient.nip && <div><Dw k="nip" j={jezyk} /> {klient.nip}</div>}
         </div>
         <dl data-testid="druk-dane" style={{
           margin: 0, display: 'grid', gridTemplateColumns: 'auto auto', columnGap: '6mm', rowGap: '1.4mm',
@@ -146,7 +152,7 @@ export function NaglowekDruku({ firma, klient, tytul, dane }: {
         }}>
           {dane.map(([etykieta, wartosc]) => (
             <div key={etykieta} style={{ display: 'contents' }}>
-              <dt style={{ color: DRUK.szary }}>{etykieta}</dt>
+              <dt style={{ color: DRUK.szary }}><Dw k={etykieta} j={jezyk} /></dt>
               <dd style={{ margin: 0, fontWeight: 600, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                 {wartosc}
               </dd>

@@ -23,6 +23,7 @@ import { drukuj } from '@/lib/print'
 import { PrintToolbar } from '@/components/print/PrintToolbar'
 import { ArkuszDruku, DRUK, LICZBOWA, NaglowekDruku } from '@/features/rozliczenia/NaglowekDruku'
 import { dataPl, kwota, type HistoriaOkresu, type KsiegaHistorii } from '@/features/rozliczenia/druk'
+import { Dw, jezykKlienta, type Jezyk, type Klucz } from '@/features/rozliczenia/jezykDruku'
 
 const S = {
   table: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', lineHeight: 1.3 } as CSSProperties,
@@ -35,20 +36,20 @@ const S = {
   /** Saldo na koniec — zamyka księgę mocniejszą linią. */
   kon: { padding: '.5em .55em .3em', borderTop: `0.75pt solid ${DRUK.liniaMocna}`, fontWeight: 600 } as CSSProperties,
 }
-const KOLUMNY = ['Data', 'Opis', 'Obciążenie', 'Wpłata', 'Saldo', 'Dni po terminie']
+const KOLUMNY: Klucz[] = ['h_data', 'h_opis', 'h_obciazenie', 'h_wplata', 'h_saldo', 'k_dni']
 const dataKom: CSSProperties = { whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }
 
 function pusta(k: KsiegaHistorii): boolean {
   return k.wiersze.length === 0 && k.saldo_poczatek === 0 && k.saldo_koniec === 0
 }
 
-function Ksiega({ k, tytul, waluta, od, do_ }: {
-  k: KsiegaHistorii; tytul: string; waluta: string; od: string; do_: string
+function Ksiega({ k, tytul, waluta, od, do_, j }: {
+  k: KsiegaHistorii; tytul: Klucz; waluta: string; od: string; do_: string; j: Jezyk
 }) {
   const kw = (n: number) => (n ? kwota(n, waluta) : '')
   return (
     <section style={{ marginBottom: '4.5mm' }}>
-      <h2 style={{ fontSize: '1.05em', fontWeight: 600, margin: '0 0 .35em' }}>{tytul}</h2>
+      <h2 style={{ fontSize: '1.05em', fontWeight: 600, margin: '0 0 .35em' }}><Dw k={tytul} j={j} /></h2>
       <table style={S.table}>
         <colgroup>
           <col style={{ width: '19mm' }} /><col />
@@ -58,14 +59,14 @@ function Ksiega({ k, tytul, waluta, od, do_ }: {
         <thead>
           <tr>
             {KOLUMNY.map((n, i) => (
-              <th key={n} style={i >= 2 ? { ...S.th, textAlign: 'right', whiteSpace: 'nowrap' } : S.th}>{n}</th>
+              <th key={n} style={i >= 2 ? { ...S.th, textAlign: 'right', whiteSpace: 'nowrap' } : S.th}><Dw k={n} j={j} pod /></th>
             ))}
           </tr>
         </thead>
         <tbody>
           <tr>
             <td style={{ ...S.pocz, ...dataKom }}>{dataPl(od)}</td>
-            <td style={S.pocz} colSpan={3}>Saldo na początek okresu</td>
+            <td style={S.pocz} colSpan={3}><Dw k="saldo_pocz" j={j} /></td>
             <td style={{ ...S.pocz, ...LICZBOWA }}>{kwota(k.saldo_poczatek, waluta)}</td>
             <td style={S.pocz} />
           </tr>
@@ -86,11 +87,11 @@ function Ksiega({ k, tytul, waluta, od, do_ }: {
             )
           })}
           {k.wiersze.length === 0 && (
-            <tr><td style={{ ...S.td, color: DRUK.szary }} colSpan={6}>Brak dokumentów i wpłat w tym okresie.</td></tr>
+            <tr><td style={{ ...S.td, color: DRUK.szary }} colSpan={6}><Dw k="brak_ruchu" j={j} /></td></tr>
           )}
           <tr>
             <td style={{ ...S.kon, ...dataKom }}>{dataPl(do_)}</td>
-            <td style={S.kon} colSpan={3}>Saldo na koniec okresu</td>
+            <td style={S.kon} colSpan={3}><Dw k="saldo_kon" j={j} /></td>
             <td style={{ ...S.kon, ...LICZBOWA }}>{kwota(k.saldo_koniec, waluta)}</td>
             <td style={S.kon} />
           </tr>
@@ -131,33 +132,35 @@ export function HistoriaRozliczenPrintPage() {
 
   // Księga bez żadnego ruchu i z zerowym saldem tylko zaśmieca kartkę;
   // gdy obie są puste, zostawiamy obie — kartka mówi wtedy wprost „zero”.
-  const ksiegi = ([['wz', 'WZ'], ['fv', 'Faktury']] as const).filter(([ks]) => !pusta(h[ks]))
-  const pokaz = ksiegi.length ? ksiegi : ([['wz', 'WZ'], ['fv', 'Faktury']] as const)
+  const KS = [['wz', 'ks_wz'], ['fv', 'ks_fv']] as const
+  const ksiegi = KS.filter(([ks]) => !pusta(h[ks]))
+  const pokaz = ksiegi.length ? ksiegi : KS
+  const j = jezykKlienta(h.klient.jezyk, h.klient.nip)
 
   return (
     <>
       <PrintToolbar powrot="/office" />
-      <ArkuszDruku firma={firma}>
-        <NaglowekDruku firma={firma} klient={h.klient} tytul="Historia rozliczeń"
-          dane={[['Okres', `${dataPl(h.od)} – ${dataPl(h.do)}`], ['Waluta', h.waluta]]} />
+      <ArkuszDruku firma={firma} jezyk={j}>
+        <NaglowekDruku firma={firma} klient={h.klient} tytul="t_historia" jezyk={j}
+          dane={[['okres', `${dataPl(h.od)} – ${dataPl(h.do)}`], ['waluta', h.waluta]]} />
         {pokaz.map(([ks, tytul]) => (
-          <Ksiega key={ks} k={h[ks]} tytul={tytul} waluta={h.waluta} od={h.od} do_={h.do} />
+          <Ksiega key={ks} k={h[ks]} tytul={tytul} waluta={h.waluta} od={h.od} do_={h.do} j={j} />
         ))}
         <div className="druk-panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '8mm' }}>
           <div style={{ fontSize: '.86em', color: DRUK.szary, maxWidth: '80mm' }}>
-            Saldo ujemne oznacza kwotę do zapłaty, dodatnie — nadpłatę.
+            <Dw k="znak_salda" j={j} pod />
           </div>
           <div style={{ minWidth: '48%', border: `0.75pt solid ${DRUK.linia}`,
                         borderTop: `1.5pt solid ${DRUK.liniaMocna}`, background: DRUK.tlo,
                         padding: '.65em .9em .7em', display: 'grid', rowGap: '.3em' }}>
-            {pokaz.length > 1 && pokaz.map(([ks, tytul]) => (
+            {pokaz.length > 1 && pokaz.map(([ks, _t]) => (
               <div key={ks} style={wierszPanelu}>
-                <span>Saldo {tytul === 'WZ' ? 'WZ' : 'faktur'}</span>
+                <span><Dw k={ks === 'wz' ? 'saldo_wz' : 'saldo_fv'} j={j} /></span>
                 <b style={{ ...LICZBOWA, fontWeight: 600 }}>{kwota(h[ks].saldo_koniec, h.waluta)}</b>
               </div>
             ))}
             <div data-testid="saldo-lacznie" style={{ ...wierszPanelu, fontSize: '1.22em' }}>
-              <span style={{ fontWeight: 600 }}>Saldo łącznie na {dataPl(h.do)}</span>
+              <span style={{ fontWeight: 600 }}><Dw k="saldo_lacznie" j={j} d={dataPl(h.do)} pod /></span>
               <b style={{ ...LICZBOWA, fontWeight: 700 }}>{kwota(h.saldo_koniec, h.waluta)}</b>
             </div>
           </div>

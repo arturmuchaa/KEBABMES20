@@ -61,6 +61,21 @@
   .print-sheet .dz-tbl tbody tr:nth-child(even) td { background: #f6f7f9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 
+/* ─── Stan magazynowy dla klienta (dwujęzyczny) ───────────────────────── */
+.doc-stan .ds-kind2 { font-size: 11pt; color: #5d646d; margin: 1px 0 8px; }
+.doc-stan .dz-title .dz-kind { margin-bottom: 0; }
+.doc-stan .dz-title dl { margin-top: 6px; }
+.doc-stan .ds-opis { justify-content: center; }
+.doc-stan .ds-opis strong { font-size: 10pt; }
+.doc-stan .ds-opis span { color: #5d646d; }
+.doc-stan .dz-tbl th { vertical-align: bottom; }
+.doc-stan .dz-tbl th [data-drugi-jezyk] { color: #c5ccd6 !important; font-size: 7pt !important; letter-spacing: 0; }
+.doc-stan .ds-partie { font-size: 8pt; color: #333; white-space: nowrap; }
+.doc-stan .ds-partie span { display: block; }
+.doc-stan .ds-foot { display: block; margin-top: 22px; border-top: 1px solid #d8dde3; padding-top: 6px; }
+.doc-stan .ds-foot p { margin: 0 0 3px; text-align: left; font-size: 8pt; color: #555; }
+.doc-stan .ds-foot p + p { color: #888; font-size: 7.5pt; }
+
 /* ─── Lista kompletacji (wewnętrzna) ─────────────────────────────────── */
 .doc-komp .dk-mut { color: #666; }
 .doc-komp .dk-pal { color: #555; font-size: 8pt; }

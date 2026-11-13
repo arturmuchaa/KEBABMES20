@@ -16,7 +16,7 @@ import { Notatki } from './Notatki'
 import { SzczegolyDokumentu } from './SzczegolyDokumentu'
 import { OdmowaSerwera, WyborOkresu, klasaSalda, naEnter, pamiec, tekstBledu, useOkresObrotu, useZapis } from './wspolne'
 
-export type RodzajOkna = 'wplata' | 'faktura' | 'otwarcie' | 'druk' | 'ustawienia'
+export type RodzajOkna = 'wplata' | 'faktura' | 'wz' | 'otwarcie' | 'druk' | 'ustawienia'
 /** Zakładka okna salda otwarcia (D13). */
 export type ZakladkaOtwarcia = 'zalegle' | 'kwota'
 /**
@@ -105,6 +105,7 @@ export function KartaKlienta({ clientId, onWroc, onOtworz, nazwa, wersja = 0, ok
         <div className="rr-karta-akcje">
           <button type="button" className="btn primary" disabled={!k} onClick={() => otworz('wplata')}>+ Wpłata</button>
           <button type="button" className="btn" disabled={!k} onClick={() => otworz('faktura')}>+ Faktura</button>
+          <button type="button" className="btn" disabled={!k} data-tip="WZ spoza systemu — WZ z MES wchodzą same" onClick={() => otworz('wz')}>+ WZ</button>
           <button type="button" className="btn" disabled={!k} onClick={() => otworz('druk')}><Printer size={15} />Drukuj saldo</button>
           <button type="button" className="btn" disabled={!k} onClick={() => otworz('otwarcie')}><Scale size={15} />Saldo otwarcia</button>
           <button type="button" className="btn" disabled={!k} onClick={() => otworz('ustawienia')}><Settings2 size={15} />Ustawienia</button>

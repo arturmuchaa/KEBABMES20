@@ -6,7 +6,7 @@ import type { Zestawienie } from './druk'
 
 /** Zestawienie RONDO GRILL na 09.11.2026 — te same liczby co backend (Task 6). */
 const ZESTAWIENIE: Zestawienie = {
-  klient: { nazwa: 'RONDO GRILL', nip: 'DE123456789', adres: '' },
+  klient: { nazwa: 'RONDO GRILL', nip: 'DE123456789', adres: '', jezyk: 'pl' },
   waluta: 'EUR', na_dzien: '2026-11-09', policzono: '2026-11-09T10:00:00',
   wz: {
     pozycje: [
@@ -190,3 +190,15 @@ describe('TabelaSalda — zaległe dokumenty sprzed startu i saldo otwarcia (D13
   })
 })
 
+
+describe('TabelaSalda — dwa języki', () => {
+  it('klient z niemieckim NIP: etykiety po polsku i po niemiecku; polski klient — tylko polski', () => {
+    const { container, unmount } = render(<TabelaSalda z={{ ...ZESTAWIENIE, klient: { nazwa: 'RONDO GRILL', nip: 'DE123456789', adres: '' } }} />)
+    expect(container.textContent).toContain('Termin płatnościFälligkeit')
+    expect(container.textContent).toContain('Razem do zapłaty / Gesamt zu zahlen')
+    expect(container.textContent).toContain('Zahlungen gebucht bis 09.11.2026')
+    unmount()
+    const pl = render(<TabelaSalda z={{ ...ZESTAWIENIE, klient: { nazwa: 'X', nip: '6770001112', adres: '' } }} />)
+    expect(pl.container.querySelector('[data-drugi-jezyk]')).toBeNull()
+  })
+})
