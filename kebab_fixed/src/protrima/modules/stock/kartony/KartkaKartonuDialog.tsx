@@ -17,28 +17,33 @@ const SKALA_PODGLADU = 0.3
  * kod do pakowania `SCARTON|…`), w stopce „MAGAZYN”. Treść (nazwa klienta,
  * receptura / rodzaj) wybierana przy druku, pamiętana dla klienta jak przy paletach.
  * W próbie bez kodu i bez druku: kopia ma prawdziwe numery kartonów.
+ * `seria` = kartony założone razem (takie same): jedna treść, kartki wszystkich
+ * w jednej kolejce druku.
  */
-export function KartkaKartonuDialog({ karton, onClose, proba = import.meta.env.MODE === 'proba' }: { karton: StockCarton; onClose: () => void; proba?: boolean }) {
+export function KartkaKartonuDialog({ karton, seria, onClose, proba = import.meta.env.MODE === 'proba' }: { karton: StockCarton; seria?: StockCarton[]; onClose: () => void; proba?: boolean }) {
+  const kartony = useMemo(() => (seria && seria.length > 1 ? seria : [karton]), [seria, karton])
+  const wiele = kartony.length > 1
+  const tytul = wiele ? `Kartki kartonów ${nrKartonu(kartony[0])}–${nrKartonu(kartony[kartony.length - 1])}` : `Kartka kartonu ${nrKartonu(karton)}`
   const klientNa = useClientNames()
   const recepturaNa = useClientRecipeNames()
   const rodzajNa = useRodzajNaDokumentach()
   const [tresc, ustawTresc] = useTrescKartki(karton.clientId || 'magazyn')
-  const kartki = useMemo(() => [kartkaKartonu(karton, klientNa, recepturaNa, { nazwa: tresc.nazwa, tryb: tresc.tryb, rodzajNa, zamiany: tresc.zamiany })],
-    [karton, klientNa, recepturaNa, tresc.nazwa, tresc.tryb, tresc.zamiany, rodzajNa])
+  const kartki = useMemo(() => kartony.map(c => kartkaKartonu(c, klientNa, recepturaNa, { nazwa: tresc.nazwa, tryb: tresc.tryb, rodzajNa, zamiany: tresc.zamiany })),
+    [kartony, klientNa, recepturaNa, tresc.nazwa, tresc.tryb, tresc.zamiany, rodzajNa])
   const wyroby = useMemo(() => wyrobyKartonu(karton, recepturaNa, rodzajNa), [karton, recepturaNa, rodzajNa])
-  const { qr, ustawPt, gotowe, druk, drukuj, arkusz } = useDrukKartek(kartki, proba, `Kartka kartonu ${nrKartonu(karton)}`)
+  const { qr, ustawPt, gotowe, druk, drukuj, arkusz } = useDrukKartek(kartki, proba, tytul)
   const k = kartki[0]
   return (
-    <Dialog title={`Kartka kartonu ${nrKartonu(karton)}`} icon={<Package size={20} />} wide onClose={onClose}
+    <Dialog title={tytul} icon={<Package size={20} />} wide onClose={onClose}
       footer={<>
         <button className="btn" onClick={onClose} data-autofocus>Zamknij</button>
         <button className="btn primary" disabled={proba || !gotowe || druk} onClick={drukuj} data-tip={proba ? BEZ_DRUKU_ETYKIET : undefined}>
-          <Printer size={15} />{proba ? 'Druk wyłączony w próbie' : `Drukuj ${KOPII_NA_PALETE} kartki`}</button>
+          <Printer size={15} />{proba ? 'Druk wyłączony w próbie' : wiele ? `Drukuj ${kartki.length * KOPII_NA_PALETE} kartek (${kartki.length} kartonów)` : `Drukuj ${KOPII_NA_PALETE} kartki`}</button>
       </>}>
       {proba && <div className="note warn"><FlagIcon level="warn" size={15} /><div>{BEZ_DRUKU_ETYKIET} Podgląd pokazuje układ kartki — bez kodu QR.</div></div>}
       <div className="kp-layout">
         <div className="kp-list">
-          <p className="muted" style={{ margin: 0 }}>{karton.clientName ? klientNa(karton.clientName) : 'Na magazyn — bez klienta'} · {skladKartonu(karton)} · {kg(k.totalKg)}</p>
+          <p className="muted" style={{ margin: 0 }}>{karton.clientName ? klientNa(karton.clientName) : 'Na magazyn — bez klienta'} · {wiele ? `${kartony.length} kartonów po ` : ''}{skladKartonu(karton)} · {kg(k.totalKg)}{wiele ? ' każdy' : ''}</p>
           <div className="kp-tresc" role="group" aria-label="Treść kartki">
             <span className="label">Treść kartki</span>
             <label className="fld"><span className="sub">Nazwa na kartce</span>
@@ -53,9 +58,10 @@ export function KartkaKartonuDialog({ karton, onClose, proba = import.meta.env.M
           <p className="muted" style={{ fontSize: 'var(--fs-sm)', margin: '8px 0 0' }}>{KOPII_NA_PALETE} kopie A4 (poziomo) — kod na kartce służy do skanowania sztuk do kartonu i wydania.</p>
         </div>
         <div className="kp-preview" aria-label="Podgląd kartki">
-          <div className="kp-thumb" style={{ ['--kp-s' as string]: SKALA_PODGLADU }} data-testid={`kartka-kartonu-${karton.id}`}>
-            <Strona k={k} qr={qr[k.qr] ?? ''} proba={proba} onPt={ustawPt(k)} />
-          </div>
+          {/* Każda kartka serii jest mierzona w podglądzie — druk czeka na wszystkie. */}
+          {kartki.map((x, i) => <div key={x.qr} className="kp-thumb" style={{ ['--kp-s' as string]: SKALA_PODGLADU }} data-testid={`kartka-kartonu-${kartony[i].id}`}>
+            <Strona k={x} qr={qr[x.qr] ?? ''} proba={proba} onPt={ustawPt(x)} />
+          </div>)}
         </div>
       </div>
       {arkusz}

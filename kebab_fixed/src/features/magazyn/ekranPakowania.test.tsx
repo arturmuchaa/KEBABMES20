@@ -46,6 +46,7 @@ vi.mock('@/lib/api', () => ({
     const wynik = () => {
       if (kod.includes('offline')) return Promise.reject(new Error('offline'))
       if (kod.includes('nieznana')) return Promise.reject(new Error('Nie znaleziono palety'))
+      if (kod.includes('czeka')) return Promise.reject(Object.assign(new Error('Paleta P4 czeka na nowe zamówienie klienta'), { code: 'WAITING_FOR_ORDER' }))
       return Promise.resolve({ id: kod.includes('pelna') ? 'p9' : 'k3' })
     }
     if (!s.lookupRecznie) return wynik()
@@ -57,6 +58,7 @@ vi.mock('@/lib/api', () => ({
     return Promise.resolve({ result: 'SUCCESS', palletNo: 1 })
   } },
   isOfflineError: (e: unknown) => e instanceof Error && e.message === 'offline',
+  errCode: (e: unknown) => (e as { code?: string } | null)?.code ?? '',
 }))
 vi.mock('./dzwiek', () => ({
   grajInny: () => s.dzwieki.push('inny'),
@@ -287,6 +289,16 @@ describe('kartka → sztuka i wyścigi', () => {
     skan('PAL|nieznana|4')
     await waitFor(() => expect(onAlarm).toHaveBeenCalled())
     expect(onAlarm.mock.calls[0][0].naglowek).toBe('NIEZNANA KARTKA')
+    expect(s.skany).toEqual([])
+  })
+
+  it('kartka palety z usuniętego zamówienia — „czeka na zamówienie", nie „nieznana"', async () => {
+    const onAlarm = vi.fn()
+    render(<EkranPakowania aktywnyId="k1" onAktywny={vi.fn()} onAlarm={onAlarm} />)
+    await screen.findByText(/^32/)
+    skan('PAL|czeka|4')
+    await waitFor(() => expect(onAlarm).toHaveBeenCalled())
+    expect(onAlarm.mock.calls[0][0].naglowek).toBe('PALETA CZEKA NA ZAMÓWIENIE')
     expect(s.skany).toEqual([])
   })
 

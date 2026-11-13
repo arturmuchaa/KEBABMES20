@@ -320,10 +320,18 @@ def finalize_loading(
                     raise HTTPException(409, "Identyfikator zapisu należy do innego zestawu zamówień")
                 return previous["response"]
         if expected_ids is not None:
+            # Tylko zamówienia TEGO kursu. Kiosk potwierdza to, co widzi na
+            # liście auta; paleta obcego zamówienia wisząca jako `loaded`
+            # (prod 12.11.2026: 29 palet z września na trzech autach) nie jest
+            # zmianą zawartości i nie może blokować każdego kursu tym autem.
+            zamowienia_kursu = sorted(set(order_ids))
             actual = cx_query_all(conn,
-                """SELECT id FROM order_pallets WHERE loaded_vehicle_id=%s AND status='loaded'
-                   UNION ALL SELECT id FROM stock_cartons WHERE loaded_vehicle_id=%s AND shipped_at IS NULL""",
-                (vehicle_id, vehicle_id))
+                """SELECT id FROM order_pallets
+                    WHERE loaded_vehicle_id=%s AND status='loaded' AND order_id = ANY(%s)
+                   UNION ALL
+                   SELECT id FROM stock_cartons
+                    WHERE loaded_vehicle_id=%s AND shipped_at IS NULL AND linked_order_id = ANY(%s)""",
+                (vehicle_id, zamowienia_kursu, vehicle_id, zamowienia_kursu))
             if set(expected_ids) != {p["id"] for p in actual}:
                 raise HTTPException(409, "Zawartość auta zmieniła się. Sprawdź odświeżoną listę i potwierdź ponownie")
         # Check all orders BEFORE writing any shipment. A confirmation is bound

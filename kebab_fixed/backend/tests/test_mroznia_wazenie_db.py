@@ -279,3 +279,17 @@ def test_lista_mrozni_mowi_kto_kiedy_i_czy_pelny(db):
     execute("UPDATE order_pallets SET status='cold_storage' WHERE id=%s", (pid,))
     paleta = next(p for p in pallets_in_cold_storage() if p["pallet_id"] == pid)
     assert paleta["total_qty"] == 2 and paleta["scanned_qty"] == 1
+
+
+def test_paleta_z_poczekalni_nie_jest_nieznana_kartka(db):
+    """Prod 12.11.2026: 14 palet w poczekalni po usuniętych zamówieniach;
+    kiosk mroźni pokazywał dla nich „tej kartki nie ma w systemie"."""
+    from app.db import execute
+    from app.services import mroznia_wazenie_service as mw
+    execute("INSERT INTO orphan_pallets (id, source_order_id, source_order_no, client_id, client_name, "
+            " pallet_no, status, items, reason) VALUES ('op1','0123456789abcdef0123','OYCHE/Z/1/11/26','c9','OYCHE',"
+            " 3,'created','[]'::jsonb,'usunięcie zamówienia')")
+    w = mw.sprawdz("PAL|0123456789abcdef0123|3")
+    assert w["result"] == "WAITING"
+    assert "czeka na nowe zamówienie" in w["message"]
+    assert mw.sprawdz("PAL|ffffffffffffffffffff|9") == {"result": "INVALID"}

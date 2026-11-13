@@ -177,6 +177,10 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
         // Numer w tytule (pełny rozmiar) — po nim pracownik znajdzie szkic, żeby go potwierdzić.
         ? { kind: 'warn', title: zapisane.orderNo ? `Szkic ${zapisane.orderNo} — nie trafi do planowania` : 'Zapisano jako szkic — nie trafi do planowania', detail: `${miary}. Potwierdź je w panelu zamówienia.` }
         : { kind: 'ok', title: `${editing ? 'Zapisano' : 'Utworzono'} ${zapisane.orderNo ?? ''}`.trim(), detail: `${t.n} poz. · ${fmtNum(t.szt)} szt. · ${kg(t.kg)}${potwierdz ? ' · potwierdzone' : ''}` })
+      // Kartony z mroźni przypięły się same (od najstarszych) — biuro ma to zobaczyć od razu.
+      const kartony = zapisane.linkedCartons ?? []
+      if (kartony.length) app.toast({ kind: 'ok', title: `Przypięto ${kartony.length} ${kartony.length === 1 ? 'karton' : 'kartonów'} z magazynu (FEFO)`,
+        detail: `${kartony.map(k => k.cartonLabel).filter(Boolean).join(', ')} — sprawdź w zamówieniu: Pokrycie → Kartony z magazynu.` })
       setDirty(false)
       onDone(zapisane.id)
     } catch (e) {

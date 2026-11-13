@@ -675,6 +675,9 @@ def create_order(dto: ClientOrderCreate) -> Dict:
             "SELECT * FROM client_order_lines WHERE order_id = %s ORDER BY position",
             (order["id"],),
         )
+    # Po COMMIT-cie: kartony magazynowe klienta przypinają się same, od najstarszych.
+    from app.services.stock_carton_link_service import auto_assign_fefo_safely
+    order["linkedCartons"] = auto_assign_fefo_safely(order["id"])
     logger.info("order.created",
                 extra={"order_id": order["id"], "reallocated": przepiete})
     return order
@@ -1028,6 +1031,9 @@ def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
             "SELECT * FROM client_order_lines WHERE order_id=%s ORDER BY position",
             (order_id,))
 
+    # Zwiększona pozycja albo nowa pozycja → kolejne kartony klienta (FEFO).
+    from app.services.stock_carton_link_service import auto_assign_fefo_safely
+    updated["linkedCartons"] = auto_assign_fefo_safely(order_id)
     logger.info("order.updated", extra={"order_id": order_id})
     return updated
 

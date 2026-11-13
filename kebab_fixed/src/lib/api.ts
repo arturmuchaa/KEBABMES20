@@ -1877,6 +1877,7 @@ export function mapClientOrder(raw: any): ClientOrder {
     createdAt:    raw.created_at   ?? raw.createdAt   ?? '',
     fulfillment:  mapOrderFulfillment(raw.fulfillment),
     coverageBasis: raw.coverage_basis ?? raw.coverageBasis,
+    linkedCartons: Array.isArray(raw.linkedCartons) ? raw.linkedCartons : undefined,
   } as ClientOrder
 }
 
@@ -4400,6 +4401,9 @@ export interface StockCartonScanResult {
 
 export const stockCartonsApi = {
   create:   (dto: StockCartonCreateDto) => post<any>('/stock-cartons', toSnake(dto)).then(mapStockCarton),
+  /** Seria takich samych kartonów (produkcja na magazyn) — wszystkie albo żaden. */
+  createBatch: (dto: StockCartonCreateDto, count: number) =>
+    post<any[]>('/stock-cartons/batch', { ...toSnake(dto), count }).then(rows => (rows ?? []).map(mapStockCarton)),
   list:     () => get<any[]>('/stock-cartons').then(rows => (rows ?? []).map(mapStockCarton)),
   listOpen: () => get<any[]>('/stock-cartons/open').then(rows => (rows ?? []).map(mapStockCarton)),
   get:      (id: string) => get<any>(`/stock-cartons/${id}`).then(mapStockCarton),
@@ -4619,7 +4623,9 @@ export interface KartonDoWazenia {
   location?: MiejsceMrozni | null
   /** Ważenie według rozpisu, bez potwierdzenia skanami sztuk. */
   scannerless?: boolean
-  result: 'OK' | 'INVALID' | 'GONE'
+  result: 'OK' | 'INVALID' | 'GONE' | 'WAITING'
+  /** Zdanie serwera dla `WAITING` (paleta czeka na zamówienie). */
+  message?: string
   /** Gdzie karton jest w procesie — do karty kartonu. */
   status?: 'planned' | 'packing' | 'full' | 'cold_storage' | 'loaded' | 'shipped'
   kind?: 'order' | 'stock'

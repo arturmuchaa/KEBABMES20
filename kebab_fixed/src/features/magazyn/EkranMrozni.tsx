@@ -209,6 +209,10 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
     try {
       k = await magazynApi.mrozniaSprawdz(kanon)
     } catch (e) { return alarmSieci(e) }
+    if (k.result === 'WAITING') {
+      return alarmBlad('PALETA CZEKA NA ZAMÓWIENIE', k.message
+        || 'Kartka jest dobra — paleta pochodzi z usuniętego lub zmienionego zamówienia. Zawołaj biuro: po dodaniu zamówienia zacznie działać sama.')
+    }
     if (k.result === 'INVALID') {
       return alarmBlad('NIEZNANA KARTKA', 'Tej kartki nie ma w systemie. Weź kartkę z kartonu albo zawołaj biuro.')
     }

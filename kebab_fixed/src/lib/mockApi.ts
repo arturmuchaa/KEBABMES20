@@ -2314,6 +2314,8 @@ export interface OrderLine {
 }
 
 export interface ClientOrder {
+  /** Kartony magazynowe klienta przypięte przy tym zapisie (automat FEFO); tylko w odpowiedzi create/update. */
+  linkedCartons?: Array<{ cartonId: string; cartonLabel?: string; units?: number }>
   id:          string
   orderNo:     string        // ZAM-2026-001
   clientId:    string

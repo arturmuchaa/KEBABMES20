@@ -119,6 +119,21 @@ def test_changed_load_requires_new_confirmation(db):
     assert query_one("SELECT status FROM order_pallets WHERE id='p1'")['status'] == 'loaded'
 
 
+def test_stale_loaded_pallet_of_other_order_does_not_block_course(db):
+    """Prod 12.11.2026: palety z września (TRUVA/Z/1/09/26) wisiały jako
+    `loaded` na SOLÓWCE, choć zamówienia dawno nie było na liście auta. Kiosk
+    wysyła to, co widzi — i każdy kurs tym autem dostawał „Zawartość auta
+    zmieniła się". Obce zamówienie nie należy do potwierdzanego kursu."""
+    _przygotuj()
+    execute("INSERT INTO client_orders (id,order_no,client_id,client_name,status,order_date) "
+            "SELECT 'stare','STARE/Z/1/09/26',client_id,client_name,'done',order_date FROM client_orders WHERE id='o1'")
+    execute("INSERT INTO order_pallets (id,order_id,pallet_no,status,loaded_vehicle_id) VALUES ('duch','stare',1,'loaded','v1')")
+    result = loading_service.finalize_loading('v1',['o1'],request_id='z-duchem',expected_ids=['p1'])
+    assert result['ok'] and result['loading_id']
+    assert query_one("SELECT status FROM order_pallets WHERE id='p1'")['status'] == 'shipped'
+    assert query_one("SELECT status FROM order_pallets WHERE id='duch'")['status'] == 'loaded'
+
+
 def test_stock_and_legacy_pallet_on_same_order_both_reach_course(db):
     c = stock()
     execute("UPDATE client_order_lines SET qty=2,total_kg=60 WHERE order_id='o1'")

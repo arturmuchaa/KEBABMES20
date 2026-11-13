@@ -133,3 +133,14 @@ class StockCartonCreate(BaseModel):
     kg_per_unit: float = Field(0, alias="kgPerUnit")
     produced_date: str = Field("", alias="producedDate")
     batch_no: str = Field("", alias="batchNo")
+
+
+class StockCartonBatchCreate(StockCartonCreate):
+    """POST /api/stock-cartons/batch — seria TAKICH SAMYCH kartonów naraz.
+
+    Właściciel (12.11.2026): „robimy pod pełne kartony 15×50, 20×40, 30×30" —
+    produkcja na magazyn dla klienta bez zamówienia. Jedno okno, N kartonów,
+    N kolejnych numerów i kartek.
+    """
+
+    count: int = Field(..., ge=1, le=100)

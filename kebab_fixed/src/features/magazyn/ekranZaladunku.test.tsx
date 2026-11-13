@@ -180,6 +180,48 @@ describe('potwierdzanie kursu', () => {
     expect(alarm).toHaveBeenCalledWith(expect.objectContaining({ naglowek: 'TO KOD SKANERA, NIE REJESTRACJA' }))
   })
 
+  it('przyjmuje rejestrację ciągnik/naczepa z ukośnikiem', async () => {
+    loaded()
+    s.migawka.vehicle = { ...MIGAWKA.vehicle, kind: 'external' }
+    s.finalize.mockResolvedValueOnce({ ok: true, loading_id: 'course', orders: [] })
+    const alarm = vi.fn()
+    render(<EkranZaladunku vehicleId="v1" onAlarm={alarm} onKoniec={vi.fn()} />)
+    fireEvent.click(await screen.findByText('Zakończ załadunek'))
+    fireEvent.change(screen.getByLabelText('Numer rejestracyjny (spedycja)'), { target: { value: 'wgm 12345/wgm 678p' } })
+    fireEvent.click(screen.getByText('Zakończ', { exact: true }))
+    await waitFor(() => expect(s.finalize).toHaveBeenCalledTimes(1))
+    expect(s.finalize.mock.calls[0][2]).toBe('WGM 12345/WGM 678P')
+    expect(alarm).not.toHaveBeenCalledWith(expect.objectContaining({ naglowek: 'TO KOD SKANERA, NIE REJESTRACJA' }))
+  })
+
+  it('odrzuca adres z kartki QR wpisany w numer rejestracyjny', async () => {
+    loaded()
+    s.migawka.vehicle = { ...MIGAWKA.vehicle, kind: 'external' }
+    const alarm = vi.fn()
+    render(<EkranZaladunku vehicleId="v1" onAlarm={alarm} onKoniec={vi.fn()} />)
+    fireEvent.click(await screen.findByText('Zakończ załadunek'))
+    fireEvent.change(screen.getByLabelText('Numer rejestracyjny (spedycja)'), { target: { value: 'http://10.0.0.5/m/p/polat/1' } })
+    fireEvent.click(screen.getByText('Zakończ', { exact: true }))
+    expect(s.finalize).not.toHaveBeenCalled()
+    expect(alarm).toHaveBeenCalledWith(expect.objectContaining({ naglowek: 'TO KOD SKANERA, NIE REJESTRACJA' }))
+  })
+
+  it('daje klawiaturę ekranową do numeru rejestracyjnego', async () => {
+    loaded()
+    s.migawka.vehicle = { ...MIGAWKA.vehicle, kind: 'external' }
+    s.finalize.mockResolvedValueOnce({ ok: true, loading_id: 'course', orders: [] })
+    render(<EkranZaladunku vehicleId="v1" onAlarm={vi.fn()} onKoniec={vi.fn()} />)
+    fireEvent.click(await screen.findByText('Zakończ załadunek'))
+    fireEvent.click(screen.getByText('Klawiatura'))
+    await screen.findByText('Klawiatura · Numer rejestracyjny')
+    for (const c of ['K', 'R', '1', '/', '2']) fireEvent.click(screen.getByRole('button', { name: c }))
+    fireEvent.click(screen.getByText('Gotowe'))
+    fireEvent.click(screen.getByText('Zakończ', { exact: true }))
+    await waitFor(() => expect(s.finalize).toHaveBeenCalledTimes(1))
+    // Pole startuje z tablicą z kartoteki auta — klawiatura dopisuje na końcu.
+    expect(s.finalize.mock.calls[0][2]).toBe('KR 8842LKR1/2')
+  })
+
   it('odzyskuje identyfikator niepotwierdzonego zapisu po ponownym otwarciu ekranu', async () => {
     loaded()
     s.finalize.mockRejectedValueOnce({ offline: true })

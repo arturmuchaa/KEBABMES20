@@ -306,3 +306,39 @@ def test_karton_ze_sztuka_zostaje(db):
         delete_empty_carton(c["id"])
     assert exc.value.status_code == 409
     assert query_one("SELECT 1 FROM stock_cartons WHERE id=%s", (c["id"],)) is not None
+
+
+# ── Seria takich samych kartonów (produkcja na magazyn, 12.11.2026) ─────
+def test_batch_creates_identical_cartons_with_consecutive_numbers(db):
+    from app.models.production import StockCartonBatchCreate
+    from app.services.stock_cartons_service import create_stock_cartons
+    dto = StockCartonBatchCreate(
+        client_id="c1", client_name="ZAGROS", count=15,
+        lines=[StockCartonLineDto(recipe_id="r1", recipe_name="Kirmizi", product_type_id="p1",
+                                  product_type_name="UDO 100%", kg_per_unit=40.0, qty=20)])
+    rows = create_stock_cartons(dto)
+    assert len(rows) == 15
+    assert len({r["id"] for r in rows}) == 15
+    numery = [r["carton_no"] for r in rows]
+    assert numery == list(range(numery[0], numery[0] + 15))
+    assert all(r["status"] == "open" and r["client_name"] == "ZAGROS" and r["target_qty"] == 20 for r in rows)
+    linie = query_all("SELECT carton_id, target_qty, kg_per_unit FROM stock_carton_lines "
+                      "WHERE carton_id = ANY(%s)", ([r["id"] for r in rows],))
+    assert len(linie) == 15 and all(int(l["target_qty"]) == 20 for l in linie)
+
+
+def test_batch_is_all_or_nothing_and_limited(db):
+    import pydantic
+    from app.models.production import StockCartonBatchCreate
+    with pytest.raises(pydantic.ValidationError):
+        StockCartonBatchCreate(client_id="c1", client_name="ZAGROS", count=0, recipe_id="r1", qty=20, kg_per_unit=40.0)
+    with pytest.raises(pydantic.ValidationError):
+        StockCartonBatchCreate(client_id="c1", client_name="ZAGROS", count=500, recipe_id="r1", qty=20, kg_per_unit=40.0)
+    assert query_one("SELECT count(*) AS n FROM stock_cartons")["n"] == 0
+
+
+def test_single_create_still_refuses_duplicate_open_carton(db):
+    create_stock_carton(_dto())
+    with pytest.raises(HTTPException) as e:
+        create_stock_carton(_dto())
+    assert e.value.status_code == 409

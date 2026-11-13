@@ -59,6 +59,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const [wybranyKarton, setWybranyKarton] = useState<string | null>(null)
   const [nowyKarton, setNowyKarton] = useState<StartKartonu | null>(null)
   const [kartka, setKartka] = useState<StockCarton | null>(null)
+  const [seriaKartek, setSeriaKartek] = useState<StockCarton[] | undefined>(undefined)
   const [szukajSztuki, setSzukajSztuki] = useState(false)
   // Stałe funkcje dla widoku kartonów: nowa funkcja przy każdym renderze przeliczała jego polecenia w kółko.
   const nowyPustyKarton = useCallback(() => setNowyKarton({}), [])
@@ -240,12 +241,14 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   )
   const oknaKartonow = <>
     {nowyKarton && <NowyKartonDialog start={nowyKarton} wolne={stock.filter(p => wolnaDoKartonu(p))} onClose={() => setNowyKarton(null)}
-      onUtworzony={c => {
+      onUtworzony={(c, seria) => {
         setNowyKarton(null)
-        app.toast({ kind: 'ok', title: `Karton ${nrKartonu(c)} utworzony`, detail: `${skladKartonu(c)} — wydrukuj kartkę i naklej na karton.` })
-        void kartonyRes.refetch(); setWidok('kartony'); setWybranyKarton(c.id); setKartka(c)
+        app.toast(seria.length > 1
+          ? { kind: 'ok', title: `Utworzono ${seria.length} kartonów ${nrKartonu(seria[0])}–${nrKartonu(seria[seria.length - 1])}`, detail: `${skladKartonu(c)} każdy — wydrukuj kartki i naklej na kartony.` }
+          : { kind: 'ok', title: `Karton ${nrKartonu(c)} utworzony`, detail: `${skladKartonu(c)} — wydrukuj kartkę i naklej na karton.` })
+        void kartonyRes.refetch(); setWidok('kartony'); setWybranyKarton(c.id); setSeriaKartek(seria.length > 1 ? seria : undefined); setKartka(c)
       }} />}
-    {kartka && <KartkaKartonuDialog karton={kartka} onClose={() => setKartka(null)} />}
+    {kartka && <KartkaKartonuDialog karton={kartka} seria={seriaKartek?.some(x => x.id === kartka.id) ? seriaKartek : undefined} onClose={() => { setKartka(null); setSeriaKartek(undefined) }} />}
   </>
   if (widok === 'kartony') return <>
     <KartonyMagazynowe widoki={widoki} active={active} setCmds={setCmds} setCtx={setCtx}

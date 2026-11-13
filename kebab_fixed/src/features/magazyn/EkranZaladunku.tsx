@@ -34,7 +34,14 @@ import { ZALADUNEK_OK } from './components/WierszZaladunku'
 import { grajBlad, grajInny } from './dzwiek'
 import type { PokazAlarm } from './magazynTypes'
 import { PlanMrozni } from './PlanMrozni'
+import { KlawiaturaHmi } from './KlawiaturaHmi'
 import { koloryZamowien } from './koloryZaladunku'
+
+/** Skaner działa jak klawiatura i potrafi „wpisać" kartkę w pole rejestracji.
+ *  Sam ukośnik to jeszcze nie kod: spedycja podaje „ciągnik/naczepa". */
+export function toKodSkanera(plate: string): boolean {
+  return /[|\\]|:|\/M\/P\//.test(plate) || /^(SCARTON|PAL|UNIT)[^0-9A-Z][0-9A-Z]{12,}/.test(plate) || plate.length > 30
+}
 
 export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   vehicleId: string
@@ -60,6 +67,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   const [pytanie, setPytanie] = useState(false)
   const [mapa, setMapa] = useState(false)
   const [rejestracja, setRejestracja] = useState('')
+  const [klawiatura, setKlawiatura] = useState(false)
   const [zamyka, setZamyka] = useState(false)
   const [cofana, setCofana] = useState<string | null>(null)
   const [skanuje, setSkanuje] = useState(false)
@@ -157,7 +165,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
   async function zakoncz(confirmation?: string) {
     if (zapisuje.current || skanuje || czekaNaStan) return
     const plate = rejestracja.trim().toUpperCase()
-    if (/[|:/\\]/.test(plate) || /^(SCARTON|PAL|UNIT)[^A-Z]/.test(plate)) {
+    if (toKodSkanera(plate)) {
       blad('TO KOD SKANERA, NIE REJESTRACJA', 'Wpisz numer rejestracyjny auta. Skanowanie jest w tym oknie wyłączone.')
       return
     }
@@ -241,7 +249,7 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
         dostepne={dostepne} bladDostepnych={!!dostepneRes.error} ladujeDostepne={dostepneRes.loading}
         onOtworz={setOtwarteZamowienie} onDodaj={dodaj} onZdejmij={zdejmij}
         onCofnij={(orderId, p) => cofnij(orderId, p.palletNo, p.id, p.scanCode)}
-        onZakoncz={() => { setPotwierdzane(zamowienia); wyczyscProbe(); setRejestracja(pojazd?.plate ?? ''); setPytanie(true) }} />
+        onZakoncz={() => { setPotwierdzane(zamowienia); wyczyscProbe(); setRejestracja(r => r || (pojazd?.plate ?? '')); setPytanie(true) }} />
 
       <PasSkanowania placeholder="Skanuj karton lub paletę…" onSkan={skanuj}
         disabled={pytanie || mapa || zamyka || !!wynik || !!cofana} onPendingChange={setSkanuje}
@@ -271,11 +279,21 @@ export function EkranZaladunku({ vehicleId, onAlarm, onKoniec }: {
                 <span className="text-[11px] font-extrabold uppercase tracking-[0.1em]" style={{ color: 'var(--mut)' }}>
                   Numer rejestracyjny (spedycja)
                 </span>
-                <input value={rejestracja} disabled={zamyka || niepewny} onChange={e => setRejestracja(e.target.value)}
-                  className="hmi-v10-mono mt-1 w-full rounded-xl px-4 py-3 text-[20px] font-bold uppercase outline-none"
-                  style={{ border: '2px solid var(--accent)' }} />
+                {/* Kiosk nie ma klawiatury: dotknięcie pola otwiera ekranową.
+                    Pole zostaje edytowalne dla stanowisk z klawiaturą fizyczną. */}
+                <span className="mt-1 flex gap-2">
+                  <input value={rejestracja} disabled={zamyka || niepewny} inputMode="none"
+                    onChange={e => setRejestracja(e.target.value)} onClick={() => setKlawiatura(true)}
+                    className="hmi-v10-mono min-w-0 flex-1 rounded-xl px-4 py-3 text-[20px] font-bold uppercase outline-none"
+                    style={{ border: '2px solid var(--accent)' }} />
+                  <button type="button" disabled={zamyka || niepewny} onClick={() => setKlawiatura(true)}
+                    className="min-h-12 rounded-xl px-5 text-[16px] font-extrabold text-white"
+                    style={{ background: 'var(--accent)' }}>Klawiatura</button>
+                </span>
               </label>
             ) : null}
+            {klawiatura ? <KlawiaturaHmi tablica label="Numer rejestracyjny" value={rejestracja.toUpperCase()} maxLength={30}
+              onAccept={setRejestracja} onClose={() => setKlawiatura(false)} /> : null}
             <div className="mt-6 flex gap-3">
               <button type="button" disabled={zamyka || niepewny} onClick={() => { wyczyscProbe(); setPytanie(false) }}
                 className="flex-1 rounded-xl py-4 text-[16px] font-extrabold"

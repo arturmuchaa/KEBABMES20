@@ -79,7 +79,11 @@ export function wyrobyKartonu(c: StockCarton,
 
 // ─── Nowy karton ─────────────────────────────────────────────────────────
 export interface PozycjaKartonu { productTypeId: string; recipeId: string; packagingId: string; kgPerUnit: string; qty: string }
-export interface FormKartonu { clientId: string; pozycje: PozycjaKartonu[] }
+export interface FormKartonu { clientId: string; pozycje: PozycjaKartonu[]; ile?: string }
+/** Górna granica serii — ta sama co na serwerze. */
+export const MAX_SERIA_KARTONOW = 100
+/** Ile takich samych kartonów założyć; puste pole = jeden. */
+export const ileKartonow = (f: FormKartonu) => (f.ile?.trim() ? Number(f.ile) : 1)
 export const pustaPozycja = (): PozycjaKartonu => ({ productTypeId: '', recipeId: '', packagingId: '', kgPerUnit: '', qty: '' })
 
 /** Pusta pozycja (nic nie wybrano, nic nie wpisano) nie jest pozycją — nie blokuje zapisu. */
@@ -89,6 +93,8 @@ export function bledyKartonu(f: FormKartonu): Record<string, string> {
   const e: Record<string, string> = {}
   const pozycje = f.pozycje.filter(p => !pustaPoz(p))
   if (!pozycje.length) e.pozycje = 'Dodaj przynajmniej jedną pozycję kartonu.'
+  if (f.ile?.trim() && (!/^\d+$/.test(f.ile.trim()) || Number(f.ile) < 1 || Number(f.ile) > MAX_SERIA_KARTONOW))
+    e.ile = `Liczba kartonów: od 1 do ${MAX_SERIA_KARTONOW}.`
   f.pozycje.forEach((p, i) => {
     if (pustaPoz(p)) return
     if (!p.productTypeId) e[`p${i}`] = 'Wybierz rodzaj.'

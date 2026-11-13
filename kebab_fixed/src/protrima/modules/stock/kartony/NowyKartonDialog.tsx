@@ -8,7 +8,7 @@ import type { StockPos } from '../../../data/stock'
 import { useApi } from '@/hooks/useApi'
 import { clientsApi, packagingApi, productTypesApi, recipesApi, stockCartonsApi, type StockCarton } from '@/lib/api'
 import { num } from '@/features/orders/order-entry/model'
-import { bledyKartonu, doUtworzenia, pozycjaZMagazynu, pustaPoz, pustaPozycja, type FormKartonu, type PozycjaKartonu } from './model'
+import { MAX_SERIA_KARTONOW, bledyKartonu, doUtworzenia, ileKartonow, pozycjaZMagazynu, pustaPoz, pustaPozycja, type FormKartonu, type PozycjaKartonu } from './model'
 
 export interface StartKartonu { clientName?: string; z?: StockPos }
 
@@ -17,9 +17,11 @@ export interface StartKartonu { clientName?: string; z?: StockPos }
  * jednorodny albo mieszany (wiele pozycji). Serwer nadaje globalny numer kartonu;
  * po zapisie od razu kartka do druku (magazynier pakuje do kartonu sztuki).
  * Klienta i zamówienie można przypiąć później — w zamówieniu: Pokrycie → Kartony z magazynu.
+ * Produkcja na magazyn pod pełne kartony (15×50, 20×40, 30×30): „Ile takich kartonów”
+ * zakłada całą serię naraz — kolejne numery, jedna kolejka kartek do druku.
  */
 export function NowyKartonDialog({ start, wolne, onClose, onUtworzony }: {
-  start?: StartKartonu; wolne: StockPos[]; onClose: () => void; onUtworzony: (c: StockCarton) => void
+  start?: StartKartonu; wolne: StockPos[]; onClose: () => void; onUtworzony: (c: StockCarton, seria: StockCarton[]) => void
 }) {
   const clientsRes = useApi(() => clientsApi.list())
   const typesRes = useApi(() => productTypesApi.list())
@@ -35,7 +37,7 @@ export function NowyKartonDialog({ start, wolne, onClose, onUtworzony }: {
   const ready = !!clientsRes.data && !!typesRes.data && !!recipesRes.data && !!packRes.data
   const loadError = clientsRes.error || typesRes.error || recipesRes.error || packRes.error
 
-  const [f, setF] = useState<FormKartonu>({ clientId: '', pozycje: [pustaPozycja()] })
+  const [f, setF] = useState<FormKartonu>({ clientId: '', pozycje: [pustaPozycja()], ile: '1' })
   const [tried, setTried] = useState(false)
   const [saving, setSaving] = useState(false)
   const [blad, setBlad] = useState<string | null>(null)
@@ -48,7 +50,7 @@ export function NowyKartonDialog({ start, wolne, onClose, onUtworzony }: {
     seeded.current = true
     const norm = (x?: string) => (x ?? '').trim().toLowerCase()
     const c = start.clientName ? s.clients.find(k => norm(k.name) === norm(start.clientName) || norm(k.displayName) === norm(start.clientName)) : undefined
-    setF({ clientId: c?.id ?? '', pozycje: [start.z ? pozycjaZMagazynu(start.z, s.packaging) : pustaPozycja()] })
+    setF(x => ({ ...x, clientId: c?.id ?? '', pozycje: [start.z ? pozycjaZMagazynu(start.z, s.packaging) : pustaPozycja()] }))
   }, [ready, start, s])
 
   const setPoz = (i: number, patch: Partial<PozycjaKartonu>) => setF(x => ({ ...x, pozycje: x.pozycje.map((p, j) => (j === i ? { ...p, ...patch } : p)) }))
@@ -64,6 +66,9 @@ export function NowyKartonDialog({ start, wolne, onClose, onUtworzony }: {
   const szt = pozycje.reduce((a, p) => a + (Number(p.qty) || 0), 0)
   const masa = pozycje.reduce((a, p) => a + (Number(p.qty) || 0) * num(p.kgPerUnit), 0)
 
+  const ileN = ileKartonow(f)
+  const ile = Number.isInteger(ileN) && ileN >= 1 && ileN <= MAX_SERIA_KARTONOW ? ileN : 1
+
   const klienci = useMemo(() => s.clients.map(c => ({ id: c.id, label: c.displayName || c.name, sub: [c.displayName && c.displayName !== c.name ? c.name : '', c.city].filter(Boolean).join(' · ') || undefined })), [s.clients])
   const rodzaje = useMemo(() => s.productTypes.map(p => ({ id: p.id, label: p.name })), [s.productTypes])
   const tuleje = useMemo(() => s.packaging.map(p => ({ id: p.id, label: p.name })), [s.packaging])
@@ -75,7 +80,15 @@ export function NowyKartonDialog({ start, wolne, onClose, onUtworzony }: {
     if (Object.keys(bledyKartonu(f)).length) return
     lock.current = true; setSaving(true); setBlad(null)
     try {
-      onUtworzony(await stockCartonsApi.create(doUtworzenia(f, s)))
+      const ile = ileKartonow(f)
+      if (ile > 1) {
+        const seria = await stockCartonsApi.createBatch(doUtworzenia(f, s), ile)
+        if (!seria.length) throw new Error('Serwer nie zwrócił utworzonych kartonów')
+        onUtworzony(seria[0], seria)
+      } else {
+        const c = await stockCartonsApi.create(doUtworzenia(f, s))
+        onUtworzony(c, [c])
+      }
     } catch (e) {
       setBlad(e instanceof Error ? e.message : 'Nie udało się utworzyć kartonu')
     } finally { lock.current = false; setSaving(false) }
@@ -84,9 +97,11 @@ export function NowyKartonDialog({ start, wolne, onClose, onUtworzony }: {
   return (
     <Dialog xl title="Nowy karton magazynowy" icon={<PackagePlus size={20} />} onClose={onClose}
       footer={<>
-        <span className="left">{pozycje.length ? <>Razem <b>{fmtNum(szt)} szt.</b> · {kg(masa)}{pozycje.length > 1 ? ' · karton mieszany' : ''}</> : 'Karton czeka na pozycje'}</span>
+        <span className="left">{pozycje.length ? (ile > 1
+          ? <><b>{ile} kartonów</b> po {fmtNum(szt)} szt. · razem <b>{fmtNum(szt * ile)} szt.</b> · {kg(masa * ile)}</>
+          : <>Razem <b>{fmtNum(szt)} szt.</b> · {kg(masa)}{pozycje.length > 1 ? ' · karton mieszany' : ''}</>) : 'Karton czeka na pozycje'}</span>
         <button className="btn" onClick={onClose}>Anuluj</button>
-        <button className="btn primary" disabled={!ready || saving} onClick={() => void zapisz()}><PackagePlus size={15} />{saving ? 'Tworzenie…' : 'Utwórz karton'}</button>
+        <button className="btn primary" disabled={!ready || saving} onClick={() => void zapisz()}><PackagePlus size={15} />{saving ? 'Tworzenie…' : ile > 1 ? `Utwórz ${ile} kartonów` : 'Utwórz karton'}</button>
       </>}>
       {loadError && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div>Nie udało się pobrać kartotek: {loadError}</div></div>}
       {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Serwer odmówił:</b> {blad}</div></div>}
@@ -133,6 +148,14 @@ export function NowyKartonDialog({ start, wolne, onClose, onUtworzony }: {
         <button className="btn sm" onClick={() => { dodajPoz(); skocz(f.pozycje.findIndex(pustaPoz) >= 0 ? f.pozycje.findIndex(pustaPoz) : f.pozycje.length, 'p') }}><Plus size={15} />Dodaj pozycję</button>
         <span className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Karton mieszany: kilka pozycji jednego klienta, np. 30 × 10 kg + 20 × 15 kg.</span>
       </div>
+      <label className="nk-ile"><span className="label">Ile takich kartonów</span>
+        <span className="row-wrap">
+          <input id="nk-ile" className={`field num w-num${errors.ile ? ' invalid' : ''}`} inputMode="numeric" value={f.ile ?? ''} aria-label="Ile takich kartonów"
+            onChange={e => setF(x => ({ ...x, ile: e.target.value }))} onFocus={e => e.target.select()} />
+          <span className="muted" style={{ fontSize: 'var(--fs-sm)' }}>Produkcja na magazyn: np. 15 kartonów po 20 × 40 kg — każdy dostaje własny numer i kartkę.</span>
+        </span>
+        {errors.ile && <span className="crit-ink" style={{ fontSize: 'var(--fs-sm)' }}>{errors.ile}</span>}
+      </label>
       {errors.pozycje && <div className="note crit"><FlagIcon level="crit" size={15} /><div>{errors.pozycje}</div></div>}
     </Dialog>
   )

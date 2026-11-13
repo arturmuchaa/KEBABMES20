@@ -464,3 +464,66 @@ def test_bez_skanera_obcy_wyrob_i_wyrob_innego_zamowienia_nie_licza_sie(db):
     # Wyrób ostemplowany TYM zamówieniem się liczy.
     execute("UPDATE finished_goods SET client_order_no='YALCIN/Z/4/09/26' WHERE id='f3'")
     assert k["id"] in {c["cartonId"] for c in link.options_for_order("o1")["available"]}
+
+
+# ── Samo-przypinanie FEFO (właściciel 12.11.2026) ─────────────────────────
+# „Robimy kebab np. dla ZAGROS bez zamówienia na magazyn i dopiero jak zamówi,
+#  bierzemy z mroźni (…) chciałbym, aby same się przypinały według FEFO."
+
+def _seria(n, qty=2, client_id="c1"):
+    from app.models.production import StockCartonBatchCreate
+    from app.services.stock_cartons_service import create_stock_cartons
+    return create_stock_cartons(StockCartonBatchCreate(
+        client_id=client_id, client_name="YBM" if client_id else "", count=n,
+        lines=[StockCartonLineDto(recipe_id="r1", product_type_id="pt1", packaging_name="METAL",
+                                  kg_per_unit=30, qty=qty)]))
+
+
+def test_fefo_przypina_najstarsze_kartony_klienta_do_wolnej_ilosci(db):
+    _baza(); _fg_niczyj(qty=6)
+    k = _seria(3)                                  # 3 × (2 × 30 kg) dla klienta c1
+    # Najstarszy wjechał do mroźni najpóźniej — liczy się wiek towaru, nie mroźnia.
+    execute("UPDATE stock_cartons SET created_at='2026-09-01' WHERE id=%s", (k[2]["id"],))
+    execute("UPDATE stock_cartons SET created_at='2026-09-02' WHERE id=%s", (k[0]["id"],))
+    execute("UPDATE stock_cartons SET created_at='2026-09-03' WHERE id=%s", (k[1]["id"],))
+    _zamowienie(qty=4)                             # klient bierze tylko 2 kartony
+
+    wynik = link.auto_assign_fefo("o1")
+    assert [w["cartonId"] for w in wynik] == [k[2]["id"], k[0]["id"]]
+    linked = {r["id"]: r["linked_order_id"] for r in query_all("SELECT id, linked_order_id FROM stock_cartons")}
+    assert linked == {k[2]["id"]: "o1", k[0]["id"]: "o1", k[1]["id"]: None}
+    assert link.auto_assign_fefo("o1") == []       # ponowienie nic nie dokłada
+
+
+def test_fefo_nie_bierze_kartonu_niczyjego_ani_odpietego_przez_biuro(db):
+    _baza(); _fg_niczyj(qty=6)
+    swoj = _seria(2)
+    niczyj = _seria(1, client_id="")[0]
+    _zamowienie(qty=6)
+    assert {w["cartonId"] for w in link.auto_assign_fefo("o1")} == {swoj[0]["id"], swoj[1]["id"]}
+    assert query_one("SELECT linked_order_id FROM stock_cartons WHERE id=%s", (niczyj["id"],))["linked_order_id"] is None
+    # Biuro świadomie odpina karton — automat go temu zamówieniu nie oddaje.
+    link.detach(swoj[0]["id"], "o1", "biuro")
+    assert link.auto_assign_fefo("o1") == []
+    assert query_one("SELECT linked_order_id FROM stock_cartons WHERE id=%s", (swoj[0]["id"],))["linked_order_id"] is None
+
+
+def test_fefo_uruchamia_sie_przy_zalozeniu_i_edycji_zamowienia(db):
+    _baza(); _fg_niczyj(qty=6)
+    k = _seria(3)
+    o = orders_service.create_order(ClientOrderCreate(client_id="c1", order_date="2026-09-08", lines=[
+        OrderLineCreate(qty=2, kg_per_unit=30, product_type_id="pt1", recipe_id="r1")]))
+    assert [c["cartonId"] for c in o["linkedCartons"]] == [k[0]["id"]]
+    line_id = o["lines"][0]["id"]
+    u = orders_service.update_order(o["id"], ClientOrderCreate(client_id="c1", order_date="2026-09-08", lines=[
+        OrderLineCreate(id=line_id, qty=6, kg_per_unit=30, product_type_id="pt1", recipe_id="r1")]))
+    assert [c["cartonId"] for c in u["linkedCartons"]] == [k[1]["id"], k[2]["id"]]
+    assert query_one("SELECT COUNT(*) AS n FROM stock_cartons WHERE linked_order_id=%s", (o["id"],))["n"] == 3
+
+
+def test_wydany_karton_bez_sztuk_znika_z_listy_kartonow(db):
+    from app.services.stock_cartons_service import list_cartons
+    _baza(); _fg_niczyj(qty=4)
+    k = _seria(2)
+    execute("UPDATE stock_cartons SET shipped_at=now() WHERE id=%s", (k[0]["id"],))
+    assert [c["id"] for c in list_cartons()] == [k[1]["id"]]

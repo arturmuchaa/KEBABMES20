@@ -478,6 +478,71 @@ def detach_block_reason(carton: Dict[str, Any], units: List[Dict[str, Any]],
     return None
 
 
+# ── Samo-przypinanie FEFO ─────────────────────────────────────────────────
+
+def _wiek_kartonow(carton_ids: List[str]) -> Dict[str, tuple]:
+    """Klucz FEFO: najstarsza data produkcji sztuk kartonu; karton bez sztuk
+    (tryb bez skanera) — data założenia. Remis rozstrzyga numer kartonu."""
+    if not carton_ids:
+        return {}
+    rows = query_all(
+        """SELECT sc.id, sc.carton_no, sc.created_at,
+                  (SELECT MIN(fg.produced_date) FROM finished_units fu
+                     JOIN finished_goods fg ON fg.id = fu.source_finished_goods_id
+                    WHERE fu.carton_id = sc.id) AS produced
+             FROM stock_cartons sc WHERE sc.id = ANY(%s)""", (carton_ids,))
+    return {r["id"]: (str(r.get("produced") or r.get("created_at") or "")[:10],
+                      str(r.get("created_at") or ""), int(r.get("carton_no") or 0)) for r in rows}
+
+
+def auto_assign_fefo(order_id: str, operator: str = "auto-fefo") -> List[Dict[str, Any]]:
+    """Przypnij do zamówienia kartony magazynowe TEGO klienta, od najstarszych.
+
+    Właściciel (12.11.2026): produkcja na magazyn dla klienta bez zamówienia;
+    gdy zamówi, kartony z mroźni mają przypiąć się same według FEFO. Każdy
+    karton przechodzi pełną walidację `assign` (klient, ścisły skład, wolna
+    ilość, pokrycie w wyrobie). Karton „na magazyn" (niczyj) zostaje decyzją
+    biura, a karton świadomie odpięty od tego zamówienia nie wraca sam.
+    """
+    order = query_one("SELECT id, client_id, status FROM client_orders WHERE id=%s", (order_id,))
+    if not order or not (order.get("client_id") or "") or (order.get("status") or "") in CLOSED_ORDER_STATUSES:
+        return []
+    odpiete = {r["container_id"] for r in query_all(
+        "SELECT DISTINCT container_id FROM warehouse_events WHERE action=%s", (f"order_unlink:{order_id}",))}
+    przypiete: List[Dict[str, Any]] = []
+    pominiete: set = set()
+    for _ in range(300):  # bezpiecznik; każda runda przypina albo odrzuca jeden karton
+        opcje = options_for_order(order_id)
+        if opcje.get("assignBlockedReason"):
+            break
+        kandydaci = [a for a in opcje["available"]
+                     if not a.get("generic") and a["cartonId"] not in odpiete and a["cartonId"] not in pominiete]
+        if not kandydaci:
+            break
+        wiek = _wiek_kartonow([a["cartonId"] for a in kandydaci])
+        karton = min(kandydaci, key=lambda a: wiek.get(a["cartonId"], ("9999", "", 0)))
+        try:
+            assign(karton["cartonId"], order_id, operator)
+        except HTTPException:
+            pominiete.add(karton["cartonId"])  # wyścig z biurem/magazynem — bierzemy następny
+            continue
+        przypiete.append({"cartonId": karton["cartonId"], "cartonNo": karton.get("cartonNo"),
+                          "cartonLabel": karton.get("cartonLabel"), "units": karton.get("units")})
+    if przypiete:
+        logger.info("stock_cartons.auto_assigned_fefo",
+                    extra={"order_id": order_id, "count": len(przypiete)})
+    return przypiete
+
+
+def auto_assign_fefo_safely(order_id: str) -> List[Dict[str, Any]]:
+    """Wersja dla zapisu zamówienia: błąd automatu nigdy nie psuje zapisanego zamówienia."""
+    try:
+        return auto_assign_fefo(order_id)
+    except Exception:  # noqa: BLE001 — zamówienie jest już zapisane; biuro przypnie ręcznie
+        logger.exception("stock_cartons.auto_assign_fefo_failed", extra={"order_id": order_id})
+        return []
+
+
 # ── Przegląd dla biura ────────────────────────────────────────────────────
 
 def _carton_view(c: Dict[str, Any], lines: List[Dict[str, Any]], units: List[Dict[str, Any]]) -> Dict[str, Any]:

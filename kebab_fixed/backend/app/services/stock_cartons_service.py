@@ -12,7 +12,7 @@ from fastapi import HTTPException
 
 from app.db import cx_execute, cx_query_all, cx_query_one, query_all, query_one, transaction
 from app.logging_config import get_logger
-from app.models.production import StockCartonCreate, StockCartonLineDto
+from app.models.production import StockCartonBatchCreate, StockCartonCreate, StockCartonLineDto
 from app.utils.ids import cuid, format_carton_no, next_seq, now_iso
 from app.utils.unit_codes import parse_unit_qr
 
@@ -100,35 +100,60 @@ def create_stock_carton(dto: StockCartonCreate) -> Dict:
                     f"Taki karton już istnieje (nr {format_carton_no(cand['carton_no'])}) "
                     "— najpierw go spakuj",
                 )
-        carton_no = next_seq("carton_seq")
-        total_qty = sum(int(l.qty) for l in lines)
-        row = cx_query_one(
-            conn,
-            """
-            INSERT INTO stock_cartons
-                (id, carton_no, client_id, client_name, kg_per_unit, target_qty,
-                 packed_qty, status, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,0,'open',%s)
-            RETURNING *
-            """,
-            (cuid(), carton_no, client_id or None, client_name,
-             _kg(lines[0].kg_per_unit), total_qty, now_iso()),
-        )
-        for l in lines:
-            cx_execute(
-                conn,
-                """INSERT INTO stock_carton_lines
-                     (id, carton_id, recipe_id, recipe_name, product_type_id, product_type_name,
-                      packaging_id, packaging_name, kg_per_unit, target_qty, packed_qty)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0)""",
-                (cuid(), row["id"], l.recipe_id or "", l.recipe_name or "",
-                 l.product_type_id or "", l.product_type_name or "",
-                 l.packaging_id or "", l.packaging_name or "",
-                 _kg(l.kg_per_unit), int(l.qty)),
-            )
+        row = _insert_carton_cx(conn, client_id, client_name, lines)
     logger.info("stock_cartons.created",
-                extra={"carton_no": carton_no, "target_qty": total_qty, "n_lines": len(lines)})
+                extra={"carton_no": row["carton_no"], "target_qty": row["target_qty"], "n_lines": len(lines)})
+    # Z pozycjami: kartka drukowana zaraz po utworzeniu ma mieć skład kartonu.
+    return _attach_lines(row)
+
+
+def _insert_carton_cx(conn, client_id: str, client_name: str, lines: List[StockCartonLineDto]) -> Dict:
+    carton_no = next_seq("carton_seq")
+    total_qty = sum(int(l.qty) for l in lines)
+    row = cx_query_one(
+        conn,
+        """
+        INSERT INTO stock_cartons
+            (id, carton_no, client_id, client_name, kg_per_unit, target_qty,
+             packed_qty, status, created_at)
+        VALUES (%s,%s,%s,%s,%s,%s,0,'open',%s)
+        RETURNING *
+        """,
+        (cuid(), carton_no, client_id or None, client_name,
+         _kg(lines[0].kg_per_unit), total_qty, now_iso()),
+    )
+    for l in lines:
+        cx_execute(
+            conn,
+            """INSERT INTO stock_carton_lines
+                 (id, carton_id, recipe_id, recipe_name, product_type_id, product_type_name,
+                  packaging_id, packaging_name, kg_per_unit, target_qty, packed_qty)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0)""",
+            (cuid(), row["id"], l.recipe_id or "", l.recipe_name or "",
+             l.product_type_id or "", l.product_type_name or "",
+             l.packaging_id or "", l.packaging_name or "",
+             _kg(l.kg_per_unit), int(l.qty)),
+        )
     return row
+
+
+def create_stock_cartons(dto: StockCartonBatchCreate) -> List[Dict]:
+    """Seria takich samych kartonów w JEDNEJ transakcji (wszystkie albo żaden).
+
+    Blokada duplikatu z `create_stock_carton` tu nie obowiązuje: chroni przed
+    przypadkowym drugim kliknięciem, a w serii liczbę kartonów podaje biuro
+    wprost — produkcja na magazyn to z definicji wiele identycznych kartonów.
+    """
+    lines = _lines_from_dto(dto)
+    if not lines:
+        raise HTTPException(400, "Karton musi mieć co najmniej jedną pozycję")
+    client_id = (dto.client_id or "").strip()
+    client_name = (dto.client_name or "") if client_id else ""
+    with transaction() as conn:
+        rows = [_insert_carton_cx(conn, client_id, client_name, lines) for _ in range(int(dto.count))]
+    logger.info("stock_cartons.batch_created",
+                extra={"count": len(rows), "first_no": rows[0]["carton_no"], "last_no": rows[-1]["carton_no"]})
+    return [_attach_lines(r) for r in rows]
 
 
 def scan_unit_into_carton(carton_id: str, code: str) -> Dict[str, Any]:
@@ -361,6 +386,10 @@ def list_cartons() -> List[Dict]:
         shipped = int(r.get("shipped_qty") or 0)
         if packed > 0 and shipped >= packed:
             continue  # wyjechało → znika
+        if r.get("shipped_at"):
+            # Karton bez skanowanych sztuk też wyjeżdża (kurs stempluje `shipped_at`)
+            # — prod 12.11.2026: kartony 343/347/552 wisiały na liście po wydaniu.
+            continue
         out.append(_attach_lines(r))
     return out
 

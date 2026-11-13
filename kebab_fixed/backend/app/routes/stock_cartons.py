@@ -1,7 +1,7 @@
 """Karton magazynowy = jednostka pakowa (bez zamówienia)."""
 from fastapi import APIRouter
 
-from app.models.production import StockCartonCreate
+from app.models.production import StockCartonBatchCreate, StockCartonCreate
 from app.services import stock_cartons_service as svc
 
 router = APIRouter(prefix="/api/stock-cartons", tags=["stock-cartons"])
@@ -10,6 +10,12 @@ router = APIRouter(prefix="/api/stock-cartons", tags=["stock-cartons"])
 @router.post("")
 def create(dto: StockCartonCreate):
     return svc.create_stock_carton(dto)
+
+
+@router.post("/batch")
+def create_batch(dto: StockCartonBatchCreate):
+    """Seria takich samych kartonów (produkcja na magazyn)."""
+    return svc.create_stock_cartons(dto)
 
 
 @router.get("")

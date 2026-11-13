@@ -23,7 +23,7 @@
  * „kartka → sztuka" poszłoby jeszcze do POPRZEDNIEGO kartonu.
  */
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { isOfflineError, magazynApi, palletsApi } from '@/lib/api'
+import { errCode, isOfflineError, magazynApi, palletsApi } from '@/lib/api'
 import { kodKartki, type KodKartki } from '@/features/scan/skanKodu'
 import { usePakowanie } from './usePakowanie'
 import { werdyktPakowania, type Uwaga } from './pakowanieWerdykt'
@@ -195,6 +195,12 @@ export function EkranPakowania({ aktywnyId, onAktywny, onAlarm, oczekujace, onPr
             id = String((await palletsApi.lookup(kartka.kod))?.id ?? '')
           } catch (e) {
             if (isOfflineError(e)) throw e
+            // Paleta z usuniętego zamówienia czeka na nowe — kartka jest dobra.
+            if (errCode(e) === 'WAITING_FOR_ORDER') {
+              if (!aktualny(pok)) return przerwany()
+              return alarm('PALETA CZEKA NA ZAMÓWIENIE', (e instanceof Error && e.message)
+                || 'Kartka jest dobra — paleta pochodzi z usuniętego lub zmienionego zamówienia. Zawołaj biuro.')
+            }
             id = ''
           }
         }

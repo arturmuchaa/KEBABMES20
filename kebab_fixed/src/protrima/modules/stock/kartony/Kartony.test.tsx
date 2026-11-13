@@ -8,7 +8,7 @@ import { AppCtx, type AppApi } from '../../../shell/context'
  * Kartony magazynowe — kartka idzie na karton w chłodni, a numer i kod służą do
  * pakowania i wydania; test na danych w kształcie API (syntetycznych).
  */
-const api = vi.hoisted(() => ({ create: vi.fn(), removeEmpty: vi.fn() }))
+const api = vi.hoisted(() => ({ create: vi.fn(), createBatch: vi.fn(), removeEmpty: vi.fn() }))
 vi.mock('@/lib/api', async (orig) => ({
   ...(await orig() as object),
   stockCartonsApi: api,
@@ -140,7 +140,32 @@ describe('nowy karton i kartka', () => {
     await waitFor(() => expect(api.create).toHaveBeenCalledTimes(1))
     expect(api.create.mock.calls[0][0]).toMatchObject({ clientId: '', clientName: '', lines: [
       { recipeName: 'BEYAZ AFIYET', productTypeName: 'KEBAB UDO 100%', kgPerUnit: 10, qty: 30 }, { recipeName: 'KIRMIZI', kgPerUnit: 15, qty: 20 }] })
-    expect(onUtworzony).toHaveBeenCalledWith(MIESZANY)
+    expect(onUtworzony).toHaveBeenCalledWith(MIESZANY, [MIESZANY])
+  })
+
+  it('seria: 15 takich samych kartonów jednym zapisem, wszystkie trafiają do druku', async () => {
+    const seria = Array.from({ length: 15 }, (_, i) => ({ ...MIESZANY, id: `s${i}`, cartonNo: 800 + i }))
+    api.createBatch.mockResolvedValue(seria)
+    const onUtworzony = vi.fn()
+    const z = { id: 's1', product: 'KEBAB UDO 100%', recipe: 'BEYAZ AFIYET', recipeId: 'r1', productTypeId: 'pt', kgPerUnit: 40, packaging: 'METAL 65CM', batch: 'P-12', location: '', qty: 20 }
+    render(<AppCtx.Provider value={app}><NowyKartonDialog start={{ z: z as never }} wolne={[z as never]} onClose={vi.fn()} onUtworzony={onUtworzony} /></AppCtx.Provider>)
+    await waitFor(() => expect((screen.getByLabelText('Sztuk, pozycja 1') as HTMLInputElement).value).toBe('20'))
+    fireEvent.change(screen.getByLabelText('Ile takich kartonów'), { target: { value: '15' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Utwórz 15 kartonów' }))
+    await waitFor(() => expect(api.createBatch).toHaveBeenCalledTimes(1))
+    expect(api.createBatch.mock.calls[0][1]).toBe(15)
+    expect(api.create).not.toHaveBeenCalled()
+    expect(onUtworzony).toHaveBeenCalledWith(seria[0], seria)
+  })
+
+  it('seria: liczba spoza zakresu blokuje zapis', async () => {
+    const z = { id: 's1', product: 'KEBAB UDO 100%', recipe: 'BEYAZ AFIYET', recipeId: 'r1', productTypeId: 'pt', kgPerUnit: 40, packaging: 'METAL 65CM', batch: 'P-12', location: '', qty: 20 }
+    render(<AppCtx.Provider value={app}><NowyKartonDialog start={{ z: z as never }} wolne={[z as never]} onClose={vi.fn()} onUtworzony={vi.fn()} /></AppCtx.Provider>)
+    await waitFor(() => expect((screen.getByLabelText('Sztuk, pozycja 1') as HTMLInputElement).value).toBe('20'))
+    fireEvent.change(screen.getByLabelText('Ile takich kartonów'), { target: { value: '500' } })
+    fireEvent.click(screen.getByRole('button', { name: /Utwórz karton/ }))
+    expect(await screen.findByText('Liczba kartonów: od 1 do 100.')).toBeTruthy()
+    expect(api.createBatch).not.toHaveBeenCalled()
   })
 
   it('„Karton z tej pozycji”: klient i pozycja z wolnego wyrobu; bez pozycji zapis zablokowany komunikatem', async () => {

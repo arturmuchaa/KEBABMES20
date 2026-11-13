@@ -232,7 +232,12 @@ def sprawdz(code: str) -> Dict[str, Any]:
 
     try:
         order_id, pallet_no = pallets_service.resolve_code(code)
-    except HTTPException:
+    except HTTPException as e:
+        # Paleta z usuniętego/zmienionego zamówienia JEST w systemie — czeka w
+        # poczekalni na zamówienie. „Nieznana kartka" wysyłała magazyn po nową.
+        detail = e.detail if isinstance(e.detail, dict) else {}
+        if detail.get("code") == "WAITING_FOR_ORDER":
+            return {"result": "WAITING", "message": detail.get("message") or ""}
         return {"result": "INVALID"}
     p = query_one(
         """SELECT p.*, o.order_no, o.client_name FROM order_pallets p
