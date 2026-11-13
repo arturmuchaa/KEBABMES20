@@ -1602,6 +1602,7 @@ function mapRecipe(raw: any): Recipe {
   return {
     id:                   raw.id,
     name:                 raw.name                  ?? '',
+    code:                 raw.code || undefined,
     productTypeId:        raw.product_type_id       ?? raw.productTypeId,
     productTypeName:      raw.product_type_name     ?? raw.productTypeName,
     totalOutputPer100kg:  Number(raw.total_output_per_100kg ?? raw.totalOutputPer100kg ?? 100),
@@ -1649,6 +1650,32 @@ export const recipesApi = {
   duplicate:  (id: string) => post<any>(`/recipes/${id}/duplicate`, {}).then(mapRecipe),
   deactivate: (id: string) => patch<void>(`/recipes/${id}/deactivate`, {}),
   calculate:  (id: string, kg: number) => get<any>(`/recipes/${id}/calculate?kg=${kg}`),
+  /** Wycofane receptury (PROTRIMA: widok „Wycofane” z przywracaniem). */
+  archived:   () => get<any[]>('/recipes?archived=true').then(r => (Array.isArray(r) ? r : []).map(mapRecipe)),
+  activate:   (id: string) => patch<any>(`/recipes/${id}/activate`, {}).then(mapRecipe),
+  /** Gdzie receptury są w użyciu — jeden przebieg dla całej listy. */
+  usage:      () => get<RecipeUsage[]>('/recipes/usage'),
+  usageOf:    (id: string) => get<RecipeUsageDetail>(`/recipes/${id}/usage`),
+}
+
+export interface RecipeUsage {
+  recipeId: string
+  openOrders: number
+  openOrdersKg: number
+  plannedMixing: number
+  seasonedKg: number
+  finishedKg: number
+  catalogItems: number
+  lastMixedAt: string | null
+}
+export interface RecipeUsageDetail {
+  recipeId: string
+  orders: Array<{ id: string; orderNo: string; clientName: string; deliveryDate: string | null; status: string; qty: number; kg: number }>
+  mixing: Array<{ id: string; orderNo: string; meatKg: number; outputKg: number; status: string; createdAt: string | null }>
+  seasoned: Array<{ id: string; batchNo: string; kgAvailable: number; expiryDate: string | null; createdAt: string | null }>
+  catalog: Array<{ id: string; code: string; productTypeName: string; packagingName: string; kgPerUnit: number }>
+  /** Powody, dla których serwer odmówi wycofania (pusta = wolno). */
+  blockers: string[]
 }
 
 // ─── Kalkulacja kosztu wyrobu ─────────────────────────────────

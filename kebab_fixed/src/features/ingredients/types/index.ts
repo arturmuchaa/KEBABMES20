@@ -112,6 +112,8 @@ export interface RecipeComponent {
 export interface Recipe {
   readonly id:            string
   readonly name:          string          // np. "Receptura Standard Van Hess"
+  /** Kod katalogowy („R-003") — nadaje katalog wyrobów, może go nie być. */
+  readonly code?:         string
   readonly productTypeId?: string         // opcjonalne powiązanie z rodzajem kebabu
   readonly productTypeName?: string       // denormalizowana nazwa rodzaju (z JOINa backendu)
   readonly ingredients:   RecipeIngredient[]
@@ -131,6 +133,8 @@ export interface Recipe {
 export interface CreateRecipeDto {
   name:           string
   productTypeId?: string
+  /** Nazwa rodzaju — serwer ją przechowuje; bez niej zapis kasował `product_type_name`. */
+  productTypeName?: string
   ingredients:    Omit<RecipeIngredient, 'id' | 'ingredientName' | 'unit' | 'isUnlimited'>[]
   components?:    RecipeComponent[]
   shelfLifeDays?: number
@@ -141,6 +145,7 @@ export interface CreateRecipeDto {
 export interface UpdateRecipeDto {
   name?:          string
   productTypeId?: string
+  productTypeName?: string
   ingredients?:   Omit<RecipeIngredient, 'id' | 'ingredientName' | 'unit' | 'isUnlimited'>[]
   components?:    RecipeComponent[]
   shelfLifeDays?: number

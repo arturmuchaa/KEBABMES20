@@ -42,10 +42,11 @@ def _enrich_ingredient(conn, ing: RecipeIngredientDto) -> tuple:
     return name, unit
 
 
-def list_recipes() -> List[Dict]:
+def list_recipes(archived: bool = False) -> List[Dict]:
+    """Aktywne receptury albo — `archived=True` — wycofane (do przywrócenia)."""
     with transaction() as conn:
         recipes = cx_query_all(
-            conn, "SELECT * FROM recipes WHERE active = true ORDER BY name"
+            conn, "SELECT * FROM recipes WHERE active = %s ORDER BY name", (not archived,)
         )
         for r in recipes:
             r["ingredients"] = _load_ingredients(conn, r["id"])
@@ -184,10 +185,192 @@ def update_recipe(recipe_id: str, dto: RecipeCreate) -> Dict:
         return row
 
 
+# Zamówienie „otwarte" i masowanie „niedokończone" — te same definicje co
+# w pokryciu zamówień i planie masowania.
+_OTWARTE_ZAMOWIENIE = "o.status NOT IN ('done', 'cancelled')"
+_MASOWANIE_W_TOKU = "status IN ('planned', 'confirmed', 'in_progress')"
+
+
+def _blokady_wycofania(conn, recipe_id: str) -> List[str]:
+    """Powody, dla których receptury nie wolno wycofać — pusta lista = wolno.
+
+    Wycofana receptura znika z list wyboru, a otwarte zamówienie i zaplanowane
+    masowanie dalej by jej potrzebowały: biuro nie mogłoby poprawić pozycji,
+    a panel masowni szukałby przypraw receptury, której „nie ma".
+    """
+    powody: List[str] = []
+    zam = cx_query_all(
+        conn,
+        f"""
+        SELECT DISTINCT o.order_no
+        FROM client_order_lines l JOIN client_orders o ON o.id = l.order_id
+        WHERE l.recipe_id = %s AND {_OTWARTE_ZAMOWIENIE}
+        ORDER BY o.order_no
+        """,
+        (recipe_id,),
+    )
+    if zam:
+        nr = ", ".join(z["order_no"] for z in zam[:5]) + (" …" if len(zam) > 5 else "")
+        powody.append(f"otwarte zamówienia ({len(zam)}): {nr}")
+    mas = cx_query_one(
+        conn,
+        f"SELECT COUNT(*) AS n FROM mixing_orders WHERE recipe_id = %s AND {_MASOWANIE_W_TOKU}",
+        (recipe_id,),
+    )
+    if mas and int(mas["n"]):
+        powody.append(f"niedokończone masowania ({int(mas['n'])})")
+    return powody
+
+
 def deactivate_recipe(recipe_id: str) -> None:
     with transaction() as conn:
-        cx_execute(conn, "UPDATE recipes SET active=false WHERE id=%s", (recipe_id,))
+        row = cx_query_one(conn, "SELECT id FROM recipes WHERE id=%s", (recipe_id,))
+        if not row:
+            raise HTTPException(404, "Receptura nie znaleziona")
+        powody = _blokady_wycofania(conn, recipe_id)
+        if powody:
+            raise HTTPException(
+                409, "Receptura jest w użyciu — " + "; ".join(powody)
+                + ". Wycofaj ją po zamknięciu zamówień i masowań.",
+            )
+        cx_execute(conn, "UPDATE recipes SET active=false, updated_at=%s WHERE id=%s",
+                   (now_iso(), recipe_id))
         logger.info("recipe.deactivated", extra={"recipe_id": recipe_id})
+
+
+def activate_recipe(recipe_id: str) -> Dict:
+    """Przywrócenie wycofanej receptury — z tym samym składem i kodem."""
+    with transaction() as conn:
+        row = cx_query_one(
+            conn, "UPDATE recipes SET active=true, updated_at=%s WHERE id=%s RETURNING *",
+            (now_iso(), recipe_id),
+        )
+        if not row:
+            raise HTTPException(404, "Receptura nie znaleziona")
+        row["ingredients"] = _load_ingredients(conn, recipe_id)
+        logger.info("recipe.activated", extra={"recipe_id": recipe_id})
+        return row
+
+
+def _f(v) -> float:
+    return round(float(v or 0), 3)
+
+
+def recipes_usage() -> List[Dict]:
+    """Gdzie receptury są dziś w użyciu — jeden przebieg dla całej listy.
+
+    Kolumna „W użyciu" na liście receptur i blokada wycofania biorą to samo
+    źródło, więc biuro widzi powód, zanim kliknie „Wycofaj".
+    """
+    rows = query_all(
+        f"""
+        SELECT r.id AS recipe_id,
+          (SELECT COUNT(DISTINCT o.id) FROM client_order_lines l
+             JOIN client_orders o ON o.id = l.order_id
+            WHERE l.recipe_id = r.id AND {_OTWARTE_ZAMOWIENIE}) AS open_orders,
+          (SELECT COALESCE(SUM(l.total_kg), 0) FROM client_order_lines l
+             JOIN client_orders o ON o.id = l.order_id
+            WHERE l.recipe_id = r.id AND {_OTWARTE_ZAMOWIENIE}) AS open_orders_kg,
+          (SELECT COUNT(*) FROM mixing_orders m
+            WHERE m.recipe_id = r.id AND m.{_MASOWANIE_W_TOKU}) AS planned_mixing,
+          (SELECT COALESCE(SUM(s.kg_available), 0) FROM seasoned_meat s
+            WHERE s.recipe_id = r.id AND s.kg_available > 0) AS seasoned_kg,
+          (SELECT COALESCE(SUM(g.qty_available * g.kg_per_unit), 0) FROM finished_goods g
+            WHERE g.recipe_id = r.id AND g.qty_available > 0) AS finished_kg,
+          (SELECT COUNT(*) FROM product_catalog c
+            WHERE c.recipe_id = r.id AND c.active) AS catalog_items,
+          (SELECT MAX(s.created_at) FROM seasoned_meat s
+            WHERE s.recipe_id = r.id) AS last_mixed_at
+        FROM recipes r
+        """
+    )
+    return [
+        {
+            "recipeId": r["recipe_id"],
+            "openOrders": int(r["open_orders"] or 0),
+            "openOrdersKg": _f(r["open_orders_kg"]),
+            "plannedMixing": int(r["planned_mixing"] or 0),
+            "seasonedKg": _f(r["seasoned_kg"]),
+            "finishedKg": _f(r["finished_kg"]),
+            "catalogItems": int(r["catalog_items"] or 0),
+            "lastMixedAt": r["last_mixed_at"].isoformat() if hasattr(r["last_mixed_at"], "isoformat")
+            else r["last_mixed_at"],
+        }
+        for r in rows
+    ]
+
+
+def _iso(v):
+    return v.isoformat() if hasattr(v, "isoformat") else v
+
+
+def recipe_usage(recipe_id: str) -> Dict:
+    """Szczegóły użycia jednej receptury: zamówienia, masowania, partie, katalog."""
+    if not query_one("SELECT id FROM recipes WHERE id=%s", (recipe_id,)):
+        raise HTTPException(404, "Receptura nie znaleziona")
+    zamowienia = query_all(
+        f"""
+        SELECT o.id, o.order_no, o.client_name, o.delivery_date, o.status,
+               SUM(l.qty) AS qty, SUM(l.total_kg) AS kg
+        FROM client_order_lines l JOIN client_orders o ON o.id = l.order_id
+        WHERE l.recipe_id = %s AND {_OTWARTE_ZAMOWIENIE}
+        GROUP BY o.id, o.order_no, o.client_name, o.delivery_date, o.status
+        ORDER BY o.delivery_date NULLS LAST, o.order_no
+        """,
+        (recipe_id,),
+    )
+    masowania = query_all(
+        f"""
+        SELECT id, order_no, meat_kg, planned_output_kg, status, created_at
+        FROM mixing_orders WHERE recipe_id = %s AND {_MASOWANIE_W_TOKU}
+        ORDER BY created_at
+        """,
+        (recipe_id,),
+    )
+    partie = query_all(
+        """
+        SELECT id, batch_no, kg_available, expiry_date, created_at
+        FROM seasoned_meat WHERE recipe_id = %s AND kg_available > 0
+        ORDER BY created_at
+        """,
+        (recipe_id,),
+    )
+    katalog = query_all(
+        """
+        SELECT id, code, product_type_name, packaging_name, kg_per_unit
+        FROM product_catalog WHERE recipe_id = %s AND active
+        ORDER BY product_type_name, kg_per_unit
+        """,
+        (recipe_id,),
+    )
+    with transaction() as conn:
+        powody = _blokady_wycofania(conn, recipe_id)
+    return {
+        "recipeId": recipe_id,
+        "orders": [
+            {"id": z["id"], "orderNo": z["order_no"], "clientName": z["client_name"] or "",
+             "deliveryDate": _iso(z["delivery_date"]), "status": z["status"],
+             "qty": int(z["qty"] or 0), "kg": _f(z["kg"])}
+            for z in zamowienia
+        ],
+        "mixing": [
+            {"id": m["id"], "orderNo": m["order_no"], "meatKg": _f(m["meat_kg"]),
+             "outputKg": _f(m["planned_output_kg"]), "status": m["status"],
+             "createdAt": _iso(m["created_at"])}
+            for m in masowania
+        ],
+        "seasoned": [
+            {"id": p["id"], "batchNo": p["batch_no"], "kgAvailable": _f(p["kg_available"]),
+             "expiryDate": _iso(p["expiry_date"]), "createdAt": _iso(p["created_at"])}
+            for p in partie
+        ],
+        "catalog": [
+            {"id": c["id"], "code": c["code"], "productTypeName": c["product_type_name"],
+             "packagingName": c["packaging_name"], "kgPerUnit": _f(c["kg_per_unit"])}
+            for c in katalog
+        ],
+        "blockers": powody,
+    }
 
 
 _SUFIKS_KOPII = re.compile(r"\((\d+)\)\s*$")
