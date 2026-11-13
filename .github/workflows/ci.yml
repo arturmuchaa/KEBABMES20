@@ -100,7 +100,7 @@ jobs:
 
   e2e:
     name: e2e — prawdziwy stos (obraz produkcyjny + zasiana baza)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # Playwright z package-lock nie ma chromium na Ubuntu 26 (ubuntu-latest od 11.2026)
     # Do 19.08.2026 to zadanie nie sprawdzało NICZEGO: nie było backendu ani
     # konta testowego, więc specy padały na pierwszym logowaniu. Teraz stawiamy
     # ten sam obraz, który idzie na produkcję, na świeżej bazie z zasianą jedną
