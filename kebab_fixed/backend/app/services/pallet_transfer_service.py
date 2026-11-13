@@ -302,12 +302,12 @@ def resolve_pallet_ref(order_id: str, pallet_no: int) -> Tuple[str, int]:
             break
         o, n = alias["target_order_id"], int(alias["target_pallet_no"])
     orphan = query_one(
-        "SELECT source_order_no, pallet_no FROM orphan_pallets "
+        "SELECT id, source_order_no, pallet_no FROM orphan_pallets "
         "WHERE (source_order_id=%s AND pallet_no=%s) OR (source_order_id=%s AND pallet_no=%s) LIMIT 1",
         (o, n, order_id, int(pallet_no)))
     if orphan:
         raise HTTPException(
-            409, {"code": "WAITING_FOR_ORDER",
+            409, {"code": "WAITING_FOR_ORDER", "orphanId": orphan["id"],
                   "message": f"Paleta P{orphan['pallet_no']} z zamówienia {orphan['source_order_no'] or '(usuniętego)'} "
                              "czeka na nowe zamówienie klienta — biuro: dodaj zamówienie z tym towarem "
                              "albo popraw pozycje; kartka zacznie działać sama."})
@@ -315,11 +315,14 @@ def resolve_pallet_ref(order_id: str, pallet_no: int) -> Tuple[str, int]:
 
 
 def list_orphans() -> List[Dict[str, Any]]:
-    rows = query_all("SELECT * FROM orphan_pallets ORDER BY detached_at, source_order_no, pallet_no")
+    # Miejsce w mroźni (pole rzutu) — biuro widzi, gdzie stoi paleta bez zamówienia.
+    rows = query_all("SELECT w.*, pos.slot FROM orphan_pallets w "
+                     "LEFT JOIN cold_storage_positions pos ON pos.orphan_id=w.id "
+                     "ORDER BY w.detached_at, w.source_order_no, w.pallet_no")
     return [{
         "id": r["id"], "sourceOrderId": r["source_order_id"], "sourceOrderNo": r["source_order_no"],
         "clientName": r.get("client_name") or "", "palletNo": r["pallet_no"], "cartonNo": r.get("carton_no"),
-        "status": r.get("status") or "", "reason": r.get("reason") or "",
+        "status": r.get("status") or "", "reason": r.get("reason") or "", "slot": r.get("slot"),
         "detachedAt": r["detached_at"].isoformat() if r.get("detached_at") else None,
         "items": [{"recipeName": it.get("recipe_name") or "", "productTypeName": it.get("product_type_name") or "",
                    "packagingName": it.get("packaging_name") or "", "kgPerUnit": _kg(it.get("kg_per_unit")),

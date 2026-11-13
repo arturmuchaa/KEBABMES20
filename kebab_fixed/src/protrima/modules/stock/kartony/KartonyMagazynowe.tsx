@@ -4,15 +4,17 @@ import { CommandBar, Dialog, Menu, useApp, wierszMenu, type Cmd } from '../../..
 import { FlagIcon } from '../../../ui/Glyphs'
 import { SzkieletWierszy } from '../../../ui/Szkielet'
 import { Pusto } from '../../../ui/Pusto'
-import { fmtDate, num } from '../../../data/model'
+import { fmtDate, kg, num } from '../../../data/model'
 import { dataZApi } from '../../../data/mapuj'
-import { stockCartonsApi, type StockCarton } from '@/lib/api'
+import { stockCartonsApi, type OrphanPallet, type StockCarton } from '@/lib/api'
+import { formatCartonNo } from '@/lib/unitLocation'
 import { useClientNames } from '@/lib/clientNames'
-import { STAN_KARTONU, nrKartonu, skladKartonu, stanKartonu, type StanKartonu } from './model'
+import { STAN_KARTONU, gdziePalety, gotowyBezZamowienia, kgPalety, nrKartonu, skladKartonu, skladPalety, stanKartonu, sztukPalety, type StanKartonu } from './model'
 
-type Filtr = 'wszystkie' | StanKartonu
+type Filtr = 'wszystkie' | StanKartonu | 'wolne'
 const FILTRY: Array<{ v: Filtr; t: string }> = [
   { v: 'wszystkie', t: 'Wszystkie' }, { v: 'pusty', t: 'Do zapakowania' }, { v: 'pakowany', t: 'W pakowaniu' }, { v: 'spakowany', t: 'Spakowane' },
+  { v: 'wolne', t: 'Gotowe bez zamówienia' },
 ]
 const TAG: Record<StanKartonu, string> = { pusty: 'warn', pakowany: 'info', spakowany: 'ok' }
 
@@ -21,10 +23,12 @@ const TAG: Record<StanKartonu, string> = { pusty: 'warn', pakowany: 'info', spak
  * pakowania; karton znika, gdy jego sztuki wyjadą (lista z serwera).
  * Kosz tylko przy kartonie bez żadnej sztuki: karton ze sztuką niesie śledzenie
  * partii — serwer i tak go nie usunie (25.09.2026).
+ * „Gotowe bez zamówienia”: spakowane kartony bez zamówienia ORAZ palety, które
+ * zostały po anulowanym/zmienionym zamówieniu (stoją w mroźni, czekają na nowe).
  */
-export function KartonyMagazynowe({ widoki, active, setCmds, setCtx, kartony, ladowanie, blad, odswiez, wybrany, setWybrany, onNowy, onKartka }: {
+export function KartonyMagazynowe({ widoki, active, setCmds, setCtx, kartony, czekajace = [], ladowanie, blad, odswiez, wybrany, setWybrany, onNowy, onKartka }: {
   widoki: React.ReactNode; active: boolean; setCmds: (c: Cmd[]) => void; setCtx: (n: React.ReactNode) => void
-  kartony: StockCarton[]; ladowanie: boolean; blad: string | null; odswiez: () => void
+  kartony: StockCarton[]; czekajace?: OrphanPallet[]; ladowanie: boolean; blad: string | null; odswiez: () => void
   wybrany: string | null; setWybrany: (id: string | null) => void; onNowy: () => void; onKartka: (c: StockCarton) => void
 }) {
   const app = useApp()
@@ -36,15 +40,21 @@ export function KartonyMagazynowe({ widoki, active, setCmds, setCtx, kartony, la
   const [ctxMenu, setCtxMenu] = useState<{ id: string; anchor: Element } | null>(null)
 
   const liczby = useMemo(() => {
-    const n: Record<Filtr, number> = { wszystkie: kartony.length, pusty: 0, pakowany: 0, spakowany: 0 }
-    kartony.forEach(c => { n[stanKartonu(c)]++ })
+    const n: Record<Filtr, number> = { wszystkie: kartony.length + czekajace.length, pusty: 0, pakowany: 0, spakowany: 0, wolne: czekajace.length }
+    kartony.forEach(c => { n[stanKartonu(c)]++; if (gotowyBezZamowienia(c)) n.wolne++ })
     return n
-  }, [kartony])
+  }, [kartony, czekajace])
   const widoczne = useMemo(() => {
     const t = q.trim().toLowerCase()
-    return kartony.filter(c => (filtr === 'wszystkie' || stanKartonu(c) === filtr)
+    return kartony.filter(c => (filtr === 'wszystkie' || (filtr === 'wolne' ? gotowyBezZamowienia(c) : stanKartonu(c) === filtr))
       && (!t || [nrKartonu(c), c.clientName, klientNa(c.clientName), skladKartonu(c), c.linkedOrderNo ?? '', ...c.lines.map(l => l.recipeName)].join(' ').toLowerCase().includes(t)))
   }, [kartony, filtr, q, klientNa])
+  // Palety po anulowanym/zmienionym zamówieniu — pod kartonami, w „Wszystkie” i „Gotowe bez zamówienia”.
+  const widoczneCzekajace = useMemo(() => {
+    if (filtr !== 'wszystkie' && filtr !== 'wolne') return []
+    const t = q.trim().toLowerCase()
+    return czekajace.filter(p => !t || [formatCartonNo(p.cartonNo), p.clientName, klientNa(p.clientName), skladPalety(p), p.sourceOrderNo, p.slot ?? '', 'bez zamówienia'].join(' ').toLowerCase().includes(t))
+  }, [czekajace, filtr, q, klientNa])
   const wyb = kartony.find(c => c.id === wybrany) ?? null
 
   const usunTeraz = async () => {
@@ -70,7 +80,7 @@ export function KartonyMagazynowe({ widoki, active, setCmds, setCtx, kartony, la
   useEffect(() => { if (active) setCmds(cmds) }, [active, cmds, setCmds])
   useEffect(() => {
     if (!active) return
-    setCtx(<span>Kartony magazynowe <b>{liczby.wszystkie}</b> · do zapakowania <b>{liczby.pusty}</b> · w pakowaniu <b>{liczby.pakowany}</b> · spakowane <b>{liczby.spakowany}</b></span>)
+    setCtx(<span>Kartony magazynowe <b>{liczby.wszystkie}</b> · do zapakowania <b>{liczby.pusty}</b> · w pakowaniu <b>{liczby.pakowany}</b> · spakowane <b>{liczby.spakowany}</b> · gotowe bez zamówienia <b>{liczby.wolne}</b></span>)
   }, [active, liczby, setCtx])
 
   const onKey = (e: React.KeyboardEvent) => {
@@ -105,11 +115,11 @@ export function KartonyMagazynowe({ widoki, active, setCmds, setCtx, kartony, la
                 <th style={{ width: 130 }}>Stan</th><th>Zamówienie</th><th className="num hide-m" style={{ width: 110 }}>Utworzono</th>
               </tr></thead>
               <tbody>
-                {ladowanie && !kartony.length && <SzkieletWierszy kolumny={7} wiersze={6} />}
-                {!(ladowanie && !kartony.length) && !widoczne.length && <tr><td colSpan={7} style={{ height: 'auto' }}>
-                  <Pusto ikona={<PackagePlus size={20} />} tytul={kartony.length ? 'Żaden karton nie pasuje do filtrów' : 'Brak kartonów magazynowych'}
-                    akcja={kartony.length ? <button className="btn sm" onClick={() => { setFiltr('wszystkie'); setQ('') }}>Pokaż wszystkie</button> : <button className="btn sm primary" onClick={onNowy}><PackagePlus size={15} />Nowy karton</button>}>
-                    {kartony.length ? 'Zmień stan albo wyczyść wyszukiwanie.' : 'Karton magazynowy to jednostka pakowa bez zamówienia — dla klienta albo na magazyn. Magazyn skanuje do niego sztuki, a zamówienie przypina się później.'}
+                {ladowanie && !kartony.length && !czekajace.length && <SzkieletWierszy kolumny={7} wiersze={6} />}
+                {!(ladowanie && !kartony.length && !czekajace.length) && !widoczne.length && !widoczneCzekajace.length && <tr><td colSpan={7} style={{ height: 'auto' }}>
+                  <Pusto ikona={<PackagePlus size={20} />} tytul={kartony.length + czekajace.length ? 'Żaden karton nie pasuje do filtrów' : 'Brak kartonów magazynowych'}
+                    akcja={kartony.length + czekajace.length ? <button className="btn sm" onClick={() => { setFiltr('wszystkie'); setQ('') }}>Pokaż wszystkie</button> : <button className="btn sm primary" onClick={onNowy}><PackagePlus size={15} />Nowy karton</button>}>
+                    {kartony.length + czekajace.length ? 'Zmień stan albo wyczyść wyszukiwanie.' : 'Karton magazynowy to jednostka pakowa bez zamówienia — dla klienta albo na magazyn. Magazyn skanuje do niego sztuki, a zamówienie przypina się później.'}
                   </Pusto></td></tr>}
                 {widoczne.map((c, i) => {
                   const st = stanKartonu(c)
@@ -124,6 +134,21 @@ export function KartonyMagazynowe({ widoki, active, setCmds, setCtx, kartony, la
                       <td><span className={`tag ${TAG[st]}`}>{STAN_KARTONU[st]}</span></td>
                       <td>{c.linkedOrderNo ? <span className="code">{c.linkedOrderNo}</span> : <span className="faint">—</span>}</td>
                       <td className="num hide-m muted">{fmtDate(dataZApi(c.createdAt))}</td>
+                    </tr>
+                  )
+                })}
+                {widoczneCzekajace.length > 0 && <tr className="grp"><td colSpan={7}><b>Po anulowanym albo zmienionym zamówieniu</b> <span className="gmeta">— towar stoi, przypnie się sam do nowego zamówienia tego klienta z tym samym towarem</span></td></tr>}
+                {widoczneCzekajace.map((p, i) => {
+                  const g = gdziePalety(p)
+                  return (
+                    <tr key={`w-${p.id}`} className={`row${i % 2 ? ' zebra' : ''}`}>
+                      <td className="strong code">{formatCartonNo(p.cartonNo) || `P${p.palletNo}`}</td>
+                      <td>{p.clientName ? klientNa(p.clientName) : <span className="faint">—</span>}</td>
+                      <td className="ell" style={{ maxWidth: 380 }} title={skladPalety(p)}>{skladPalety(p)}</td>
+                      <td className="num"><b>{num(sztukPalety(p))}</b> <span className="sub">szt.</span> · {kg(kgPalety(p))}</td>
+                      <td><span className={`tag ${g.tag}`}>{g.tekst}</span></td>
+                      <td><span className="muted">bez zamówienia</span>{p.sourceOrderNo && <span className="sub"> · było {p.sourceOrderNo}</span>}</td>
+                      <td className="num hide-m muted">{fmtDate(dataZApi(p.detachedAt))}</td>
                     </tr>
                   )
                 })}

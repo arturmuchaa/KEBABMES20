@@ -210,6 +210,12 @@ export function EkranMrozni({ onAlarm, onOtworzKarton, onKartaKartonu, zablokowa
       k = await magazynApi.mrozniaSprawdz(kanon)
     } catch (e) { return alarmSieci(e) }
     if (k.result === 'WAITING') {
+      // Paleta bez zamówienia, ale STOI w mroźni: wjazd = wskazanie jej miejsca
+      // na rzucie (hala 13.11.2026). Zamówienie przypnie się później samo.
+      if (tryb === 'wjazd' && k.kind === 'waiting' && k.id) {
+        setOstatnia(`${k.clientName || 'bez klienta'} · karton ${k.cartonNo || '—'} (bez zamówienia)`)
+        return wybierzMiejsce(k)
+      }
       return alarmBlad('PALETA CZEKA NA ZAMÓWIENIE', k.message
         || 'Kartka jest dobra — paleta pochodzi z usuniętego lub zmienionego zamówienia. Zawołaj biuro: po dodaniu zamówienia zacznie działać sama.')
     }

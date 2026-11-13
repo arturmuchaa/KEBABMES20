@@ -1,18 +1,24 @@
-import React, { useId, useState } from 'react'
+import React, { useEffect, useId, useMemo, useState } from 'react'
 import { Eye, Printer, ClipboardList, Truck, FileText, Split, Boxes, PackageMinus, Hash } from 'lucide-react'
 import { useApp, Dialog } from '../../../shell/context'
 import { computeMetrics, kg, type Order } from '../../../data/model'
 import { ile } from '../../../data/tekst'
 import { FlagIcon } from '../../../ui/Glyphs'
-import { downloadDocPdf, wzApi } from '@/lib/api'
+import { clientOrdersApi, downloadDocPdf, wzApi, type OrderDocuments } from '@/lib/api'
+import { papieryPozycji, saldoPozycji } from '../../wysylki/kurs'
+import { DrukujZaznaczone, PapierChip, useZaznaczonePapiery } from '../../wysylki/Papiery'
 
 /**
  * Dokumenty zamówienia — dwie grupy, żeby skutek było widać przed kliknięciem:
  * „Wydruki” niczego nie zmieniają w systemie, „Dokumenty wydania” nadają numer,
  * a WZ (także z podziału wysyłki) dodatkowo zdejmuje towar ze stanu.
- * WZ/WM: lista z API (powiązane z zamówieniem) z podglądem PDF. HDI i CMR na liście
- * API nie mają numeru zamówienia (BRAKI_API) — wystawia się je stąd, PDF otwiera się od razu.
+ * „Wszystkie dokumenty zamówienia”: WM/WZ, HDI, CMR i zestawienie należności w jednej
+ * liście (także po realizacji) — ptaszek przy dokumencie i „Drukuj zaznaczone” składa
+ * jeden PDF. Gdy serwer nie odda listy, zostaje dotychczasowa lista WZ/WM z zamówienia.
  */
+const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+const dataPl = (iso?: string | null) => (iso && /^\d{4}-\d{2}-\d{2}/.test(iso) ? iso.slice(0, 10).split('-').reverse().join('.') : iso || '—')
+
 export function DocumentsTab({ order }: { order: Order }) {
   const app = useApp()
   const id = useId()
@@ -21,6 +27,19 @@ export function DocumentsTab({ order }: { order: Order }) {
   const closed = order.status === 'done' || order.status === 'cancelled'
   const palet = order.pallets.length
   const najpierw = 'Najpierw potwierdź zamówienie'
+  const [dok, setDok] = useState<OrderDocuments | null>(null)
+  // Liczba WZ w zamówieniu zmienia się po wystawieniu — wtedy lista wczytuje się od nowa.
+  useEffect(() => {
+    let zywe = true
+    Promise.resolve().then(() => clientOrdersApi.documents(order.id)).then(d => { if (zywe) setDok(d) }).catch(() => { if (zywe) setDok(null) })
+    return () => { zywe = false }
+  }, [order.id, order.docs.length, order.status])
+  const papiery = useMemo(() => {
+    if (!dok) return []
+    const saldo = saldoPozycji(dok, dzisIso())
+    return [...papieryPozycji(dok), ...(saldo ? [{ ...saldo, data: dzisIso() }] : [])]
+  }, [dok])
+  const z = useZaznaczonePapiery(papiery, `${order.no} — dokumenty`)
   const pdf = async (docId: string, nr?: string) => {
     try { await downloadDocPdf(wzApi.pdfUrl(docId), `${(nr ?? 'WZ').replace(/\//g, '-')}.pdf`) }
     catch (e) { app.toast({ kind: 'warn', title: 'Nie udało się pobrać PDF', detail: e instanceof Error ? e.message : '' }) }
@@ -56,23 +75,46 @@ export function DocumentsTab({ order }: { order: Order }) {
         </section>
       </div>
 
+      {dok ? <>
+        <div className="sect-h"><h3>Wszystkie dokumenty zamówienia</h3><span className="sub">zaznacz ptaszkiem, co drukujesz — wyjdzie jeden PDF</span>
+          <span style={{ marginLeft: 'auto' }} className="row-wrap">
+            {papiery.length > 0 && <button className="btn sm ghost" disabled={!!z.busy} onClick={() => z.ustaw(papiery.map(p => p.key), z.zaznaczone.length !== papiery.length)}>
+              {z.zaznaczone.length === papiery.length ? 'Odznacz wszystkie' : 'Zaznacz wszystkie'}</button>}
+            <DrukujZaznaczone z={z} />
+          </span></div>
+        <div className="box">
+          <table className="tbl">
+            <thead><tr><th>Dokument</th><th className="hide-s" style={{ width: 130 }}>Data</th></tr></thead>
+            <tbody>
+              {papiery.length === 0 && <tr><td colSpan={2} className="docs-empty">Z tego zamówienia nie wystawiono jeszcze żadnego dokumentu.</td></tr>}
+              {papiery.map((p, i) => (
+                <tr key={p.key} className={`row${i % 2 ? ' zebra' : ''}`}>
+                  <td><PapierChip p={p} z={z} /></td>
+                  <td className="tnum hide-s muted">{p.key.startsWith('saldo-') ? 'na dziś' : dataPl(p.data)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </> : <>
       <div className="sect-h"><h3>Wystawione WZ / WM</h3><span className="sub">dokumenty wydania powiązane z zamówieniem</span></div>
-      <div className="box">
-        <table className="tbl">
-          <thead><tr><th>Numer</th><th className="hide-s">Data</th><th>Stan</th><th className="r">Podgląd</th></tr></thead>
-          <tbody>
-            {order.docs.length === 0 && <tr><td colSpan={4} className="docs-empty">Z tego zamówienia nie wystawiono jeszcze WZ ani WM.</td></tr>}
-            {order.docs.map((d, i) => (
-              <tr key={d.id ?? `${d.number ?? ''}-${i}`} className={`row${i % 2 ? ' zebra' : ''}`}>
-                <td className="tnum strong">{d.number}</td>
-                <td className="tnum hide-s">{d.date ?? '—'}</td>
-                <td className="muted">{d.note}</td>
-                <td className="r">{d.id && <button className="btn sm ghost" onClick={() => void pdf(d.id!, d.number)}><Eye size={14} />PDF</button>}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+        <div className="box">
+          <table className="tbl">
+            <thead><tr><th>Numer</th><th className="hide-s">Data</th><th>Stan</th><th className="r">Podgląd</th></tr></thead>
+            <tbody>
+              {order.docs.length === 0 && <tr><td colSpan={4} className="docs-empty">Z tego zamówienia nie wystawiono jeszcze WZ ani WM.</td></tr>}
+              {order.docs.map((d, i) => (
+                <tr key={d.id ?? `${d.number ?? ''}-${i}`} className={`row${i % 2 ? ' zebra' : ''}`}>
+                  <td className="tnum strong">{d.number}</td>
+                  <td className="tnum hide-s">{d.date ?? '—'}</td>
+                  <td className="muted">{d.note}</td>
+                  <td className="r">{d.id && <button className="btn sm ghost" onClick={() => void pdf(d.id!, d.number)}><Eye size={14} />PDF</button>}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </>}
       <div className="note"><FlagIcon level="info" size={15} /><div>Anulowanie WZ, edycja HDI i rejestr wszystkich dokumentów — w module „Dokumenty WZ, CMR, HDI” starego MES.</div></div>
       {pytajHdi && <PotwierdzenieHdi order={order} onClose={() => setPytajHdi(false)} onConfirm={() => { setPytajHdi(false); app.genHdi(order.id) }} />}
     </div>

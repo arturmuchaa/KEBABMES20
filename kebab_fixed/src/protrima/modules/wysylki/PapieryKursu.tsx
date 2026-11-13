@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Truck, FileDown, FileText, Check, X, RefreshCw, Download } from 'lucide-react'
+import { Truck, FileText, Check, X, RefreshCw, Download, Printer } from 'lucide-react'
 import { useApp, CommandBar, Dialog, type Cmd } from '../../shell/context'
 import { useOrders } from '../../data/store'
 import { kg, num } from '../../data/model'
@@ -10,6 +10,7 @@ import {
   PUSTA_DECYZJA, calosc, doWystawienia, kgNaFakture, kgNaWz, papieryPozycji, saldoPozycji, uklad, wpiszKg, zamowieniaDoWystawienia,
   type Decyzja, type Kurs, type PozycjaKursu, type Transport,
 } from './kurs'
+import { PapierChip, useZaznaczonePapiery } from './Papiery'
 
 const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 const godz = (iso: string | null) => {
@@ -57,6 +58,13 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
     return [...papieryPozycji(p), ...(saldo?.doWszystkich ? [saldo] : [])]
   }), [kurs])
 
+  // Do zaznaczania: każdy papier kursu, także zestawienie należności odbiorcy z WZ.
+  const doZaznaczenia = useMemo(() => (kurs?.pozycje ?? []).flatMap(p => {
+    const saldo = saldoPozycji(p, dzisIso())
+    return [...papieryPozycji(p), ...(saldo ? [saldo] : [])]
+  }), [kurs])
+  const z = useZaznaczonePapiery(doZaznaczenia, `Kurs ${kurs?.plate ?? ''} — papiery`)
+
   const wystaw = async () => {
     if (lock.current || 'blad' in wynik) return
     lock.current = true; setBusy('wystaw'); setBlad(null); setPytanie(false)
@@ -66,11 +74,6 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
       await Promise.all([wczytaj(), refresh().catch(() => undefined)])
     } catch (e) { setBlad(e instanceof Error ? e.message : 'Nie udało się wystawić dokumentów') }
     finally { lock.current = false; setBusy(null) }
-  }
-  const pobierz = async (url: string, plik: string, key: string) => {
-    setBusy(key)
-    try { await downloadDocPdf(url, plik) } catch (e) { app.toast({ kind: 'warn', title: 'Nie udało się pobrać PDF', detail: e instanceof Error ? e.message : '' }) }
-    finally { setBusy(null) }
   }
   const pobierzWszystkie = async () => {
     setBusy('all')
@@ -92,11 +95,13 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
 
   const cmds = useMemo<Cmd[]>(() => [
     ...(czekajace.length ? [{ id: 'issue', group: 1, label: 'Wystaw komplet dokumentów', icon: <FileText size={17} />, primary: true, disabled: !!busy || 'blad' in wynik, tip: 'blad' in wynik ? wynik.blad : undefined, run: () => setPytanie(true) }] : []),
+    { id: 'print-sel', group: 2, label: `Drukuj zaznaczone${z.zaznaczone.length ? ` (${z.zaznaczone.length})` : ''}`, icon: <Printer size={17} />, disabled: !!busy || !!z.busy || !z.zaznaczone.length,
+      tip: z.zaznaczone.length ? 'jeden PDF ze wszystkimi zaznaczonymi' : 'zaznacz ptaszkiem dokumenty w tabeli', run: () => void z.drukuj() },
     { id: 'all', group: 2, label: 'Pobierz wszystkie PDF', icon: <Download size={17} />, disabled: !!busy || !wszystkiePapiery.length, run: () => void pobierzWszystkie() },
     { id: 'printed', group: 2, label: kurs?.printed_at ? 'Oznaczony jako wydrukowany' : 'Wydrukowane — zdejmij z pulpitu', icon: <Check size={17} />, disabled: !!busy || !kurs || !!kurs.printed_at || czekajace.length > 0, tip: czekajace.length ? 'najpierw wystaw dokumenty' : undefined, run: () => void wydrukowane() },
     { id: 'reload', group: 3, label: 'Odśwież', icon: <RefreshCw size={17} />, opt: true, disabled: !!busy, run: () => void wczytaj() },
     { id: 'close', group: 3, label: 'Zamknij', icon: <X size={17} />, run: onDone },
-  ], [czekajace.length, busy, wynik, wszystkiePapiery.length, kurs, wczytaj, onDone]) // eslint-disable-line react-hooks/exhaustive-deps
+  ], [czekajace.length, busy, wynik, wszystkiePapiery.length, kurs, wczytaj, onDone, z.zaznaczone.length, z.busy, z.drukuj]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (active) setCmds(cmds) }, [cmds, setCmds, active])
 
   const wybierzPrzewoznika = (id: string) => setTransport(t => ({ ...t, carrier_id: id, plate: t.plate.trim() || (carriers?.find(c => c.id === id)?.defaultPlate ?? '') }))
@@ -130,7 +135,11 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
           </>}
 
           {kurs && <>
-            <div className="sect-h"><h3>Dokumenty kursu</h3><span className="sub">PDF z serwera — ten sam wzór co w starym MES</span></div>
+            <div className="sect-h"><h3>Dokumenty kursu</h3><span className="sub">zaznacz ptaszkiem, co drukujesz — „Drukuj zaznaczone” u góry złoży jeden PDF</span>
+              <span style={{ marginLeft: 'auto' }} className="row-wrap">
+                {doZaznaczenia.length > 0 && <button className="btn sm ghost" disabled={!!z.busy} onClick={() => z.ustaw(doZaznaczenia.map(d => d.key), z.zaznaczone.length !== doZaznaczenia.length)}>
+                  {z.zaznaczone.length === doZaznaczenia.length ? 'Odznacz wszystkie' : 'Zaznacz wszystkie'}</button>}
+              </span></div>
             <div className="box"><table className="tbl">
               <thead><tr><th>Odbiorca</th><th>Zamówienie</th><th className="num">Wyjechało</th><th>Dokumenty</th></tr></thead>
               <tbody>{kurs.pozycje.map((p, i) => {
@@ -142,11 +151,9 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
                     <td className="code">{p.order_no}</td>
                     <td className="num">{kg(p.kg_zaladowane)}</td>
                     <td style={{ whiteSpace: 'normal' }}><div className="row-wrap">
-                      {papiery.map(d => <button key={d.key} className="btn sm" disabled={!!busy} onClick={() => void pobierz(d.url, d.plik, d.key)}>
-                        <FileDown size={14} />{d.etykieta} <span className="code">{d.numer}</span></button>)}
+                      {papiery.map(d => <PapierChip key={d.key} p={d} z={z} zablokowany={!!busy} />)}
                       {saldo && <span className="row-wrap" style={{ gap: 6 }}>
-                        <button className="btn sm" disabled={!!busy} onClick={() => void pobierz(saldo.url, saldo.plik, saldo.key)}>
-                          <FileDown size={14} />{saldo.etykieta}</button>
+                        <PapierChip p={saldo} z={z} zablokowany={!!busy} />
                         {saldo.doWszystkich && <span className="tag warn">do wydruku — brak WZ</span>}
                       </span>}
                       {!papiery.length && <span className="muted">{p.wz_status === 'do_wystawienia' ? 'czeka na wystawienie' : 'brak dokumentów'}</span>}

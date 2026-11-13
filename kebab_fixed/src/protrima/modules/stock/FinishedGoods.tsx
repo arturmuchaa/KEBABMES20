@@ -13,7 +13,7 @@ import { SzkieletWierszy } from '../../ui/Szkielet'
 import { klientPrzydzialu, kolumnyZWartoscia } from './wiersz'
 import { Pusto } from '../../ui/Pusto'
 import { useApi } from '@/hooks/useApi'
-import { stockCartonsApi, type StockCarton } from '@/lib/api'
+import { palletsApi, stockCartonsApi, type StockCarton } from '@/lib/api'
 import { KartonyMagazynowe } from './kartony/KartonyMagazynowe'
 import { NowyKartonDialog, type StartKartonu } from './kartony/NowyKartonDialog'
 import { KartkaKartonuDialog } from './kartony/KartkaKartonuDialog'
@@ -56,6 +56,8 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   // Kartony magazynowe — drugi widok modułu (stary MES: sekcja pod listą wyrobu).
   const [widok, setWidok] = useState<'wyrob' | 'kartony'>('wyrob')
   const kartonyRes = useApi(() => stockCartonsApi.list())
+  // Palety po anulowanym/zmienionym zamówieniu — towar stoi, zamówienia nie ma.
+  const czekajaceRes = useApi(() => palletsApi.orphans())
   const [wybranyKarton, setWybranyKarton] = useState<string | null>(null)
   const [nowyKarton, setNowyKarton] = useState<StartKartonu | null>(null)
   const [kartka, setKartka] = useState<StockCarton | null>(null)
@@ -234,8 +236,8 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
           {v.label}<span className={`count${(v.key === 'blocked' || v.key === 'short') && counts[v.key] ? ' crit' : ''}`}>{counts[v.key]}</span>
         </button>
       ))}
-      <button aria-pressed={widok === 'kartony'} data-tip="Jednostki pakowe bez zamówienia — dla klienta albo na magazyn" onClick={() => setWidok('kartony')}>
-        Kartony magazynowe<span className="count">{kartonyRes.data?.length ?? 0}</span>
+      <button aria-pressed={widok === 'kartony'} data-tip="Jednostki pakowe bez zamówienia — dla klienta albo na magazyn; także towar po anulowanym zamówieniu" onClick={() => { setWidok('kartony'); czekajaceRes.refetch() }}>
+        Kartony magazynowe<span className="count">{(kartonyRes.data?.length ?? 0) + (czekajaceRes.data?.length ?? 0)}</span>
       </button>
     </div>
   )
@@ -252,7 +254,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   </>
   if (widok === 'kartony') return <>
     <KartonyMagazynowe widoki={widoki} active={active} setCmds={setCmds} setCtx={setCtx}
-      kartony={kartonyRes.data ?? []} ladowanie={kartonyRes.loading} blad={kartonyRes.error} odswiez={kartonyRes.refetch}
+      kartony={kartonyRes.data ?? []} czekajace={czekajaceRes.data ?? []} ladowanie={kartonyRes.loading} blad={kartonyRes.error} odswiez={() => { kartonyRes.refetch(); czekajaceRes.refetch() }}
       wybrany={wybranyKarton} setWybrany={setWybranyKarton} onNowy={nowyPustyKarton} onKartka={setKartka} />
     {oknaKartonow}
   </>

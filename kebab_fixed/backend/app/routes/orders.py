@@ -75,6 +75,12 @@ def update_order(order_id: str, dto: ClientOrderCreate):
     return svc.update_order(order_id, dto)
 
 
+@router.get("/{order_id}/documents")
+def order_documents(order_id: str):
+    """Wszystkie dokumenty zamówienia (WM/WZ, HDI, CMR) — zakładka Dokumenty."""
+    return svc.order_documents(order_id)
+
+
 @router.get("/{order_id}/production-progress")
 def production_progress(order_id: str):
     return svc.production_progress(order_id)

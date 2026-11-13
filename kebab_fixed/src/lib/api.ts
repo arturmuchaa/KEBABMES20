@@ -246,6 +246,11 @@ function saveBlob(blob: Blob, name: string): void {
  */
 export async function openDocument(url: string, fallbackName = 'dokument.pdf'): Promise<void> {
   const { blob, name } = await fetchDoc(url, fallbackName)
+  return openDocumentBlob(blob, name)
+}
+
+/** To samo dla dokumentu złożonego już w oknie (np. kilka PDF połączonych w jeden do wydruku). */
+export async function openDocumentBlob(blob: Blob, name: string): Promise<void> {
   const { isDesktopApp } = await import('./desktopScanner')
   if (!isDesktopApp()) {
     saveBlob(blob, name)
@@ -1917,7 +1922,16 @@ export interface OrderProductionProgress {
   lines: OrderProductionProgressLine[]
 }
 
+/** Dokument zamówienia na liście „wszystkie dokumenty” (ten sam kształt co w papierach kursu). */
+export interface OrderDocumentRow { id: string; number: string; doc_series?: string; split_scope?: string | null; scope?: string | null; status?: string | null; loading_status?: string | null; date?: string | null }
+export interface OrderDocuments {
+  order_id: string; order_no: string | null; client_id: string | null; client_name: string | null; rozliczenia_otwarte: boolean
+  wz: OrderDocumentRow[]; hdi: OrderDocumentRow[]; cmr: OrderDocumentRow[]
+}
+
 export const clientOrdersApi = {
+  /** Wszystkie nieanulowane dokumenty zamówienia: WM/WZ, HDI, CMR. */
+  documents:    (id: string) => get<OrderDocuments>(`/client-orders/${encodeURIComponent(id)}/documents`),
   list:         (status?: string, planning = false) => {
     const query = [status ? `status=${encodeURIComponent(status)}` : '', planning ? 'planning=true' : ''].filter(Boolean).join('&')
     return get<any[]>(`/client-orders${query ? `?${query}` : ''}`).then(r => r.map(mapClientOrder))
@@ -2293,6 +2307,8 @@ export interface OrphanPallet {
   cartonNo: number | null
   status: string
   reason: string
+  /** Pole rzutu mroźni (np. „F2”); null = bez miejsca na rzucie. */
+  slot: string | null
   detachedAt: string | null
   items: { recipeName: string; productTypeName: string; packagingName: string; kgPerUnit: number; qty: number }[]
 }
@@ -2306,6 +2322,7 @@ export function mapOrphanPallet(r: any): OrphanPallet {
     cartonNo: r?.cartonNo ?? r?.carton_no ?? null,
     status: r?.status ?? '',
     reason: r?.reason ?? '',
+    slot: r?.slot ?? null,
     detachedAt: r?.detachedAt ?? r?.detached_at ?? null,
     items: (r?.items ?? []).map((it: any) => ({
       recipeName: it?.recipeName ?? it?.recipe_name ?? '',
@@ -4629,7 +4646,8 @@ export interface KartonDoWazenia {
   message?: string
   /** Gdzie karton jest w procesie — do karty kartonu. */
   status?: 'planned' | 'packing' | 'full' | 'cold_storage' | 'loaded' | 'shipped'
-  kind?: 'order' | 'stock'
+  /** `waiting` = paleta bez zamówienia stojąca w mroźni (tylko przy `WAITING`). */
+  kind?: 'order' | 'stock' | 'waiting'
   id?: string
   code?: string
   cartonNo?: string

@@ -95,6 +95,28 @@ describe('lista kartonów', () => {
     fireEvent.change(screen.getByLabelText('Szukaj kartonu'), { target: { value: 'kirmizi' } })
     expect(screen.getAllByRole('row').filter(r => r.getAttribute('data-id'))).toHaveLength(1)
   })
+  it('„Gotowe bez zamówienia”: spakowany karton bez zamówienia i palety po anulowanym zamówieniu z miejscem w mroźni', () => {
+    const czekajace = [
+      { id: 'w1', sourceOrderNo: 'ISSA-DISTRIB/Z/3/11/26', clientName: 'ISSA DISTRIB', palletNo: 1, cartonNo: 616, status: 'cold_storage', reason: '', slot: null, detachedAt: '2026-11-13T06:50:23Z',
+        items: [{ recipeName: 'BEYAZ HALAL', productTypeName: '', packagingName: 'KARTON 45CM', kgPerUnit: 7, qty: 100 }] },
+      { id: 'w2', sourceOrderNo: 'ISSA-DISTRIB/Z/2/11/26', clientName: 'ISSA DISTRIB', palletNo: 5, cartonNo: 760, status: 'cold_storage', reason: '', slot: 'G2', detachedAt: '2026-11-13T06:41:30Z',
+        items: [{ recipeName: 'BEYAZ HALAL', productTypeName: '', packagingName: 'METAL 55CM', kgPerUnit: 15, qty: 60 }] },
+    ]
+    mount({ czekajace })
+    expect(screen.getByRole('button', { name: /^Wszystkie/ }).textContent).toContain('5')
+    fireEvent.click(screen.getByRole('button', { name: /^Gotowe bez zamówienia/ }))
+    expect(screen.getByRole('button', { name: /^Gotowe bez zamówienia/ }).textContent).toContain('3')
+    expect(screen.queryByText('000709')).toBeNull()   // w pakowaniu, z zamówieniem
+    expect(screen.getByText('000711')).toBeTruthy()   // spakowany, bez zamówienia
+    const w = screen.getByText('000616').closest('tr')!
+    expect(within(w).getByText('Mroźnia · bez miejsca')).toBeTruthy()
+    expect(within(w).getByText(/700 kg/)).toBeTruthy()
+    expect(within(w).getByText(/było ISSA-DISTRIB\/Z\/3\/11\/26/)).toBeTruthy()
+    expect(within(screen.getByText('000760').closest('tr')!).getByText('Mroźnia · G2')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /^Spakowane/ }))
+    expect(screen.queryByText('000616')).toBeNull()
+  })
+
   it('usuwanie tylko pustego kartonu i dopiero po potwierdzeniu', async () => {
     api.removeEmpty.mockResolvedValue({ ok: true, cartonNo: '000710' })
     const props = mount({ wybrany: 'k1' })

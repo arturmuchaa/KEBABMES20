@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest'
-import { render, screen, cleanup, fireEvent, within } from '@testing-library/react'
+import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-library/react'
 import React from 'react'
 import { AppCtx, type AppApi } from '../../../shell/context'
 import { mapClientOrder } from '@/lib/api'
 import { mapujZamowienie } from '../../../data/mapuj'
+const dokumenty = vi.hoisted(() => vi.fn())
+const otworzBlob = vi.hoisted(() => vi.fn((_b: Blob, _n: string) => Promise.resolve()))
+vi.mock('@/lib/api', async (orig) => { const o = await orig() as Record<string, unknown>; return { ...o, clientOrdersApi: { ...(o.clientOrdersApi as object), documents: dokumenty }, openDocumentBlob: otworzBlob,
+  fetchBlob: async () => { const { PDFDocument } = await import('pdf-lib'); const d = await PDFDocument.create(); d.addPage([200, 200]); const b = await d.save(); return { arrayBuffer: async () => b.slice().buffer } } } })
 import { DocumentsTab } from './Documents'
 
 /** Zamówienie w kształcie API (syntetyczne): jedna pozycja 20 × 40 kg, połowa w magazynie. */
@@ -14,7 +18,7 @@ const order = (status = 'confirmed') => mapujZamowienie(mapClientOrder({ id: 'o1
 const app = { genHdi: vi.fn(), issueWz: vi.fn(), openCmr: vi.fn(), splitOrder: vi.fn(), printOrder: vi.fn(), printPicking: vi.fn(), printPallets: vi.fn(), toast: vi.fn() }
 const mount = (status?: string) => render(<AppCtx.Provider value={app as unknown as AppApi}><DocumentsTab order={order(status)} /></AppCtx.Provider>)
 afterEach(cleanup)
-beforeEach(() => Object.values(app).forEach(f => f.mockReset()))
+beforeEach(() => { Object.values(app).forEach(f => f.mockReset()); dokumenty.mockReset(); dokumenty.mockRejectedValue(new Error('brak')); otworzBlob.mockClear() })
 
 describe('zakładka Dokumenty', () => {
   it('Wystaw HDI: najpierw pytanie (numer HDI nie wraca do puli), Wróć niczego nie wystawia', () => {
@@ -72,5 +76,27 @@ describe('zakładka Dokumenty', () => {
     }
     fireEvent.click(screen.getByRole('button', { name: /^Zamówienie/ }))
     expect(app.printOrder).toHaveBeenCalledWith('o1')
+  })
+
+  it('zrealizowane zamówienie: WM, WZ, HDI, CMR i zestawienie należności w jednej liście; zaznaczone drukują się jednym PDF-em', async () => {
+    dokumenty.mockResolvedValue({ order_id: 'o1', order_no: 'T/Z/1', client_id: 'c1', client_name: 'T', rozliczenia_otwarte: true,
+      wz: [{ id: 'w1', number: 'WM/1/11/26', doc_series: 'WM', date: '2026-11-12' }, { id: 'w2', number: 'WZ/7/11/26', doc_series: 'WZ', date: '2026-11-12' }],
+      hdi: [{ id: 'h1', number: 'HDI/1/11/26', scope: 'fv', date: '2026-11-12' }], cmr: [{ id: 'c1', number: 'CMR/1/11/26', scope: 'fv', date: '2026-11-13' }] })
+    mount('done')
+    expect(await screen.findByText('Wszystkie dokumenty zamówienia')).toBeTruthy()
+    for (const nr of ['WM/1/11/26', 'WZ/7/11/26', 'HDI/1/11/26', 'CMR/1/11/26']) expect(screen.getByText(nr)).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Zestawienie należności/ })).toBeTruthy()
+    expect(screen.getByText('13.11.2026')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Zaznacz do wydruku: CMR do faktury CMR/1/11/26'))
+    fireEvent.click(screen.getByLabelText('Zaznacz do wydruku: HDI do faktury HDI/1/11/26'))
+    fireEvent.click(screen.getByLabelText('Zaznacz do wydruku: Zestawienie należności'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Drukuj zaznaczone (3)' }))
+    await waitFor(() => expect(otworzBlob).toHaveBeenCalledTimes(1))
+    expect(otworzBlob.mock.calls[0][1]).toBe('T_Z_1_—_dokumenty.pdf')
+  })
+
+  it('gdy serwer nie odda listy — zostaje dotychczasowa lista WZ/WM', async () => {
+    mount()
+    expect(await screen.findByText('Wystawione WZ / WM')).toBeTruthy()
   })
 })

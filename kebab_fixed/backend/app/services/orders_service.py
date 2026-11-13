@@ -800,6 +800,39 @@ def delete_order(order_id: str) -> Dict[str, bool]:
     return {"ok": True, "movedPallets": moved}
 
 
+def order_documents(order_id: str) -> Dict[str, Any]:
+    """Wszystkie nieanulowane dokumenty zamówienia: WM/WZ, HDI i CMR.
+
+    Ten sam kształt co pozycja kursu (`loading_service.zaladunek`), żeby biuro
+    miało w zamówieniu dokładnie te papiery, które widziało przy kursie — także
+    po realizacji i gdy wysyłka szła kilkoma kursami.
+    """
+    o = query_one("SELECT id, order_no, client_id, client_name FROM client_orders WHERE id=%s", (order_id,))
+    if not o:
+        raise HTTPException(404, "Zamówienie nie znalezione")
+    rozl = query_one(
+        """SELECT (EXISTS (SELECT 1 FROM clients rc WHERE rc.id = %s AND NOT rc.rozl_wylaczony)
+                   AND (EXISTS (SELECT 1 FROM rozl_otwarcia ro WHERE ro.client_id = %s)
+                        OR EXISTS (SELECT 1 FROM rozl_dokumenty rd WHERE rd.client_id = %s
+                                   AND rd.zrodlo='otwarcie' AND rd.usuniety_at IS NULL))) AS otwarte""",
+        (o.get("client_id"), o.get("client_id"), o.get("client_id")))
+    return {
+        "order_id": o["id"], "order_no": o.get("order_no"),
+        "client_id": o.get("client_id"), "client_name": o.get("client_name"),
+        "rozliczenia_otwarte": bool((rozl or {}).get("otwarte")),
+        "wz": query_all(
+            "SELECT id, number, doc_series, split_scope, status, loading_status, issued_date AS date "
+            "FROM wz_documents WHERE source_type='order' AND source_id=%s "
+            "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at, number", (order_id,)),
+        "hdi": query_all(
+            "SELECT id, number, scope, status, issue_date AS date FROM hdi_documents WHERE order_id=%s "
+            "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at, number", (order_id,)),
+        "cmr": query_all(
+            "SELECT id, number, scope, status, issue_date AS date FROM cmr_documents WHERE order_id=%s "
+            "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at, number", (order_id,)),
+    }
+
+
 def _line_identity(product_type_id, recipe_id, packaging_id, kg_per_unit) -> tuple:
     """Tożsamość pozycji dla dopasowania bez identyfikatora.
 

@@ -222,6 +222,24 @@ describe('mroźnia — tryb wjazd / wyjazd (29.09.2026)', () => {
     expect(s.alarmy).toEqual([])
   })
 
+  it('wjazd: paleta bez zamówienia stojąca w mroźni → rzut do wskazania miejsca, bez alarmu', async () => {
+    s.sprawdz = { result: 'WAITING', message: 'Paleta P1 czeka na nowe zamówienie', kind: 'waiting', id: 'op2', status: 'cold_storage', cartonNo: '000616', clientName: 'ISSA', location: null }
+    render(<EkranMrozni onAlarm={a => s.alarmy.push(a)} />)
+    wjazd()
+    skanuj('PAL|0123456789abcdef0123|1')
+    expect(await screen.findByText(/karton 000616 \(bez zamówienia\)/)).toBeTruthy()
+    expect(s.alarmy).toEqual([])
+  })
+
+  it('wjazd: paleta bez zamówienia, której nie ma w mroźni → komunikat „czeka na zamówienie”', async () => {
+    s.sprawdz = { result: 'WAITING', message: 'Paleta P3 czeka na nowe zamówienie' }
+    render(<EkranMrozni onAlarm={a => s.alarmy.push(a)} />)
+    wjazd()
+    skanuj('PAL|0123456789abcdef0123|3')
+    await waitFor(() => expect(s.alarmy.length).toBe(1))
+    expect(s.alarmy[0].naglowek).toBe('PALETA CZEKA NA ZAMÓWIENIE')
+  })
+
   it('wyjazd: karton z mroźni wraca do pakowania', async () => {
     s.sprawdz = { ...PELNY, status: 'cold_storage', inColdStorage: true }
     render(<EkranMrozni onAlarm={a => s.alarmy.push(a)} />)

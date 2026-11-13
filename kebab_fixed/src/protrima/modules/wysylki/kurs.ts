@@ -5,9 +5,11 @@
  * faktury tego odbiorcy (pole 5 CMR) i czy drukuje HDI także do faktury.
  * Wystawienie robi serwer jedną operacją (`zaladunkiApi.wystaw`).
  */
-import { cmrApi, hdiApi, rozliczeniaPdf, wzApi } from '@/lib/api'
+import { cmrApi, fetchBlob, hdiApi, openDocumentBlob, rozliczeniaPdf, wzApi } from '@/lib/api'
 
-export interface DokKursu { id: string; number: string; doc_series?: string; split_scope?: string | null; scope?: string | null }
+export interface DokKursu { id: string; number: string; doc_series?: string; split_scope?: string | null; scope?: string | null; date?: string | null; status?: string | null; loading_status?: string | null }
+/** Tyle wystarczy, żeby złożyć listę papierów: pozycja kursu albo dokumenty zamówienia. */
+export type ZrodloPapierow = Pick<PozycjaKursu, 'wz' | 'hdi' | 'cmr' | 'client_id' | 'client_name' | 'rozliczenia_otwarte'>
 export interface PozycjaKursu {
   order_id: string
   order_no: string | null
@@ -93,15 +95,15 @@ export function zamowieniaDoWystawienia(k: Kurs | null, decyzje: Record<string, 
   return { orders }
 }
 
-export interface PapierKursu { key: string; etykieta: string; numer: string; url: string; plik: string }
+export interface PapierKursu { key: string; etykieta: string; numer: string; url: string; plik: string; data?: string | null }
 
 /** Dokumenty jednego odbiorcy do pobrania (PDF z serwera, ten sam wzór co stary MES). */
-export function papieryPozycji(p: PozycjaKursu): PapierKursu[] {
+export function papieryPozycji(p: ZrodloPapierow): PapierKursu[] {
   const plik = (pre: string, nr: string) => `${pre}-${nr.replace(/[\\/]/g, '-')}.pdf`
   return [
-    ...p.wz.map(d => ({ key: `wz-${d.id}`, etykieta: d.doc_series === 'WM' ? 'WM (wewnętrzny)' : 'WZ', numer: d.number, url: wzApi.pdfUrl(d.id), plik: plik(d.doc_series === 'WM' ? 'WM' : 'WZ', d.number) })),
-    ...p.hdi.map(d => ({ key: `hdi-${d.id}`, etykieta: d.scope === 'fv' ? 'HDI do faktury' : 'HDI', numer: d.number, url: hdiApi.pdfUrl(d.id), plik: plik('HDI', d.number) })),
-    ...p.cmr.map(d => ({ key: `cmr-${d.id}`, etykieta: d.scope === 'fv' ? 'CMR do faktury' : 'CMR na drogę', numer: d.number, url: cmrApi.pdfUrl(d.id), plik: plik('CMR', d.number) })),
+    ...p.wz.map(d => ({ data: d.date, key: `wz-${d.id}`, etykieta: d.doc_series === 'WM' ? 'WM (wewnętrzny)' : 'WZ', numer: d.number, url: wzApi.pdfUrl(d.id), plik: plik(d.doc_series === 'WM' ? 'WM' : 'WZ', d.number) })),
+    ...p.hdi.map(d => ({ data: d.date, key: `hdi-${d.id}`, etykieta: d.scope === 'fv' ? 'HDI do faktury' : 'HDI', numer: d.number, url: hdiApi.pdfUrl(d.id), plik: plik('HDI', d.number) })),
+    ...p.cmr.map(d => ({ data: d.date, key: `cmr-${d.id}`, etykieta: d.scope === 'fv' ? 'CMR do faktury' : 'CMR na drogę', numer: d.number, url: cmrApi.pdfUrl(d.id), plik: plik('CMR', d.number) })),
   ]
 }
 
@@ -116,9 +118,37 @@ export interface SaldoKursu extends PapierKursu {
  * Gdy wysyłka idzie bez WZ do klienta (wszystko na fakturę; WM jest wewnętrzny), saldo nie ma
  * gdzie się pojawić, więc dochodzi do wydruku; przy WZ klienta jest już pod nim.
  */
-export function saldoPozycji(p: PozycjaKursu, dzis: string): SaldoKursu | null {
+export function saldoPozycji(p: ZrodloPapierow, dzis: string): SaldoKursu | null {
   if (!p.client_id || !p.rozliczenia_otwarte) return null
   const brakWz = !p.wz.some(d => d.doc_series !== 'WM')
   const klient = (p.client_name || p.client_id).replace(/[\\/:*?"<>|\s]+/g, '_')
   return { key: `saldo-${p.client_id}`, etykieta: 'Zestawienie należności', numer: '', url: rozliczeniaPdf.zestawienie(p.client_id, dzis), plik: `SALDO_${klient}_${dzis}.pdf`, doWszystkich: brakWz }
+}
+
+/**
+ * Kilka dokumentów w JEDNYM pliku PDF, w kolejności zaznaczenia na liście —
+ * biuro drukuje komplet jednym poleceniem zamiast otwierać każdy papier osobno
+ * (właściciel 13.11.2026: „zaznaczyć ptaszkiem i szybko wydrukować zaznaczone").
+ * `pobierz` wstrzykiwane w testach; domyślnie PDF z serwera z sesją.
+ */
+export async function polaczPdfBajty(papiery: PapierKursu[], pobierz: (url: string) => Promise<Pick<Blob, 'arrayBuffer'>> = fetchBlob): Promise<Uint8Array> {
+  const { PDFDocument } = await import('pdf-lib')
+  const calosc = await PDFDocument.create()
+  for (const p of papiery) {
+    const zrodlo = await PDFDocument.load(await (await pobierz(p.url)).arrayBuffer())
+    for (const strona of await calosc.copyPages(zrodlo, zrodlo.getPageIndices())) calosc.addPage(strona)
+  }
+  return calosc.save()
+}
+
+export async function polaczPdf(papiery: PapierKursu[]): Promise<Blob> {
+  const bajty = await polaczPdfBajty(papiery)
+  return new Blob([bajty.slice().buffer as ArrayBuffer], { type: 'application/pdf' })
+}
+
+/** Zaznaczone papiery → jeden PDF otwarty do wydruku. Jeden papier otwiera się wprost. */
+export async function drukujZaznaczone(papiery: PapierKursu[], nazwa: string): Promise<void> {
+  if (!papiery.length) return
+  const plik = `${nazwa.replace(/[\\/:*?"<>|\s]+/g, '_')}.pdf`
+  await openDocumentBlob(await polaczPdf(papiery), papiery.length === 1 ? papiery[0].plik : plik)
 }

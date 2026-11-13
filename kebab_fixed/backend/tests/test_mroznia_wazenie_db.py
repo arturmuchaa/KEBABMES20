@@ -292,4 +292,12 @@ def test_paleta_z_poczekalni_nie_jest_nieznana_kartka(db):
     w = mw.sprawdz("PAL|0123456789abcdef0123|3")
     assert w["result"] == "WAITING"
     assert "czeka na nowe zamówienie" in w["message"]
+    assert "id" not in w  # jeszcze nie w mroźni — nie ma czego ustawiać na rzucie
     assert mw.sprawdz("PAL|ffffffffffffffffffff|9") == {"result": "INVALID"}
+    # Stoi w mroźni → kiosk dostaje, czym jest, i może wskazać miejsce na rzucie.
+    execute("INSERT INTO orphan_pallets (id, source_order_id, source_order_no, client_id, client_name, "
+            " pallet_no, carton_no, status, items, reason) VALUES ('op2','0123456789abcdef0123','ISSA/Z/3/11/26','c9','ISSA',"
+            " 1,616,'cold_storage','[]'::jsonb,'anulowanie zamówienia')")
+    m = mw.sprawdz("PAL|0123456789abcdef0123|1")
+    assert (m["result"], m["kind"], m["id"], m["cartonNo"], m["clientName"]) == ("WAITING", "waiting", "op2", "000616", "ISSA")
+    assert m["location"] is None

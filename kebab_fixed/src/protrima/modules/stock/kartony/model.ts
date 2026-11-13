@@ -6,7 +6,7 @@
  * Kartka kartonu = ten sam wydruk co kartka palety, w stopce „MAGAZYN”,
  * kod `SCARTON|<id>` (StockCartonLabelPage).
  */
-import type { StockCarton, StockCartonCreateDto } from '@/lib/api'
+import type { OrphanPallet, StockCarton, StockCartonCreateDto } from '@/lib/api'
 import { formatCartonNo } from '@/lib/unitLocation'
 import { zlozNazweWyrobu } from '@/features/wz/nazwaWyrobu'
 import { buildCartonLabelContent, cartonLabelTotalKg } from '@/features/labels/cartonLabelLines'
@@ -23,6 +23,25 @@ export const stanKartonu = (c: Pick<StockCarton, 'packedQty' | 'targetQty'>): St
   c.packedQty <= 0 ? 'pusty' : c.targetQty > 0 && c.packedQty >= c.targetQty ? 'spakowany' : 'pakowany'
 
 const kgTxt = (v: number) => `${String(v).replace('.', ',')} kg`
+
+/**
+ * Paleta/karton po anulowanym, usuniętym albo zmienionym zamówieniu: towar fizycznie
+ * stoi (zwykle już w mroźni), zamówienia nie ma. Przypina się sam do nowego zamówienia
+ * tego klienta z tym samym towarem. Biuro widzi go razem z kartonami magazynowymi
+ * (właściciel 13.11.2026: „jakie kartony są gotowe, ale nie mają przypisanego zamówienia”).
+ */
+export const sztukPalety = (p: OrphanPallet) => p.items.reduce((s, it) => s + it.qty, 0)
+export const kgPalety = (p: OrphanPallet) => p.items.reduce((s, it) => s + it.qty * it.kgPerUnit, 0)
+export const skladPalety = (p: OrphanPallet) =>
+  p.items.map(it => `${it.qty}×${kgTxt(it.kgPerUnit)} ${zlozNazweWyrobu(it.productTypeName, it.recipeName)}`.trim()).join(' + ') || '—'
+/** Gdzie stoi: pole rzutu mroźni, mroźnia bez wskazanego pola albo jeszcze przed mroźnią. */
+export function gdziePalety(p: Pick<OrphanPallet, 'status' | 'slot'>): { tekst: string; tag: string } {
+  if (p.status !== 'cold_storage') return { tekst: 'Przed mroźnią', tag: 'warn' }
+  return p.slot ? { tekst: `Mroźnia · ${p.slot}`, tag: 'ok' } : { tekst: 'Mroźnia · bez miejsca', tag: 'info' }
+}
+/** Karton magazynowy gotowy do wzięcia: spakowany do końca i jeszcze bez zamówienia. */
+export const gotowyBezZamowienia = (c: Pick<StockCarton, 'packedQty' | 'targetQty' | 'linkedOrderId'>) =>
+  stanKartonu(c) === 'spakowany' && !c.linkedOrderId
 
 /** Skład jednym ciągiem: jednorodny „KEBAB UDO 100% BEYAZ · 10 kg”, mieszany „30×10 kg + 20×15 kg”. */
 export function skladKartonu(c: StockCarton): string {

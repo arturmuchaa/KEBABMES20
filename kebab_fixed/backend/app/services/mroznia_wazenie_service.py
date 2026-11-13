@@ -237,7 +237,21 @@ def sprawdz(code: str) -> Dict[str, Any]:
         # poczekalni na zamówienie. „Nieznana kartka" wysyłała magazyn po nową.
         detail = e.detail if isinstance(e.detail, dict) else {}
         if detail.get("code") == "WAITING_FOR_ORDER":
-            return {"result": "WAITING", "message": detail.get("message") or ""}
+            # Paleta bez zamówienia, która STOI w mroźni, dalej ma swoje miejsce
+            # na rzucie — magazyn musi móc je wskazać skanem (hala 13.11.2026:
+            # „skanuję karton i nie mogę przypisać miejsca"). Oddajemy więc,
+            # czym jest, a kiosk otwiera dla niej rzut.
+            w = query_one("SELECT id, carton_no, client_name, status FROM orphan_pallets WHERE id=%s",
+                          (detail.get("orphanId"),)) if detail.get("orphanId") else None
+            wynik = {"result": "WAITING", "message": detail.get("message") or ""}
+            if w and w.get("status") == "cold_storage":
+                wynik.update({
+                    "kind": "waiting", "id": w["id"], "status": "cold_storage", "inColdStorage": True,
+                    "cartonNo": format_carton_no(w["carton_no"]) if w.get("carton_no") else "",
+                    "clientName": w.get("client_name") or "", "orderNo": "",
+                    "location": location('waiting', w["id"]),
+                })
+            return wynik
         return {"result": "INVALID"}
     p = query_one(
         """SELECT p.*, o.order_no, o.client_name FROM order_pallets p

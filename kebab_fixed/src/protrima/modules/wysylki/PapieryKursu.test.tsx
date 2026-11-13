@@ -7,11 +7,14 @@ import { AppCtx, type AppApi } from '../../shell/context'
 /** Papiery kursu: wystawienie zdejmuje towar ze stanu (WM) — test na danych w kształcie API. */
 const api = vi.hoisted(() => ({ get: vi.fn(), wystaw: vi.fn(), wydrukowano: vi.fn(), doWydruku: vi.fn() }))
 const pdf = vi.hoisted(() => vi.fn(() => Promise.resolve()))
-vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), zaladunkiApi: api, downloadDocPdf: pdf, carriersApi: { list: () => Promise.resolve([{ id: 'c1', name: 'TRANS-POL', city: 'Kraków', defaultPlate: 'KR1234A' }]) } }))
+const otworzBlob = vi.hoisted(() => vi.fn((_b: Blob, _n: string) => Promise.resolve()))
+const pobraneUrl = vi.hoisted(() => [] as string[])
+vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), zaladunkiApi: api, downloadDocPdf: pdf, openDocumentBlob: otworzBlob,
+  fetchBlob: async (url: string) => { pobraneUrl.push(url); const { PDFDocument } = await import('pdf-lib'); const d = await PDFDocument.create(); d.addPage([200, 200]); const b = await d.save(); return { arrayBuffer: async () => b.slice().buffer } }, carriersApi: { list: () => Promise.resolve([{ id: 'c1', name: 'TRANS-POL', city: 'Kraków', defaultPlate: 'KR1234A' }]) } }))
 const refresh = vi.fn(() => Promise.resolve())
 vi.mock('../../data/store', () => ({ useOrders: () => ({ refresh }) }))
 import { PapieryKursu } from './PapieryKursu'
-import { papieryPozycji, zamowieniaDoWystawienia, wpiszKg, calosc, PUSTA_DECYZJA, type Kurs } from './kurs'
+import { papieryPozycji, polaczPdfBajty, zamowieniaDoWystawienia, wpiszKg, calosc, PUSTA_DECYZJA, type Kurs } from './kurs'
 
 const KURS_SALDO: Kurs = {
   id: 'k2', plate: 'KOL1', finished_at: '2026-10-30T07:08:40Z', printed_at: '2026-10-30T09:00:00Z',
@@ -71,6 +74,17 @@ describe('Papiery kursu — logika', () => {
   })
 })
 
+describe('Papiery kursu — jeden PDF z zaznaczonych', () => {
+  it('łączy strony wszystkich dokumentów w kolejności listy', async () => {
+    const { PDFDocument } = await import('pdf-lib')
+    const dok = async (stron: number) => { const d = await PDFDocument.create(); for (let i = 0; i < stron; i++) d.addPage([100 + stron, 100]); const b = await d.save(); return { arrayBuffer: async () => b.slice().buffer as ArrayBuffer } }
+    const zrodla: Record<string, number> = { a: 2, b: 1 }
+    const bajty = await polaczPdfBajty([{ key: 'a', etykieta: 'CMR', numer: '1', url: 'a', plik: 'a.pdf' }, { key: 'b', etykieta: 'HDI', numer: '2', url: 'b', plik: 'b.pdf' }], url => dok(zrodla[url]))
+    const wynik = await PDFDocument.load(bajty)
+    expect(wynik.getPages().map(p => Math.round(p.getWidth()))).toEqual([102, 102, 101])
+  })
+})
+
 describe('Papiery kursu — ekran', () => {
   const mount = () => render(<AppCtx.Provider value={app}><PapieryKursu kursId="k1" active setCmds={c => { cmds = c }} onDone={vi.fn()} /></AppCtx.Provider>)
 
@@ -122,6 +136,31 @@ describe('Papiery kursu — ekran', () => {
     expect(cmds.find(c => c.id === 'printed')!.disabled).toBe(true)
     run('all')
     await waitFor(() => expect(pdf).toHaveBeenCalledTimes(5))
+  })
+
+  it('ptaszki: zaznaczone CMR i HDI do faktury idą do JEDNEGO PDF-a w kolejności listy; bez zaznaczenia druk zablokowany', async () => {
+    otworzBlob.mockClear(); pobraneUrl.length = 0
+    mount()
+    await screen.findByText('WM/27/10/26')
+    expect(cmds.find(c => c.id === 'print-sel')!.disabled).toBe(true)
+    fireEvent.click(screen.getByLabelText('Zaznacz do wydruku: CMR na drogę 68/10/26'))
+    fireEvent.click(screen.getByLabelText('Zaznacz do wydruku: HDI do faktury 53/10/26'))
+    const guzik = await screen.findByRole('button', { name: 'Drukuj zaznaczone (2)' })
+    fireEvent.click(guzik)
+    await waitFor(() => expect(otworzBlob).toHaveBeenCalledTimes(1))
+    // Kolejność listy (HDI przed CMR), nie kolejność klikania.
+    expect(pobraneUrl.map(u => u.replace(/^.*\/api/, ''))).toEqual(['/hdi/h2/pdf', '/cmr/c1/pdf'])
+    expect(otworzBlob.mock.calls[0][1]).toBe('Kurs_KOL47267_—_papiery.pdf')
+    expect(pdf).not.toHaveBeenCalled()
+  })
+
+  it('„Zaznacz wszystkie” zaznacza komplet kursu', async () => {
+    mount()
+    await screen.findByText('WM/27/10/26')
+    fireEvent.click(screen.getByRole('button', { name: 'Zaznacz wszystkie' }))
+    expect(await screen.findByRole('button', { name: 'Drukuj zaznaczone (4)' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Odznacz wszystkie' }))
+    expect(await screen.findByRole('button', { name: 'Drukuj zaznaczone' })).toBeTruthy()
   })
 })
 
