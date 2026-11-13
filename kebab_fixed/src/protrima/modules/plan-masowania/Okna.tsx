@@ -126,6 +126,28 @@ export function AnulujDialog({ w, nazwa, dzien, onClose, onDone }: { w: Wiersz; 
   )
 }
 
+/** Hurtowe anulowanie zaległych zleceń BEZ rezerwacji mięsa — po kolei, z licznikiem; po błędzie mówi, ile poszło. */
+export function AnulujZbiorczoDialog({ lista, onClose, onDone }: { lista: Array<{ id: string; recipeName: string; meatKg: number; planDate: string }>; onClose: () => void; onDone: (ile: number) => void }) {
+  const { busy, blad, zapisz } = useZapis()
+  const [zrobione, setZrobione] = useState(0)
+  return (
+    <Dialog title={`Anulować ${lista.length} zaległych zleceń bez mięsa?`} icon={<XCircle size={20} />} onClose={() => { if (!busy) onClose() }}
+      footer={<><button className="btn" disabled={busy} onClick={onClose} data-autofocus>Zostaw</button>
+        <button className="btn danger" disabled={busy || !lista.length} onClick={() => void zapisz(async () => {
+          let i = 0
+          try { for (const z of lista) { await mixingOrdersApi.cancel(z.id); i++; setZrobione(i) } } catch (e) {
+            throw new Error(`${e instanceof Error ? e.message : 'błąd'} — anulowano ${i} z ${lista.length}; odśwież plan.`)
+          }
+          onDone(i)
+        })}>{busy ? `Anuluję… ${zrobione}/${lista.length}` : `Anuluj ${lista.length} zleceń`}</button></>}>
+      <p className="muted pm-okno-opis">To zlecenia z minionych dni, których nikt nie zmasował i które <b>nie mają zarezerwowanego mięsa</b> — anulowanie niczego nie zmienia w stanach, tylko czyści kolejkę.
+        Zlecenia trzymające mięso zostają na liście do osobnej decyzji (przenieść albo anulować).</p>
+      <ul className="pm-zbiorczo">{lista.map(z => <li key={z.id}><span>{dataPl(z.planDate)}</span><b>{z.recipeName}</b><span className="tnum">{fmt(z.meatKg)} kg</span></li>)}</ul>
+      <Odmowa blad={blad} />
+    </Dialog>
+  )
+}
+
 /** Przeniesienie niewykonanego zlecenia na inny dzień — razem z jego rezerwacją mięsa. */
 export function PrzeniesDialog({ w, nazwa, zDnia, onClose, onDone }: { w: Wiersz; nazwa: string; zDnia: string; onClose: () => void; onDone: (naDzien: string) => void }) {
   const dzis = dzisIso()

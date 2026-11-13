@@ -1233,3 +1233,8 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .pm-kolej button:hover:not(:disabled) { color: var(--ink-1); background: var(--surface-sunk); }
 .pm-kolej button:disabled { opacity: .25; cursor: default; }
 .pm-wsady { display: block; margin-top: 2px; color: var(--ink-3); font-size: var(--fs-xs); text-align: right; white-space: nowrap; }
+.pm-zal-glowa { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; justify-content: space-between; }
+.pm-zal-bez { opacity: .75; }
+.pm-zbiorczo { margin: 0; padding: 0; list-style: none; max-height: 240px; overflow: auto; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); }
+.pm-zbiorczo li { display: grid; grid-template-columns: 84px minmax(0, 1fr) 80px; gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--line-soft); }
+.pm-zbiorczo li .tnum { text-align: right; }

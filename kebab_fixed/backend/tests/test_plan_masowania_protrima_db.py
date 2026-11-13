@@ -126,3 +126,11 @@ def test_uwagi_dla_operatora_zapis_i_stary_ekran_ich_nie_kasuje(db):
     # PROTRIMA pustym tekstem ją kasuje.
     plan = save_day_plan([{"id": oid, "recipeId": "r1", "meatKg": 800, "seq": 1, "meatLots": [], "notes": ""}], DZIS)
     assert not plan["items"][0]["notes"]
+
+
+def test_zalegle_zlecenie_nie_udaje_pokrycia_zamowien(db):
+    """Prod 13.11.2026: 26 zleceń od września liczyło się jako „zaplanowane" i zerowało brak."""
+    _receptura(); _zamowienie("o1", "r1", 40, 25)             # 1000 kg
+    _zlecenie("stare", "r1", 800, WCZORAJ)                    # nikt go nie zmasował
+    w = svc.mixing_demand(DZIS)["items"][0]
+    assert w["plannedMixingKg"] == 0 and w["missingOutputKg"] == 1000

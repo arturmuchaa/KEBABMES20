@@ -54,7 +54,12 @@ def bilans_receptury(
 
 
 def _masowania_otwarte_per_receptura() -> Dict[str, Dict[str, float]]:
-    """Półprodukt, który DA niewykonana część otwartych zleceń masowania."""
+    """Półprodukt, który DA niewykonana część otwartych zleceń masowania.
+
+    Tylko zlecenia na dziś i przyszłość (albo już w masownicy). Zaległe z
+    minionych dni NIE są planem — produkcja 13.11.2026 miała 26 takich od
+    września i każde udawało pokrycie zamówień, zaniżając brak do zera.
+    """
     out: Dict[str, Dict[str, float]] = {}
     for r in query_all(
         """
@@ -62,7 +67,9 @@ def _masowania_otwarte_per_receptura() -> Dict[str, Dict[str, float]]:
                planned_output_kg, meat_kg, COALESCE(kg_done, 0) AS kg_done
         FROM mixing_orders
         WHERE status IN ('planned', 'confirmed', 'in_progress') AND recipe_id IS NOT NULL
-        """
+          AND (plan_date IS NULL OR plan_date >= %s OR status = 'in_progress')
+        """,
+        (_today_iso(),),
     ):
         meat = float(r["meat_kg"] or 0)
         if meat <= 0:

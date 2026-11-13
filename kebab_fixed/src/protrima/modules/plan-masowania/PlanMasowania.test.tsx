@@ -146,6 +146,21 @@ describe('Plan masowania — ekran', () => {
     await waitFor(() => expect(mix.move).toHaveBeenCalledWith('s1', DZIS))
   })
 
+  it('długa lista zaległych: zwinięta, te z mięsem na wierzchu, hurtowe anulowanie tylko tych bez mięsa', async () => {
+    const z = (id: string, reservedKg: number) => ({ id, recipeId: 'r1', recipeName: `REC-${id}`, meatKg: 600, status: 'confirmed', planDate: przesunDzien(DZIS, -9), reservedKg,
+      meatLots: reservedKg ? [{ meatLotId: 'ms2', meatLotNo: '713', kgPlanned: reservedKg, kgActual: 0 }] : [], sessions: [] })
+    mix.stale.mockResolvedValue([z('a', 0), z('b', 0), z('c', 4000), z('d', 0), z('e', 0)])
+    mix.cancel.mockResolvedValue({})
+    mount()
+    expect(await screen.findByText(/Zaległe zlecenia z poprzednich dni: 5/)).toBeTruthy()
+    expect(screen.getByText('REC-c')).toBeTruthy()            // trzyma mięso — widać od razu
+    expect(screen.queryByText('REC-a')).toBeNull()            // reszta zwinięta
+    fireEvent.click(screen.getByRole('button', { name: /Anuluj 4 bez mięsa…/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Anuluj 4 zleceń' }))
+    await waitFor(() => expect(mix.cancel).toHaveBeenCalledTimes(4))
+    expect(mix.cancel.mock.calls.map(c => c[0])).toEqual(['a', 'b', 'd', 'e'])
+  })
+
   it('potwierdzenie pozycji z dwóch partii: podział i sekwencja sesji, mieszana ostatnia', async () => {
     mix.finishSession.mockResolvedValue({})
     mount()

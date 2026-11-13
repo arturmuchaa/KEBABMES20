@@ -14,7 +14,7 @@ import type { IngredientStock, Recipe } from '@/features/ingredients/types'
 import { autoFefoDistribute } from '@/features/products/lib/autoFefo'
 import { liveFreeByLot, reservedByLot, withDayPool } from '@/features/products/lib/planLiveBalance'
 import { fefoLotCompare } from '@/lib/utils/fefo'
-import { AnulujDialog, CofnijDialog, DrukPlanuDialog, PotwierdzDialog, PrzeniesDialog } from './Okna'
+import { AnulujDialog, AnulujZbiorczoDialog, CofnijDialog, DrukPlanuDialog, PotwierdzDialog, PrzeniesDialog } from './Okna'
 import {
   ETYKIETA_STATUSU, bilans, bledy, dataPl, doZapisu, dzisIso, fmt, fmt2, kgPartii, kgWiersza, liczba, nazwaDnia, nietykalny, odcisk, opisWsadow,
   pierwszyBlad, polprodukt, potrzebyNaZywo, wsady, przesun, przesunDzien, przyprawyPlanu, rodzajDnia, stanPartii, sumaPartii, toZs, wypelniony, zOgonem, zPlanu,
@@ -24,7 +24,7 @@ import {
 type Zakladka = 'potrzeby' | 'partie' | 'przyprawy'
 type Okno =
   | { rodzaj: 'potwierdz' | 'cofnij' | 'anuluj' | 'przenies'; w: Wiersz; zDnia?: string }
-  | { rodzaj: 'druk' } | { rodzaj: 'dzien'; cel: string } | null
+  | { rodzaj: 'druk' } | { rodzaj: 'zbiorczo' } | { rodzaj: 'dzien'; cel: string } | null
 
 const KOLUMN = 7
 
@@ -249,19 +249,10 @@ export function PlanMasowaniaModule({ active, setCtx, setCmds }: { active: boole
 
       <div className="pm-uklad">
         <div className="pm-lewa">
-          {!tylkoPodglad && zalegle.length > 0 && (
-            <div className="note warn pm-zalegle" role="status"><FlagIcon level="warn" size={15} />
-              <div><b>Zaległe zlecenia z poprzednich dni: {zalegle.length}</b> — nikt ich nie zmasował, a trzymają {fmt(zalegle.reduce((s, z) => s + z.reservedKg, 0))} kg mięsa.
-                <ul>{zalegle.map(z => {
-                  const w = zPlanu([z as unknown as PozycjaSerwera])[0]
-                  return <li key={z.id}><span><b>{z.recipeName}</b> · {fmt(z.meatKg)} kg · plan na {dataPl(z.planDate)}{z.reservedKg > 0 ? ` · partie ${z.meatLots.filter(l => l.kgPlanned > 0).map(l => l.meatLotNo).join(', ')}` : ''}</span>
-                    <span className="pm-zal-akcje">
-                      {z.status !== 'in_progress' && <button className="btn sm" disabled={zmieniony} data-tip={zmieniony ? 'najpierw zapisz plan' : undefined} onClick={() => setOkno({ rodzaj: 'przenies', w, zDnia: z.planDate })}><CalendarClock size={14} />Przenieś…</button>}
-                      <button className="btn sm ghost danger" onClick={() => setOkno({ rodzaj: 'anuluj', w, zDnia: z.planDate })}><XCircle size={14} />Anuluj…</button>
-                      <button className="btn sm ghost" onClick={() => zmienDzien(z.planDate)}>Pokaż dzień</button>
-                    </span></li>
-                })}</ul></div></div>
-          )}
+          {!tylkoPodglad && zalegle.length > 0 && <Zalegle lista={zalegle} zmieniony={zmieniony}
+            onPrzenies={z => setOkno({ rodzaj: 'przenies', w: zPlanu([z as unknown as PozycjaSerwera])[0], zDnia: z.planDate })}
+            onAnuluj={z => setOkno({ rodzaj: 'anuluj', w: zPlanu([z as unknown as PozycjaSerwera])[0], zDnia: z.planDate })}
+            onDzien={zmienDzien} onZbiorczo={() => setOkno({ rodzaj: 'zbiorczo' })} />}
           {bladPlanu && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Nie udało się pobrać planu:</b> {bladPlanu} <button className="btn sm" onClick={() => void wczytaj(dzien)}>Spróbuj ponownie</button></div></div>}
           {bladZapisu && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Plan nie został zapisany:</b> {bladZapisu}</div></div>}
 
@@ -359,6 +350,8 @@ export function PlanMasowaniaModule({ active, setCtx, setCmds }: { active: boole
       {okno?.rodzaj === 'anuluj' && <AnulujDialog w={okno.w} nazwa={nazwa(okno.w)} dzien={okno.zDnia} onClose={() => setOkno(null)} onDone={() => poOperacji('Zlecenie anulowane', 'mięso wróciło do puli')} />}
       {okno?.rodzaj === 'przenies' && <PrzeniesDialog w={okno.w} nazwa={nazwa(okno.w)} zDnia={okno.zDnia ?? dzien} onClose={() => setOkno(null)}
         onDone={cel => { poOperacji(`Zlecenie przeniesione na ${nazwaDnia(cel, dzis)}`, `${nazwa(okno.w)} · ${fmt(kgWiersza(okno.w))} kg — z partiami mięsa`); if (cel !== dzien && !zmieniony) setDzien(cel) }} />}
+      {okno?.rodzaj === 'zbiorczo' && <AnulujZbiorczoDialog lista={zalegle.filter(z => z.reservedKg <= 0)} onClose={() => setOkno(null)}
+        onDone={n => poOperacji(`Anulowano ${n} zaległych zleceń`, 'żadne nie trzymało mięsa — lista zaległych jest krótsza')} />}
       {okno?.rodzaj === 'druk' && <DrukPlanuDialog dzien={dzien} receptury={receptury} onClose={() => setOkno(null)} />}
       {okno?.rodzaj === 'dzien' && <NiezapisaneDialog cel={okno.cel} dzis={dzis} zapisuje={zapisuje} mozna={!brak}
         onZostan={() => setOkno(null)} onPorzuc={() => { const c = okno.cel; setOkno(null); setDzien(c) }}
@@ -519,5 +512,39 @@ function PrzyprawyPanel({ lista }: { lista: Przyprawa[] }) {
           </tr>))}</tbody>
       </table>
     </div>
+  )
+}
+
+/**
+ * Zaległe zlecenia z minionych dni. Najpierw te, które trzymają mięso — o nie
+ * chodzi naprawdę. Przy długiej liście (produkcja miała 26 od września) baner
+ * jest zwinięty do podsumowania, a zlecenia bez rezerwacji anuluje się hurtem.
+ */
+function Zalegle({ lista, zmieniony, onPrzenies, onAnuluj, onDzien, onZbiorczo }: {
+  lista: StaleMixingOrder[]; zmieniony: boolean; onPrzenies: (z: StaleMixingOrder) => void; onAnuluj: (z: StaleMixingOrder) => void; onDzien: (d: string) => void; onZbiorczo: () => void
+}) {
+  const [rozwiniete, setRozwiniete] = useState(lista.length <= 3)
+  const zMiesem = lista.filter(z => z.reservedKg > 0), bez = lista.filter(z => z.reservedKg <= 0)
+  const kg = zMiesem.reduce((s, z) => s + z.reservedKg, 0)
+  const wiersz = (z: StaleMixingOrder) => (
+    <li key={z.id}><span><b>{z.recipeName}</b> · {fmt(z.meatKg)} kg · plan na {dataPl(z.planDate)}
+      {z.reservedKg > 0 ? <> · <b>trzyma {fmt(z.reservedKg)} kg</b> z partii {z.meatLots.filter(l => l.kgPlanned > 0).map(l => l.meatLotNo).join(', ')}</> : <span className="pm-zal-bez"> · bez mięsa</span>}</span>
+      <span className="pm-zal-akcje">
+        {z.status !== 'in_progress' && <button className="btn sm" disabled={zmieniony} data-tip={zmieniony ? 'najpierw zapisz plan' : undefined} onClick={() => onPrzenies(z)}><CalendarClock size={14} />Przenieś…</button>}
+        <button className="btn sm ghost danger" onClick={() => onAnuluj(z)}><XCircle size={14} />Anuluj…</button>
+        <button className="btn sm ghost" onClick={() => onDzien(z.planDate)}>Pokaż dzień</button>
+      </span></li>
+  )
+  return (
+    <div className={`note ${zMiesem.length ? 'warn' : ''} pm-zalegle`} role="status"><FlagIcon level={zMiesem.length ? 'warn' : 'info'} size={15} />
+      <div>
+        <div className="pm-zal-glowa"><span><b>Zaległe zlecenia z poprzednich dni: {lista.length}</b> — nikt ich nie zmasował
+          {zMiesem.length ? <>; {zMiesem.length === lista.length ? 'wszystkie trzymają' : <><b>{zMiesem.length}</b> z nich trzyma</>} <b>{fmt(kg)} kg mięsa</b>, którego nie da się zaplanować</> : ', mięsa nie trzymają'}.</span>
+          <span className="pm-zal-akcje">
+            {bez.length > 1 && <button className="btn sm" onClick={onZbiorczo} data-tip="Anuluje naraz zaległe zlecenia, które nie mają zarezerwowanego mięsa">Anuluj {bez.length} bez mięsa…</button>}
+            {lista.length > 3 && <button className="btn sm ghost" aria-expanded={rozwiniete} onClick={() => setRozwiniete(r => !r)}>{rozwiniete ? 'Zwiń' : 'Pokaż listę'}</button>}
+          </span></div>
+        {rozwiniete ? <ul>{[...zMiesem, ...bez].map(wiersz)}</ul> : zMiesem.length > 0 && <ul>{zMiesem.slice(0, 3).map(wiersz)}{zMiesem.length > 3 && <li className="muted">…i {zMiesem.length - 3} kolejnych z mięsem — „Pokaż listę”</li>}</ul>}
+      </div></div>
   )
 }
