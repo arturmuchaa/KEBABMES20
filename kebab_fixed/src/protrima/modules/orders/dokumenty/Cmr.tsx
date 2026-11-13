@@ -82,15 +82,17 @@ export function CmrDialog({ orderId, orderNo, onClose }: { orderId: string; orde
 }
 
 /** HDI z zamówienia: serwer generuje (albo pokazuje zamrożone dla zamkniętego), potem PDF. */
-export async function generujHdi(orderId: string, toast: (t: { kind?: 'ok' | 'info' | 'warn'; title: string; detail?: string }) => void, przedZaladunkiem = false): Promise<void> {
+export async function generujHdi(orderId: string, toast: (t: { kind?: 'ok' | 'info' | 'warn'; title: string; detail?: string }) => void, przedZaladunkiem = false, usluga = false): Promise<void> {
+  const nazwa = usluga ? 'HDI usługa' : 'HDI'
   try {
     // Przed załadunkiem: HDI z rozpisu zamówienia, bez skanów — do wysłania klientowi z wyprzedzeniem.
-    const r = await hdiApi.generate(orderId, przedZaladunkiem)
+    // `usluga`: osobne HDI na towar usługobiorcy (pozycje usługowe zamówienia).
+    const r = await hdiApi.generate(orderId, przedZaladunkiem, usluga ? 'usluga' : undefined)
     toast(r.incomplete
-      ? { kind: 'warn', title: `HDI ${r.number} — na stan faktyczny`, detail: `Nie wszystko wyprodukowano: ${r.totals?.qty ?? 0} szt. / ${Math.round(r.totals?.kg ?? 0)} kg.` }
-      : { kind: 'ok', title: `HDI ${r.number}`, detail: 'Otwieram PDF.' })
+      ? { kind: 'warn', title: `${nazwa} ${r.number} — na stan faktyczny`, detail: `Nie wszystko wyprodukowano: ${r.totals?.qty ?? 0} szt. / ${Math.round(r.totals?.kg ?? 0)} kg.` }
+      : { kind: 'ok', title: `${nazwa} ${r.number}`, detail: 'Otwieram PDF.' })
     await downloadDocPdf(hdiApi.pdfUrl(r.id), `HDI-${r.number.replace(/\//g, '-')}.pdf`)
   } catch (e) {
-    toast({ kind: 'warn', title: 'Nie udało się wygenerować HDI', detail: e instanceof Error ? e.message : '' })
+    toast({ kind: 'warn', title: `Nie udało się wygenerować ${nazwa}`, detail: e instanceof Error ? e.message : '' })
   }
 }

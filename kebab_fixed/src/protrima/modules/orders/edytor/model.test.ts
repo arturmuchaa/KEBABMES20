@@ -37,7 +37,7 @@ describe('edytor zamówienia — model', () => {
   it('kolejna pozycja dziedziczy rodzaj, recepturę i tuleję — gramaturę i ilość wpisuje biuro; sumy', () => {
     const k = kolejnaPozycja(line())
     expect(k).toMatchObject({ productTypeId: 'pt', recipeId: 'r1', packagingId: 'pk', kgPerUnit: '', qty: '', id: '' })
-    expect(sumy({ ...nowyFormularz(''), lines: [line(), line({ qty: '4', kgPerUnit: '10' }), k] })).toEqual({ n: 2, szt: 24, kg: 540 })
+    expect(sumy({ ...nowyFormularz(''), lines: [line(), line({ qty: '4', kgPerUnit: '10' }), k] })).toEqual({ n: 2, szt: 24, kg: 540, kgUsluga: 0 })
   })
   it('wpisana gramatura bez ilości to pozycja — walidacja jej nie gubi', () => {
     const f = { ...nowyFormularz('2026-10-30'), clientId: 'c1', lines: [line(), { ...kolejnaPozycja(line()), kgPerUnit: '15' }] }
@@ -90,5 +90,20 @@ describe('edytor zamówienia — model', () => {
     expect(dni.map(d => d.dzien)).toEqual(['sobota', 'niedziela', 'poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek'])
     expect(dni[0]).toMatchObject({ iso: '2026-10-31', dzienMies: '31.10', rel: 'jutro' })
     expect(dni[6]).toMatchObject({ iso: '2026-11-06', dzienMies: '06.11', rel: '' })
+  })
+})
+
+describe('pozycje usługowe (VATAN: kurczak na usługę, yaprak sprzedaż)', () => {
+  const f = { ...nowyFormularz('2026-11-13'), clientId: 'c1', lines: [line({ usluga: true, qty: '10', kgPerUnit: '30' }), line({ recipeId: 'r2', qty: '5', kgPerUnit: '20' })] }
+  const s = { productTypes: [{ id: 'pt', name: 'KEBAB' }], recipes: [{ id: 'r1', name: 'KURCZAK' }, { id: 'r2', name: 'YAPRAK' }], packaging: [{ id: 'pk', name: '65' }] }
+  it('DTO niesie znacznik usługi na każdej pozycji', () => {
+    expect(doDto(f, s).lines.map(l => [l.recipeId, l.usluga])).toEqual([['r1', true], ['r2', false]])
+  })
+  it('sumy pokazują, ile z tego to usługa', () => {
+    expect(sumy(f)).toMatchObject({ kg: 400, kgUsluga: 300 })
+  })
+  it('kolejna pozycja dziedziczy znacznik usługi', () => {
+    expect(kolejnaPozycja(f.lines[0]).usluga).toBe(true)
+    expect(kolejnaPozycja(f.lines[1]).usluga).toBe(false)
   })
 })

@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -16,6 +16,10 @@ class OrderLineCreate(BaseModel):
     recipe_name: str = ""
     packaging_id: str = ""
     packaging_name: str = ""
+    #: Pozycja usługowa (towar usługobiorcy, bez WZ/faktury od nas). `None` =
+    #: klient nie wysłał pola — przy edycji zostaje dotychczasowa wartość, żeby
+    #: starszy formularz nie kasował flagi ustawionej w PROTRIMA.
+    usluga: Optional[bool] = None
 
 
 class ClientOrderCreate(BaseModel):

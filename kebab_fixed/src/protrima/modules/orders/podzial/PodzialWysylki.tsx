@@ -237,6 +237,15 @@ export function PodzialWysylki({ orderId, orderNo, clientName, kgCalosc, active,
                 const raw = overrides[line.id]
                 const k = parseOverride(raw)
                 const naWz = k === 'blad' ? null : k === 'brak' ? line.qty_wz : line.qty - k
+                // Pozycja usługowa nie wchodzi do podziału — towar usługobiorcy idzie na WM i HDI usługa.
+                if (line.usluga) return (
+                  <tr key={line.id} className="row">
+                    <td><b>{line.recipe_name}</b> <span className="tag info">usługa</span>{line.product_type_name && <span className="sub">{line.product_type_name}</span>}</td>
+                    <td className="num">{kgT(line.kg_per_unit)}</td>
+                    <td className="num">{line.qty}</td>
+                    <td className="num muted" colSpan={2}>poza podziałem — HDI usługa</td>
+                  </tr>
+                )
                 return (
                   <tr key={line.id} className="row editing">
                     <td><b>{line.recipe_name}</b>{line.product_type_name && <span className="sub">{line.product_type_name}</span>}</td>
@@ -251,7 +260,7 @@ export function PodzialWysylki({ orderId, orderNo, clientName, kgCalosc, active,
             </table></div>
             <div className={`note${hasPendingOverrides ? ' warn' : ''}`}><div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
               {hasPendingOverrides && <b style={{ flexBasis: '100%' }}>Sumy poniżej są sprzed tej korekty — zapisz podział, żeby je przeliczyć.</b>}
-              <span>Na fakturę <b>{kgT(preview.kg_fv)} kg</b></span><span>Na WZ <b>{kgT(preview.kg_wz)} kg</b></span><span>Razem <b>{kgT(preview.kg_calosc)} kg</b></span>
+              <span>Na fakturę <b>{kgT(preview.kg_fv)} kg</b></span><span>Na WZ <b>{kgT(preview.kg_wz)} kg</b></span><span>Razem{preview.lines.some(l => l.usluga) ? ' sprzedaż' : ''} <b>{kgT(preview.kg_calosc)} kg</b></span>
               <span className={preview.trafiono === false ? 'warn-ink strong' : ''}>Odchyłka <b>{odchylkaTekst(preview.odchylka)}</b></span>
             </div></div>
           </>}

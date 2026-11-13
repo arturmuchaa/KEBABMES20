@@ -682,6 +682,24 @@ def _dokument_podzialu_cx(conn, order_id: str) -> Optional[Dict[str, Any]]:
     )
 
 
+_KOMUNIKAT_USLUGA = (
+    "Zamówienie ma pozycje usługowe — towar usługobiorcy nie może wejść na zwykłą "
+    "WZ. Dokumenty (WM, WZ na sprzedaż, HDI własne i HDI usługa) wystaw w Papierach "
+    "kursu po załadunku.")
+
+
+def _odmow_gdy_zamowienie_ma_usluge(order_id: Optional[str], conn=None) -> None:
+    """Zwykła WZ z zamówienia (stara ścieżka i ręczna WZ z podpowiedzi) zna
+    tylko „cały towar na jeden dokument" — wpisałaby kurczak usługobiorcy na
+    WZ dla klienta. Zamówienie z usługą idzie wyłącznie kompletem z kursu."""
+    if not (order_id or "").strip():
+        return
+    sql = "SELECT 1 FROM client_order_lines WHERE order_id=%s AND usluga LIMIT 1"
+    jest = cx_query_one(conn, sql, (order_id,)) if conn is not None else query_one(sql, (order_id,))
+    if jest:
+        raise HTTPException(400, _KOMUNIKAT_USLUGA)
+
+
 def _odmow_gdy_zamowienie_ma_podzial_bez_conn(order_id: Optional[str]) -> None:
     """Ten sam guard dla ścieżek, które jeszcze nie otworzyły transakcji —
     formularz WZ pyta o podpowiedzi (`picks_from_order`) ZANIM cokolwiek
@@ -689,6 +707,7 @@ def _odmow_gdy_zamowienie_ma_podzial_bez_conn(order_id: Optional[str]) -> None:
     otwieraniu ekranu niż po wypełnieniu całego dokumentu."""
     if not (order_id or "").strip():
         return
+    _odmow_gdy_zamowienie_ma_usluge(order_id)
     podzial = query_one(
         "SELECT id, number FROM wz_documents WHERE source_type='order' AND source_id=%s "
         "AND split_scope IS NOT NULL AND COALESCE(status,'')<>'anulowany' "
@@ -715,6 +734,7 @@ def _odmow_gdy_zamowienie_ma_podzial(conn, order_id: Optional[str]) -> None:
     korekty stanów, a odmowa jest w pełni odwracalna."""
     if not (order_id or "").strip():
         return
+    _odmow_gdy_zamowienie_ma_usluge(order_id, conn)
     podzial = _dokument_podzialu_cx(conn, order_id)
     if podzial:
         raise HTTPException(400, _KOMUNIKAT_PODZIAL.format(numer=podzial["number"]))
@@ -1795,6 +1815,7 @@ def create_wz_from_order(
 
     valued + prices = [{index, price}] → wycena ZA KG (apply_wz_prices liczy
     po total_kg linii) w walucie currency (przy EUR eur_rate = kurs NBP)."""
+    _odmow_gdy_zamowienie_ma_usluge(order_id)
     p = _order_wz_payload(order_id)
     order, buyer, incomplete = p["order"], p["buyer"], p["incomplete"]
     lines = p["lines"]

@@ -38,6 +38,7 @@ export function zZamowienia(o: ClientOrder, nazwaTulei?: (id: string) => string 
     lines: sortOrderLines(o.lines.map(l => ({
       id: l.id ?? '', qty: String(l.qty), kgPerUnit: String(l.kgPerUnit),
       productTypeId: l.productTypeId, recipeId: l.recipeId, packagingId: l.packagingId ?? '', notes: l.notes ?? '',
+      usluga: !!l.usluga,
     })), nazwaTulei),
   }
 }
@@ -164,17 +165,18 @@ export function doDto(f: FormZam, s: Slowniki): CreateClientOrderDto {
       packagingId: l.packagingId || undefined,
       packagingName: l.packagingId ? (s.packaging.find(p => p.id === l.packagingId)?.name || '') : undefined,
       notes: l.notes.trim() || undefined,
+      usluga: !!l.usluga,
     })),
   }
 }
 
 /**
- * Nowa pozycja dziedziczy rodzaj, recepturę i tuleję po ostatniej; gramaturę i ilość
+ * Nowa pozycja dziedziczy rodzaj, recepturę, tuleję i znacznik usługi po ostatniej; gramaturę i ilość
  * wpisuje biuro — w serii pozycje różnią się zwykle wagą i liczbą sztuk (jak w starym MES).
  */
 export function kolejnaPozycja(last?: LineForm): LineForm {
   const e = emptyLine()
-  return last ? { ...e, productTypeId: last.productTypeId, recipeId: last.recipeId, packagingId: last.packagingId } : e
+  return last ? { ...e, productTypeId: last.productTypeId, recipeId: last.recipeId, packagingId: last.packagingId, usluga: !!last.usluga } : e
 }
 
 /**
@@ -196,4 +198,5 @@ export function ostrzezenieUsuniecia(o: ClientOrder | null, lineId?: string): st
   return czesci.length ? `Ta pozycja ma już ${czesci.join(' i ')}. Zapis z jej usunięciem może zostać odrzucony.` : null
 }
 
-export const sumy = (f: FormZam) => f.lines.filter(l => !pustyWiersz(l)).reduce((a, l) => ({ n: a.n + 1, szt: a.szt + num(l.qty), kg: a.kg + num(l.qty) * num(l.kgPerUnit) }), { n: 0, szt: 0, kg: 0 })
+export const sumy = (f: FormZam) => f.lines.filter(l => !pustyWiersz(l)).reduce((a, l) => ({ n: a.n + 1, szt: a.szt + num(l.qty), kg: a.kg + num(l.qty) * num(l.kgPerUnit),
+  kgUsluga: a.kgUsluga + (l.usluga ? num(l.qty) * num(l.kgPerUnit) : 0) }), { n: 0, szt: 0, kg: 0, kgUsluga: 0 })

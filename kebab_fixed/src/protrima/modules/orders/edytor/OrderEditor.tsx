@@ -56,7 +56,7 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
     recipes: ((recipesRes.data ?? []) as Array<{ id: string; name: string; productTypeId?: string; productTypeName?: string; active?: boolean }>).filter(r => r.active !== false),
     packaging: ((packRes.data ?? []) as Array<{ id: string; name: string; type?: string }>),
   }), [typesRes.data, recipesRes.data, packRes.data])
-  const clients = useMemo(() => ((clientsRes.data ?? []) as Array<{ id: string; name: string; displayName?: string; city?: string; active?: boolean }>)
+  const clients = useMemo(() => ((clientsRes.data ?? []) as Array<{ id: string; name: string; displayName?: string; city?: string; active?: boolean; uslugi?: boolean }>)
     .filter(c => c.active !== false).sort((a, b) => (a.displayName || a.name).localeCompare(b.displayName || b.name, 'pl')), [clientsRes.data])
 
   const [f, setF] = useState<FormZam>(() => nowyFormularz(dzisIso()))
@@ -226,6 +226,9 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
   }, [active])
 
   const klient = clients.find(c => c.id === f.clientId)
+  // Kolumna „Usługa” tylko u klienta usługowego (kartoteka: „Produkcja na usługę”) albo gdy
+  // zamówienie już ma pozycję usługową — zwykłe zamówienia wyglądają jak dotąd.
+  const zUsluga = !!klient?.uslugi || f.lines.some(l => l.usluga)
   const klienci = useMemo(() => clients.map(c => ({ id: c.id, label: c.displayName || c.name, sub: opisKlienta(c) || undefined })), [clients])
   const rodzaje = useMemo(() => s.productTypes.map(p => ({ id: p.id, label: p.name })), [s.productTypes])
   const tuleje = useMemo(() => s.packaging.map(p => ({ id: p.id, label: p.name })), [s.packaging])
@@ -318,7 +321,9 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
             <table className="tbl editor-tbl">
               <thead><tr>
                 <th className="num" style={{ width: 44 }}>Lp.</th><th style={{ width: '21%' }}>Rodzaj</th><th style={{ width: '21%' }}>Receptura</th><th style={{ width: '14%' }}>Tuleja / opakowanie</th>
-                <th className="num" style={{ width: 128 }}>Ilość</th><th className="num" style={{ width: 120 }}>Gramatura</th><th className="num" style={{ width: 108 }}>Masa</th><th className="hide-m">Uwagi</th><th style={{ width: 44 }} />
+                <th className="num" style={{ width: 128 }}>Ilość</th><th className="num" style={{ width: 120 }}>Gramatura</th><th className="num" style={{ width: 108 }}>Masa</th>
+                {zUsluga && <th style={{ width: 84 }} data-tip="Towar usługobiorcy: jedzie w tych samych kartonach, ale bez naszej WZ i faktury — dostaje osobne HDI „usługa”.">Usługa</th>}
+                <th className="hide-m">Uwagi</th><th style={{ width: 44 }} />
               </tr></thead>
               <tbody>
                 {wiersze.map((l, i) => {
@@ -346,19 +351,24 @@ export function OrderEditor({ tabId, orderId, copyFromId, active, setCmds, onDon
                           onChange={e => setLine(i, { kgPerUnit: e.target.value })}
                           onKeyDown={dalejKlawisz(i)} /> <span className="sub">kg</span></td>
                         <td className="num">{num(l.qty) > 0 && num(l.kgPerUnit) > 0 ? kg(num(l.qty) * num(l.kgPerUnit)) : <span className="faint">—</span>}</td>
+                        {zUsluga && <td><label className="ed-usluga" data-tip="Usługa — towar usługobiorcy (osobne HDI, bez WZ i faktury)">
+                          <input type="checkbox" className="cbx" checked={!!l.usluga} disabled={!!blokada || pusty}
+                            aria-label={`Usługa, pozycja ${i + 1}`} onChange={e => setLine(i, { usluga: e.target.checked })} />
+                          {l.usluga && !pusty && <span className="ed-usluga-txt">usługa</span>}</label></td>}
                         <td className="hide-m"><input id={id('u')} className="field" value={l.notes} disabled={!!blokada} aria-label={`Uwagi, pozycja ${i + 1}`}
                           onChange={e => setLine(i, { notes: e.target.value })}
                           onKeyDown={dalejKlawisz(i)} /></td>
                         <td>{!nowy && <button className="btn ghost icon sm" style={{ width: 28 }} disabled={!!blokada} onClick={() => (l.id ? setUsunIdx(i) : removeLine(i))} aria-label={`Usuń pozycję ${i + 1}`}><Trash2 size={15} /></button>}</td>
                       </tr>
                       {/* Kolumna Uwagi znika na laptopie (hide-m) — wiersz błędu musi mieć tyle samo kolumn, inaczej tabela dostaje pustą kolumnę z prawej. */}
-                      {errs.length > 0 && <tr className="err-row"><td /><td colSpan={6}><span className="crit-ink" style={{ fontSize: 'var(--fs-sm)' }}>{errs.join(' ')}</span></td><td className="hide-m" /><td /></tr>}
+                      {errs.length > 0 && <tr className="err-row"><td /><td colSpan={zUsluga ? 7 : 6}><span className="crit-ink" style={{ fontSize: 'var(--fs-sm)' }}>{errs.join(' ')}</span></td><td className="hide-m" /><td /></tr>}
                     </React.Fragment>
                   )
                 })}
               </tbody>
               {/* Suma przyklejona do dołu przewijanego obszaru — widać ją przy każdej długości zamówienia. */}
-              <tfoot><tr><td /><td colSpan={3}>Razem — {t.n} poz.</td><td className="num">{fmtNum(t.szt)} <span className="sub">szt.</span></td><td /><td className="num">{kg(t.kg)}</td><td className="hide-m" /><td /></tr></tfoot>
+              <tfoot><tr><td /><td colSpan={3}>Razem — {t.n} poz.{t.kgUsluga > 0 && <span className="sub" style={{ display: 'inline', marginLeft: 8 }} data-tip="Towar usługobiorcy — osobne HDI „usługa”, bez WZ i faktury">· w tym usługa {kg(t.kgUsluga)}</span>}</td>
+                <td className="num">{fmtNum(t.szt)} <span className="sub">szt.</span></td><td /><td className="num">{kg(t.kg)}</td>{zUsluga && <td />}<td className="hide-m" /><td /></tr></tfoot>
             </table>
           </div>
           {PROBA && <div className="note info"><FlagIcon level="info" size={15} /><div>W wersji próbnej zapis trafia do KOPII bazy. „Zapisz szkic” zostawia zamówienie poza planowaniem, „Zapisz i potwierdź” od razu je potwierdza.</div></div>}

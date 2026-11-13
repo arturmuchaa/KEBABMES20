@@ -184,7 +184,7 @@ function Shell() {
   const printPicking = useCallback((ids: string[]) => setKompIds(ids.length ? ids : null), [])
   const [cmrId, setCmrId] = useState<string | null>(null)
   const openCmr = useCallback((id: string) => setCmrId(id), [])
-  const genHdi = useCallback((id: string, przedZaladunkiem?: boolean) => { void generujHdi(id, t => toastRef.current?.(t), !!przedZaladunkiem) }, [])
+  const genHdi = useCallback((id: string, przedZaladunkiem?: boolean, usluga?: boolean) => { void generujHdi(id, t => toastRef.current?.(t), !!przedZaladunkiem, !!usluga) }, [])
   const splitOrder = useCallback((id: string) => {
     const o = orders.find(x => x.id === id)
     openTab({ id: `split:${id}`, kind: 'split', key: id, title: `Podział ${o?.no ?? ''}`, icon: FileText })

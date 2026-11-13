@@ -38,3 +38,5 @@ class ClientCreate(BaseModel):
     # Własne nazwy receptur dla tego odbiorcy (BEYAZ AFIYET → BEYAZ).
     hdi_recipe_names: List[ClientRecipeName] = []
     halal_supervision: bool = False
+    # Produkujemy dla niego także na usługę — w zamówieniu pole „Usługa" przy pozycji.
+    uslugi: bool = False

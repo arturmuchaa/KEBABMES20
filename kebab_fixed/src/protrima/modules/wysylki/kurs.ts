@@ -20,8 +20,10 @@ export interface PozycjaKursu {
   rozliczenia_otwarte?: boolean
   /** 'do_wystawienia' — czeka na biuro; 'wystawiony'; 'rozjazd' — dokument ≠ załadunek. */
   wz_status: string | null
-  /** Co FAKTYCZNIE wyjechało tym kursem — z tego liczy się „całość”. */
+  /** Co FAKTYCZNIE wyjechało tym kursem (razem z usługą). */
   kg_zaladowane: number
+  /** Z tego towar usługobiorcy (pozycje usługowe): idzie na WM i HDI „usługa”, nigdy na fakturę ani WZ. */
+  kg_usluga?: number
   zaladowano: Array<{ stock_id: string; batch_no: string | null; szt: number }>
   wz: DokKursu[]
   hdi: DokKursu[]
@@ -43,30 +45,41 @@ export interface Transport { carrier_id: string; plate: string; invoice_no: stri
 
 const liczba = (s: string) => { const v = parseFloat(String(s ?? '').replace(/\s/g, '').replace(',', '.')); return Number.isFinite(v) ? v : 0 }
 
+/**
+ * Kilogramy, które biuro dzieli na fakturę i WZ — to, co wyjechało, BEZ usługi.
+ * Towar usługobiorcy (VATAN: kurczak na usługę) fakturuje on sam; u nas dostaje tylko
+ * WM i osobne HDI „usługa”.
+ */
+export const kgSprzedazy = (p: Pick<PozycjaKursu, 'kg_zaladowane' | 'kg_usluga'>) =>
+  Math.max(0, Math.round((p.kg_zaladowane - (p.kg_usluga ?? 0)) * 1000) / 1000)
+/** Odbiorca, który w tym kursie ma wyłącznie towar usługowy — nie ma czego dzielić. */
+export const tylkoUsluga = (p: Pick<PozycjaKursu, 'kg_zaladowane' | 'kg_usluga'>) => (p.kg_usluga ?? 0) > 0 && kgSprzedazy(p) <= 1e-6
+
 export const doWystawienia = (k: Kurs | null) => (k?.pozycje ?? []).filter(p => p.wz_status === 'do_wystawienia')
 
 /** Liczba do pola edycji: przecinek dziesiętny, bez spacji tysięcy, do 3 miejsc. */
 export const doPola = (n: number) => String(Math.round(Math.max(0, n) * 1000) / 1000).replace('.', ',')
 
 /** Kilogramy na fakturę z decyzji (nic nie wpisano = całość, czyli to, co wyjechało). */
-export const kgNaFakture = (p: PozycjaKursu, d: Decyzja) => (d.kgFv.trim() === '' && d.kgWz.trim() === '' ? p.kg_zaladowane : liczba(d.kgFv))
-export const kgNaWz = (p: PozycjaKursu, d: Decyzja) => Math.max(0, p.kg_zaladowane - kgNaFakture(p, d))
+export const kgNaFakture = (p: PozycjaKursu, d: Decyzja) => (d.kgFv.trim() === '' && d.kgWz.trim() === '' ? kgSprzedazy(p) : liczba(d.kgFv))
+export const kgNaWz = (p: PozycjaKursu, d: Decyzja) => Math.max(0, kgSprzedazy(p) - kgNaFakture(p, d))
 
 /** Wpis w jednym polu przelicza drugie z tego, co wyjechało. */
 export function wpiszKg(p: PozycjaKursu, d: Decyzja, pole: 'fv' | 'wz', tekst: string): Decyzja {
   const pusty = tekst.trim() === ''
-  const reszta = doPola(p.kg_zaladowane - liczba(tekst))
+  const reszta = doPola(kgSprzedazy(p) - liczba(tekst))
   return pole === 'fv'
     ? { ...d, kgFv: tekst, kgWz: pusty ? '' : reszta }
     : { ...d, kgWz: tekst, kgFv: pusty ? '' : reszta }
 }
 /** Szybkie wybory: całość na fakturę / całość na WZ. */
 export const calosc = (p: PozycjaKursu, d: Decyzja, na: 'fv' | 'wz'): Decyzja =>
-  na === 'fv' ? { ...d, kgFv: doPola(p.kg_zaladowane), kgWz: '0' } : { ...d, kgFv: '0', kgWz: doPola(p.kg_zaladowane) }
+  na === 'fv' ? { ...d, kgFv: doPola(kgSprzedazy(p)), kgWz: '0' } : { ...d, kgFv: '0', kgWz: doPola(kgSprzedazy(p)) }
 export type Uklad = 'fv' | 'wz' | 'podzial'
 export const uklad = (p: PozycjaKursu, d: Decyzja): Uklad => {
   const fv = kgNaFakture(p, d)
-  return fv >= p.kg_zaladowane - 1e-6 ? 'fv' : fv <= 1e-6 ? 'wz' : 'podzial'
+  if (kgSprzedazy(p) <= 1e-6) return 'wz'
+  return fv >= kgSprzedazy(p) - 1e-6 ? 'fv' : fv <= 1e-6 ? 'wz' : 'podzial'
 }
 
 /**
@@ -86,8 +99,8 @@ export function zamowieniaDoWystawienia(k: Kurs | null, decyzje: Record<string, 
     if ((fvTekst || wzTekst) && (!fvTekst || !Number.isFinite(parseFloat(fvTekst.replace(/\s/g, '').replace(',', '.')))))
       return { blad: `${kto}: wpisz kilogramy na fakturę albo na WZ.` }
     if (kg < -1e-6 || liczba(d.kgWz) < -1e-6) return { blad: `${kto}: kilogramy nie mogą być ujemne.` }
-    if (kg > p.kg_zaladowane + 1e-6) return { blad: `${kto}: na fakturę nie może iść więcej niż wyjechało (${p.kg_zaladowane} kg).` }
-    if (wzTekst && liczba(d.kgWz) > p.kg_zaladowane + 1e-6) return { blad: `${kto}: na WZ nie może iść więcej niż wyjechało (${p.kg_zaladowane} kg).` }
+    if (kg > kgSprzedazy(p) + 1e-6) return { blad: `${kto}: na fakturę nie może iść więcej niż wyjechało${p.kg_usluga ? ' bez usługi' : ''} (${kgSprzedazy(p)} kg).` }
+    if (wzTekst && liczba(d.kgWz) > kgSprzedazy(p) + 1e-6) return { blad: `${kto}: na WZ nie może iść więcej niż wyjechało${p.kg_usluga ? ' bez usługi' : ''} (${kgSprzedazy(p)} kg).` }
     // Całość na WZ: dokumentów do faktury nie ma, więc HDI do faktury też nie.
     const zero = kg <= 1e-6
     orders.push({ order_id: p.order_id, cel_kg: zero ? 0 : Math.round(kg * 1000) / 1000, invoice_no: zero ? '' : d.fakturaNr.trim(), hdi_fv: zero ? false : d.hdiFv })
@@ -102,7 +115,7 @@ export function papieryPozycji(p: ZrodloPapierow): PapierKursu[] {
   const plik = (pre: string, nr: string) => `${pre}-${nr.replace(/[\\/]/g, '-')}.pdf`
   return [
     ...p.wz.map(d => ({ data: d.date, key: `wz-${d.id}`, etykieta: d.doc_series === 'WM' ? 'WM (wewnętrzny)' : 'WZ', numer: d.number, url: wzApi.pdfUrl(d.id), plik: plik(d.doc_series === 'WM' ? 'WM' : 'WZ', d.number) })),
-    ...p.hdi.map(d => ({ data: d.date, key: `hdi-${d.id}`, etykieta: d.scope === 'fv' ? 'HDI do faktury' : 'HDI', numer: d.number, url: hdiApi.pdfUrl(d.id), plik: plik('HDI', d.number) })),
+    ...p.hdi.map(d => ({ data: d.date, key: `hdi-${d.id}`, etykieta: d.scope === 'fv' ? 'HDI do faktury' : d.scope === 'usluga' ? 'HDI usługa' : 'HDI', numer: d.number, url: hdiApi.pdfUrl(d.id), plik: plik('HDI', d.number) })),
     ...p.cmr.map(d => ({ data: d.date, key: `cmr-${d.id}`, etykieta: d.scope === 'fv' ? 'CMR do faktury' : 'CMR na drogę', numer: d.number, url: cmrApi.pdfUrl(d.id), plik: plik('CMR', d.number) })),
   ]
 }

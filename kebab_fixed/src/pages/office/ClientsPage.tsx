@@ -38,7 +38,7 @@ function langFromNip(nip?: string): string {
 }
 
 function emptyForm(): CreateClientDto {
-  return { name: '', displayName: '', nip: '', regon: '', address: '', postalCode: '', city: '', contactName: '', phone: '', email: '', language: '', destName: '', destAddress: '', destCity: '', destForHdi: true, destForCmr: true, halalSupervision: false, hdiNameMode: 'type_recipe', hdiRecipeNames: [], wzUsesHdiNames: true }
+  return { name: '', displayName: '', nip: '', regon: '', address: '', postalCode: '', city: '', contactName: '', phone: '', email: '', language: '', destName: '', destAddress: '', destCity: '', destForHdi: true, destForCmr: true, halalSupervision: false, uslugi: false, hdiNameMode: 'type_recipe', hdiRecipeNames: [], wzUsesHdiNames: true }
 }
 
 interface AddressParts { address: string; postalCode: string; city: string }
@@ -113,7 +113,7 @@ function ClientForm({ initial, onSave, onClose }: {
 }) {
   const [form, setForm] = useState<CreateClientDto>(
     initial
-      ? { name: initial.name, displayName: initial.displayName, nip: initial.nip, regon: initial.regon, address: initial.address, postalCode: initial.postalCode, city: initial.city, contactName: initial.contactName, phone: initial.phone, email: initial.email, language: initial.language, destName: initial.destName, destAddress: initial.destAddress, destCity: initial.destCity, destForHdi: initial.destForHdi ?? true, destForCmr: initial.destForCmr ?? true, halalSupervision: initial.halalSupervision, hdiNameMode: initial.hdiNameMode ?? 'type_recipe', hdiRecipeNames: initial.hdiRecipeNames ?? [], wzUsesHdiNames: initial.wzUsesHdiNames ?? true }
+      ? { name: initial.name, displayName: initial.displayName, nip: initial.nip, regon: initial.regon, address: initial.address, postalCode: initial.postalCode, city: initial.city, contactName: initial.contactName, phone: initial.phone, email: initial.email, language: initial.language, destName: initial.destName, destAddress: initial.destAddress, destCity: initial.destCity, destForHdi: initial.destForHdi ?? true, destForCmr: initial.destForCmr ?? true, halalSupervision: initial.halalSupervision, uslugi: !!initial.uslugi, hdiNameMode: initial.hdiNameMode ?? 'type_recipe', hdiRecipeNames: initial.hdiRecipeNames ?? [], wzUsesHdiNames: initial.wzUsesHdiNames ?? true }
       : emptyForm()
   )
   const [saving,   setSaving]   = useState(false)
@@ -295,6 +295,12 @@ function ClientForm({ initial, onSave, onClose }: {
               onChange={e => setForm(p => ({ ...p, halalSupervision: e.target.checked }))} />
             <span className="font-semibold">Nadzór HALAL</span>
             <span className="text-xs text-slate-500">— etykieta dostaje pole „kod nadzoru" (wpisywany przy druku, inny co zamówienie)</span>
+          </label>
+          <label className="flex items-center gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm">
+            <input type="checkbox" checked={!!form.uslugi}
+              onChange={e => setForm(p => ({ ...p, uslugi: e.target.checked }))} />
+            <span className="font-semibold whitespace-nowrap">Produkcja na usługę</span>
+            <span className="text-xs text-slate-500">— w zamówieniach tego klienta pojawia się pole „Usługa” przy pozycji (towar usługobiorcy: osobne HDI usługa, bez WZ i faktury)</span>
           </label>
           {/* Co odbiorca ma widzieć w nazwie pozycji HDI. POLAT chce sam rodzaj
               i kilogramy („nazwa receptury to nasza kuchnia"), TRUVA odwrotnie:

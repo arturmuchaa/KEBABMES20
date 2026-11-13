@@ -48,6 +48,9 @@ def invoice_data(value):
         return None
     rows = []
     for line in value["lines"]:
+        # Pozycja usługowa: towar usługobiorcy — ani nasza faktura, ani WZ.
+        if line.get("usluga"):
+            continue
         qty, invoice = int(line["qty"]), int(line["qty_invoice"])
         if invoice < 0 or invoice > qty:
             raise HTTPException(409, "Ilość na fakturę przekracza potwierdzony załadunek")

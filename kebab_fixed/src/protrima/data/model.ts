@@ -47,6 +47,8 @@ export interface Line {
   mixingRemainingKg: number | null
   recipeId: string
   note?: string
+  /** Pozycja usługowa — towar usługobiorcy (osobne HDI „usługa”, bez WZ i faktury). */
+  usluga?: boolean
 }
 
 export interface PalletItem { lineId: string; qty: number }

@@ -12,7 +12,7 @@ const api = vi.hoisted(() => ({
   create: vi.fn(), update: vi.fn(), updateStatus: vi.fn(), byId: vi.fn(),
 }))
 vi.mock('@/lib/api', () => ({
-  clientsApi: { list: () => Promise.resolve([{ id: 'c1', name: 'TEST SP. Z O.O.', displayName: 'TEST', city: 'NYSA' }]) },
+  clientsApi: { list: () => Promise.resolve([{ id: 'c1', name: 'TEST SP. Z O.O.', displayName: 'TEST', city: 'NYSA' }, { id: 'c2', name: 'VATAN SP. Z O.O.', displayName: 'VATAN', city: 'KRAKÓW', uslugi: true }]) },
   productTypesApi: { list: () => Promise.resolve([{ id: 'pt', name: 'KEBAB UDO 100%' }, { id: 'pm', name: 'KEBAB MIX 70/30' }]) },
   recipesApi: { list: () => Promise.resolve([{ id: 'r1', name: 'BEYAZ', productTypeId: 'pt' }, { id: 'r2', name: 'KIRMIZI', productTypeId: 'pt' }, { id: 'r3', name: 'MIX OSTRY', productTypeId: 'pm' }]) },
   packagingApi: { list: () => Promise.resolve([{ id: 'pk', name: 'METAL 65CM' }]) },
@@ -51,6 +51,15 @@ async function wybierz(label: string, tekst: string, pozycja: RegExp) {
 }
 
 describe('OrderEditor', () => {
+  it('kolumna „Usługa” tylko u klienta z produkcją na usługę', async () => {
+    mount()
+    await wybierz('Klient', 'tes', /TEST/)
+    expect(screen.queryByRole('columnheader', { name: 'Usługa' })).toBeNull()
+    await wybierz('Klient', 'vat', /VATAN/)
+    expect(await screen.findByRole('columnheader', { name: 'Usługa' })).toBeTruthy()
+    expect(screen.getByLabelText('Usługa, pozycja 1')).toBeTruthy()
+  })
+
   it('nowe zamówienie: najpierw sztuki, potem kg; Enter w gramaturze — sztuki następnej pozycji z rodzajem, recepturą i tuleją; zapis szkicu wysyła DTO', async () => {
     api.create.mockResolvedValue({ id: 'new1', orderNo: 'TEST/Z/1/10/26', status: 'draft' })
     const { onDone } = mount()

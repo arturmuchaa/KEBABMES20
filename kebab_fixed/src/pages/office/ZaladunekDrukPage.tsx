@@ -300,7 +300,7 @@ export function ZaladunekDrukPage() {
               ))}
               {p.hdi.map(d => (
                 <Papier key={d.id} do={`/office/hdi/${d.id}/druk`}
-                  etykieta={d.scope === 'fv' ? 'HDI do faktury' : 'HDI'} numer={d.number} />
+                  etykieta={d.scope === 'fv' ? 'HDI do faktury' : d.scope === 'usluga' ? 'HDI usługa' : 'HDI'} numer={d.number} />
               ))}
               {p.cmr.map(d => (
                 <Papier key={d.id} do={`/office/cmr/${d.id}/druk`}

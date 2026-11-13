@@ -859,6 +859,10 @@ _DDL: list[str] = [
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_zebra_designs_client_recipe ON zebra_label_designs(client_id, recipe_id)",
     # Klient pod nadzorem HALAL → etykieta dostaje pole „kod nadzoru" (org_code).
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS halal_supervision BOOLEAN NOT NULL DEFAULT false",
+    # Klient usługowy (VATAN, 13.11.2026): dla niego część towaru robimy na
+    # usługę, więc edytor jego zamówień pokazuje kolumnę „Usługa". U reszty
+    # klientów zamówienie wygląda jak dotąd.
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS uslugi BOOLEAN NOT NULL DEFAULT false",
     # Kolejność składników receptury — bez niej Postgres nie gwarantuje kolejności
     # wierszy (SELECT bez ORDER BY), więc operator widział przyprawy w innej
     # kolejności niż planista je dodawał. seq ustawiany przy tworzeniu/edycji
@@ -1671,6 +1675,12 @@ _DDL: list[str] = [
     # podziału, czyli zamówienie zachowuje się jak przed tą zmianą.
     "ALTER TABLE client_order_lines ADD COLUMN IF NOT EXISTS qty_invoice INTEGER",
     "ALTER TABLE client_orders ADD COLUMN IF NOT EXISTS invoice_kg_target NUMERIC",
+    # Pozycja USŁUGOWA (VATAN, 13.11.2026): towar usługobiorcy — produkujemy go
+    # na usługę, a fakturuje go sam. Jedzie w tych samych kartonach co nasza
+    # sprzedaż, ale idzie tylko na WM (rozchód) i na osobne HDI „usługa";
+    # nigdy na WZ klienta ani na fakturę. Decyzja per zamówienie, nie per
+    # receptura. False = zwykła sprzedaż, czyli zachowanie sprzed zmiany.
+    "ALTER TABLE client_order_lines ADD COLUMN IF NOT EXISTS usluga BOOLEAN NOT NULL DEFAULT false",
 
     # Seria dokumentu wydania: 'WZ' wychodzi do klienta, 'WM' zostaje w biurze
     # (WZ wewnętrzny na całość dostawy, gdy klient bierze część na fakturę).

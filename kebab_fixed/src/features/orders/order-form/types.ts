@@ -16,6 +16,8 @@ export interface LineForm {
   recipeId: string
   packagingId: string
   notes: string
+  /** Pozycja usługowa (towar usługobiorcy) — tylko edytor PROTRIMA; brak = bez zmian przy zapisie. */
+  usluga?: boolean
 }
 
 export const emptyLine = (): LineForm => ({

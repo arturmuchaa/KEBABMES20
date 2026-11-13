@@ -20,6 +20,12 @@ ZAKRES_CALOSC = "calosc"
 ZAKRES_FV = "fv"
 ZAKRESY = (ZAKRES_CALOSC, ZAKRES_FV)
 
+#: Pozycje USŁUGOWE zamówienia (towar usługobiorcy, VATAN 13.11.2026). Tylko
+#: HDI ma taki wariant — CMR jedzie jeden, wspólny na całe auto. Przy
+#: zamówieniu z usługą HDI `calosc` opisuje wyłącznie NASZ towar (sprzedaż).
+ZAKRES_USLUGA = "usluga"
+ZAKRESY_HDI = (ZAKRES_CALOSC, ZAKRES_FV, ZAKRES_USLUGA)
+
 #: Część niefakturowana. NIE jest wariantem dokumentu — żyje wyłącznie jako
 #: `wz_documents.split_scope` WZ-tki dla klienta. Nazwana tu, żeby dokument,
 #: który ma o niej własną regułę (HDI), mógł ją rozpoznać i odmówić po ludzku.
@@ -27,7 +33,7 @@ ZAKRES_WZ = "wz"
 
 
 def sprawdz_zakres(scope: Optional[str], dokument: str,
-                   komunikat_wz: str = "") -> str:
+                   komunikat_wz: str = "", dozwolone=ZAKRESY) -> str:
     """Znormalizowany wariant dokumentu albo 400.
 
     `komunikat_wz` podaje dokument, który ma WŁASNĄ regułę o części na WZ —
@@ -36,6 +42,6 @@ def sprawdz_zakres(scope: Optional[str], dokument: str,
     zakres = (scope or ZAKRES_CALOSC).strip()
     if zakres == ZAKRES_WZ and komunikat_wz:
         raise HTTPException(400, komunikat_wz)
-    if zakres not in ZAKRESY:
+    if zakres not in dozwolone:
         raise HTTPException(400, f"Nieznany wariant {dokument}: {zakres}")
     return zakres

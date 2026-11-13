@@ -156,9 +156,20 @@ def _order_buyer(conn, order: Dict[str, Any]) -> Dict[str, Any]:
 def _ensure_hdi(order_id: str, plate: str, loading_id: Optional[str] = None) -> Dict[str, Any]:
     """HDI dla zamówienia: dogeneruj gdy brak, wpisz nr rejestracyjny.
     Best-effort — błąd nie blokuje zamknięcia załadunku."""
-    from app.services.hdi_service import generate_hdi
+    from app.services.hdi_service import ZAKRES_USLUGA, generate_hdi
     try:
-        doc = generate_hdi(order_id, loading_id=loading_id)
+        # Zamówienie z pozycjami usługowymi jedzie z DWOMA HDI (nasz towar +
+        # towar usługobiorcy) — oba powstają tu, żeby oba dostały numer auta.
+        # Zamówienie samej usługi nie ma HDI własnego.
+        rodzaje = query_one(
+            "SELECT bool_or(usluga) AS usluga, bool_or(NOT usluga) AS sprzedaz "
+            "FROM client_order_lines WHERE order_id=%s AND qty > 0", (order_id,)) or {}
+        doc = None
+        if rodzaje.get("sprzedaz") is not False:
+            doc = generate_hdi(order_id, loading_id=loading_id)
+        if rodzaje.get("usluga"):
+            usluga = generate_hdi(order_id, scope=ZAKRES_USLUGA, loading_id=loading_id)
+            doc = doc or usluga
         if plate:
             with transaction() as conn:
                 # Stempel na WSZYSTKICH dokumentach tego zamówienia, nie tylko
@@ -755,6 +766,9 @@ def zaladunek(loading_id: str) -> Dict[str, Any]:
             "wz_status": r.get("wz_status"),
             "zaladowano": zapisane,
             "kg_zaladowane": kg_kursu,
+            # Ile z tego to towar usługobiorcy (pozycje usługowe) — biuro dzieli
+            # na fakturę/WZ tylko resztę, usługa idzie na WM i HDI „usługa".
+            "kg_usluga": _kg_uslugi_w_kursie(oid, zapisane, r.get("document_snapshot")),
             "coverage": next((x.get("coverage") for x in (kurs.get("response") or {}).get("orders", []) if x.get("order_id") == oid), None),
             "invoice_data": _invoice_data(r.get("document_snapshot")),
             "wz": query_all(
@@ -769,6 +783,34 @@ def zaladunek(loading_id: str) -> Dict[str, Any]:
                 "AND (loading_id=%s OR (loading_id IS NULL AND %s)) ORDER BY created_at", (oid, loading_id, legacy_scope)),
         })
     return {**kurs, "pozycje": pozycje}
+
+
+def _kg_uslugi_w_kursie(order_id: str, zapisane: List[Dict[str, Any]], snapshot: Any) -> float:
+    """Kilogramy pozycji usługowych w tym, co wyjechało kursem.
+
+    Po wystawieniu dokumentów liczba siedzi w zapisie wysyłki (linie z
+    faktyczną ilością). Wcześniej rozkładamy zapis kursu na pozycje zamówienia
+    tą samą funkcją, co dokumenty (`_allocate`) — inaczej okno decyzji
+    pokazywałoby inną usługę niż potem papiery.
+    """
+    from app.services.shipment_documents import _allocate
+    if isinstance(snapshot, str):
+        snapshot = json.loads(snapshot or "null")
+    if snapshot and snapshot.get("lines") is not None:
+        lines = snapshot["lines"]
+    else:
+        linie = query_all("SELECT * FROM client_order_lines WHERE order_id=%s", (order_id,))
+        if not any(l.get("usluga") for l in linie):
+            return 0.0
+        portions = [{"fg": {**(p.get("goods") or {}), "kg_per_unit": p.get("kg_per_unit")},
+                     "take": int(p.get("szt") or 0)}
+                    for p in zapisane or [] if p.get("goods") and int(p.get("szt") or 0) > 0]
+        try:
+            lines = _allocate(linie, portions)
+        except HTTPException:
+            return 0.0
+    return round(sum(int(l.get("qty") or 0) * float(l.get("kg_per_unit") or 0)
+                     for l in lines if l.get("usluga")), 3)
 
 
 def _invoice_data(snapshot):

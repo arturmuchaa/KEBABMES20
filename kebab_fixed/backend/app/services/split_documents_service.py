@@ -243,7 +243,9 @@ def _ma_czesc_niefakturowana(order_id: str) -> bool:
     linie = shipment.lines_for(order_id, linie)
     if not linie or any(l.get("qty_invoice") is None for l in linie):
         return False
-    return any(int(l.get("qty") or 0) - int(l.get("qty_invoice") or 0) > 0 for l in linie)
+    # Usługa nie idzie na WZ klienta — fakturuje ją sam usługobiorca.
+    return any(int(l.get("qty") or 0) - int(l.get("qty_invoice") or 0) > 0
+               for l in linie if not l.get("usluga"))
 
 
 def _ma_czesc_fakturowana(order_id: str) -> bool:
@@ -264,6 +266,9 @@ def _pozycje_niefakturowane(order: Dict[str, Any],
         str(order.get("client_id") or ""), order.get("client_name") or "")
     items: List[Dict[str, Any]] = []
     for l in linie:
+        # Pozycja usługowa to towar usługobiorcy — na naszą WZ nie wchodzi.
+        if l.get("usluga"):
+            continue
         qty = int(l.get("qty") or 0) - int(l.get("qty_invoice") or 0)
         if qty <= 0:
             continue
@@ -549,12 +554,15 @@ def _sprawdz_gotowosc_do_kompletu(order_id: str) -> None:
     if any(l.get("qty_invoice") is None for l in linie):
         raise HTTPException(
             400, "Zamówienie nie ma podziału na fakturę i WZ — najpierw zapisz podział.")
-    na_fakture = sum(int(l.get("qty_invoice") or 0) for l in linie)
-    na_wz = sum(int(l.get("qty") or 0) - int(l.get("qty_invoice") or 0) for l in linie)
+    na_fakture = sum(int(l.get("qty_invoice") or 0) for l in linie if not l.get("usluga"))
+    na_wz = sum(int(l.get("qty") or 0) - int(l.get("qty_invoice") or 0)
+                for l in linie if not l.get("usluga"))
+    na_usluge = sum(int(l.get("qty") or 0) for l in linie if l.get("usluga"))
     # Lustro „całości na fakturę": całość na WZ (biuro 07.11.2026 — „VATAN jedzie
     # na WZ", a komplet wymagał choćby 1 kg na fakturze). Dokumentów do faktury
     # wtedy nie ma (`wystaw_komplet`), więc żaden numer się nie spali.
-    if na_fakture <= 0 and na_wz <= 0:
+    # Zamówienie SAMEJ usługi też jest pełnoprawne: WM + HDI usługa + CMR.
+    if na_fakture <= 0 and na_wz <= 0 and na_usluge <= 0:
         raise HTTPException(400, "Zamówienie nie ma żadnych sztuk do wystawienia.")
     # `na_wz == 0` NIE jest błędem: to odbiorca biorący wszystko na fakturę
     # (biuro, 12.09.2026 — „u NAZARA wszystko na fakturę, wtedy nie ma
@@ -638,7 +646,14 @@ def wystaw_komplet(order_id: str, forma_cmr: Dict[str, Any],
     # w ogóle. Sam `wystaw_wz_klienta` dalej odmawia przy wywołaniu wprost —
     # tam brak części niefakturowanej naprawdę znaczy pomyłkę.
     wz = wystaw_wz_klienta(order_id) if _ma_czesc_niefakturowana(order_id) else None
-    hdi_calosc = hdi_service.generate_hdi(order_id)
+    # Zamówienie z pozycjami usługowymi (VATAN, 13.11.2026): HDI na całość
+    # opisuje tylko NASZ towar, a towar usługobiorcy dostaje osobne HDI
+    # „usługa" z własnym numerem. Zamówienie bez sprzedaży nie ma HDI własnego.
+    linie_wysylki = shipment.require_current(order_id)["lines"]
+    hdi_calosc = (hdi_service.generate_hdi(order_id)
+                  if hdi_service.ma_pozycje_sprzedazy(linie_wysylki) else None)
+    hdi_usluga = (hdi_service.generate_hdi(order_id, scope=hdi_service.ZAKRES_USLUGA)
+                  if hdi_service.ma_pozycje_uslugowe(linie_wysylki) else None)
     # Całość na WZ: nic nie idzie na fakturę, więc HDI i CMR „do faktury" nie
     # mają czego opisać (i odmówiłyby „Brak towaru") — tak jak WZ klienta wyżej.
     ma_fv = _ma_czesc_fakturowana(order_id)
@@ -680,5 +695,5 @@ def wystaw_komplet(order_id: str, forma_cmr: Dict[str, Any],
                 extra={"order_id": order_id, "z_hdi_fv": bool(hdi_fv),
                        "zamkniete": bool(zamkniete)})
     return {"order_id": order_id, "wm": wm, "wz": wz, "cmr": cmr,
-             "hdi_calosc": hdi_calosc, "hdi_fv": hdi_do_faktury,
+             "hdi_calosc": hdi_calosc, "hdi_fv": hdi_do_faktury, "hdi_usluga": hdi_usluga,
             "pokrycie": pokrycie, "invoice_data": shipment.invoice_data(shipment.current(order_id))}

@@ -93,6 +93,7 @@ export function mapujPozycje(l: OrderLine, lp: number, planNo?: string): Line {
     mixingMeatKg: l.mixing?.meatKg ?? null,
     mixingRemainingKg: l.mixing?.remainingKg ?? null,
     note: l.notes || undefined,
+    usluga: !!l.usluga,
   }
 }
 

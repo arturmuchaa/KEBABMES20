@@ -641,8 +641,8 @@ def create_order(dto: ClientOrderCreate) -> Dict:
                 INSERT INTO client_order_lines
                     (id, order_id, position, qty, kg_per_unit, total_kg,
                      product_type_id, product_type_name, recipe_id, recipe_name,
-                     packaging_id, packaging_name)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     packaging_id, packaging_name, usluga)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
                 (
                     cuid(),
@@ -657,6 +657,7 @@ def create_order(dto: ClientOrderCreate) -> Dict:
                     rn or None,
                     line.packaging_id or None,
                     pkgn or None,
+                    bool(line.usluga),
                 ),
             )
 
@@ -872,6 +873,7 @@ def _reconcile_lines_cx(conn, order_id: str, lines) -> None:
         (order_id,),
     )
     qty_invoice_wg_id: Dict[str, Any] = {r["id"]: r.get("qty_invoice") for r in istniejace}
+    usluga_wg_id: Dict[str, bool] = {r["id"]: bool(r.get("usluga")) for r in istniejace}
     wolne: Dict[str, Any] = {r["id"]: r for r in istniejace}
     dopasowane: Dict[int, str] = {}
 
@@ -935,6 +937,11 @@ def _reconcile_lines_cx(conn, order_id: str, lines) -> None:
             stary_qty_invoice = qty_invoice_wg_id.get(rid)
             if stary_qty_invoice is not None:
                 stary_qty_invoice = min(int(stary_qty_invoice), int(line.qty))
+            # Brak pola (starszy formularz) = flaga bez zmian. Pozycja usługowa
+            # nigdy nie idzie na fakturę, więc jej zapamiętany podział to 0.
+            usluga = usluga_wg_id.get(rid, False) if line.usluga is None else bool(line.usluga)
+            if usluga and stary_qty_invoice is not None:
+                stary_qty_invoice = 0
             cx_execute(
                 conn,
                 """
@@ -943,10 +950,10 @@ def _reconcile_lines_cx(conn, order_id: str, lines) -> None:
                        product_type_id=%s, product_type_name=%s,
                        recipe_id=%s, recipe_name=%s,
                        packaging_id=%s, packaging_name=%s,
-                       qty_invoice=%s
+                       qty_invoice=%s, usluga=%s
                  WHERE id=%s
                 """,
-                wartosci + (stary_qty_invoice, rid),
+                wartosci + (stary_qty_invoice, usluga, rid),
             )
         else:
             cx_execute(
@@ -955,10 +962,10 @@ def _reconcile_lines_cx(conn, order_id: str, lines) -> None:
                 INSERT INTO client_order_lines
                     (id, order_id, position, qty, kg_per_unit, total_kg,
                      product_type_id, product_type_name, recipe_id, recipe_name,
-                     packaging_id, packaging_name)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                     packaging_id, packaging_name, usluga)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 """,
-                (cuid(), order_id) + wartosci,
+                (cuid(), order_id) + wartosci + (bool(line.usluga),),
             )
 
 

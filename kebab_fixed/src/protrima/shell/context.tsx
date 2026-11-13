@@ -28,7 +28,8 @@ export interface AppApi {
   openCmr(orderId: string): void
   /** HDI z zamówienia → PDF. */
   /** `przedZaladunkiem` — HDI z rozpisu zamówienia, zanim towar zeskanowano na auto. */
-  genHdi(orderId: string, przedZaladunkiem?: boolean): void
+  /** `usluga`: HDI na pozycje usługowe (towar usługobiorcy), osobny numer. */
+  genHdi(orderId: string, przedZaladunkiem?: boolean, usluga?: boolean): void
   /** Podział wysyłki na fakturę i WZ (karta robocza). */
   splitOrder(orderId: string): void
   /** Papiery kursu po załadunku (karta robocza). */

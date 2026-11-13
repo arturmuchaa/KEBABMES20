@@ -7,7 +7,7 @@ import { FlagIcon } from '../../ui/Glyphs'
 import { carriersApi, downloadDocPdf, zaladunkiApi, type Carrier } from '@/lib/api'
 import { INSTRUKCJE_DOMYSLNE } from '../orders/dokumenty/Cmr'
 import {
-  PUSTA_DECYZJA, calosc, doWystawienia, kgNaFakture, kgNaWz, papieryPozycji, saldoPozycji, uklad, wpiszKg, zamowieniaDoWystawienia,
+  PUSTA_DECYZJA, calosc, doWystawienia, kgNaFakture, kgNaWz, kgSprzedazy, tylkoUsluga, papieryPozycji, saldoPozycji, uklad, wpiszKg, zamowieniaDoWystawienia,
   type Decyzja, type Kurs, type PozycjaKursu, type Transport,
 } from './kurs'
 import { PapierChip, useZaznaczonePapiery } from './Papiery'
@@ -177,9 +177,11 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
 
 const opisUkladu = (p: PozycjaKursu, d: Decyzja) => {
   const u = uklad(p, d)
-  if (u === 'fv') return `całość ${kg(p.kg_zaladowane)} na fakturę`
-  if (u === 'wz') return `całość ${kg(p.kg_zaladowane)} na WZ — bez dokumentów do faktury`
-  return `${kg(kgNaFakture(p, d))} na fakturę, ${kg(kgNaWz(p, d))} na WZ`
+  const usluga = (p.kg_usluga ?? 0) > 0 ? ` · usługa ${kg(p.kg_usluga ?? 0)}: WM i HDI usługa` : ''
+  if (tylkoUsluga(p)) return `sama usługa ${kg(p.kg_usluga ?? 0)} — WM, HDI usługa i CMR, bez WZ i faktury`
+  if (u === 'fv') return `całość ${kg(kgSprzedazy(p))} na fakturę${usluga}`
+  if (u === 'wz') return `całość ${kg(kgSprzedazy(p))} na WZ — bez dokumentów do faktury${usluga}`
+  return `${kg(kgNaFakture(p, d))} na fakturę, ${kg(kgNaWz(p, d))} na WZ${usluga}`
 }
 
 /**
@@ -191,20 +193,30 @@ function KartaOdbiorcy({ p, d, zmien }: { p: PozycjaKursu; d: Decyzja; zmien: (d
   const u = uklad(p, d)
   const fv = kgNaFakture(p, d), wz = kgNaWz(p, d)
   const pole = (x: string, n: number) => (x.trim() === '' && d.kgFv.trim() === '' && d.kgWz.trim() === '' ? String(n).replace('.', ',') : x)
-  const procFv = p.kg_zaladowane > 0 ? Math.min(100, Math.max(0, (fv / p.kg_zaladowane) * 100)) : 0
+  const baza = kgSprzedazy(p), usluga = p.kg_usluga ?? 0
+  const procFv = baza > 0 ? Math.min(100, Math.max(0, (fv / baza) * 100)) : 0
   const ustaw = (patch: Partial<Decyzja>) => zmien({ ...d, ...patch })
+  const glowka = <div className="ko-h"><b>{p.client_name || '—'}</b><span className="muted">{p.order_no}</span>
+    <span className="ko-kg">wyjechało <b>{kg(p.kg_zaladowane)}</b> · {num(p.zaladowano.length)} poz.
+      {usluga > 0 && <> · <span className="tag info" data-tip="Towar usługobiorcy: WM i osobne HDI „usługa”, bez WZ i faktury">w tym usługa {kg(usluga)}</span></>}</span></div>
+  if (tylkoUsluga(p)) return (
+    <div className="box kurs-odb" aria-label={`Odbiorca ${kto}`}>
+      {glowka}
+      <div className="ko-f"><span className="muted ko-nota">Sama usługa: powstanie WM (zdejmuje stan), HDI usługa i CMR — bez WZ i dokumentów do faktury. Usługobiorca fakturuje swój towar sam.</span></div>
+    </div>
+  )
   return (
     <div className="box kurs-odb" aria-label={`Odbiorca ${kto}`}>
-      <div className="ko-h"><b>{p.client_name || '—'}</b><span className="muted">{p.order_no}</span>
-        <span className="ko-kg">wyjechało <b>{kg(p.kg_zaladowane)}</b> · {num(p.zaladowano.length)} poz.</span></div>
+      {glowka}
+      {usluga > 0 && <div className="faint ko-nota ko-usluga">Na fakturę i WZ dzielisz tylko sprzedaż: {kg(baza)}. Usługa {kg(usluga)} dostaje osobne HDI usługa.</div>}
       <div className="ko-podzial">
         <div className="seg" role="group" aria-label={`Faktura i WZ — ${kto}`}>
           <button type="button" aria-pressed={u === 'fv'} onClick={() => zmien(calosc(p, d, 'fv'))}>Całość na fakturę</button>
-          <button type="button" aria-pressed={u === 'podzial'} onClick={() => { if (u !== 'podzial') zmien(wpiszKg(p, d, 'fv', String(Math.round(p.kg_zaladowane / 2)))) }}>Podział</button>
+          <button type="button" aria-pressed={u === 'podzial'} onClick={() => { if (u !== 'podzial') zmien(wpiszKg(p, d, 'fv', String(Math.round(baza / 2)))) }}>Podział</button>
           <button type="button" aria-pressed={u === 'wz'} onClick={() => zmien(calosc(p, d, 'wz'))}>Całość na WZ</button>
         </div>
         <label className="fld ko-kgpole"><span className="label">Na fakturę</span>
-          <span className="ko-in"><input className="field num" inputMode="decimal" value={pole(d.kgFv, p.kg_zaladowane)} onFocus={e => e.currentTarget.select()}
+          <span className="ko-in"><input className="field num" inputMode="decimal" value={pole(d.kgFv, baza)} onFocus={e => e.currentTarget.select()}
             onChange={e => zmien(wpiszKg(p, d, 'fv', e.target.value))} aria-label={`kg na fakturę, ${kto}`} /><span className="unit">kg</span></span></label>
         <label className="fld ko-kgpole"><span className="label">Na WZ</span>
           <span className="ko-in"><input className="field num" inputMode="decimal" value={pole(d.kgWz, 0)} onFocus={e => e.currentTarget.select()}

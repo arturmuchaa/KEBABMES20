@@ -13,7 +13,7 @@ from app.services.order_stock_service import (
     stock_portions_for_order,
 )
 from app.services.settings_service import get_company
-from app.utils.zakres import ZAKRES_CALOSC, ZAKRES_FV, sprawdz_zakres
+from app.utils.zakres import ZAKRES_CALOSC, ZAKRES_FV, sprawdz_zakres, ZAKRES_USLUGA
 
 logger = get_logger(__name__)
 
@@ -229,7 +229,19 @@ def build_cmr(order_id: str, form: Dict[str, Any],
         "AND COALESCE(scope,%s)=%s AND COALESCE(status,'')<>'anulowany' "
         "AND loading_id IS NOT DISTINCT FROM %s ORDER BY created_at DESC LIMIT 1",
         (order_id, ZAKRES_CALOSC, scope, shipment.scope_id()))
-    payload = _zloz_payload(consignee_part, goods, totals, (hdi or {}).get("number", ""), form)
+    numer_hdi = (hdi or {}).get("number", "")
+    # Zamówienie z usługą (VATAN, 13.11.2026): CMR jest JEDEN na całe auto,
+    # a towar opisują dwa HDI — własne i „usługa". CMR na całość powołuje się
+    # na oba (zamówienie samej usługi ma tylko HDI usługa).
+    if not dzielone and scope == ZAKRES_CALOSC:
+        usluga = query_one(
+            "SELECT number FROM hdi_documents WHERE order_id=%s AND scope=%s "
+            "AND COALESCE(status,'')<>'anulowany' "
+            "AND loading_id IS NOT DISTINCT FROM %s ORDER BY created_at DESC LIMIT 1",
+            (order_id, ZAKRES_USLUGA, shipment.scope_id()))
+        if usluga:
+            numer_hdi = ", ".join(n for n in (numer_hdi, usluga["number"]) if n)
+    payload = _zloz_payload(consignee_part, goods, totals, numer_hdi, form)
     return {"order_id": order_id, "client_name": order.get("client_name", ""),
             "carrier_id": form.get("carrier_id") or None, "payload": payload,
             "totals": totals, "scope": scope}

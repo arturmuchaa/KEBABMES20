@@ -99,7 +99,7 @@ def _linie(order_id: str) -> List[Dict[str, Any]]:
     if shipment:
         return shipment["lines"]
     return query_all(
-        "SELECT id, qty, kg_per_unit, recipe_name, product_type_name, position, qty_invoice "
+        "SELECT id, qty, kg_per_unit, recipe_name, product_type_name, position, qty_invoice, usluga "
         "FROM client_order_lines WHERE order_id=%s ORDER BY position", (order_id,))
 
 
@@ -121,13 +121,18 @@ def podglad_podzialu(order_id: str, cel_kg: float) -> Dict[str, Any]:
     linie = _linie(order_id)
     if not linie:
         raise HTTPException(404, "Zamówienie nie ma pozycji")
+    # Pozycje USŁUGOWE nie biorą udziału w podziale: to towar usługobiorcy,
+    # nie idzie ani na naszą fakturę, ani na WZ klienta (tylko na WM i HDI
+    # „usługa"). Dzielimy wyłącznie sprzedaż, więc cel jest obcinany do jej kg.
+    sprzedaz = [l for l in linie if not l.get("usluga")]
     obliczone = podziel_pozycje(
         [{"id": l["id"], "qty": int(l["qty"] or 0),
-          "kg_per_unit": float(l["kg_per_unit"] or 0)} for l in linie], cel_kg)
+          "kg_per_unit": float(l["kg_per_unit"] or 0)} for l in sprzedaz], cel_kg)
     po_id = {w["id"]: w for w in obliczone["lines"]}
     lines = []
     for l in linie:
-        na_fv = int(po_id[l["id"]]["qty_invoice"])
+        usluga = bool(l.get("usluga"))
+        na_fv = 0 if usluga else int(po_id[l["id"]]["qty_invoice"])
         lines.append({
             "id": l["id"], "position": l["position"],
             "recipe_name": l.get("recipe_name") or "",
@@ -135,10 +140,11 @@ def podglad_podzialu(order_id: str, cel_kg: float) -> Dict[str, Any]:
             "kg_per_unit": float(l["kg_per_unit"] or 0),
             "qty": int(l["qty"] or 0),
             "qty_invoice": na_fv,
-            "qty_wz": int(l["qty"] or 0) - na_fv,
+            "qty_wz": 0 if usluga else int(l["qty"] or 0) - na_fv,
+            "usluga": usluga,
         })
     kg_fv = sum(x["qty_invoice"] * x["kg_per_unit"] for x in lines)
-    kg_all = sum(x["qty"] * x["kg_per_unit"] for x in lines)
+    kg_all = sum(x["qty"] * x["kg_per_unit"] for x in lines if not x["usluga"])
     return {"order_id": order_id, "cel_kg": float(cel_kg or 0), "lines": lines,
             "kg_fv": round(kg_fv, 3), "kg_wz": round(kg_all - kg_fv, 3),
             "kg_calosc": round(kg_all, 3),
@@ -158,6 +164,11 @@ def zapisz_podzial(order_id: str, cel_kg: float,
     for l in podglad["lines"]:
         if l["id"] in korekty:
             reczne = int(korekty[l["id"]])
+            if l.get("usluga") and reczne:
+                raise HTTPException(
+                    400,
+                    f"Pozycja {l['recipe_name']} {l['kg_per_unit']} kg jest usługą — "
+                    "nie idzie na fakturę")
             if reczne < 0 or reczne > l["qty"]:
                 raise HTTPException(
                     400,
@@ -194,7 +205,8 @@ def zapisz_podzial(order_id: str, cel_kg: float,
     # (`per_line` puste) `kg_fv` tutaj jest identyczne z tym z
     # `podglad_podzialu`, więc przeliczenie niczego nie zmienia także wtedy,
     # gdy nic nie poprawiono ręcznie.
-    kg_calosc_nieokragl = sum(l["qty"] * l["kg_per_unit"] for l in podglad["lines"])
+    kg_calosc_nieokragl = sum(l["qty"] * l["kg_per_unit"] for l in podglad["lines"]
+                              if not l.get("usluga"))
     podglad["trafiono"] = _trafiono(kg_fv, cel_kg, kg_calosc_nieokragl)
     podglad["odchylka"] = round(kg_fv - float(cel_kg or 0), 3)
     return podglad
@@ -237,6 +249,7 @@ def zapisany_podzial(order_id: str) -> Dict[str, Any]:
     lines: List[Dict[str, Any]] = []
     for l in linie:
         qty = int(l["qty"] or 0)
+        usluga = bool(l.get("usluga"))
         na_fv = None if l.get("qty_invoice") is None else int(l["qty_invoice"])
         lines.append({
             "id": l["id"], "position": l["position"],
@@ -245,15 +258,18 @@ def zapisany_podzial(order_id: str) -> Dict[str, Any]:
             "kg_per_unit": float(l["kg_per_unit"] or 0),
             "qty": qty,
             "qty_invoice": na_fv,
-            "qty_wz": None if na_fv is None else qty - na_fv,
+            "qty_wz": None if na_fv is None else (0 if usluga else qty - na_fv),
+            "usluga": usluga,
         })
 
     z_podzialem = [x for x in lines if x["qty_invoice"] is not None]
     istnieje = bool(z_podzialem)
     kompletny = istnieje and len(z_podzialem) == len(lines)
-    kg_all = sum(x["qty"] * x["kg_per_unit"] for x in lines)
+    # Usługa nie wchodzi ani do faktury, ani do WZ klienta — „całość" podziału
+    # to wyłącznie sprzedaż.
+    kg_all = sum(x["qty"] * x["kg_per_unit"] for x in lines if not x["usluga"])
     kg_fv = sum(x["qty_invoice"] * x["kg_per_unit"] for x in z_podzialem)
-    kg_wz = sum((x["qty"] - x["qty_invoice"]) * x["kg_per_unit"] for x in z_podzialem)
+    kg_wz = sum(x["qty_wz"] * x["kg_per_unit"] for x in z_podzialem)
     cel_kg = zamowienie.get("invoice_kg_target")
     cel_kg = None if cel_kg is None else float(cel_kg)
 

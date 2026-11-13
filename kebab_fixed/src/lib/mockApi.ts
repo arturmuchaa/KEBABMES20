@@ -2123,6 +2123,8 @@ export interface Client {
   destForHdi?:  boolean      // stosuj miejsce przeznaczenia na HDI (rozładunek)
   destForCmr?:  boolean      // stosuj miejsce przeznaczenia na CMR (pole 3)
   halalSupervision?: boolean  // klient pod nadzorem HALAL → etykieta z kodem nadzoru
+  /** Produkujemy dla niego także na usługę — pole „Usługa” w zamówieniu. */
+  uslugi?: boolean
   /** Nazwa pozycji na HDI: rodzaj + receptura (domyślnie), sam rodzaj, sama receptura. */
   hdiNameMode?: HdiNameMode
   /** Własne nazwy receptur TEGO odbiorcy (BEYAZ AFIYET → BEYAZ). */
@@ -2139,6 +2141,7 @@ export interface CreateClientDto {
   language?: string; destName?: string; destAddress?: string; destCity?: string
   destForHdi?: boolean; destForCmr?: boolean
   halalSupervision?: boolean
+  uslugi?: boolean
   hdiNameMode?: HdiNameMode
   hdiRecipeNames?: ClientRecipeName[]
   wzUsesHdiNames?: boolean
@@ -2311,6 +2314,8 @@ export interface OrderLine {
   qtyStock?: number
   qtyDelivered?: number
   fulfillment?: OrderFulfillment | null
+  /** Pozycja usługowa (towar usługobiorcy, osobne HDI „usługa”, bez WZ/faktury). */
+  usluga?: boolean
 }
 
 export interface ClientOrder {
@@ -2341,6 +2346,9 @@ export interface CreateOrderLineDto {
   productTypeId: string; recipeId: string
   productTypeName?: string; recipeName?: string; packagingName?: string
   packagingId?: string; notes?: string
+  /** Pozycja usługowa — towar usługobiorcy (bez naszej WZ/faktury, osobne HDI „usługa”).
+   *  Brak pola = backend zostawia dotychczasową wartość. */
+  usluga?: boolean
 }
 
 export interface CreateClientOrderDto {

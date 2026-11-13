@@ -14,7 +14,7 @@ vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), zaladunkiAp
 const refresh = vi.fn(() => Promise.resolve())
 vi.mock('../../data/store', () => ({ useOrders: () => ({ refresh }) }))
 import { PapieryKursu } from './PapieryKursu'
-import { papieryPozycji, polaczPdfBajty, zamowieniaDoWystawienia, wpiszKg, calosc, PUSTA_DECYZJA, type Kurs } from './kurs'
+import { papieryPozycji, polaczPdfBajty, zamowieniaDoWystawienia, wpiszKg, calosc, PUSTA_DECYZJA, kgSprzedazy, uklad, type Kurs, type PozycjaKursu } from './kurs'
 
 const KURS_SALDO: Kurs = {
   id: 'k2', plate: 'KOL1', finished_at: '2026-10-30T07:08:40Z', printed_at: '2026-10-30T09:00:00Z',
@@ -184,5 +184,26 @@ describe('Papiery kursu — zestawienie należności', () => {
     expect(urle.some(u => /\/rozliczenia\/klient\/c1\/zestawienie\/pdf/.test(u))).toBe(true)
     expect(urle.some(u => /\/rozliczenia\/klient\/c2\//.test(u))).toBe(false)
     expect(urle.some(u => /\/rozliczenia\/klient\/c4\//.test(u))).toBe(false)
+  })
+})
+
+describe('kurs z usługą (VATAN)', () => {
+  const p = { order_id: 'o9', order_no: 'VATAN/1', client_name: 'VATAN', wz_status: 'do_wystawienia', kg_zaladowane: 400, kg_usluga: 300,
+    zaladowano: [], wz: [], hdi: [], cmr: [] } as PozycjaKursu
+  const k = { id: 'k9', plate: 'KR 1', finished_at: null, printed_at: null, pozycje: [p] } as Kurs
+  it('na fakturę i WZ dzieli się tylko sprzedaż', () => {
+    expect(kgSprzedazy(p)).toBe(100)
+    expect(zamowieniaDoWystawienia(k, {})).toEqual({ orders: [{ order_id: 'o9', cel_kg: 100, invoice_no: '', hdi_fv: true }] })
+    expect(wpiszKg(p, PUSTA_DECYZJA, 'wz', '40').kgFv).toBe('60')
+    expect('blad' in zamowieniaDoWystawienia(k, { o9: { ...PUSTA_DECYZJA, kgFv: '400', kgWz: '0' } })).toBe(true)
+  })
+  it('sama usługa: nic na fakturę, układ „WZ” bez dokumentów do faktury', () => {
+    const sama = { ...p, kg_usluga: 400 }
+    expect(uklad(sama, PUSTA_DECYZJA)).toBe('wz')
+    expect(zamowieniaDoWystawienia({ ...k, pozycje: [sama] }, {})).toEqual({ orders: [{ order_id: 'o9', cel_kg: 0, invoice_no: '', hdi_fv: false }] })
+  })
+  it('HDI usługa ma własną etykietę na liście papierów', () => {
+    const papiery = papieryPozycji({ ...p, hdi: [{ id: 'h1', number: '12/11/26', scope: 'calosc' }, { id: 'h2', number: '13/11/26', scope: 'usluga' }] })
+    expect(papiery.map(x => x.etykieta)).toEqual(['HDI', 'HDI usługa'])
   })
 })

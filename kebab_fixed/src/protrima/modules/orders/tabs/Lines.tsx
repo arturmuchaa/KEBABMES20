@@ -35,7 +35,7 @@ export function LinesTab({ order }: { order: Order }) {
                 <td className="num muted sd">{l.lp}</td>
                 {/* Panel z boku chowa kolumny .sd — opakowanie i uwaga idą wtedy pod wyrób (.so). */}
                 <td>{l.product}<span className="sub so">{l.packaging}</span>{l.note && <span className="sub so uwaga">Uwagi: {l.note}</span>}</td>
-                <td className="strong">{l.recipe}</td>
+                <td className="strong">{l.recipe}{l.usluga && <span className="tag info" style={{ marginLeft: 8 }} data-tip="Towar usługobiorcy: osobne HDI „usługa”, bez naszej WZ i faktury">usługa</span>}</td>
                 <td className="num">{l.kgPerUnit} kg</td>
                 <td className="hide-s sd">{l.packaging}</td>
                 <td className="num"><b>{num(l.qty)}</b><span className="sub">szt.</span></td>

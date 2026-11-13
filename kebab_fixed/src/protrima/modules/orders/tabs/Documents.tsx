@@ -116,7 +116,7 @@ export function DocumentsTab({ order }: { order: Order }) {
         </div>
       </>}
       <div className="note"><FlagIcon level="info" size={15} /><div>Anulowanie WZ, edycja HDI i rejestr wszystkich dokumentów — w module „Dokumenty WZ, CMR, HDI” starego MES.</div></div>
-      {pytajHdi && <PotwierdzenieHdi order={order} onClose={() => setPytajHdi(false)} onConfirm={przed => { setPytajHdi(false); if (przed) app.genHdi(order.id, true); else app.genHdi(order.id) }} />}
+      {pytajHdi && <PotwierdzenieHdi order={order} onClose={() => setPytajHdi(false)} onConfirm={(przed, usluga) => { setPytajHdi(false); if (przed) app.genHdi(order.id, true, usluga); else app.genHdi(order.id) }} />}
     </div>
   )
 }
@@ -149,12 +149,15 @@ function Kafel({ tytul, opis, ikona, skutek, onClick, wylaczony }: {
  * dopiero serwer; tu tylko ostrzeżenie, gdy brakuje wyrobu.
  * Wywołanie zostaje w rodzicu (app.genHdi) — generujHdi woła serwer od razu.
  */
-export function PotwierdzenieHdi({ order, onClose, onConfirm }: { order: Order; onClose: () => void; onConfirm: (przedZaladunkiem?: boolean) => void }) {
+export function PotwierdzenieHdi({ order, onClose, onConfirm }: { order: Order; onClose: () => void; onConfirm: (przedZaladunkiem?: boolean, usluga?: boolean) => void }) {
   const m = computeMetrics(order)
+  const usluga = order.lines.some(l => l.usluga)
+  const tylkoUsluga = usluga && order.lines.every(l => l.usluga)
   return (
     <Dialog title="Wystawić HDI?" icon={<FileText size={20} color="var(--ink-2)" />} onClose={onClose}
       footer={<><button className="btn" onClick={onClose} data-autofocus>Wróć</button>
-        <button className="btn" onClick={() => onConfirm(true)} data-tip="Z rozpisu zamówienia, bez skanów — do wysłania klientowi przed załadunkiem"><FileText size={15} />HDI przed załadunkiem</button>
+        {usluga && <button className="btn" onClick={() => onConfirm(true, true)} data-tip="Osobne HDI na towar usługobiorcy, z rozpisu zamówienia — przed załadunkiem"><FileText size={15} />HDI usługa przed załadunkiem</button>}
+        {!tylkoUsluga && <button className="btn" onClick={() => onConfirm(true)} data-tip="Z rozpisu zamówienia, bez skanów — do wysłania klientowi przed załadunkiem"><FileText size={15} />HDI przed załadunkiem</button>}
         <button className="btn primary" onClick={() => onConfirm()}><FileText size={15} />Wystaw HDI</button></>}>
       <p className="hdi-kto">Zamówienie <b>{order.no}</b> · {order.client.name}</p>
       <ul className="hdi-pyt">
@@ -162,6 +165,7 @@ export function PotwierdzenieHdi({ order, onClose, onConfirm }: { order: Order; 
         <li><FileText size={16} aria-hidden="true" /><span><b>Ponowne odświeży treść</b> tego samego HDI, dopóki jest wstępny — bez nowego numeru.</span></li>
       </ul>
       <div className="note info"><FlagIcon level="info" size={15} /><div><b>Klient chce HDI przed załadunkiem?</b> „HDI przed załadunkiem” wystawia dokument z rozpisu zamówienia, zanim towar wjedzie na auto. Po załadunku ten sam numer przeliczy się ze skanów.</div></div>
+      {usluga && <div className="note info"><FlagIcon level="info" size={15} /><div><b>Zamówienie ma pozycje usługowe.</b> HDI obejmuje tylko nasz towar, a towar usługobiorcy dostaje osobne <b>HDI usługa</b> z własnym numerem. Po załadunku oba powstają w Papierach kursu.</div></div>}
       {m.missingKg > 0 && <div className="note warn"><FlagIcon level="warn" size={15} /><div>Brakuje jeszcze <b>{kg(m.missingKg)}</b> wyrobu. HDI obejmie tylko to, co już jest (stan faktyczny).</div></div>}
     </Dialog>
   )

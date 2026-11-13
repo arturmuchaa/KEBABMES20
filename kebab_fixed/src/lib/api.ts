@@ -1304,6 +1304,8 @@ function mapClient(raw: any): Client {
     destForHdi:  !!(raw.dest_for_hdi ?? raw.destForHdi ?? true),
     destForCmr:  !!(raw.dest_for_cmr ?? raw.destForCmr ?? true),
     halalSupervision: !!(raw.halal_supervision ?? raw.halalSupervision ?? false),
+    // Klient usługowy — edytor jego zamówień pokazuje kolumnę „Usługa”.
+    uslugi: !!(raw.uslugi ?? false),
     // Nazwa pozycji HDI: co odbiorca chce widzieć na papierze (POLAT vs TRUVA).
     hdiNameMode: (raw.hdi_name_mode ?? raw.hdiNameMode ?? 'type_recipe'),
     // Czy nazewnictwo z kartoteki schodzi także na WZ. Brak pola = tak:
@@ -1841,6 +1843,7 @@ function mapOrderLine(raw: any) {
     production:      mapOrderProduction(raw.production),
     mixing:          mapOrderMixing(raw.mixing),
     notes:           raw.notes,
+    usluga:          Boolean(raw.usluga),
   }
 }
 
@@ -1904,6 +1907,8 @@ export function toSnakeOrderDto(dto: CreateClientOrderDto) {
       packaging_id:      l.packagingId,
       packaging_name:    (l as any).packagingName   || '',
       notes:             l.notes,
+      // Wysyłane tylko gdy formularz je zna — inaczej backend zachowuje flagę.
+      ...(l.usluga === undefined ? {} : { usluga: l.usluga }),
     })),
   }
 }
@@ -1986,6 +1991,8 @@ export interface SplitLine {
    *  zapis zawsze dają liczbę. Nie udajemy tu zera, którego nikt nie zapisał. */
   qty_invoice: number | null
   qty_wz: number | null
+  /** Pozycja usługowa — nie bierze udziału w podziale (zawsze 0 na fakturę i WZ). */
+  usluga?: boolean
 }
 
 export interface SplitPreview {
@@ -3128,8 +3135,9 @@ export const abpApi = {
 }
 
 export const hdiApi = {
-  generate: (orderId: string, preliminary = false) =>
-    post<{ id: string; number: string; status: string; incomplete: boolean; totals: { qty: number; kg: number } }>(`/hdi/generate?order_id=${encodeURIComponent(orderId)}${preliminary ? '&preliminary=true' : ''}`, {}),
+  /** `scope`: 'usluga' — HDI na towar usługobiorcy (pozycje usługowe), osobny numer. */
+  generate: (orderId: string, preliminary = false, scope?: 'calosc' | 'usluga') =>
+    post<{ id: string; number: string; status: string; incomplete: boolean; totals: { qty: number; kg: number } }>(`/hdi/generate?order_id=${encodeURIComponent(orderId)}${preliminary ? '&preliminary=true' : ''}${scope && scope !== 'calosc' ? `&scope=${scope}` : ''}`, {}),
   /** HDI do RĘCZNEGO WZ — sprzedaż wyrobu z magazynu, bez zamówienia. */
   generateFromWz: (wzId: string) =>
     post<{ id: string; number: string; status: string; incomplete: boolean; totals: { qty: number; kg: number } }>(`/hdi/z-wz?wz_id=${encodeURIComponent(wzId)}`, {}),

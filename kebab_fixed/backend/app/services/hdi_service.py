@@ -12,7 +12,7 @@ from app.utils.batch_numbers import kebab_batch_no, kebab_batch_wsad
 from app.utils.unit_codes import best_before
 from app.utils.hdi_lang import lang_from_nip
 from app.utils.product_key import Klucz, kandydaci, klucz_wyrobu
-from app.utils.zakres import ZAKRES_CALOSC, ZAKRES_FV, sprawdz_zakres
+from app.utils.zakres import ZAKRES_CALOSC, ZAKRES_FV, ZAKRES_USLUGA, ZAKRESY_HDI, sprawdz_zakres
 from app.services.order_stock_service import (
     produced_by_key_from_plan_lines,
     stock_portions_for_order,
@@ -225,7 +225,57 @@ KOMUNIKAT_BEZ_HDI_NA_WZ = (
 
 
 def _sprawdz_zakres(scope: str) -> str:
-    return sprawdz_zakres(scope, "HDI", komunikat_wz=KOMUNIKAT_BEZ_HDI_NA_WZ)
+    return sprawdz_zakres(scope, "HDI", komunikat_wz=KOMUNIKAT_BEZ_HDI_NA_WZ,
+                          dozwolone=ZAKRESY_HDI)
+
+
+def ma_pozycje_uslugowe(linie: List[Dict[str, Any]]) -> bool:
+    return any(l.get("usluga") and int(l.get("qty") or 0) > 0 for l in linie or [])
+
+
+def ma_pozycje_sprzedazy(linie: List[Dict[str, Any]]) -> bool:
+    return any(not l.get("usluga") and int(l.get("qty") or 0) > 0 for l in linie or [])
+
+
+def rozdziel_usluge(units: List[Dict[str, Any]],
+                    linie: List[Dict[str, Any]]) -> tuple:
+    """Sztuki HDI → (usługa, towar własny) wg pozycji zamówienia.
+
+    Zamówienie z pozycjami usługowymi (VATAN, 13.11.2026) dostaje DWA HDI:
+    jedno na nasz towar, drugie na towar usługobiorcy. Wyrób, który w
+    zamówieniu występuje WYŁĄCZNIE jako usługa, idzie na HDI „usługa" cały
+    (także nadwyżka produkcji — to nadal jego towar). Gdy ten sam wyrób jest
+    i usługą, i sprzedażą, usługa dostaje dokładnie tyle sztuk, ile jej
+    zamówiono, a reszta zostaje na HDI własnym. Kolejność sztuk zostaje, więc
+    oba dokumenty razem dają dokładnie to, co dawało jedno HDI na całość.
+    """
+    usl: Dict[Klucz, int] = {}
+    sprz: Dict[Klucz, int] = {}
+    for l in linie or []:
+        k = klucz_wyrobu(l.get("recipe_id"), l.get("kg_per_unit"),
+                         l.get("product_type_id"), l.get("packaging_id"))
+        cel = usl if l.get("usluga") else sprz
+        cel[k] = cel.get(k, 0) + int(l.get("qty") or 0)
+    if not any(v > 0 for v in usl.values()):
+        return [], list(units)
+    usluga: List[Dict[str, Any]] = []
+    wlasne: List[Dict[str, Any]] = []
+    for u in units:
+        k = u.get("_klucz") or klucz_wyrobu(None, u.get("weight_kg"))
+        cele = kandydaci(usl, k)
+        if not cele:
+            wlasne.append(u)
+        elif not kandydaci(sprz, k):
+            usluga.append(u)
+        else:
+            for c in cele:
+                if usl[c] > 0:
+                    usl[c] -= 1
+                    usluga.append(u)
+                    break
+            else:
+                wlasne.append(u)
+    return usluga, wlasne
 
 
 def _limity_fakturowane(order_id: str) -> Dict[Klucz, int]:
@@ -391,7 +441,7 @@ def build_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
     # Braki względem zamówienia pokryj zapasem magazynowym (produkcja "na
     # magazyn" sprzed zamówienia nie ma linku w liniach planu).
     order_lines = query_all(
-        "SELECT recipe_id, kg_per_unit, product_type_id, packaging_id, qty "
+        "SELECT recipe_id, kg_per_unit, product_type_id, packaging_id, qty, usluga "
         "FROM client_order_lines WHERE order_id=%s",
         (order_id,))
     portions = stock_portions_for_order(
@@ -431,6 +481,20 @@ def build_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
     units += units_from_stock_portions(portions, shelf_by_recipe, doc_names, mode, recipe_names)
     if not units:
         raise HTTPException(400, "Brak wyprodukowanej produkcji dla tego zamówienia")
+    # Pozycje usługowe: HDI „usługa" bierze towar usługobiorcy, a HDI na
+    # całość i do faktury — wyłącznie nasz towar. Zamówienie bez usługi:
+    # `rozdziel_usluge` oddaje wszystkie sztuki jako własne, czyli bez zmian.
+    jest_usluga = ma_pozycje_uslugowe(order_lines)
+    if scope == ZAKRES_USLUGA and not jest_usluga:
+        raise HTTPException(400, "Zamówienie nie ma pozycji usługowych — HDI usługa nie ma czego opisać")
+    units_usluga, units = rozdziel_usluge(units, order_lines)
+    if scope == ZAKRES_USLUGA:
+        units = units_usluga
+        if not units:
+            raise HTTPException(400, "Brak wyprodukowanego towaru usługowego dla tego zamówienia")
+    elif not units:
+        raise HTTPException(
+            400, "Zamówienie ma tylko pozycje usługowe — wystaw HDI usługa")
     if scope == ZAKRES_FV:
         units = _przytnij_do_fakturowanych(units, _limity_fakturowane(order_id))
         if not units:
@@ -450,7 +514,10 @@ def build_hdi(order_id: str, scope: str = ZAKRES_CALOSC) -> Dict[str, Any]:
         if actual:
             ordered_qty = sum(int(ln.get("qty_invoice") or 0) for ln in actual["lines"])
     else:
-        ordered_qty = sum(int(ln.get("ordered_qty", ln.get("qty")) or 0) for ln in order_lines)
+        # HDI na całość przy zamówieniu z usługą opisuje tylko sprzedaż,
+        # HDI „usługa" — tylko usługę; każde porównujemy z SWOJĄ częścią.
+        ordered_qty = sum(int(ln.get("ordered_qty", ln.get("qty")) or 0) for ln in order_lines
+                          if bool(ln.get("usluga")) == (scope == ZAKRES_USLUGA))
     incomplete = ordered_qty > 0 and total_qty < ordered_qty
 
     header, lang = _hdi_header(client, order.get("client_name", ""))
@@ -593,7 +660,7 @@ def generate_hdi(order_id: str, scope: str = ZAKRES_CALOSC, *,
     # Wyjątek dotyczy WYŁĄCZNIE jawnie wybranego HDI wstępnego. WM/WZ/CMR
     # i komplet dokumentów nadal wymagają skanów. Bez migracji: znacznik jest
     # częścią zapisanego nagłówka, więc trafia także na wydruk i PDF.
-    if preliminary and scope != ZAKRES_CALOSC:
+    if preliminary and scope not in (ZAKRES_CALOSC, ZAKRES_USLUGA):
         raise HTTPException(400, "HDI wstępne przed załadunkiem wystawiamy na całość")
     actual = shipment.current(order_id)
     # Numer HDI jest STAŁY per zamówienie/wydanie. Jeśli dokument dla tego
