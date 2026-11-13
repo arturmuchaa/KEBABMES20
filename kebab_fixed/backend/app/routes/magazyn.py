@@ -64,7 +64,7 @@ def mroznia_kartony():
 
 
 class Lokalizacja(BaseModel):
-    kind: Literal['order', 'stock']
+    kind: Literal['order', 'stock', 'waiting']
     container_id: str
     slot: str
     rotation: Literal[0, 90] = 0
@@ -83,7 +83,7 @@ def mroznia_lokalizacja(body: Lokalizacja, request: Request):
 
 
 class KartonDoZamiany(BaseModel):
-    kind: Literal['order', 'stock']
+    kind: Literal['order', 'stock', 'waiting']
     container_id: str = Field(min_length=1)
     expected_revision: str = Field(min_length=1)
 

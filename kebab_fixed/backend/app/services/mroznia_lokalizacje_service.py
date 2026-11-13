@@ -2,6 +2,7 @@
 
 Rotation records orientation in that place, never moves neighbouring goods.
 """
+import json
 import re
 
 from fastapi import HTTPException
@@ -17,8 +18,23 @@ def _position(row):
     return {"slot": row['slot'], "rotation": row['rotation'], "revision": row['revision']}
 
 
+# Kto może stać na miejscu: paleta zamówienia, karton magazynowy albo paleta
+# czekająca na zamówienie (poczekalnia — fizycznie dalej w mroźni).
+_OWNERS = {'order': ('order_pallets', 'pallet_id'), 'stock': ('stock_cartons', 'carton_id'),
+           'waiting': ('orphan_pallets', 'orphan_id')}
+
+
+def _in_cold(kind, container):
+    if not container:
+        return False
+    if kind == 'stock':
+        return bool(container.get('cold_storage_at') and not container.get('loaded_vehicle_id')
+                    and not container.get('shipped_at'))
+    return container.get('status') == 'cold_storage'
+
+
 def location(kind, container_id):
-    column = 'pallet_id' if kind == 'order' else 'carton_id'
+    column = _OWNERS[kind][1]
     return _position(query_one(f'SELECT * FROM cold_storage_positions WHERE {column}=%s', (container_id,)))
 
 
@@ -42,8 +58,17 @@ def plan():
             {client_short_name_sql('c')}
             LEFT JOIN cold_storage_positions pos ON pos.carton_id=c.id
             WHERE c.cold_storage_at IS NOT NULL AND c.loaded_vehicle_id IS NULL AND c.shipped_at IS NULL
+            UNION ALL
+            SELECT 'waiting', w.id, w.carton_no, w.client_name, w_cs.short_name, '', NULL,
+                   'PAL|' || w.source_order_id || '|' || w.pallet_no, pos.slot, pos.rotation, pos.revision
+            FROM orphan_pallets w
+            {client_short_name_sql('w')}
+            LEFT JOIN cold_storage_positions pos ON pos.orphan_id=w.id
+            WHERE w.status='cold_storage'
             ORDER BY carton_no, id
         """)
+        waiting = {r['id']: r['items'] for r in cx_query_all(
+            conn, "SELECT id, items FROM orphan_pallets WHERE status='cold_storage'")}
         # Three bulk reads, never a request/query per carton on a busy freezer.
         ids = [r['id'] for r in rows]
         actual = cx_query_all(conn, """
@@ -73,6 +98,12 @@ def plan():
             ORDER BY kg DESC, recipe, product, packaging
         """, (ids, ids)) if ids else []
     contents = {}
+    for wid, items in waiting.items():
+        for it in (items if isinstance(items, list) else json.loads(items or '[]')):
+            contents.setdefault(('waiting', wid), []).append({
+                'qty': int(it.get('qty') or 0), 'kgPerUnit': float(it.get('kg_per_unit') or 0),
+                'recipeName': it.get('recipe_name') or '', 'productTypeName': it.get('product_type_name') or '',
+                'packagingName': it.get('packaging_name') or '', 'source': 'plan'})
     for source, lines in [('scans', actual), ('plan', planned)]:
         for line in lines:
             contents.setdefault((line['kind'], line['id']), []).append({
@@ -93,17 +124,14 @@ def plan():
 
 
 def save(kind, container_id, slot, rotation, expected_revision, operator=''):
-    if kind not in ('order', 'stock') or not re.fullmatch(r'[A-I][1-7]', slot or '') or rotation not in (0, 90):
+    if kind not in _OWNERS or not re.fullmatch(r'[A-I][1-7]', slot or '') or rotation not in (0, 90):
         raise HTTPException(400, 'Nieprawidłowe miejsce lub obrót palety')
-    table, column = ('order_pallets', 'pallet_id') if kind == 'order' else ('stock_cartons', 'carton_id')
+    table, column = _OWNERS[kind]
     with transaction() as conn:
         # Serializes competing put-aways; row lock also protects against loading/exit.
         cx_execute(conn, 'SELECT pg_advisory_xact_lock(202611040001)')
         container = cx_query_one(conn, f'SELECT * FROM {table} WHERE id=%s FOR UPDATE', (container_id,))
-        in_cold = container and (container.get('status') == 'cold_storage' if kind == 'order' else
-                                container.get('cold_storage_at') and not container.get('loaded_vehicle_id')
-                                and not container.get('shipped_at'))
-        if not in_cold:
+        if not _in_cold(kind, container):
             raise HTTPException(409, 'Karton nie stoi już w mroźni. Odśwież listę.')
         current = cx_query_one(conn, f'SELECT * FROM cold_storage_positions WHERE {column}=%s', (container_id,))
         if current and current['slot'] == slot and current['rotation'] == rotation:
@@ -129,19 +157,16 @@ def swap(first_kind, first_id, first_revision, second_kind, second_id, second_re
     Both parent locks also serialize this with loading/exit from cold storage.
     """
     requests = [(first_kind, first_id, first_revision), (second_kind, second_id, second_revision)]
-    if (any(k not in ('order', 'stock') or not cid or not rev for k, cid, rev in requests)
+    if (any(k not in _OWNERS or not cid or not rev for k, cid, rev in requests)
             or (first_kind, first_id) == (second_kind, second_id)):
         raise HTTPException(400, 'Wybierz dwa różne kartony z aktualnym położeniem.')
     with transaction() as conn:
         cx_execute(conn, 'SELECT pg_advisory_xact_lock(202611040001)')
         positions = {}
         for kind, cid, revision in sorted(requests):
-            table, column = ('order_pallets', 'pallet_id') if kind == 'order' else ('stock_cartons', 'carton_id')
+            table, column = _OWNERS[kind]
             container = cx_query_one(conn, f'SELECT * FROM {table} WHERE id=%s FOR UPDATE', (cid,))
-            in_cold = container and (container.get('status') == 'cold_storage' if kind == 'order' else
-                                    container.get('cold_storage_at') and not container.get('loaded_vehicle_id')
-                                    and not container.get('shipped_at'))
-            if not in_cold:
+            if not _in_cold(kind, container):
                 raise HTTPException(409, 'Jeden z kartonów nie stoi już w mroźni. Odczytaj plan ponownie.')
             row = cx_query_one(conn, f'SELECT * FROM cold_storage_positions WHERE {column}=%s', (cid,))
             if not row or row['revision'] != revision:
@@ -155,7 +180,7 @@ def swap(first_kind, first_id, first_revision, second_kind, second_id, second_re
         cx_execute(conn, 'DELETE FROM cold_storage_positions WHERE slot=ANY(%s)', ([a['slot'], b['slot']],))
         result = {}
         for name, kind, cid, destination in [('first', first_kind, first_id, b), ('second', second_kind, second_id, a)]:
-            column = 'pallet_id' if kind == 'order' else 'carton_id'
+            column = _OWNERS[kind][1]
             row = cx_query_one(conn, f'''
                 INSERT INTO cold_storage_positions(slot, {column}, rotation, revision, operator)
                 VALUES (%s,%s,%s,%s,%s) RETURNING *''',

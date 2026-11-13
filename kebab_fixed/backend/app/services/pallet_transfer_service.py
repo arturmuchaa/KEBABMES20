@@ -156,6 +156,10 @@ def _park(conn, order: Dict[str, Any], pallets: List[Dict[str, Any]], reason: st
              order.get("client_name") or "", p["pallet_no"], p.get("carton_no"), p.get("notes") or "",
              p.get("status") or "created", p.get("cold_storage_at"), p.get("created_at"),
              json.dumps(items), reason))
+        # Paleta dalej stoi w mroźni: miejsce przechodzi na wpis poczekalni,
+        # zanim kaskada po `order_pallets` zdążyłaby je skasować.
+        cx_execute(conn, "UPDATE cold_storage_positions SET pallet_id=NULL, orphan_id=%s WHERE pallet_id=%s",
+                   (p["id"], p["id"]))
         n += 1
     if pallets:
         cx_execute(conn, "DELETE FROM order_pallets WHERE id = ANY(%s)", ([p["id"] for p in pallets],))
@@ -252,6 +256,9 @@ def attach_orphans_cx(conn, order_id: str) -> List[Dict[str, Any]]:
                      target_pallet_no = EXCLUDED.target_pallet_no, created_at = now()""",
             (o["source_order_id"], o["pallet_no"], order_id, nxt))
         cx_execute(conn, "UPDATE finished_units SET order_id=%s WHERE pallet_id=%s", (order_id, o["id"]))
+        # To samo miejsce w mroźni — edycja zamówienia nie przestawia towaru.
+        cx_execute(conn, "UPDATE cold_storage_positions SET orphan_id=NULL, pallet_id=%s WHERE orphan_id=%s",
+                   (o["id"], o["id"]))
         cx_execute(conn, "DELETE FROM orphan_pallets WHERE id=%s", (o["id"],))
         moved.append({"palletId": o["id"], "palletNo": nxt, "from": o["source_order_no"],
                       "fromPalletNo": o["pallet_no"], "cartonNo": o.get("carton_no")})

@@ -378,3 +378,51 @@ def test_vehicle_state_carries_client_short_name_for_the_colour_legend(db):
     vehicle_loading_service.add_order('v1', 'o1')
     order = vehicle_loading_service.vehicle_state('v1')['orders'][0]
     assert (order['client_name'], order['client_short_name']) == ('YBM Gastro GmbH', 'YALCIN')
+
+
+# ── Paleta przeżywa zamówienie — miejsce w mroźni też (prod 13.11.2026) ──
+# Właściciel: „kartony z zamówienia ISSA znikły, jak anulowałem zamówienie (…)
+# nowe zamówienie też usunęło je ze swoich miejsc — nie powinno ruszać miejsca
+# magazynowego, bo fizycznie kartony ciągle tam stoją".
+
+def test_anulowanie_zamowienia_nie_zdejmuje_palety_z_miejsca_i_z_rzutu(db):
+    from app.services import orders_service
+    pid, _ = seed('order', '1')
+    place = svc.save('order', pid, 'E3', 0, None, 'OLEK')
+    orders_service.update_order_status('o1', 'cancelled')
+    assert query_one("SELECT status FROM orphan_pallets WHERE id=%s", (pid,))['status'] == 'cold_storage'
+
+    plan = svc.plan()['cartons']
+    assert [(c['kind'], c['id'], c['location']['slot']) for c in plan] == [('waiting', pid, 'E3')]
+    assert plan[0]['clientName'] == 'KLIENT1' and plan[0]['cartonNo'] and plan[0]['orderId'] is None
+    assert plan[0]['lines'] == [{'qty': 2, 'kgPerUnit': 15.0, 'recipeName': 'KIRMIZI', 'productTypeName': '',
+                                 'packagingName': '', 'source': 'plan'}]
+    # Miejsce jest zajęte — nikt nie postawi tam innego kartonu.
+    other, _ = seed('stock', '2')
+    with pytest.raises(HTTPException) as exc:
+        svc.save('stock', other, 'E3', 0, None)
+    assert 'E3 jest już zajęte' in exc.value.detail
+    # Magazyn może paletę bez zamówienia przestawić.
+    moved = svc.save('waiting', pid, 'F4', 0, place['revision'], 'OLEK')
+    assert svc.plan()['cartons'][0]['location'] == moved or svc.location('waiting', pid) == moved
+
+
+def test_paleta_wraca_do_nowego_zamowienia_na_tym_samym_miejscu(db):
+    from app.db import transaction
+    from app.services import orders_service
+    from app.services.pallet_transfer_service import attach_orphans_cx
+    pid, _ = seed('order', '1')
+    svc.save('order', pid, 'H4', 90, None, 'OLEK')
+    orders_service.update_order_status('o1', 'cancelled')
+    execute("INSERT INTO client_orders (id, order_no, client_id, client_name, order_date, created_at, status) "
+            "VALUES ('o9','KLIENT1/Z/2','klient1','KLIENT1',CURRENT_DATE,now(),'confirmed')")
+    execute("INSERT INTO client_order_lines (id, order_id, recipe_id, recipe_name, product_type_id, qty, "
+            " kg_per_unit, total_kg) VALUES ('o9-l1','o9','r1','KIRMIZI','p1',2,15,30)")
+    with transaction() as conn:
+        moved = attach_orphans_cx(conn, 'o9')
+    assert [m['palletId'] for m in moved] == [pid]
+    pos = query_one("SELECT slot, rotation, pallet_id, orphan_id FROM cold_storage_positions")
+    assert pos == {'slot': 'H4', 'rotation': 90, 'pallet_id': pid, 'orphan_id': None}
+    c = svc.plan()['cartons'][0]
+    assert (c['kind'], c['orderId'], c['location']['slot']) == ('order', 'o9', 'H4')
+    assert query_one("SELECT count(*) AS n FROM orphan_pallets")['n'] == 0

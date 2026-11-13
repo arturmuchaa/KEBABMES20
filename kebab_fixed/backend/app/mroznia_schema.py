@@ -53,4 +53,20 @@ DDL = [
             ON stock_cartons FOR EACH ROW EXECUTE FUNCTION release_cold_storage_position();
         END IF;
     END $$""",
+    # Paleta czekająca na zamówienie (poczekalnia) dalej FIZYCZNIE stoi w mroźni.
+    # Prod 13.11.2026 (ISSA): anulowanie zamówienia kasowało paletę zamówienia,
+    # a z nią — kaskadą — jej miejsce; rzut mroźni pokazywał puste pola.
+    """ALTER TABLE cold_storage_positions
+        ADD COLUMN IF NOT EXISTS orphan_id TEXT UNIQUE REFERENCES orphan_pallets(id) ON DELETE CASCADE""",
+    """DO $$ DECLARE c record; BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='cold_storage_positions_one_owner') THEN
+            FOR c IN SELECT conname FROM pg_constraint
+                      WHERE conrelid='cold_storage_positions'::regclass AND contype='c'
+                        AND position('pallet_id IS NULL' in pg_get_constraintdef(oid)) > 0 LOOP
+                EXECUTE 'ALTER TABLE cold_storage_positions DROP CONSTRAINT ' || quote_ident(c.conname);
+            END LOOP;
+            ALTER TABLE cold_storage_positions ADD CONSTRAINT cold_storage_positions_one_owner
+                CHECK (num_nonnulls(pallet_id, carton_id, orphan_id) = 1);
+        END IF;
+    END $$""",
 ]

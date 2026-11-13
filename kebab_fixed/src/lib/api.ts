@@ -4491,7 +4491,7 @@ export const magazynApi = {
     put<ZajeteMiejsceMrozni>('/magazyn/mroznia/zajete', body),
   mrozniaZwolnij: (body: { slot: string; expected_revision: string }) =>
     post<{ ok: boolean }>('/magazyn/mroznia/zajete/zwolnij', body),
-  mrozniaLokalizacja: (body: { kind: 'order' | 'stock'; container_id: string; slot: string; rotation: 0 | 90; expected_revision: string | null }) =>
+  mrozniaLokalizacja: (body: { kind: 'order' | 'stock' | 'waiting'; container_id: string; slot: string; rotation: 0 | 90; expected_revision: string | null }) =>
     put<MiejsceMrozni>('/magazyn/mroznia/lokalizacja', body),
   cofnij: (code: string, containerId: string) =>
     post<{ ok: boolean }>('/magazyn/pakowanie/cofnij', { code, container_id: containerId }),
@@ -4604,9 +4604,10 @@ export interface PozycjaSkladu {
 }
 
 export interface MiejsceMrozni { slot: string; rotation: 0 | 90; revision: string }
-export interface KartonDoZamiany { kind: 'order' | 'stock'; container_id: string; expected_revision: string }
+export interface KartonDoZamiany { kind: 'order' | 'stock' | 'waiting'; container_id: string; expected_revision: string }
 export interface KartonNaPlanie {
-  kind: 'order' | 'stock'; id: string; code: string; cartonNo: string; clientName: string; orderNo: string
+  /** `waiting` = paleta z usuniętego/anulowanego zamówienia: stoi w mroźni, czeka na nowe zamówienie. */
+  kind: 'order' | 'stock' | 'waiting'; id: string; code: string; cartonNo: string; clientName: string; orderNo: string
   /** Short trade name from the client catalogue ('' = none; show clientName). Sent by the
    *  server because the warehouse HMI may not read /api/clients. */
   clientShortName?: string

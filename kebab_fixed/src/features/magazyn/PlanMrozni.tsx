@@ -321,7 +321,8 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
       <div className="mroznia-sheet-meta">
         <span>Karton <b className="hmi-v10-mono">{selected.cartonNo}</b></span>
         {order ? <span className="flex items-center gap-2"><span className="mroznia-swatch" aria-hidden /> {order.orderNo}</span>
-          : selected.orderNo ? <span>{selected.orderNo}</span> : null}
+          : selected.orderNo ? <span>{selected.orderNo}</span>
+          : selected.kind === 'waiting' ? <span>bez zamówienia — czeka na nowe</span> : null}
         <span className={positioned(selected.location) ? '' : 'mroznia-sheet-warn'}>{locationText(selected.location)}</span>
       </div>
       <div className="mroznia-sheet-body"><ZawartoscMrozni lines={selected.lines} /></div>
@@ -404,7 +405,8 @@ export function PlanMrozni({ cel, zaladunek, onZamknij, onZapisano, onZmieniono 
                   <b className="mroznia-tile-address">{place}</b>
                   {c ? <span className="mroznia-tile-more" hidden aria-hidden /> : null}
                   {c ? <span className="mroznia-tile-no hmi-v10-mono">{compactCartonNo(c.cartonNo)}</span> : null}
-                  {c?.orderNo ? <span className="mroznia-tile-orderno hmi-v10-mono">{c.orderNo}</span> : null}
+                  {c?.orderNo ? <span className="mroznia-tile-orderno hmi-v10-mono">{c.orderNo}</span>
+                    : c?.kind === 'waiting' ? <span className="mroznia-tile-orderno">bez zamówienia</span> : null}
                 </span>
                 {c ? <>
                   <b className={`mroznia-tile-client ${label.length > 11 || label.split(/\s+/).some(w => w.length > 7) ? 'is-long' : ''}`}>{label}</b>
