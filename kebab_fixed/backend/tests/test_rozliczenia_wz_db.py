@@ -436,3 +436,34 @@ def test_synchronizacja_czeka_na_blokade_ksiegi(db):
         assert watek.is_alive()
     watek.join(5)
     assert wynik["dodane"] == 1
+
+
+# ── WZ pracownika (zakup na własny użytek, potrącenie z wypłaty) ──────────
+
+def _potracenie(wid):
+    execute("INSERT INTO worker_deductions (id, worker_id, deduction_date, description, amount, "
+            " source_type, source_id, status) VALUES (%s,'w1','2026-11-12','Kebab 10 kg',47,'wz',%s,'pending')",
+            (f"pd-{wid}", wid))
+
+
+def test_WZ_pracownika_nie_trafia_do_ksiegi(db):
+    _wz("wz-prac", buyer_name="JAN KOWALSKI")
+    _potracenie("wz-prac")
+    _wz("wz-zwykla", numer="WZ/2/11/26", buyer_name="NIEZNANY")
+    assert synchronizuj_wz()["dodane"] == 1
+    assert _dok("wz-prac") is None
+    assert _dok("wz-zwykla") is not None
+
+
+def test_WZ_pracownika_ktora_juz_wpadla_przestaje_byc_liczona(db):
+    """13.11.2026: dwie WZ pracowników wisiały na liście „WZ bez kontrahenta"."""
+    from app.services.rozliczenia_service import lista as lista_rozliczen
+    _wz("wz-prac", buyer_name="JAN KOWALSKI")
+    synchronizuj_wz()
+    assert [r["numer"] for r in lista_rozliczen()["bez_kontrahenta"]] == ["WZ/1/11/26"]
+    _potracenie("wz-prac")
+    synchronizuj_wz(); synchronizuj_wz()          # drugi przebieg niczego nie dopisuje
+    dok = _dok("wz-prac")
+    assert dok["nie_licz"] is True and "pracownika" in dok["nie_licz_powod"]
+    assert lista_rozliczen()["bez_kontrahenta"] == []
+    assert [h["akcja"] for h in _historia("wz-prac")].count("nie_licz") == 1

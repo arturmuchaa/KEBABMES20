@@ -203,7 +203,9 @@ def synchronizuj_wz() -> dict:
             conn,
             f"""SELECT w.id, w.number, w.status, w.valued, w.lines, w.currency,
                        w.buyer_name, w.buyer_nip, {_DATA_WZ} AS data_dok,
-                       o.client_id AS order_client_id
+                       o.client_id AS order_client_id,
+                       EXISTS (SELECT 1 FROM worker_deductions wd
+                               WHERE wd.source_type = 'wz' AND wd.source_id = w.id) AS pracownik
                 FROM wz_documents w
                 LEFT JOIN client_orders o
                        ON w.source_type = 'order' AND o.id = w.source_id
@@ -223,6 +225,14 @@ def synchronizuj_wz() -> dict:
                 logger.warning("rozliczenia.wz.zla_data",
                                extra={"wz_id": wz["id"], "numer": wz["number"]})
                 continue
+            if wz["pracownik"]:
+                # Zakup pracownika na własny użytek: rozlicza go potrącenie
+                # z wypłaty, nie odbiorca. Do księgi nie wchodzi wcale; gdy
+                # wpadł przed tą regułą (13.11.2026: dwie takie WZ wisiały
+                # na liście „WZ bez kontrahenta") — przestaje być liczony.
+                if stary is not None:
+                    _wylacz_wz_pracownika(conn, wz, stary)
+                continue
             if stary is None:
                 _dodaj(conn, wz, kartoteka)
                 wynik["dodane"] += 1
@@ -232,6 +242,26 @@ def synchronizuj_wz() -> dict:
                     wynik[zmiana] += 1
     logger.info("rozliczenia.wz.sync", extra=wynik)
     return wynik
+
+
+POWOD_PRACOWNIK = "Zakup pracownika — potrącenie z wypłaty"
+
+
+def _wylacz_wz_pracownika(conn, wz: dict, stary: dict) -> None:
+    """WZ pracownika, która już jest w księdze: `nie_licz` z powodem i wpisem
+    w historii. Dokumentu nie kasujemy (z księgi nic nie znika), a ręcznie
+    przypisanego do kontrahenta nie ruszamy — to była decyzja biura."""
+    if stary["client_id"] or stary["przypisano_recznie"]:
+        return
+    zmienione = cx_query_one(
+        conn,
+        "UPDATE rozl_dokumenty SET nie_licz = true, nie_licz_powod = %s "
+        "WHERE id = %s AND NOT nie_licz RETURNING id",
+        (POWOD_PRACOWNIK, stary["id"]))
+    if zmienione:
+        historia(conn, client_id=None, obiekt="dokument", obiekt_id=stary["id"],
+                 akcja="nie_licz", opis=f"{wz['number']} — {POWOD_PRACOWNIK.lower()}",
+                 kto=KTO_MES)
 
 
 def _wylicz(wz: dict, client_id: Optional[str], kartoteka: _Kartoteka) -> dict:

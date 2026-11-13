@@ -341,7 +341,7 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
                     {CALIBER_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select></label>
                 <label className="fld"><span className="label">Cena / kg (zł){usluga && <span className="faint"> — mięso klienta</span>}</span>
-                  <input className="field num" inputMode="decimal" value={h.pricePerKg || ''} placeholder="0,00" onChange={e => setH('pricePerKg', parseKg(e.target.value))} /></label>
+                  <PoleLiczby value={h.pricePerKg} placeholder="0,00" label="Cena za kg" onChange={v => setH('pricePerKg', v)} /></label>
                 <label className="fld"><span className="label">Palety H1</span><input className="field num" inputMode="numeric" value={h.palletsH1 || ''} placeholder="0" onChange={e => setH('palletsH1', parseInt(e.target.value) || 0)} /></label>
                 <div className="fld rec-wide"><span className="label">Inne opakowania / palety</span>
                   <span style={{ display: 'flex', gap: 6 }}>
@@ -427,7 +427,7 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
             <div className="f"><span className="k">Dostawa</span><span className="v">{kg(totalKg)}</span></div>
             <div className="f"><span className="k">Pojemniki</span><span className="v">{num(pojemniki)}</span></div>
             <div className="f"><span className="k">Wartość netto</span><span className="v">{usluga ? <span className="faint">usługa</span> : pln(totalKg * (h.pricePerKg || 0))}</span></div>
-            <label className="fld"><span className="label">Masa netto z HDI</span><input className="field num" inputMode="decimal" placeholder="np. 9 000,00" value={h.docKg || ''} onChange={e => setH('docKg', parseKg(e.target.value))} /></label>
+            <label className="fld"><span className="label">Masa netto z HDI</span><PoleLiczby value={h.docKg} placeholder="np. 9 000,00" label="Masa netto z HDI" onChange={v => setH('docKg', v)} /></label>
             <label className="fld"><span className="label">Pojemniki z HDI</span><input className="field num" inputMode="numeric" placeholder="np. 600" value={h.docContainers || ''} onChange={e => setH('docContainers', parseInt(e.target.value) || 0)} /></label>
             <div className="rec-check">
               {h.docKg <= 0 && h.docContainers <= 0 ? <span className="muted">Wpisz sumy ze stopki HDI — od razu widać pominiętą albo zdublowaną pozycję.</span>
@@ -477,4 +477,17 @@ export function PrzyjecieEditor({ tabId, receptionId, active, setCmds, onDone }:
       </Dialog>}
     </>
   )
+}
+
+/**
+ * Pole liczby z przecinkiem. Trzyma TEKST, który wpisuje operator — pole oparte
+ * wprost na liczbie gubiło przecinek w pół słowa („4,” → 4), więc ceny 4,70
+ * nie dało się wpisać (zgłoszenie 13.11.2026). Tekst podmieniamy tylko wtedy,
+ * gdy wartość zmieniła się z zewnątrz (wczytanie dostawy, skan HDI).
+ */
+export function PoleLiczby({ value, onChange, placeholder, label }: { value: number; onChange: (v: number) => void; placeholder?: string; label: string }) {
+  const [tekst, setTekst] = useState(() => (value ? String(value).replace('.', ',') : ''))
+  useEffect(() => { setTekst(t => (parseKg(t) === (value || 0) ? t : value ? String(value).replace('.', ',') : '')) }, [value])
+  return <input className="field num" inputMode="decimal" value={tekst} placeholder={placeholder} aria-label={label}
+    onChange={e => { const t = e.target.value.replace(/[^\d.,\s]/g, ''); setTekst(t); onChange(parseKg(t)) }} />
 }
