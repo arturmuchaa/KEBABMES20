@@ -1044,8 +1044,17 @@ def create_manual_wz(
         "FROM finished_goods WHERE id = ANY(%s)", (fg_ids,))} if fg_ids else {}
     mode, recipe_names, doc_names = naming_context(
         client_name=(buyer or {}).get("name") or "")
-    lines, total = build_manual_wz_lines(
-        selections, valued, mode, recipe_names, fg_rows, doc_names)
+    # Pozycje z ręki (towar spoza stanów, np. jogurt) budujemy osobno i wstawiamy
+    # na ich miejsce — reszta idzie zwykłą drogą magazynu.
+    from app.services.wz_pozycje_dodatkowe import linia_reczna
+    magazynowe = [s for s in selections if (s.get("stock_type") or "") != "reczna"]
+    lines_mag, _ = build_manual_wz_lines(
+        magazynowe, valued, mode, recipe_names, fg_rows, doc_names)
+    it_mag = iter(lines_mag)
+    lines = [linia_reczna({**s, "lineId": s.get("line_id"), "vatRate": s.get("vat_rate")}, valued)
+             if (s.get("stock_type") or "") == "reczna" else next(it_mag)
+             for s in selections]
+    total = round(sum(float(l.get("value") or 0) for l in lines), 2)
     # Tabela HDI na dokumencie (tylko surowiec): daty uboju/ważności partii
     # stemplowane na liniach W CHWILI wystawienia — dokument to snapshot.
     # Numer LOTU mięsa b/s ma sufiks rodzaju („440-BS"), a partia ćwiartki
@@ -1088,6 +1097,8 @@ def create_manual_wz(
         numery_zamowien: List[str] = []
         for sel in selections:
             stype = sel.get("stock_type")
+            if stype == "reczna":
+                continue          # pozycja z ręki nie rusza magazynu
             sid = sel.get("stock_id")
             qty = float(sel.get("qty") or 0)
             if qty <= 0:

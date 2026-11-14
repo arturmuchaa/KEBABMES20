@@ -99,7 +99,7 @@ def manual(body: dict):
          "price": it.get("price"), "batch_no": it.get("batchNo"),
          "kg_per_unit": it.get("kgPerUnit"), "containers": it.get("containers"),
          "production_date": it.get("productionDate"),
-         "vat_rate": it.get("vatRate")}
+         "vat_rate": it.get("vatRate"), "line_id": it.get("lineId")}
         for it in (body.get("items") or [])
     ]
     return svc.create_manual_wz(

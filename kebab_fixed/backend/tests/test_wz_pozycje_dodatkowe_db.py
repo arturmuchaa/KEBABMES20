@@ -209,3 +209,26 @@ def test_lancuch_ilosci_bez_pozycji_dodatkowych(db):
     bid = _loj()
     dopisz_pozycje(wm["id"], _loj_sel(bid))
     assert quantity_chain("o1")["lines"] == przed
+
+
+def test_manual_wz_z_wyrobem_jogurtem_i_lojem(db):
+    _przygotuj_bez_podzialu()
+    fg = query_one("SELECT id, qty_available, kg_per_unit FROM finished_goods WHERE id='f1'")
+    bid = _loj()
+    ruchy_przed = query_one("SELECT count(*) n FROM stock_movements")["n"]
+    wz = create_manual_wz(buyer={"name": "YBM Gastro GmbH"}, order_id=None, selections=[
+        {"stock_type": "fg", "stock_id": "f1", "qty": 2, "name": "KEBAB", "unit": "szt", "price": 3,
+         "kg_per_unit": fg["kg_per_unit"], "vat_rate": 5},
+        {"stock_type": "reczna", "line_id": "J1", "name": "Jogurt naturalny", "qty": "10", "unit": "szt",
+         "price": "4,50", "vat_rate": 5},
+        {"stock_type": "raw", "stock_id": bid, "qty": 15.0, "name": "Łój wołowy otokowy", "unit": "kg",
+         "price": 2, "vat_rate": 5}])
+    linie = get_wz(wz["id"])["lines"]
+    assert [l["stock_type"] for l in linie] == ["fg", "reczna", "raw"]
+    jog = linie[1]
+    assert jog["line_id"] == "J1" and jog["value"] == 45.0 and not jog.get("stock_id")
+    assert _kg(bid) == 85.0
+    assert int(query_one("SELECT qty_available FROM finished_goods WHERE id='f1'")["qty_available"]) == int(fg["qty_available"]) - 2
+    assert query_one("SELECT count(*) n FROM stock_movements")["n"] == ruchy_przed + 2
+    kg_fg = 2 * float(fg["kg_per_unit"])
+    assert float(get_wz(wz["id"])["total_value"]) == pytest.approx(kg_fg * 3 + 45.0 + 30.0)
