@@ -41,8 +41,6 @@ from app.utils.stock import create_stock_movement
 
 logger = get_logger(__name__)
 
-#: Notatka na dokumencie wewnętrznym — nie ma jechać z towarem do klienta.
-_NOTATKA_WM = "DOKUMENT WEWNĘTRZNY — NIE WYDAWAĆ KLIENTOWI"
 
 #: Znacznik dokumentu POCHODZĄCEGO Z PODZIAŁU wysyłki (`wz_documents.split_scope`).
 #: `doc_series` + `source_id` same NIE wystarczają do odróżnienia od zwykłego
@@ -211,7 +209,7 @@ def wystaw_wz_wewnetrzny(order_id: str) -> Dict[str, Any]:
             conn, source_type="order", source_id=order_id, seller=_seller_block(),
             buyer=_order_buyer(conn, order), valued=False, lines=lines, total=0.0,
             place=get_company().get("city") or "", issued=issued, released=issued,
-            notes=_NOTATKA_WM, series="WM", split_scope=_SCOPE_CALOSC)
+            notes="", series="WM", split_scope=_SCOPE_CALOSC)
         shipment.bind_wm(conn, wid)
 
         for g in goods_with_counts:

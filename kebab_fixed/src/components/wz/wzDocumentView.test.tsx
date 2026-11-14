@@ -38,10 +38,14 @@ const DOC: WzDocData = {
 }
 
 describe('WzDocumentView — dopisek dokumentu wewnętrznego (seria WM)', () => {
-  it('WM z wysylki Z PODZIALEM ma dopisek — jest co ukrywac', () => {
+  it('WM z wysylki Z PODZIALEM: „Wydanie zewnętrzne”, bez czerwonego paska (właściciel 14.11.2026)', () => {
+    // „WM zawiera wszystko, co wyszło z magazynu; WZ to dokument dla klienta do zapłaty”
+    // — WM drukuje się jak zwykłe wydanie zewnętrzne, bez dopisku „nie dla klienta”.
     render(<WzDocumentView doc={{ ...DOC, doc_series: 'WM', number: 'WM/1/09/26',
                                   ukrywa_czesc_poza_faktura: true }} />)
-    expect(screen.getByText(/DOKUMENT WEWNĘTRZNY/i)).toBeTruthy()
+    expect(screen.queryByText(/DOKUMENT WEWNĘTRZNY|NIE WYDAWAĆ/i)).toBeNull()
+    expect(screen.getByText(/Wydanie zewnętrzne\s+WM\/1\/09\/26/)).toBeTruthy()
+    expect(screen.queryByText(/WZ — Wydanie/)).toBeNull()
   })
 
   it('WM przy CALOSCI na fakture dopisku NIE ma — nie ukrywa niczego', () => {

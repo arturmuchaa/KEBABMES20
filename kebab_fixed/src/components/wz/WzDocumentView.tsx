@@ -188,28 +188,13 @@ export function WzDocumentView({ doc, draft }: { doc: WzDocData; draft?: boolean
       {/* ── Tytuł dokumentu (jak „Faktura VAT 47/07/2026") ── */}
       <div className="text-center mt-4 mb-2">
         <span className="font-bold" style={{ fontSize: 13.5 }}>
-          WZ — Wydanie zewnętrzne&nbsp;&nbsp;{doc.number || (draft ? '— / —— / ——' : '')}
+          Wydanie zewnętrzne&nbsp;&nbsp;{doc.number || (draft ? '— / —— / ——' : '')}
         </span>
       </div>
 
-      {/* ── Dopisek WZ wewnętrznego (seria WM, Task 3 podziału wysyłki) ──
-             WM niesie CAŁĄ przesyłkę, więc przy wysyłce Z PODZIAŁEM ujawniłby
-             klientowi ilości spoza faktury — i TYLKO wtedy ten pasek ma sens.
-             Gdy całość idzie na fakturę, WM nie ukrywa niczego, a ostrzeżenie
-             jest hałasem na papierze, który właściciel chce móc dać klientowi
-             od ręki (22.09.2026: „fakturę wystawiamy dopiero za kilka dni").
-             Warunek liczy backend (`_ukrywa_czesc_poza_faktura`) po istnieniu
-             WZ dla klienta — ten powstaje wyłącznie przy podziale.
-             Pasek gruby i kontrastowy — dokument czyta się na hali z ręki,
-             nie na ekranie, i musi działać wydrukowany czarno-biało. */}
-      {doc.doc_series === 'WM' && doc.ukrywa_czesc_poza_faktura && (
-        <div className="text-center font-bold" style={{
-          background: '#DC2626', color: '#fff', border: '2px solid #7F1D1D',
-          fontSize: 12.5, padding: '5px 8px', letterSpacing: '.03em', marginBottom: 6,
-        }}>
-          DOKUMENT WEWNĘTRZNY — NIE WYDAWAĆ KLIENTOWI
-        </div>
-      )}
+      {/* WM drukuje się jak każde wydanie zewnętrzne — bez czerwonego paska
+             „nie wydawać klientowi” (właściciel 14.11.2026: „WM zawiera wszystko,
+             co wyszło z magazynu, WZ to dokument dla klienta do zapłaty”). */}
 
       {/* ── Pozycje ── */}
       <table className="w-full" style={{ borderCollapse: 'collapse' }}>
