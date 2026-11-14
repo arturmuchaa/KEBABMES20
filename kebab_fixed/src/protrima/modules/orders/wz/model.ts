@@ -238,10 +238,11 @@ export const cudzeRezerwacje = (f: FormWz, nazwyOdbiorcy: string[] = []): Rezerw
 export function sumy(f: FormWz) {
   const szt = f.rows.reduce((a, r) => a + ilosc(r), 0)
   const dod = f.dodatkowe ?? []
-  const kg = Math.round((f.rows.reduce((a, r) => a + masa(r), 0) + dod.reduce((a, w) => a + kgDodatkowej(w), 0)) * 1000) / 1000
+  const kg = Math.round(f.rows.reduce((a, r) => a + masa(r) * 1000, 0)) / 1000
+  const kgDodatkowe = Math.round(dod.reduce((a, w) => a + kgDodatkowej(w) * 1000, 0)) / 1000
   const vat = f.valued ? podsumowanieVat([...f.rows.map(r => ({ value: wartosc(r), vat_rate: r.vatRate })),
     ...dod.map(w => ({ value: wartoscDodatkowej(w), vat_rate: w.vatRate }))]) : null
-  return { szt, kg, vat }
+  return { szt, kg, kgDodatkowe, vat }
 }
 
 /** Ciało `wzApi.createManual` — pola jak w starym formularzu (palety na dokumencie, pojemniki: '' = auto). */

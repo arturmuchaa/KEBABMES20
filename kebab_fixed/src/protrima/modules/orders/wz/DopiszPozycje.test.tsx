@@ -75,6 +75,21 @@ describe('Dopisz pozycję do wystawionego dokumentu', () => {
   })
 })
 
+describe('Dopisz pozycję — stan surowca po dopisaniu', () => {
+  it('po dopisaniu łoju lista partii wczytuje się od nowa (wolne kg spadają)', async () => {
+    wz.stockRaw.mockResolvedValueOnce([{ id: 'rb', stock_type: 'raw', internal_batch_no: '735', name: 'Łój wołowy zwykły', kg_available: 80 }])
+      .mockResolvedValueOnce([{ id: 'rb', stock_type: 'raw', internal_batch_no: '735', name: 'Łój wołowy zwykły', kg_available: 65 }])
+    mount()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Z magazynu surowca' }))
+    fireEvent.click(await screen.findByText('Łój wołowy zwykły'))
+    fireEvent.change(screen.getByLabelText('Ilość w kg'), { target: { value: '15' } })
+    fireEvent.change(screen.getByLabelText('Cena za kg'), { target: { value: '2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Dodaj pozycję' }))
+    expect(await screen.findByText('65 kg')).toBeTruthy()
+    expect(wz.stockRaw).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('zakładka Dokumenty zamówienia — „Dopisz pozycję…” przy WZ/WM', () => {
   it('przycisk przy WZ i WM (nie przy HDI/CMR) otwiera okno dla tego dokumentu', async () => {
     dokumenty.mockResolvedValue({ order_id: 'o1', order_no: 'T/Z/1', client_id: 'c1', client_name: 'T', rozliczenia_otwarte: false,

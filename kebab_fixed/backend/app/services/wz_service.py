@@ -377,6 +377,10 @@ def build_manual_wz_lines(
     for line, s in zip(lines, selections or []):
         line["stock_type"] = s.get("stock_type")
         line["stock_id"] = s.get("stock_id")
+        # Surowiec wydawany w kg: waga na wydruku i w sumie kg dokumentu (jak
+        # pozycja dopisana do WM). Wartość bez zmian — baza i tak = qty.
+        if s.get("stock_type") in SUROWIEC and (line.get("unit") or "kg") == "kg" and not line.get("total_kg"):
+            line["total_kg"] = line["qty"]
         # Pojemniki (E2) — informacyjnie na dokumencie i do HDI surowca.
         try:
             cont = int(s.get("containers") or 0)

@@ -24,7 +24,7 @@ export const wolneKg = (p: PartiaSurowca) => Math.max(0, Number(p.kg_available) 
  * „Z magazynu surowca”: partia (najkrótszy termin na górze), kg, cena za kg, VAT; zdejmie stan.
  * Cena w walucie dokumentu — PLN albo EUR (kurs NBP z dokumentu, tu tylko pokazany).
  */
-export function PozycjaDodatkowaForm({ start = 'reczna', waluta, kurs, vatDomyslny, wartosciowy, bezRecznej, zajeteKg = {}, podpowiedzi = [], zapisuje, onDodaj }: {
+export function PozycjaDodatkowaForm({ start = 'reczna', waluta, kurs, vatDomyslny, wartosciowy, bezRecznej, zajeteKg = {}, podpowiedzi = [], zapisuje, odswiez = 0, className, onDodaj }: {
   start?: 'reczna' | 'surowiec'
   waluta: 'PLN' | 'EUR'
   kurs?: number | null
@@ -36,6 +36,9 @@ export function PozycjaDodatkowaForm({ start = 'reczna', waluta, kurs, vatDomysl
   zajeteKg?: Record<string, number>
   podpowiedzi?: string[]
   zapisuje?: boolean
+  /** Zmiana wartości = stan magazynu surowca wczytuje się od nowa (po dopisaniu do wystawionego dokumentu). */
+  odswiez?: number
+  className?: string
   onDodaj: (w: WierszDodatkowy) => void
 }) {
   const [rodzaj, setRodzaj] = useState<'reczna' | 'surowiec'>(bezRecznej ? 'surowiec' : start)
@@ -51,6 +54,7 @@ export function PozycjaDodatkowaForm({ start = 'reczna', waluta, kurs, vatDomysl
     if (rodzaj !== 'surowiec' || partie) return
     wzApi.stockRaw().then(r => setPartie(r as PartiaSurowca[])).catch(e => setBladPartii(e instanceof Error ? e.message : 'Nie udało się wczytać magazynu surowca'))
   }, [rodzaj, partie])
+  useEffect(() => { if (odswiez) setPartie(null) }, [odswiez])
   useEffect(() => { pierwsze.current?.focus() }, [rodzaj])
 
   const zmienRodzaj = (r: 'reczna' | 'surowiec') => {
@@ -76,12 +80,12 @@ export function PozycjaDodatkowaForm({ start = 'reczna', waluta, kurs, vatDomysl
   const naEnter = (e: React.KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); dodaj() } }
 
   return (
-    <div className="pd-form">
+    <div className={`pd-form${className ? ` ${className}` : ''}`}>
       <div className="seg" role="tablist" aria-label="Rodzaj pozycji">
         <button type="button" role="tab" aria-selected={rodzaj === 'reczna'} aria-pressed={rodzaj === 'reczna'} disabled={!!bezRecznej} data-tip={bezRecznej} onClick={() => zmienRodzaj('reczna')}>Z ręki</button>
         <button type="button" role="tab" aria-selected={rodzaj === 'surowiec'} aria-pressed={rodzaj === 'surowiec'} onClick={() => zmienRodzaj('surowiec')}>Z magazynu surowca</button>
       </div>
-      {bezRecznej && <div className="note info"><FlagIcon level="info" size={15} /><div>{bezRecznej}</div></div>}
+      {bezRecznej && <div className="note info"><FlagIcon level="info" size={15} /><div><b>Pozycji z ręki tu nie dopiszesz.</b> {bezRecznej}</div></div>}
 
       {rodzaj === 'reczna' ? <>
         <p className="sub" style={{ margin: 0 }}>Towar spoza naszej produkcji i magazynu — np. jogurt. Nie zmienia stanów, tylko wartość dokumentu.</p>
@@ -118,10 +122,10 @@ export function PozycjaDodatkowaForm({ start = 'reczna', waluta, kurs, vatDomysl
             </tbody>
           </table>
         </div>
-        <div className="pd-grid">
+        <div className="pd-grid s">
           <label className="fld pd-nazwa"><span className="label">Nazwa na dokumencie</span>
             <input className="field" value={w.name} onChange={e => setW({ ...w, name: e.target.value })} disabled={!w.stockId} placeholder="wybierz partię" aria-label="Nazwa na dokumencie" /></label>
-          <label className="fld"><span className="label">Ilość{w.wolneKg != null ? ` (wolne ${kgPl(w.wolneKg)})` : ''}</span>
+          <label className="fld"><span className="label">Ilość{w.wolneKg != null ? <span className="sub"> · wolne {kgPl(w.wolneKg)}</span> : null}</span>
             <span className="pd-in"><input className={`field num${pokazBlad && w.stockId && bladDodatkowej(w, false) ? ' invalid' : ''}`} inputMode="decimal" value={w.qtyStr} onChange={e => setW({ ...w, qtyStr: e.target.value })} onKeyDown={naEnter} disabled={!w.stockId} aria-label="Ilość w kg" /><span>kg</span></span></label>
           {wartosciowy && <PoleCeny w={w} setW={setW} sym={sym} jedn="kg" naEnter={naEnter} bladny={pokazBlad} disabled={!w.stockId} />}
         </div>

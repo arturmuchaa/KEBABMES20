@@ -27,6 +27,7 @@ export function DopiszPozycjeDialog({ wzId, onClose, onZmiana }: { wzId: string;
   const [zapisuje, setZapisuje] = useState(false)
   const [doZaplaty, setDoZaplaty] = useState(true)
   const [usun, setUsun] = useState<LiniaWz | null>(null)
+  const [zmian, setZmian] = useState(0)
   const lock = useRef(false)
   const podpowiedzi = usePodpowiedziNazw(true)
 
@@ -45,7 +46,7 @@ export function DopiszPozycjeDialog({ wzId, onClose, onZmiana }: { wzId: string;
         ...(w.rodzaj === 'surowiec' ? { stockType: w.stockType, stockId: w.stockId, doZaplaty } : {}),
       })
       app.toast({ kind: 'ok', title: `Dopisano: ${w.name}`, detail: w.rodzaj === 'surowiec' ? `${w.qtyStr} kg zeszło ze stanu partii ${w.batchNo ?? ''}` : 'bez zmiany stanów magazynu' })
-      onZmiana(); wczytaj()
+      onZmiana(); wczytaj(); setZmian(n => n + 1)
     } catch (e) { setBlad(e instanceof Error ? e.message : 'Nie udało się dopisać pozycji') }
     finally { lock.current = false; setZapisuje(false) }
   }
@@ -55,7 +56,7 @@ export function DopiszPozycjeDialog({ wzId, onClose, onZmiana }: { wzId: string;
     try {
       await wzApi.usunPozycje(wzId, usun.line_id)
       app.toast({ kind: 'ok', title: `Usunięto: ${usun.name}` })
-      setUsun(null); onZmiana(); wczytaj()
+      setUsun(null); onZmiana(); wczytaj(); setZmian(n => n + 1)
     } catch (e) { setBlad(e instanceof Error ? e.message : 'Nie udało się usunąć pozycji'); setUsun(null) }
     finally { lock.current = false; setZapisuje(false) }
   }
@@ -90,7 +91,7 @@ export function DopiszPozycjeDialog({ wzId, onClose, onZmiana }: { wzId: string;
         {opis.para === 'wm_wzk' && <label className="pd-zaplata"><input type="checkbox" className="cbx" checked={doZaplaty} onChange={e => setDoZaplaty(e.target.checked)} />
           Surowiec także do zapłaty na WZ klienta</label>}
         <PozycjaDodatkowaForm waluta={cur} kurs={null} vatDomyslny={stawkaVatDlaNabywcy('')} wartosciowy={opis.valued}
-          bezRecznej={opis.bez_recznej ?? undefined} podpowiedzi={podpowiedzi} zapisuje={zapisuje} onDodaj={w => void dopisz(w)} />
+          bezRecznej={opis.bez_recznej ?? undefined} podpowiedzi={podpowiedzi} zapisuje={zapisuje} odswiez={zmian} className="pd-dopisz" onDodaj={w => void dopisz(w)} />
       </>}
       {usun && <Dialog title="Usunąć dopisaną pozycję?" icon={<Trash2 size={20} />} onClose={() => setUsun(null)}
         footer={<><button className="btn" onClick={() => setUsun(null)} data-autofocus>Wróć</button><button className="btn danger" disabled={zapisuje} onClick={() => void potwierdzUsun()}>Usuń</button></>}>

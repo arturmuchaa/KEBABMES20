@@ -187,7 +187,7 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
               </div>
             </div>
             {f.valued && <KartaCen f={f} setF={setF} cenaRef={cenaRef} onKurs={() => void kurs()} />}
-            <div className="box"><table className="tbl">
+            <div className="box"><table className="tbl" aria-label="Pozycje wyrobu">
               <thead><tr><th>Pozycja</th><th>Partia</th><th className="num">Na stanie</th><th className="num">Wydać</th><th className="num">Masa</th>
                 {f.valued && <><th className="num">Cena / kg</th><th className="num">VAT</th><th className="num">Wartość</th></>}<th style={{ width: 40 }} /></tr></thead>
               <tbody>
@@ -212,7 +212,7 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
                 })}
               </tbody>
               {f.rows.length > 0 && <tfoot><tr><td colSpan={3}>Razem</td><td className="num">{num(s!.szt)} szt.</td><td className="num">{kg(s!.kg)}</td>
-                {f.valued && <><td /><td /><td className="num">{s!.vat ? zl(s!.vat.netto, cur) : ''}</td></>}<td /></tr></tfoot>}
+                {f.valued && <><td /><td /><td className="num">{zl(f.rows.reduce((a, r) => a + wartosc(r), 0), cur)}</td></>}<td /></tr></tfoot>}
             </table></div>
 
             <PozycjeDodatkowe f={f} cur={cur} onDodaj={r => setOknoDod(r)} onUsun={id => upd({ dodatkowe: (f.dodatkowe ?? []).filter(w => w.lineId !== id) })} />
@@ -228,7 +228,7 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
           </>}
         </div>
       </div>
-      {oknoDod && f && <Dialog title="Pozycja dodatkowa" icon={oknoDod === 'reczna' ? <PenLine size={20} /> : <Warehouse size={20} />} onClose={() => setOknoDod(null)}
+      {oknoDod && f && <Dialog title="Pozycja dodatkowa" wide icon={oknoDod === 'reczna' ? <PenLine size={20} /> : <Warehouse size={20} />} onClose={() => setOknoDod(null)}
         footer={<button className="btn" onClick={() => setOknoDod(null)}>Gotowe</button>}>
         <PozycjaDodatkowaForm start={oknoDod} waluta={f.currency} kurs={f.eurRateStr ? Number(f.eurRateStr.replace(',', '.')) : null}
           vatDomyslny={stawkaVatDlaNabywcy(f.buyer.nip)} wartosciowy={f.valued} podpowiedzi={podpowiedzi}

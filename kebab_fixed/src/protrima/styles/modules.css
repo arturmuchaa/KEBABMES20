@@ -608,8 +608,11 @@ div.pstage { cursor: default; }
 .wz-p-in.big .field { width: 150px; height: 40px; font-size: 20px; font-weight: 600; }
 
 /* Pozycja dodatkowa WZ (z ręki / z magazynu surowca) — formularz w oknie */
-.pd-form { display: flex; flex-direction: column; gap: 12px; width: min(720px, 80vw); }
-.pd-grid { display: grid; grid-template-columns: minmax(0, 2fr) 110px auto 150px 90px; gap: 10px 12px; align-items: end; }
+.pd-form { display: flex; flex-direction: column; gap: 12px; width: 100%; min-width: 0; }
+.pd-grid { display: grid; grid-template-columns: minmax(0, 1fr) 96px auto 140px 84px; gap: 10px 12px; align-items: end; }
+.pd-grid.s { grid-template-columns: minmax(0, 1fr) 150px 140px 84px; }
+.pd-grid .pd-in { width: 100%; }
+.pd-grid .pd-in .field { flex: 1; min-width: 0; }
 .pd-grid .pd-nazwa .field { width: 100%; }
 .pd-grid .fld .field.num { width: 100%; }
 .pd-in { display: inline-flex; align-items: center; gap: 6px; }
@@ -624,6 +627,9 @@ div.pstage { cursor: default; }
 .pd-naglowek { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
 .pd-zaplata { display: inline-flex; align-items: center; gap: 8px; margin: 8px 0 4px; }
 .dialog .box + .pd-form, .dialog .box + .pd-zaplata { margin-top: 12px; }
+.dialog-b > .box, .dialog-b > .pd-form, .dialog-b > .pd-naglowek { flex-shrink: 0; }
+.pd-dopisz .pd-partie { max-height: 172px; }
+.pd-dopisz .pd-naglowek { margin-bottom: 0; }
 .wz-p-groups { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .wz-p-row { display: flex; align-items: center; gap: 12px; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--line-soft); }
 .wz-p-row:last-child { border-bottom: 0; }

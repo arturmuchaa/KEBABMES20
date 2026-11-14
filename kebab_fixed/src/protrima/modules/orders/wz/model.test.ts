@@ -128,12 +128,13 @@ describe('WZ — pozycje dodatkowe (z ręki / z magazynu surowca)', () => {
     ])
     expect(dto.items[dto.items.length - 2]).not.toHaveProperty('stockId')
   })
-  it('wartość pozycji dodatkowej = ilość × cena; sumy doliczają ją do VAT i kg (tylko kg)', () => {
+  it('wartość pozycji dodatkowej = ilość × cena; sumy doliczają ją do VAT, a kg wyrobu zostają bez łoju', () => {
     expect(wartoscDodatkowej(jogurt)).toBe(45)
     expect(wartoscDodatkowej(loj)).toBe(31)
     const bez = sumy(zCenami), z = sumy({ ...zCenami, dodatkowe: [jogurt, loj] })
     expect(z.vat!.netto).toBeCloseTo(bez.vat!.netto + 76, 2)
-    expect(z.kg).toBeCloseTo(bez.kg + 15.5, 3)
+    expect(z.kg).toBe(bez.kg)          // „Pozycje z magazynu: 20 szt. · 600 kg” — łój ma własną tabelę
+    expect(z.kgDodatkowe).toBeCloseTo(15.5, 3)
     expect(z.szt).toBe(bez.szt)
   })
   it('walidacja: nazwa, ilość, łój ponad wolny stan partii, cena przy wartościowym', () => {

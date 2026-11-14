@@ -227,6 +227,7 @@ def test_manual_wz_z_wyrobem_jogurtem_i_lojem(db):
     assert [l["stock_type"] for l in linie] == ["fg", "reczna", "raw"]
     jog = linie[1]
     assert jog["line_id"] == "J1" and jog["value"] == 45.0 and not jog.get("stock_id")
+    assert linie[2]["total_kg"] == 15.0      # waga łoju na wydruku i w sumie kg dokumentu
     assert _kg(bid) == 85.0
     assert int(query_one("SELECT qty_available FROM finished_goods WHERE id='f1'")["qty_available"]) == int(fg["qty_available"]) - 2
     assert query_one("SELECT count(*) n FROM stock_movements")["n"] == ruchy_przed + 2

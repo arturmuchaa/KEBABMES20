@@ -145,6 +145,10 @@ describe('WZ — pozycje dodatkowe w edytorze', () => {
 
     const tab = screen.getByLabelText('Pozycje dodatkowe')
     expect(within(tab).getByText('Jogurt naturalny')).toBeTruthy()
+    // „Razem” pod wyrobem = tylko wyrób (20 szt. × 20 kg × 12,50 = 5 000), pozycje dodatkowe mają swoją tabelę.
+    const razem = screen.getByLabelText('Pozycje wyrobu').querySelector('tfoot') as HTMLElement
+    expect(razem.textContent).toMatch(/5\s?000,00/)
+    expect(within(tab).getByText(/45,00/)).toBeTruthy()
     expect(within(tab).getByText('Łój wołowy otokowy')).toBeTruthy()
     run('issue')
     await waitFor(() => expect(wz.createManual).toHaveBeenCalledTimes(1))
