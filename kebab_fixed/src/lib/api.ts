@@ -3433,6 +3433,19 @@ export const rozliczeniaPdf = {
     `${BASE}${rozlKlient(clientId)}/historia/pdf${rozlQuery({ od, do: do_ })}`,
 }
 
+export interface LiniaWz {
+  line_id?: string; stock_type?: string; stock_id?: string; name: string; qty: number; unit: string
+  price?: number | null; value?: number | null; vat_rate?: number; batch_no?: string | null; total_kg?: number; dopisana_at?: string
+}
+export interface OpisPozycjiWz {
+  para: 'jeden' | 'wm_wzk' | 'sam_wm'
+  bez_recznej: string | null
+  currency: 'PLN' | 'EUR'
+  eur_rate: number | null
+  valued: boolean
+  dokumenty: Array<{ id: string; number: string; doc_series: string; valued: boolean; lines: LiniaWz[] }>
+}
+
 export const wzApi = {
   generate: (body: {
     sourceType?: string; sourceId?: string;
@@ -3484,6 +3497,8 @@ export const wzApi = {
     lineId: string; rodzaj: 'reczna' | 'surowiec'; name: string; qty: number; unit: string
     price?: number; vatRate?: number; stockType?: 'raw' | 'meat' | 'byproduct'; stockId?: string; doZaplaty?: boolean
   }) => post<WzDoc>(`/wz/${encodeURIComponent(id)}/pozycje`, body),
+  /** Dla okna „Dopisz pozycję”: waluta, para WM/WZ klienta i czy wolno dopisać pozycję z ręki. */
+  opisPozycji: (id: string) => get<OpisPozycjiWz>(`/wz/${encodeURIComponent(id)}/pozycje`),
   usunPozycje: (id: string, lineId: string) =>
     del<WzDoc>(`/wz/${encodeURIComponent(id)}/pozycje/${encodeURIComponent(lineId)}`),
   // Edycja pozycji ręcznego WZ: cena/pojemniki swobodnie; ilość koryguje

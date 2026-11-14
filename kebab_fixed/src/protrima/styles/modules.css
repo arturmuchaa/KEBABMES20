@@ -621,6 +621,9 @@ div.pstage { cursor: default; }
 .pd-stopka { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--line-soft); padding-top: 10px; }
 .pd-stopka .grow { flex: 1; }
 .pd-stopka .crit-ink { color: var(--crit-ink); font-weight: 600; }
+.pd-naglowek { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+.pd-zaplata { display: inline-flex; align-items: center; gap: 8px; margin: 8px 0 4px; }
+.dialog .box + .pd-form, .dialog .box + .pd-zaplata { margin-top: 12px; }
 .wz-p-groups { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .wz-p-row { display: flex; align-items: center; gap: 12px; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--line-soft); }
 .wz-p-row:last-child { border-bottom: 0; }

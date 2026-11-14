@@ -232,3 +232,29 @@ def test_manual_wz_z_wyrobem_jogurtem_i_lojem(db):
     assert query_one("SELECT count(*) n FROM stock_movements")["n"] == ruchy_przed + 2
     kg_fg = 2 * float(fg["kg_per_unit"])
     assert float(get_wz(wz["id"])["total_value"]) == pytest.approx(kg_fg * 3 + 45.0 + 30.0)
+
+
+def test_opis_dokumentu_dla_okna(db):
+    from app.services.wz_pozycje_dodatkowe import opis_dokumentu
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wm = wystaw_wz_wewnetrzny("o1"); wzk = wystaw_wz_klienta("o1")
+    o = opis_dokumentu(wzk["id"])
+    assert o["para"] == "wm_wzk" and o["bez_recznej"] is None
+    assert [d["id"] for d in o["dokumenty"]] == [wm["id"], wzk["id"]]
+    assert o["currency"] == "PLN"
+
+
+def test_opis_sam_wm_blokuje_reczna(db):
+    from app.services.wz_pozycje_dodatkowe import opis_dokumentu, KOMUNIKAT_SAM_WM
+    _przygotuj_bez_podzialu()
+    wm = create_wz_from_order("o1")
+    o = opis_dokumentu(wm["id"])
+    assert o["para"] == "sam_wm" and o["bez_recznej"] == KOMUNIKAT_SAM_WM
+
+
+def test_opis_zwykla_wz(db):
+    from app.services.wz_pozycje_dodatkowe import opis_dokumentu
+    wz = _zwykla_wz(currency="EUR", eur_rate=4.25)
+    o = opis_dokumentu(wz["id"])
+    assert o["para"] == "jeden" and o["currency"] == "EUR" and float(o["eur_rate"]) == 4.25
+    assert len(o["dokumenty"]) == 1

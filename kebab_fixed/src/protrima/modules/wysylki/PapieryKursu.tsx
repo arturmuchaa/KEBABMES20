@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Truck, FileText, Check, X, RefreshCw, Download, Printer } from 'lucide-react'
+import { Truck, FileText, Check, X, RefreshCw, Download, Printer, ListPlus } from 'lucide-react'
 import { useApp, CommandBar, Dialog, type Cmd } from '../../shell/context'
 import { useOrders } from '../../data/store'
 import { kg, num } from '../../data/model'
@@ -11,6 +11,7 @@ import {
   type Decyzja, type Kurs, type PozycjaKursu, type Transport,
 } from './kurs'
 import { PapierChip, useZaznaczonePapiery } from './Papiery'
+import { DopiszPozycjeDialog } from '../orders/wz/DopiszPozycjeDialog'
 
 const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 const godz = (iso: string | null) => {
@@ -35,6 +36,7 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
   const [carriers, setCarriers] = useState<Carrier[] | null>(null)
   const [pytanie, setPytanie] = useState(false)
   const [busy, setBusy] = useState<string | null>(null)
+  const [dopisz, setDopisz] = useState<string | null>(null)
   const lock = useRef(false)
 
   const wczytaj = useCallback(async () => {
@@ -157,6 +159,8 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
                         {saldo.doWszystkich && <span className="tag warn">do wydruku — brak WZ</span>}
                       </span>}
                       {!papiery.length && <span className="muted">{p.wz_status === 'do_wystawienia' ? 'czeka na wystawienie' : 'brak dokumentów'}</span>}
+                      {p.wz.length > 0 && <button className="btn sm ghost" disabled={!!busy} onClick={() => setDopisz((p.wz.find(w => w.doc_series !== 'WM') ?? p.wz[0]).id)}
+                        data-tip="Towar spoza zamówienia: z ręki (np. jogurt) albo z magazynu surowca (np. łój)" aria-label={`Dopisz pozycję — ${p.client_name || p.order_no}`}><ListPlus size={15} />Dopisz pozycję…</button>}
                     </div></td>
                   </tr>
                 )
@@ -165,6 +169,7 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
           </>}
         </div>
       </div>
+      {dopisz && <DopiszPozycjeDialog wzId={dopisz} onClose={() => setDopisz(null)} onZmiana={() => void wczytaj()} />}
       {pytanie && !('blad' in wynik) && <Dialog title="Wystawić komplet dokumentów?" icon={<FileText size={20} />} onClose={() => setPytanie(false)}
         footer={<><button className="btn" onClick={() => setPytanie(false)} data-autofocus>Wróć</button><button className="btn primary" disabled={!!busy} onClick={() => void wystaw()}>{busy === 'wystaw' ? 'Wystawianie…' : 'Wystaw komplet'}</button></>}>
         <p>Dla {wynik.orders.length} {wynik.orders.length === 1 ? 'odbiorcy' : 'odbiorców'} powstaną WM/WZ, HDI i CMR.</p>

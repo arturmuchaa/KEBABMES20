@@ -144,6 +144,13 @@ def update_lines(wz_id: str, body: dict):
     return svc.update_wz_lines(wz_id, body.get("edits") or [])
 
 
+@router.get("/{wz_id}/pozycje")
+def opis_pozycji(wz_id: str):
+    """Okno „Dopisz pozycję”: waluta, para WM/WZ klienta, czy wolno dopisać z ręki."""
+    from app.services.wz_pozycje_dodatkowe import opis_dokumentu
+    return opis_dokumentu(wz_id)
+
+
 @router.post("/{wz_id}/pozycje")
 def dopisz_pozycje(wz_id: str, body: dict):
     """Dopisz pozycję z ręki albo z magazynu surowca do wystawionej WZ/WM

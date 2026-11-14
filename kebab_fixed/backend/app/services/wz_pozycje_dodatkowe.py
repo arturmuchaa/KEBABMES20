@@ -217,3 +217,28 @@ def usun_pozycje(wz_id: str, line_id: str) -> Dict[str, Any]:
             raise HTTPException(409, "Usunąć można tylko pozycję dopisaną (z ręki albo z surowca)")
     logger.info("wz.pozycja_usunieta", extra={"wz_id": wz_id, "line_id": line_id})
     return get_wz(wz_id)
+
+
+def opis_dokumentu(wz_id: str) -> Dict[str, Any]:
+    """Dla okna „Dopisz pozycję”: waluta, para dokumentów i czy wolno dopisać
+    pozycję z ręki. Tylko odczyt (transakcja bez zmian — blokady zwalnia commit)."""
+    with transaction() as conn:
+        wz = _dokument(conn, wz_id)
+        para = _para(conn, wz)
+        wm, wzk = para["wm"], para["wzk"]
+        if wm is None and wzk is None:
+            rodzaj, docs, bez = "jeden", [wz], None
+        elif wzk is None:
+            rodzaj, docs, bez = "sam_wm", [wm], KOMUNIKAT_SAM_WM
+        else:
+            rodzaj, docs, bez = "wm_wzk", [d for d in (wm, wzk) if d], None
+        glowny = cx_query_one(conn, "SELECT currency, eur_rate, valued FROM wz_documents WHERE id=%s",
+                              ((wzk or wz)["id"],))
+    return {
+        "para": rodzaj, "bez_recznej": bez,
+        "currency": glowny.get("currency") or "PLN",
+        "eur_rate": float(glowny["eur_rate"]) if glowny.get("eur_rate") is not None else None,
+        "valued": bool(glowny.get("valued")),
+        "dokumenty": [{"id": d["id"], "number": d["number"], "doc_series": d["doc_series"],
+                       "valued": bool(d.get("valued")), "lines": _linie(d)} for d in docs],
+    }

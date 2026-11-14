@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useMemo, useState } from 'react'
-import { Eye, Printer, ClipboardList, Truck, FileText, Split, Boxes, PackageMinus, Hash } from 'lucide-react'
+import { Eye, Printer, ClipboardList, Truck, FileText, Split, Boxes, PackageMinus, Hash, ListPlus } from 'lucide-react'
 import { useApp, Dialog } from '../../../shell/context'
 import { computeMetrics, kg, type Order } from '../../../data/model'
 import { ile } from '../../../data/tekst'
@@ -7,6 +7,7 @@ import { FlagIcon } from '../../../ui/Glyphs'
 import { clientOrdersApi, downloadDocPdf, wzApi, type OrderDocuments } from '@/lib/api'
 import { papieryPozycji, saldoPozycji } from '../../wysylki/kurs'
 import { DrukujZaznaczone, PapierChip, useZaznaczonePapiery } from '../../wysylki/Papiery'
+import { DopiszPozycjeDialog } from '../wz/DopiszPozycjeDialog'
 
 /**
  * Dokumenty zamówienia — dwie grupy, żeby skutek było widać przed kliknięciem:
@@ -28,12 +29,14 @@ export function DocumentsTab({ order }: { order: Order }) {
   const palet = order.pallets.length
   const najpierw = 'Najpierw potwierdź zamówienie'
   const [dok, setDok] = useState<OrderDocuments | null>(null)
+  const [dopisz, setDopisz] = useState<string | null>(null)
+  const [odswiez, setOdswiez] = useState(0)
   // Liczba WZ w zamówieniu zmienia się po wystawieniu — wtedy lista wczytuje się od nowa.
   useEffect(() => {
     let zywe = true
     Promise.resolve().then(() => clientOrdersApi.documents(order.id)).then(d => { if (zywe) setDok(d) }).catch(() => { if (zywe) setDok(null) })
     return () => { zywe = false }
-  }, [order.id, order.docs.length, order.status])
+  }, [order.id, order.docs.length, order.status, odswiez])
   const papiery = useMemo(() => {
     if (!dok) return []
     const saldo = saldoPozycji(dok, dzisIso())
@@ -84,13 +87,15 @@ export function DocumentsTab({ order }: { order: Order }) {
           </span></div>
         <div className="box">
           <table className="tbl">
-            <thead><tr><th>Dokument</th><th className="hide-s" style={{ width: 130 }}>Data</th></tr></thead>
+            <thead><tr><th>Dokument</th><th className="hide-s" style={{ width: 130 }}>Data</th><th style={{ width: 170 }} /></tr></thead>
             <tbody>
-              {papiery.length === 0 && <tr><td colSpan={2} className="docs-empty">Z tego zamówienia nie wystawiono jeszcze żadnego dokumentu.</td></tr>}
+              {papiery.length === 0 && <tr><td colSpan={3} className="docs-empty">Z tego zamówienia nie wystawiono jeszcze żadnego dokumentu.</td></tr>}
               {papiery.map((p, i) => (
                 <tr key={p.key} className={`row${i % 2 ? ' zebra' : ''}`}>
                   <td><PapierChip p={p} z={z} /></td>
                   <td className="tnum hide-s muted">{p.key.startsWith('saldo-') ? 'na dziś' : dataPl(p.data)}</td>
+                  <td className="num">{p.key.startsWith('wz-') && <button className="btn sm ghost" onClick={() => setDopisz(p.key.slice(3))}
+                    data-tip="Towar spoza zamówienia: z ręki (np. jogurt) albo z magazynu surowca (np. łój)" aria-label={`Dopisz pozycję do ${p.numer}`}><ListPlus size={15} />Dopisz pozycję…</button>}</td>
                 </tr>
               ))}
             </tbody>
@@ -117,6 +122,7 @@ export function DocumentsTab({ order }: { order: Order }) {
       </>}
       <div className="note"><FlagIcon level="info" size={15} /><div>Anulowanie WZ, edycja HDI i rejestr wszystkich dokumentów — w module „Dokumenty WZ, CMR, HDI” starego MES.</div></div>
       {pytajHdi && <PotwierdzenieHdi order={order} onClose={() => setPytajHdi(false)} onConfirm={(przed, usluga) => { setPytajHdi(false); if (przed) app.genHdi(order.id, true, usluga); else app.genHdi(order.id) }} />}
+      {dopisz && <DopiszPozycjeDialog wzId={dopisz} onClose={() => setDopisz(null)} onZmiana={() => setOdswiez(n => n + 1)} />}
     </div>
   )
 }

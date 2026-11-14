@@ -6,10 +6,11 @@ import { AppCtx, type AppApi } from '../../shell/context'
 
 /** Papiery kursu: wystawienie zdejmuje towar ze stanu (WM) — test na danych w kształcie API. */
 const api = vi.hoisted(() => ({ get: vi.fn(), wystaw: vi.fn(), wydrukowano: vi.fn(), doWydruku: vi.fn() }))
+const wzMock = vi.hoisted(() => ({ opisPozycji: vi.fn(() => new Promise(() => {})), list: vi.fn(() => Promise.resolve([])) }))
 const pdf = vi.hoisted(() => vi.fn(() => Promise.resolve()))
 const otworzBlob = vi.hoisted(() => vi.fn((_b: Blob, _n: string) => Promise.resolve()))
 const pobraneUrl = vi.hoisted(() => [] as string[])
-vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), zaladunkiApi: api, downloadDocPdf: pdf, openDocumentBlob: otworzBlob,
+vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), wzApi: { ...((await orig() as { wzApi: object }).wzApi), ...wzMock }, zaladunkiApi: api, downloadDocPdf: pdf, openDocumentBlob: otworzBlob,
   fetchBlob: async (url: string) => { pobraneUrl.push(url); const { PDFDocument } = await import('pdf-lib'); const d = await PDFDocument.create(); d.addPage([200, 200]); const b = await d.save(); return { arrayBuffer: async () => b.slice().buffer } }, carriersApi: { list: () => Promise.resolve([{ id: 'c1', name: 'TRANS-POL', city: 'Kraków', defaultPlate: 'KR1234A' }]) } }))
 const refresh = vi.fn(() => Promise.resolve())
 vi.mock('../../data/store', () => ({ useOrders: () => ({ refresh }) }))
@@ -205,5 +206,16 @@ describe('kurs z usługą (VATAN)', () => {
   it('HDI usługa ma własną etykietę na liście papierów', () => {
     const papiery = papieryPozycji({ ...p, hdi: [{ id: 'h1', number: '12/11/26', scope: 'calosc' }, { id: 'h2', number: '13/11/26', scope: 'usluga' }] })
     expect(papiery.map(x => x.etykieta)).toEqual(['HDI', 'HDI usługa'])
+  })
+})
+
+describe('Papiery kursu — dopisanie pozycji po wystawieniu', () => {
+  it('„Dopisz pozycję…” przy odbiorcy z dokumentami: celuje w WZ klienta, gdy jest, inaczej w WM', async () => {
+    api.get.mockResolvedValue(KURS_SALDO)
+    render(<AppCtx.Provider value={{ toast: vi.fn() } as unknown as AppApi}><PapieryKursu kursId="k2" active setCmds={() => {}} onDone={() => {}} /></AppCtx.Provider>)
+    const btns = await screen.findAllByRole('button', { name: /Dopisz pozycję/ })
+    expect(btns).toHaveLength(2)          // odbiorcy bez dokumentów nie mają przycisku
+    fireEvent.click(btns[1])
+    await waitFor(() => expect(wzMock.opisPozycji).toHaveBeenCalledWith('w2'))
   })
 })
