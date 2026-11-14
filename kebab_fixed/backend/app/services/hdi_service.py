@@ -892,4 +892,7 @@ def get_hdi(hdi_id: str) -> Dict[str, Any]:
 
 def list_hdi() -> List[Dict[str, Any]]:
     return query_all(
-        "SELECT id, number, client_name, status, incomplete, issue_date, created_at FROM hdi_documents ORDER BY created_at DESC")
+        "SELECT h.id, h.number, h.client_name, h.status, h.incomplete, h.issue_date, h.created_at, "
+        "h.order_id, o.order_no, h.scope, h.wz_id, h.loading_id "
+        "FROM hdi_documents h LEFT JOIN client_orders o ON o.id = h.order_id "
+        "ORDER BY h.created_at DESC")

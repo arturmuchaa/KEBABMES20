@@ -2072,14 +2072,19 @@ def list_wz() -> List[Dict[str, Any]]:
         # Magazynowe stała pusta, a WM-y wisiały w cudzej (zgłoszenie
         # właściciela 24.09.2026). COALESCE, bo dokumenty sprzed podziału
         # wysyłki serii nie mają i z definicji są zewnętrzne.
-        "SELECT id, number, buyer_name, total_value, valued, status, issued_date, "
-        "currency, source_type, source_id, loading_status, loading_diff, "
-        "vehicle_plate, loaded_at, created_at, "
-        "COALESCE(doc_series, 'WZ') AS doc_series, split_scope, "
+        # `order_*`, `release_date`, `eur_rate`, `loading_id` — kolumny i filtry
+        # modułu PROTRIMA „Dokumenty” (14.11.2026).
+        "SELECT w.id, w.number, w.buyer_name, w.total_value, w.valued, w.status, w.issued_date, "
+        "w.release_date, w.currency, w.eur_rate, w.source_type, w.source_id, w.loading_status, "
+        "w.loading_diff, w.loading_id, w.vehicle_plate, w.loaded_at, w.created_at, "
+        "COALESCE(w.doc_series, 'WZ') AS doc_series, w.split_scope, "
+        "o.id AS order_id, o.order_no, "
         "EXISTS (SELECT 1 FROM jsonb_array_elements("
-        "          COALESCE(lines, '[]'::jsonb)) li "
+        "          COALESCE(w.lines, '[]'::jsonb)) li "
         "        WHERE li->>'stock_type' = 'fg') AS has_fg "
-        "FROM wz_documents ORDER BY created_at DESC"
+        "FROM wz_documents w "
+        "LEFT JOIN client_orders o ON w.source_type = 'order' AND o.id = w.source_id "
+        "ORDER BY w.created_at DESC"
     )
 
 

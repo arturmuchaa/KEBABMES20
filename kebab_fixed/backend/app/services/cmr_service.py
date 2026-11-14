@@ -478,8 +478,12 @@ def get_cmr(cmr_id: str) -> Dict[str, Any]:
 
 def list_cmr() -> List[Dict[str, Any]]:
     return query_all(
-        "SELECT id, number, client_name, carrier_id, status, issue_date, created_at "
-        "FROM cmr_documents ORDER BY seq DESC")
+        "SELECT c.id, c.number, c.client_name, c.carrier_id, c.status, c.issue_date, c.created_at, "
+        "c.order_id, o.order_no, c.scope, c.loading_id, ca.name AS carrier_name "
+        "FROM cmr_documents c "
+        "LEFT JOIN client_orders o ON o.id = c.order_id "
+        "LEFT JOIN carriers ca ON ca.id = c.carrier_id "
+        "ORDER BY c.seq DESC")
 
 
 # ── Układ druku CMR (pozycje pól ustawiane w konfiguratorze) ──
