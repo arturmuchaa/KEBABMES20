@@ -3459,7 +3459,7 @@ export const wzApi = {
     buyer: { name: string; address?: string; nip?: string };
     /** Zamówienie, z którego wyszedł dokument — zostaje z nim związany. */
     orderId?: string;
-    items: { stockType: 'fg' | 'raw' | 'meat' | 'byproduct'; stockId: string; name: string; unit: string; qty: number; price?: number; batchNo?: string; kgPerUnit?: number; containers?: number; productionDate?: string | null; vatRate?: number }[];
+    items: { stockType: 'fg' | 'raw' | 'meat' | 'byproduct' | 'reczna'; stockId?: string; lineId?: string; name: string; unit: string; qty: number; price?: number; batchNo?: string; kgPerUnit?: number; containers?: number; productionDate?: string | null; vatRate?: number }[];
     valued?: boolean; place?: string; issuedDate?: string; releaseDate?: string; notes?: string;
     currency?: string; eurRate?: number | null;
     // Palety są na POZIOMIE DOKUMENTU (transport wiezie N palet łącznie);
@@ -3478,6 +3478,14 @@ export const wzApi = {
                  currency?: string, eurRate?: number | null) =>
     patch<WzDoc>(`/wz/${encodeURIComponent(id)}/prices`,
       { prices, currency: currency ?? null, eur_rate: eurRate ?? null }),
+  /** Dopisz pozycję do wystawionej WZ/WM (także z kursu): z ręki (bez stanu) albo z magazynu
+   *  surowca (zdejmuje stan). Serwer rozkłada ją na WM/WZ klienta wg zasad podziału. */
+  dopiszPozycje: (id: string, body: {
+    lineId: string; rodzaj: 'reczna' | 'surowiec'; name: string; qty: number; unit: string
+    price?: number; vatRate?: number; stockType?: 'raw' | 'meat' | 'byproduct'; stockId?: string; doZaplaty?: boolean
+  }) => post<WzDoc>(`/wz/${encodeURIComponent(id)}/pozycje`, body),
+  usunPozycje: (id: string, lineId: string) =>
+    del<WzDoc>(`/wz/${encodeURIComponent(id)}/pozycje/${encodeURIComponent(lineId)}`),
   // Edycja pozycji ręcznego WZ: cena/pojemniki swobodnie; ilość koryguje
   // stany magazynowe (różnica) — UI ostrzega o wpływie na traceability.
   updateLines: (id: string, edits: { index: number; qty?: number; price?: number; containers?: number | null }[]) =>

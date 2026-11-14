@@ -25,9 +25,29 @@ export interface WierszWz {
   /** Wyrób bez gramatury („KEBAB UDO BEYAZ HALAL”) — klucz ceny „według wyrobu”. */
   grupa?: string
 }
+/**
+ * Pozycja dodatkowa: „z ręki” (towar spoza stanów, np. jogurt — nie rusza magazynu)
+ * albo „z magazynu surowca” (np. łój otokowy — zdejmuje stan wskazanej partii).
+ * Cena w walucie dokumentu (PLN albo EUR po kursie NBP z dokumentu).
+ */
+export interface WierszDodatkowy {
+  lineId: string
+  rodzaj: 'reczna' | 'surowiec'
+  name: string
+  qtyStr: string
+  unit: 'szt' | 'kg' | 'opak.'
+  priceStr: string
+  vatRate: number
+  stockType?: 'raw' | 'meat' | 'byproduct'
+  stockId?: string
+  batchNo?: string
+  wolneKg?: number
+}
 export interface FormWz {
   buyer: { name: string; address: string; nip: string }
   rows: WierszWz[]
+  /** Pozycje dodatkowe — opcjonalne, żeby istniejące formularze działały bez zmian. */
+  dodatkowe?: WierszDodatkowy[]
   valued: boolean
   currency: 'PLN' | 'EUR'
   eurRateStr: string
@@ -53,6 +73,22 @@ export const masa = (r: WierszWz) => r.kgPerUnit ? Math.round(ilosc(r) * r.kgPer
  * (`rowMath.rowValue`). Pozycja bez gramatury — za sztukę.
  */
 export const wartosc = (r: WierszWz) => Math.round((masa(r) > 0 ? masa(r) : ilosc(r)) * cena(r) * 100) / 100
+
+export const iloscDodatkowej = (w: WierszDodatkowy) => liczba(w.qtyStr)
+/** Wartość pozycji dodatkowej: ilość (szt./kg/opak.) × cena — jak serwer (`wz_pozycje_dodatkowe`). */
+export const wartoscDodatkowej = (w: WierszDodatkowy) => Math.round(iloscDodatkowej(w) * liczba(w.priceStr) * 100) / 100
+const kgDodatkowej = (w: WierszDodatkowy) => (w.unit === 'kg' ? iloscDodatkowej(w) : 0)
+
+/** Komunikat dla pierwszej błędnej pozycji dodatkowej; '' = w porządku. */
+export function bladDodatkowej(w: WierszDodatkowy, valued: boolean): string {
+  const fmt = (n: number) => String(n).replace('.', ',')
+  if (!w.name.trim()) return 'Pozycja dodatkowa: wpisz nazwę.'
+  if (!(iloscDodatkowej(w) > 0)) return `${w.name}: ilość musi być większa od zera.`
+  if (w.rodzaj === 'surowiec' && w.wolneKg != null && iloscDodatkowej(w) > w.wolneKg + 1e-6)
+    return `${w.name}: partia ${w.batchNo ?? '—'} ma wolne ${fmt(w.wolneKg)} kg.`
+  if (valued && !(liczba(w.priceStr) > 0)) return `${w.name}: dokument wartościowy — wpisz cenę.`
+  return ''
+}
 
 /** Jedna cena dla wszystkich pozycji dokumentu — żeby nie wpisywać jej w każdym wierszu. */
 export const cenaDlaWszystkich = (f: FormWz, priceStr: string): FormWz => ({ ...f, rows: f.rows.map(r => ({ ...r, priceStr })) })
@@ -182,6 +218,7 @@ export function walidacja(f: FormWz): string {
   const za = f.rows.filter(r => ilosc(r) > r.available)
   if (za.length) return `Ilość przekracza stan magazynowy: ${za.map(r => `${r.name} (${r.batchNo ?? '—'}) — na stanie ${r.available}`).join(', ')}`
   if (f.valued && f.rows.some(r => !(cena(r) > 0))) return 'Dokument wartościowy: każda pozycja potrzebuje ceny.'
+  for (const w of f.dodatkowe ?? []) { const b = bladDodatkowej(w, f.valued); if (b) return b }
   if (f.valued && f.currency === 'EUR' && !(liczba(f.eurRateStr) > 0)) return 'Brak kursu EUR — pobierz z NBP albo wpisz ręcznie.'
   return ''
 }
@@ -200,22 +237,30 @@ export const cudzeRezerwacje = (f: FormWz, nazwyOdbiorcy: string[] = []): Rezerw
 
 export function sumy(f: FormWz) {
   const szt = f.rows.reduce((a, r) => a + ilosc(r), 0)
-  const kg = Math.round(f.rows.reduce((a, r) => a + masa(r) * 1000, 0)) / 1000
-  const vat = f.valued ? podsumowanieVat(f.rows.map(r => ({ value: wartosc(r), vat_rate: r.vatRate }))) : null
+  const dod = f.dodatkowe ?? []
+  const kg = Math.round((f.rows.reduce((a, r) => a + masa(r), 0) + dod.reduce((a, w) => a + kgDodatkowej(w), 0)) * 1000) / 1000
+  const vat = f.valued ? podsumowanieVat([...f.rows.map(r => ({ value: wartosc(r), vat_rate: r.vatRate })),
+    ...dod.map(w => ({ value: wartoscDodatkowej(w), vat_rate: w.vatRate }))]) : null
   return { szt, kg, vat }
 }
 
 /** Ciało `wzApi.createManual` — pola jak w starym formularzu (palety na dokumencie, pojemniki: '' = auto). */
+type PozycjaDto = { stockType: 'fg' | 'reczna' | 'raw' | 'meat' | 'byproduct'; stockId?: string; lineId?: string; name: string; unit: string; qty: number; price: number; batchNo?: string; kgPerUnit?: number; vatRate?: number }
+
 export function doDto(f: FormWz, orderId?: string) {
   const intOrUndef = (s: string) => s.trim() === '' ? undefined : Math.max(0, Math.floor(liczba(s)))
   return {
     buyer: { name: f.buyer.name.trim(), address: f.buyer.address.trim(), nip: f.buyer.nip.trim() },
     orderId,
-    items: f.rows.map(r => ({
-      stockType: 'fg' as const, stockId: r.stockId, name: r.name, unit: 'szt', qty: ilosc(r),
+    items: f.rows.map((r): PozycjaDto => ({
+      stockType: 'fg', stockId: r.stockId, name: r.name, unit: 'szt', qty: ilosc(r),
       price: f.valued ? cena(r) : 0, batchNo: r.batchNo, kgPerUnit: r.kgPerUnit,
       vatRate: f.valued ? r.vatRate : undefined,
-    })),
+    })).concat((f.dodatkowe ?? []).map((w): PozycjaDto => (w.rodzaj === 'reczna'
+      ? { stockType: 'reczna', lineId: w.lineId, name: w.name.trim(), unit: w.unit, qty: iloscDodatkowej(w),
+          price: f.valued ? liczba(w.priceStr) : 0, vatRate: f.valued ? w.vatRate : undefined }
+      : { stockType: w.stockType!, stockId: w.stockId!, lineId: w.lineId, name: w.name.trim(), unit: 'kg', qty: iloscDodatkowej(w),
+          price: f.valued ? liczba(w.priceStr) : 0, batchNo: w.batchNo, vatRate: f.valued ? w.vatRate : undefined }))),
     valued: f.valued,
     currency: f.currency,
     eurRate: f.valued && f.currency === 'EUR' && liczba(f.eurRateStr) > 0 ? liczba(f.eurRateStr) : null,

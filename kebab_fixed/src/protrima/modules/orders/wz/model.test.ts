@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { bezCeny, cenaDlaGrupy, cenaDlaWszystkich, cudzeRezerwacje, doDto, grupyCen, sumy, vatDlaWszystkich, walidacja, wartosc, wspolnaCena, wspolnyVat, zPicks, klientZWyboru, nabywcaZKlienta, zMagazynu, zNabywca, zNazwami } from './model'
+import { wartoscDodatkowej, type WierszDodatkowy, bezCeny, cenaDlaGrupy, cenaDlaWszystkich, cudzeRezerwacje, doDto, grupyCen, sumy, vatDlaWszystkich, walidacja, wartosc, wspolnaCena, wspolnyVat, zPicks, klientZWyboru, nabywcaZKlienta, zMagazynu, zNabywca, zNazwami } from './model'
 
 const PICKS = {
   order_id: 'o1', order_no: 'ISSA/Z/3/10/26', client_id: 'c1', ordered: 190,
@@ -110,5 +110,38 @@ describe('WZ z magazynu (bez zamówienia)', () => {
     expect(zNazwami(f, [{ ...FG[0], name: 'DÖNER YAPRAK 20kg' }]).rows[0].name).toBe('DÖNER YAPRAK 20kg')
     expect(klientZWyboru(FG, [{ id: 'g1', qty: 1 }], KLIENCI)?.id).toBe('c1')
     expect(klientZWyboru(FG, [{ id: 'g1', qty: 1 }, { id: 'g2', qty: 1 }], KLIENCI)).toBeUndefined()
+  })
+})
+
+describe('WZ — pozycje dodatkowe (z ręki / z magazynu surowca)', () => {
+  const { form } = zPicks(PICKS, '2026-11-14')
+  const jogurt: WierszDodatkowy = { lineId: 'J1', rodzaj: 'reczna', name: 'Jogurt naturalny', qtyStr: '10', unit: 'szt', priceStr: '4,50', vatRate: 5 }
+  const loj: WierszDodatkowy = { lineId: 'L1', rodzaj: 'surowiec', name: 'Łój wołowy otokowy', qtyStr: '15,5', unit: 'kg', priceStr: '2', vatRate: 5,
+    stockType: 'raw', stockId: 'rb1', batchNo: '950', wolneKg: 100 }
+  const zCenami = { ...form, valued: true, rows: form.rows.map(r => ({ ...r, priceStr: '12,50' })) }
+
+  it('DTO: jogurt bez stockId, łój z partią; przecinek dziesiętny', () => {
+    const dto = doDto({ ...zCenami, dodatkowe: [jogurt, loj] }, 'o1')
+    expect(dto.items.slice(-2)).toEqual([
+      expect.objectContaining({ stockType: 'reczna', lineId: 'J1', name: 'Jogurt naturalny', unit: 'szt', qty: 10, price: 4.5, vatRate: 5 }),
+      expect.objectContaining({ stockType: 'raw', stockId: 'rb1', lineId: 'L1', unit: 'kg', qty: 15.5, price: 2, batchNo: '950' }),
+    ])
+    expect(dto.items[dto.items.length - 2]).not.toHaveProperty('stockId')
+  })
+  it('wartość pozycji dodatkowej = ilość × cena; sumy doliczają ją do VAT i kg (tylko kg)', () => {
+    expect(wartoscDodatkowej(jogurt)).toBe(45)
+    expect(wartoscDodatkowej(loj)).toBe(31)
+    const bez = sumy(zCenami), z = sumy({ ...zCenami, dodatkowe: [jogurt, loj] })
+    expect(z.vat!.netto).toBeCloseTo(bez.vat!.netto + 76, 2)
+    expect(z.kg).toBeCloseTo(bez.kg + 15.5, 3)
+    expect(z.szt).toBe(bez.szt)
+  })
+  it('walidacja: nazwa, ilość, łój ponad wolny stan partii, cena przy wartościowym', () => {
+    expect(walidacja({ ...zCenami, dodatkowe: [jogurt, loj] })).toBe('')
+    expect(walidacja({ ...zCenami, dodatkowe: [{ ...jogurt, name: ' ' }] })).toMatch(/nazwę/)
+    expect(walidacja({ ...zCenami, dodatkowe: [{ ...jogurt, qtyStr: '0' }] })).toMatch(/ilość/i)
+    expect(walidacja({ ...zCenami, dodatkowe: [{ ...loj, qtyStr: '120' }] })).toMatch(/950.*100/)
+    expect(walidacja({ ...zCenami, dodatkowe: [{ ...jogurt, priceStr: '' }] })).toMatch(/cen/)
+    expect(walidacja({ ...form, dodatkowe: [{ ...jogurt, priceStr: '' }] })).toBe('')
   })
 })

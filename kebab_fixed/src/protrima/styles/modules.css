@@ -606,6 +606,21 @@ div.pstage { cursor: default; }
 .wz-p-in > span { color: var(--ink-3); font-size: var(--fs-sm); white-space: nowrap; }
 .wz-p-in .field { width: 110px; }
 .wz-p-in.big .field { width: 150px; height: 40px; font-size: 20px; font-weight: 600; }
+
+/* Pozycja dodatkowa WZ (z ręki / z magazynu surowca) — formularz w oknie */
+.pd-form { display: flex; flex-direction: column; gap: 12px; width: min(720px, 80vw); }
+.pd-grid { display: grid; grid-template-columns: minmax(0, 2fr) 110px auto 150px 90px; gap: 10px 12px; align-items: end; }
+.pd-grid .pd-nazwa .field { width: 100%; }
+.pd-grid .fld .field.num { width: 100%; }
+.pd-in { display: inline-flex; align-items: center; gap: 6px; }
+.pd-in > span { color: var(--ink-3); font-size: var(--fs-sm); white-space: nowrap; }
+.pd-szukaj { display: flex; align-items: center; gap: 8px; color: var(--ink-3); }
+.pd-szukaj .field { flex: 1; }
+.pd-partie { max-height: 236px; overflow: auto; }
+.pd-partie tbody tr.row { cursor: pointer; }
+.pd-stopka { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--line-soft); padding-top: 10px; }
+.pd-stopka .grow { flex: 1; }
+.pd-stopka .crit-ink { color: var(--crit-ink); font-weight: 600; }
 .wz-p-groups { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .wz-p-row { display: flex; align-items: center; gap: 12px; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--line-soft); }
 .wz-p-row:last-child { border-bottom: 0; }

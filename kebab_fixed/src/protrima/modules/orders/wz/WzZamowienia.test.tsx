@@ -4,7 +4,7 @@ import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-li
 import React from 'react'
 import { AppCtx, type AppApi } from '../../../shell/context'
 
-const wz = vi.hoisted(() => ({ fromOrderPicks: vi.fn(), nextNumber: vi.fn(), createManual: vi.fn(), stockFg: vi.fn(), pdfUrl: (id: string) => `/api/wz/${id}/pdf` }))
+const wz = vi.hoisted(() => ({ fromOrderPicks: vi.fn(), nextNumber: vi.fn(), createManual: vi.fn(), stockFg: vi.fn(), stockRaw: vi.fn(), list: vi.fn(), pdfUrl: (id: string) => `/api/wz/${id}/pdf` }))
 const clients = vi.hoisted(() => ({ list: vi.fn() }))
 const pdf = vi.hoisted(() => vi.fn(() => Promise.resolve()))
 vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), wzApi: wz, clientsApi: clients, downloadDocPdf: pdf, fxApi: { eurRate: vi.fn() } }))
@@ -20,7 +20,7 @@ const app = { toast: vi.fn() } as unknown as AppApi
 const mount = () => { const onDone = vi.fn(); render(<AppCtx.Provider value={app}><WzZamowienia orderId="o1" active setCmds={c => { cmds = c }} onDone={onDone} /></AppCtx.Provider>); return onDone }
 const run = (id: string) => cmds.find(c => c.id === id)!.run!()
 afterEach(cleanup)
-beforeEach(() => { Object.values(wz).forEach(f => typeof f === 'function' && 'mockReset' in f && (f as ReturnType<typeof vi.fn>).mockReset()); wz.fromOrderPicks.mockResolvedValue(PICKS); wz.nextNumber.mockResolvedValue({ number: 'WZ/7/10/26' }); pdf.mockClear(); refresh.mockClear() })
+beforeEach(() => { Object.values(wz).forEach(f => typeof f === 'function' && 'mockReset' in f && (f as ReturnType<typeof vi.fn>).mockReset()); wz.fromOrderPicks.mockResolvedValue(PICKS); wz.nextNumber.mockResolvedValue({ number: 'WZ/7/10/26' }); wz.list.mockResolvedValue([]); wz.stockRaw.mockResolvedValue([{ id: 'rb1', stock_type: 'raw', internal_batch_no: '950', name: 'Łój wołowy otokowy', supplier_name: 'KOKO', kg_available: 100, expiry_date: '2026-11-30' }]); pdf.mockClear(); refresh.mockClear() })
 
 describe('WZ z zamówienia', () => {
   it('pozycje z serwera; brak 5 szt. do pełnego zamówienia; ilość ponad stan blokuje zapis', async () => {
@@ -118,5 +118,50 @@ describe('WZ z magazynu (zaznaczone w Wyrobie gotowym)', () => {
     run('issue')
     expect(await screen.findByText('Wydajesz towar zarezerwowany pod inne zamówienia')).toBeTruthy()
     expect(wz.createManual).not.toHaveBeenCalled()
+  })
+})
+
+describe('WZ — pozycje dodatkowe w edytorze', () => {
+  it('jogurt z ręki i łój z magazynu surowca idą razem z wyrobem do wystawienia', async () => {
+    wz.createManual.mockResolvedValue({ id: 'w9', number: 'WZ/7/10/26', buyer_name: 'BUBU KEBAB S.C.', valued: true, status: 'wstepny', lines: [], total_value: 1 })
+    mount()
+    await screen.findByLabelText(/Ilość do wydania, KEBAB UDO BEYAZ HALAL 20kg/)
+    fireEvent.click(screen.getByLabelText('Dokument wartościowy'))
+    fireEvent.change(screen.getByLabelText('Cena za kg dla wszystkich pozycji'), { target: { value: '12,50' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /Pozycja z ręki/ }))
+    const okno = within(await screen.findByRole('dialog'))
+    fireEvent.change(okno.getByLabelText('Nazwa pozycji'), { target: { value: 'Jogurt naturalny' } })
+    fireEvent.change(okno.getByLabelText('Ilość'), { target: { value: '10' } })
+    fireEvent.change(okno.getByLabelText('Cena za szt'), { target: { value: '4,50' } })
+    fireEvent.click(okno.getByRole('button', { name: 'Dodaj pozycję' }))
+
+    fireEvent.click(okno.getByRole('tab', { name: 'Z magazynu surowca' }))
+    fireEvent.click(await okno.findByText('Łój wołowy otokowy'))
+    fireEvent.change(okno.getByLabelText('Ilość w kg'), { target: { value: '15' } })
+    fireEvent.change(okno.getByLabelText('Cena za kg'), { target: { value: '2' } })
+    fireEvent.click(okno.getByRole('button', { name: 'Dodaj pozycję' }))
+    fireEvent.click(okno.getByRole('button', { name: 'Gotowe' }))
+
+    const tab = screen.getByLabelText('Pozycje dodatkowe')
+    expect(within(tab).getByText('Jogurt naturalny')).toBeTruthy()
+    expect(within(tab).getByText('Łój wołowy otokowy')).toBeTruthy()
+    run('issue')
+    await waitFor(() => expect(wz.createManual).toHaveBeenCalledTimes(1))
+    const items = wz.createManual.mock.calls[0][0].items
+    expect(items).toEqual([
+      expect.objectContaining({ stockType: 'fg', stockId: 'f1' }),
+      expect.objectContaining({ stockType: 'reczna', name: 'Jogurt naturalny', qty: 10, price: 4.5, unit: 'szt' }),
+      expect.objectContaining({ stockType: 'raw', stockId: 'rb1', qty: 15, price: 2, unit: 'kg', batchNo: '950' }),
+    ])
+  })
+  it('dokument w EUR: pole ceny pozycji dodatkowej pokazuje €', async () => {
+    mount()
+    await screen.findByLabelText(/Ilość do wydania/)
+    fireEvent.click(screen.getByLabelText('Dokument wartościowy'))
+    fireEvent.click(screen.getByRole('button', { name: 'EUR' }))
+    fireEvent.click(screen.getByRole('button', { name: /Pozycja z ręki/ }))
+    const okno = within(await screen.findByRole('dialog'))
+    expect((okno.getByLabelText('Cena za szt').parentElement as HTMLElement).textContent).toContain('€')
   })
 })

@@ -1,17 +1,18 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { FileText, Trash2, X, FileDown, RefreshCw, CheckCircle2 } from 'lucide-react'
+import { FileText, Trash2, X, FileDown, RefreshCw, CheckCircle2, Plus, PenLine, Warehouse } from 'lucide-react'
 import { useApp, CommandBar, Dialog, type Cmd } from '../../../shell/context'
 import { useOrders } from '../../../data/store'
 import { kg, num } from '../../../data/model'
 import { FlagIcon } from '../../../ui/Glyphs'
 import { clientsApi, downloadDocPdf, fxApi, wzApi, type WzDoc } from '@/lib/api'
-import { STAWKI_VAT } from '@/features/wz/wzVat'
+import { STAWKI_VAT, stawkaVatDlaNabywcy } from '@/features/wz/wzVat'
 import { OTHER_CARRIER_KINDS } from '@/lib/containers'
 import {
   bezCeny, cenaDlaGrupy, cenaDlaWszystkich, cudzeRezerwacje, doDto, grupyCen, ilosc, masa, sumy, vatDlaWszystkich, walidacja, wartosc,
-  wspolnaCena, wspolnyVat, zPicks, klientZWyboru, nabywcaZKlienta, zMagazynu, zNabywca, zNazwami,
-  type FgStock, type FormWz, type KlientWz, type WierszWz, type Wybor,
+  wspolnaCena, wspolnyVat, zPicks, klientZWyboru, nabywcaZKlienta, zMagazynu, zNabywca, zNazwami, wartoscDodatkowej,
+  type FgStock, type FormWz, type KlientWz, type WierszWz, type WierszDodatkowy, type Wybor,
 } from './model'
+import { PozycjaDodatkowaForm } from './PozycjaDodatkowa'
 import { SzkieletBloku } from '../../../ui/Szkielet'
 import { PROBA } from '../../../proba'
 
@@ -38,6 +39,8 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
   const [saving, setSaving] = useState(false)
   const [pytanie, setPytanie] = useState<ReturnType<typeof cudzeRezerwacje> | null>(null)
   const [saved, setSaved] = useState<WzDoc | null>(null)
+  const [oknoDod, setOknoDod] = useState<null | 'reczna' | 'surowiec'>(null)
+  const podpowiedzi = usePodpowiedziNazw(!!oknoDod)
   const lock = useRef(false)
   const cenaRef = useRef<HTMLInputElement>(null)
   const zMag = !orderId
@@ -212,6 +215,8 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
                 {f.valued && <><td /><td /><td className="num">{s!.vat ? zl(s!.vat.netto, cur) : ''}</td></>}<td /></tr></tfoot>}
             </table></div>
 
+            <PozycjeDodatkowe f={f} cur={cur} onDodaj={r => setOknoDod(r)} onUsun={id => upd({ dodatkowe: (f.dodatkowe ?? []).filter(w => w.lineId !== id) })} />
+
             <div className="sect-h"><h3>Transport</h3><span className="sub">palety na całym dokumencie; pojemniki puste = suma z pozycji</span></div>
             <div className="box" style={{ padding: 12, display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'end' }}>
               <label className="fld"><span className="label">Palety H1</span><input className="field num w-num" inputMode="numeric" value={f.palletsH1Str} onChange={e => upd({ palletsH1Str: e.target.value })} /></label>
@@ -223,6 +228,13 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
           </>}
         </div>
       </div>
+      {oknoDod && f && <Dialog title="Pozycja dodatkowa" icon={oknoDod === 'reczna' ? <PenLine size={20} /> : <Warehouse size={20} />} onClose={() => setOknoDod(null)}
+        footer={<button className="btn" onClick={() => setOknoDod(null)}>Gotowe</button>}>
+        <PozycjaDodatkowaForm start={oknoDod} waluta={f.currency} kurs={f.eurRateStr ? Number(f.eurRateStr.replace(',', '.')) : null}
+          vatDomyslny={stawkaVatDlaNabywcy(f.buyer.nip)} wartosciowy={f.valued} podpowiedzi={podpowiedzi}
+          zajeteKg={zajete(f.dodatkowe)}
+          onDodaj={w => { upd({ dodatkowe: [...(f.dodatkowe ?? []), w] }); app.toast({ kind: 'ok', title: `Dodano: ${w.name}` }) }} />
+      </Dialog>}
       {pytanie && <Dialog title="Wydajesz towar zarezerwowany pod inne zamówienia" icon={<FlagIcon level="warn" size={20} />} onClose={() => setPytanie(null)}
         footer={<><button className="btn" onClick={() => setPytanie(null)} data-autofocus>Wróć</button><button className="btn primary" disabled={saving} onClick={() => void zapisz(true)}>Wystaw mimo to</button></>}>
         <ul style={{ margin: 0, paddingLeft: 18 }}>{pytanie.map(r => <li key={r.orderNo}>{r.qty} szt. pod <b>{r.orderNo}</b>{r.clientName ? ` (${r.clientName})` : ''}</li>)}</ul>
@@ -290,4 +302,50 @@ function KartaCen({ f, setF, cenaRef, onKurs }: {
       </div>
     </div>
   )
+}
+
+const zajete = (d?: WierszDodatkowy[]) => (d ?? []).reduce<Record<string, number>>((a, w) => {
+  if (w.stockId) a[w.stockId] = (a[w.stockId] ?? 0) + (parseFloat(w.qtyStr.replace(',', '.')) || 0)
+  return a
+}, {})
+
+/** Nazwy pozycji z ręki z ostatnich WZ — podpowiedź przy wpisywaniu (jogurt wraca co tydzień). */
+export function usePodpowiedziNazw(wlaczone: boolean) {
+  const [nazwy, setNazwy] = useState<string[]>([])
+  const pobrano = useRef(false)
+  useEffect(() => {
+    if (!wlaczone || pobrano.current) return
+    pobrano.current = true
+    Promise.resolve().then(() => wzApi.list()).then(docs => {
+      const n = new Set<string>()
+      for (const d of docs ?? []) for (const l of ((d as { lines?: Array<{ stock_type?: string; name?: string }> }).lines ?? [])) if (l.stock_type === 'reczna' && l.name) n.add(l.name)
+      setNazwy([...n].slice(0, 50))
+    }).catch(() => undefined)
+  }, [wlaczone])
+  return nazwy
+}
+
+/** Sekcja „Pozycje dodatkowe” w edytorze WZ — dwa przyciski i tabela dodanych. */
+function PozycjeDodatkowe({ f, cur, onDodaj, onUsun }: { f: FormWz; cur: string; onDodaj: (r: 'reczna' | 'surowiec') => void; onUsun: (lineId: string) => void }) {
+  const d = f.dodatkowe ?? []
+  return <>
+    <div className="sect-h"><h3>Pozycje dodatkowe</h3><span className="sub">towar spoza zamówienia — z ręki (np. jogurt) albo z magazynu surowca (np. łój)</span>
+      <div className="tools">
+        <button className="btn sm" type="button" onClick={() => onDodaj('surowiec')}><Plus size={15} />Z magazynu surowca</button>
+        <button className="btn sm" type="button" onClick={() => onDodaj('reczna')}><Plus size={15} />Pozycja z ręki</button>
+      </div>
+    </div>
+    {d.length > 0 && <div className="box"><table className="tbl" aria-label="Pozycje dodatkowe">
+      <thead><tr><th>Pozycja</th><th>Rodzaj</th><th className="num">Ilość</th>{f.valued && <><th className="num">Cena</th><th className="num">VAT</th><th className="num">Wartość</th></>}<th style={{ width: 40 }} /></tr></thead>
+      <tbody>{d.map(w => (
+        <tr key={w.lineId} className="row">
+          <td className="strong">{w.name}</td>
+          <td>{w.rodzaj === 'reczna' ? <span className="tag neutral">z ręki</span> : <span className="tag info" data-tip="Zdejmie stan tej partii przy wystawieniu">surowiec · {w.batchNo ?? '—'}</span>}</td>
+          <td className="num">{w.qtyStr} {w.unit}</td>
+          {f.valued && <><td className="num">{w.priceStr} {cur === 'EUR' ? '€' : 'zł'}/{w.unit}</td><td className="num">{w.vatRate}%</td><td className="num">{zl(wartoscDodatkowej(w), cur)}</td></>}
+          <td><button className="btn ghost icon sm" style={{ width: 28 }} onClick={() => onUsun(w.lineId)} aria-label={`Usuń pozycję dodatkową: ${w.name}`}><Trash2 size={15} /></button></td>
+        </tr>))}
+      </tbody>
+    </table></div>}
+  </>
 }
