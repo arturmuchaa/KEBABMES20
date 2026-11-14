@@ -18,6 +18,27 @@ const zl = (n: number, cur: string) => `${new Intl.NumberFormat('pl-PL', { minim
 /** Wolne kg partii: mięso z rezerwacją masowni pokazujemy bez niej (serwer i tak pilnuje). */
 export const wolneKg = (p: PartiaSurowca) => Math.max(0, Number(p.kg_available) - Number(p.kg_reserved ?? 0))
 
+/** Do wyszukiwania: bez polskich znaków i wielkości liter — „loj”, „łoj” i „ŁÓJ” to to samo. */
+export const bezOgonkow = (t: string) => t.toLowerCase().replace(/ł/g, 'l').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+export const pasuje = (p: PartiaSurowca, q: string) => {
+  const slowa = bezOgonkow(q).split(/\s+/).filter(Boolean)
+  const tekst = bezOgonkow(`${p.name} ${p.internal_batch_no ?? ''} ${p.supplier_name ?? ''}`)
+  return slowa.every(w => tekst.includes(w))
+}
+export interface GrupaSurowca { nazwa: string; kg: number; partie: Array<{ p: PartiaSurowca; wolne: number }> }
+/** Partie zgrupowane po nazwie surowca; w grupie od najkrótszego terminu (FEFO). */
+export function grupujPartie(partie: PartiaSurowca[], zajete: Record<string, number>): GrupaSurowca[] {
+  const m = new Map<string, GrupaSurowca>()
+  for (const p of partie) {
+    const wolne = Math.max(0, wolneKg(p) - (zajete[p.id] ?? 0))
+    if (wolne <= 0.0005) continue
+    const g = m.get(p.name) ?? { nazwa: p.name, kg: 0, partie: [] }
+    g.kg = Math.round((g.kg + wolne) * 1000) / 1000; g.partie.push({ p, wolne }); m.set(p.name, g)
+  }
+  for (const g of m.values()) g.partie.sort((a, b) => String(a.p.expiry_date ?? '9999').localeCompare(String(b.p.expiry_date ?? '9999')))
+  return [...m.values()].sort((a, b) => a.nazwa.localeCompare(b.nazwa, 'pl'))
+}
+
 /**
  * Formularz jednej pozycji dodatkowej — w edytorze WZ i w oknie „Dopisz pozycję”.
  * „Z ręki”: towar spoza stanów (jogurt) — nazwa, ilość, j.m., cena, VAT; nie rusza magazynu.
@@ -48,6 +69,7 @@ export function PozycjaDodatkowaForm({ start = 'reczna', waluta, kurs, vatDomysl
   const [partie, setPartie] = useState<PartiaSurowca[] | null>(null)
   const [bladPartii, setBladPartii] = useState<string | null>(null)
   const [szukaj, setSzukaj] = useState('')
+  const [grupa, setGrupa] = useState<string | null>(null)
   const [pokazBlad, setPokazBlad] = useState(false)
   const pierwsze = useRef<HTMLInputElement>(null)
   const sym = waluta === 'EUR' ? '€' : 'zł'
@@ -63,13 +85,9 @@ export function PozycjaDodatkowaForm({ start = 'reczna', waluta, kurs, vatDomysl
     setRodzaj(r); setPokazBlad(false)
     setW(x => ({ ...x, rodzaj: r, unit: r === 'surowiec' ? 'kg' : x.unit === 'kg' ? 'kg' : 'szt', stockId: undefined, stockType: undefined, batchNo: undefined, wolneKg: undefined, name: r === 'surowiec' ? '' : x.name }))
   }
-  const lista = useMemo(() => {
-    const q = szukaj.trim().toLowerCase()
-    return (partie ?? [])
-      .map(p => ({ p, wolne: Math.max(0, wolneKg(p) - (zajeteKg[p.id] ?? 0)) }))
-      .filter(({ p, wolne }) => wolne > 0.0005 && (!q || `${p.name} ${p.internal_batch_no ?? ''} ${p.supplier_name ?? ''}`.toLowerCase().includes(q)))
-      .sort((a, b) => String(a.p.expiry_date ?? '9999').localeCompare(String(b.p.expiry_date ?? '9999')) || a.p.name.localeCompare(b.p.name, 'pl'))
-  }, [partie, szukaj, zajeteKg])
+  const grupy = useMemo(() => grupujPartie((partie ?? []).filter(p => !szukaj.trim() || pasuje(p, szukaj)), zajeteKg), [partie, szukaj, zajeteKg])
+  // Wybrany rodzaj; przy wyszukiwaniu z jednym trafieniem — od razu ten jeden.
+  const aktywna = grupy.find(g => g.nazwa === grupa) ?? (grupy.length === 1 ? grupy[0] : null)
   const wybierz = (p: PartiaSurowca, wolne: number) => setW(x => ({ ...x, stockId: p.id, stockType: p.stock_type, batchNo: p.internal_batch_no ?? undefined, wolneKg: wolne, name: p.name }))
 
   const blad = bladDodatkowej(w, wartosciowy) || (rodzaj === 'surowiec' && !w.stockId ? 'Wybierz partię z listy.' : '')
@@ -111,25 +129,32 @@ export function PozycjaDodatkowaForm({ start = 'reczna', waluta, kurs, vatDomysl
           {wartosciowy && <PoleCeny w={w} setW={setW} sym={sym} jedn={w.unit} naEnter={naEnter} bladny={pokazBlad} />}
         </div>
       </> : <>
-        <div className="pd-szukaj"><Search size={15} /><input ref={pierwsze} className="field" value={szukaj} onChange={e => setSzukaj(e.target.value)} placeholder="Szukaj: łój, numer partii, dostawca…" aria-label="Szukaj partii surowca" /></div>
+        <div className="pd-szukaj"><Search size={15} /><input ref={pierwsze} className="field" value={szukaj} onChange={e => setSzukaj(e.target.value)} placeholder="Szukaj: łój, kości, numer partii, dostawca… (polskie znaki niepotrzebne)" aria-label="Szukaj surowca" /></div>
         {bladPartii && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div>{bladPartii}</div></div>}
-        <div className="box pd-partie">
-          <table className="tbl" aria-label="Partie na magazynie surowca">
-            <thead><tr><th>Surowiec</th><th>Partia</th><th>Ważne do</th><th className="num">Wolne</th></tr></thead>
-            <tbody>
-              {!partie && !bladPartii && <tr><td colSpan={4}><div className="empty">Wczytywanie magazynu surowca…</div></td></tr>}
-              {partie && lista.length === 0 && <tr><td colSpan={4}><div className="empty">{szukaj ? 'Nic nie pasuje do wyszukiwania.' : 'Magazyn surowca jest pusty.'}</div></td></tr>}
-              {lista.map(({ p, wolne }) => (
+        <div className="pd-magazyn">
+          <div className="box pd-rodzaje" role="listbox" aria-label="Rodzaje surowca">
+            {!partie && !bladPartii && <div className="empty">Wczytywanie magazynu surowca…</div>}
+            {partie && grupy.length === 0 && <div className="empty">{szukaj ? `Nic nie pasuje do „${szukaj}”.` : 'Magazyn surowca jest pusty.'}</div>}
+            {grupy.map(g => (
+              <button key={g.nazwa} type="button" role="option" aria-selected={aktywna?.nazwa === g.nazwa} className={`pd-rodzaj${aktywna?.nazwa === g.nazwa ? ' on' : ''}`} onClick={() => setGrupa(g.nazwa)}>
+                <span className="nm">{g.nazwa}</span><span className="kg">{kgPl(g.kg)}</span><span className="sub">{g.partie.length} {g.partie.length === 1 ? 'partia' : g.partie.length < 5 ? 'partie' : 'partii'}</span>
+              </button>))}
+          </div>
+          <div className="box pd-partie">
+            {!aktywna ? <div className="empty">{grupy.length ? 'Wybierz rodzaj surowca po lewej.' : ''}</div> :
+            <table className="tbl" aria-label="Partie surowca">
+              <thead><tr><th>Partia</th><th>Dostawca</th><th>Ważne do</th><th className="num">Wolne</th></tr></thead>
+              <tbody>{aktywna.partie.map(({ p, wolne }) => (
                 <tr key={p.id} className={`row${w.stockId === p.id ? ' sel' : ''}`} aria-selected={w.stockId === p.id} tabIndex={0}
                   onClick={() => wybierz(p, wolne)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); wybierz(p, wolne) } }}>
-                  <td className="strong">{p.name}{p.supplier_name ? <span className="sub"> · {p.supplier_name}</span> : null}</td>
-                  <td className="code">{p.internal_batch_no ?? '—'}</td>
+                  <td className="code strong">{p.internal_batch_no ?? '—'}</td>
+                  <td className="ell" style={{ maxWidth: 200 }}>{p.supplier_name || <span className="faint">—</span>}</td>
                   <td>{dataPl(p.expiry_date)}</td>
                   <td className="num">{kgPl(wolne)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                </tr>))}
+              </tbody>
+            </table>}
+          </div>
         </div>
         <div className="pd-grid s">
           <label className="fld pd-nazwa"><span className="label">Nazwa na dokumencie</span>

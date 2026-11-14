@@ -34,12 +34,34 @@ def _with_render_token(url: str) -> str:
     return f"{url}{sep}render_token={tok}"
 
 
+#: Ile razy próbujemy, gdy Chrome padnie przy starcie (rc < 0 = zabity sygnałem, np. -11 SIGSEGV).
+PROBY_PRZY_AWARII = 3
+
+
 def render_url_to_pdf(url: str, timeout: int = 45) -> bytes:
-    """Wyrenderuj URL do PDF (A4 z @page strony wydruku). Zwraca bajty PDF."""
+    """Wyrenderuj URL do PDF (A4 z @page strony wydruku). Zwraca bajty PDF.
+
+    Chrome bez okna potrafi paść zaraz po starcie (rc=-11, „no stack mapping”) —
+    14.11.2026 jedna taka awaria zepsuła biuru cały druk zbiorczy. Awarię (sygnał)
+    ponawiamy na świeżym profilu; zwykły błąd i przekroczony czas — nie.
+    """
     chrome = find_chrome()
     if not chrome:
         raise RuntimeError("Brak Chrome/Chromium na serwerze — nie można wygenerować PDF")
+    ostatni = ""
+    for proba in range(PROBY_PRZY_AWARII):
+        pdf, rc, ostatni = _jedna_proba(chrome, url, timeout)
+        if pdf is not None:
+            if proba:
+                logger.warning("pdf.render.ponowiony", extra={"proba": proba + 1, "url": url.split("?")[0]})
+            return pdf
+        if rc is None or rc >= 0:
+            break
+    raise RuntimeError(ostatni)
 
+
+def _jedna_proba(chrome: str, url: str, timeout: int):
+    """(bajty | None, kod wyjścia, komunikat błędu)."""
     workdir = tempfile.mkdtemp(prefix="hdi-pdf-")
     out_path = os.path.join(workdir, "out.pdf")
     try:
@@ -60,9 +82,9 @@ def render_url_to_pdf(url: str, timeout: int = 45) -> bytes:
         proc = subprocess.run(cmd, capture_output=True, timeout=timeout)
         if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
             tail = (proc.stderr or b"").decode("utf-8", "ignore")[-500:]
-            raise RuntimeError(f"Generowanie PDF nie powiodło się (rc={proc.returncode}): {tail}")
+            return None, proc.returncode, f"Generowanie PDF nie powiodło się (rc={proc.returncode}): {tail}"
         with open(out_path, "rb") as fh:
-            return fh.read()
+            return fh.read(), 0, ""
     except subprocess.TimeoutExpired:
         raise RuntimeError("Generowanie PDF przekroczyło limit czasu")
     finally:

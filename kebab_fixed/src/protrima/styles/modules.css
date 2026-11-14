@@ -619,7 +619,16 @@ div.pstage { cursor: default; }
 .pd-in > span { color: var(--ink-3); font-size: var(--fs-sm); white-space: nowrap; }
 .pd-szukaj { display: flex; align-items: center; gap: 8px; color: var(--ink-3); }
 .pd-szukaj .field { flex: 1; }
-.pd-partie { max-height: 236px; overflow: auto; }
+.pd-magazyn { display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); gap: 12px; height: 300px; }
+.pd-rodzaje { overflow: auto; display: flex; flex-direction: column; padding: 4px; }
+.pd-rodzaj { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 8px; text-align: left; padding: 8px 10px; border-radius: var(--r-sm); border: 0; background: transparent; color: var(--ink-1); cursor: pointer; }
+.pd-rodzaj:hover { background: var(--row-hover); }
+.pd-rodzaj.on { background: var(--accent-tint); box-shadow: inset 3px 0 0 var(--accent); }
+.pd-rodzaj .nm { font-weight: 600; grid-column: 1; grid-row: 1; }
+.pd-rodzaj .kg { font-variant-numeric: tabular-nums; font-weight: 600; grid-column: 2; grid-row: 1 / 3; align-self: center; }
+.pd-rodzaj .sub { font-size: var(--fs-sm); color: var(--ink-3); grid-column: 1; grid-row: 2; }
+.pd-partie { overflow: auto; }
+.pd-partie .empty, .pd-rodzaje .empty { padding: 16px; color: var(--ink-3); }
 .pd-partie tbody tr.row { cursor: pointer; }
 .pd-stopka { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--line-soft); padding-top: 10px; }
 .pd-stopka .grow { flex: 1; }
@@ -628,7 +637,7 @@ div.pstage { cursor: default; }
 .pd-zaplata { display: inline-flex; align-items: center; gap: 8px; margin: 8px 0 4px; }
 .dialog .box + .pd-form, .dialog .box + .pd-zaplata { margin-top: 12px; }
 .dialog-b > .box, .dialog-b > .pd-form, .dialog-b > .pd-naglowek { flex-shrink: 0; }
-.pd-dopisz .pd-partie { max-height: 128px; }
+.pd-dopisz .pd-magazyn { height: 210px; }
 /* Wysokie okno „Dopisz pozycję” zaczyna się pod paskiem tytułu (jak okna Rozrachunków). */
 .dialog-wrap:has(.pd-dopisz) { align-items: flex-start; padding-top: 56px; }
 .dialog-wrap:has(.pd-dopisz) > .dialog { max-height: calc(100vh - 56px - 16px); }

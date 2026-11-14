@@ -228,7 +228,7 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
           </>}
         </div>
       </div>
-      {oknoDod && f && <Dialog title="Pozycja dodatkowa" wide icon={oknoDod === 'reczna' ? <PenLine size={20} /> : <Warehouse size={20} />} onClose={() => setOknoDod(null)}
+      {oknoDod && f && <Dialog title="Pozycja dodatkowa" xl icon={oknoDod === 'reczna' ? <PenLine size={20} /> : <Warehouse size={20} />} onClose={() => setOknoDod(null)}
         footer={<button className="btn" onClick={() => setOknoDod(null)}>Gotowe</button>}>
         <PozycjaDodatkowaForm start={oknoDod} waluta={f.currency} kurs={f.eurRateStr ? Number(f.eurRateStr.replace(',', '.')) : null}
           vatDomyslny={stawkaVatDlaNabywcy(f.buyer.nip)} wartosciowy={f.valued} podpowiedzi={podpowiedzi}

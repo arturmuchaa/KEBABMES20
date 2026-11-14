@@ -68,7 +68,7 @@ export function DopiszPozycjeDialog({ wzId, onClose, onZmiana }: { wzId: string;
   const dopisane = opis ? [...new Map(opis.dokumenty.flatMap(d => d.lines.filter(dodatkowa).map(l => [l.line_id!, { l, nr: d.number }] as const))).values()] : []
 
   return (
-    <Dialog title={`Dopisz pozycję${numery ? ` — ${numery}` : ''}`} icon={<ListPlus size={20} />} onClose={onClose} wide
+    <Dialog title={`Dopisz pozycję${numery ? ` — ${numery}` : ''}`} icon={<ListPlus size={20} />} onClose={onClose} xl
       footer={<button className="btn" onClick={onClose}>Zamknij</button>}>
       {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div>{blad}</div></div>}
       {!opis && !blad && <SzkieletBloku linie={4} opis="Wczytywanie dokumentu…" />}

@@ -137,7 +137,7 @@ describe('WZ — pozycje dodatkowe w edytorze', () => {
     fireEvent.click(okno.getByRole('button', { name: 'Dodaj pozycję' }))
 
     fireEvent.click(okno.getByRole('tab', { name: 'Z magazynu surowca' }))
-    fireEvent.click(await okno.findByText('Łój wołowy otokowy'))
+    fireEvent.click(within(await okno.findByRole('table', { name: 'Partie surowca' })).getByText('950'))
     fireEvent.change(okno.getByLabelText('Ilość w kg'), { target: { value: '15' } })
     fireEvent.change(okno.getByLabelText('Cena za kg'), { target: { value: '2' } })
     fireEvent.click(okno.getByRole('button', { name: 'Dodaj pozycję' }))
