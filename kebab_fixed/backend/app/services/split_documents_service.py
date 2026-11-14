@@ -33,7 +33,7 @@ from app.services.order_stock_service import picks_for_order
 from app.services.orders_service import zamknij_wyslane_zamowienia
 from app.services.settings_service import get_company
 from app.services import shipment_documents as shipment
-from app.services.wz_service import (_fmt_kg, _insert_wz, _rebook_wz_containers,
+from app.services.wz_service import (SUROWIEC, zwroc_surowiec, _fmt_kg, _insert_wz, _rebook_wz_containers,
                                      _seller_block, build_goods_wz_lines,
                                      build_wz_lines, naming_context,
                                      wyprowadz_wz_poza_serie_cx)
@@ -476,6 +476,11 @@ def anuluj_dokumenty_podzialu(order_id: str) -> Dict[str, Any]:
             if not row or row.get("status") == "anulowany":
                 continue
             for line in _linie_z_dokumentu(row):
+                # Surowiec dopisany do WM (np. łój do yapraku) wraca na stan
+                # razem z wyrobem — inaczej anulowanie zostawiałoby go zdjętym.
+                if line.get("stock_type") in SUROWIEC:
+                    zwroc_surowiec(conn, d["id"], line)
+                    continue
                 if line.get("stock_type") != "fg":
                     continue
                 sid = line.get("stock_id")

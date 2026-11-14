@@ -843,6 +843,142 @@ def zdejmij_stempel_obcej_sprzedazy(conn, fg_id: str, stempel: str, nabywca: str
     return True
 
 
+#: Magazyny surowca, z których WZ/WM może wydać pozycję (nie wyrób gotowy).
+SUROWIEC = ("raw", "meat", "byproduct")
+
+
+def wydaj_surowiec(conn, wz_id: str, sel: Dict[str, Any]) -> Dict[str, Any]:
+    """Rozchód jednej pozycji surowca na dokument `wz_id` (raw/meat/byproduct):
+    kontrola wolnego stanu, zdjęcie stanu i ruch OUT. Zwraca pola do linii.
+    Wspólne dla ręcznej WZ i pozycji dopisywanych do WZ/WM z kursu."""
+    stype = sel.get("stock_type")
+    sid = sel.get("stock_id")
+    qty = float(sel.get("qty") or 0)
+    if qty <= 0:
+        raise HTTPException(400, "Ilość pozycji musi być > 0")
+    if stype == "raw":
+        row = cx_query_one(
+            conn,
+            "SELECT id, internal_batch_no, kg_available FROM raw_batches WHERE id=%s FOR UPDATE",
+            (sid,))
+        if not row:
+            raise HTTPException(400, "Pozycja magazynowa nie istnieje")
+        avail = float(row.get("kg_available") or 0)
+        if avail + 1e-6 < qty:
+            raise HTTPException(
+                400, f"Za mało surowca (partia {row.get('internal_batch_no')}): jest {avail} kg, potrzeba {qty}")
+        cx_execute(
+            conn,
+            "UPDATE raw_batches SET kg_available=GREATEST(0, kg_available-%s) WHERE id=%s",
+            (qty, sid))
+        create_stock_movement(
+            conn, product_type="raw", batch_id=sid, qty=qty,
+            movement_type="OUT", source_type="wz", source_id=wz_id)
+    elif stype == "meat":
+        row = cx_query_one(
+            conn,
+            "SELECT id, lot_no, kg_available FROM meat_stock WHERE id=%s FOR UPDATE",
+            (sid,))
+        if not row:
+            raise HTTPException(400, "Pozycja magazynowa nie istnieje")
+        avail = float(row.get("kg_available") or 0)
+        # Mięso przygotowane do masowania nie jest towarem: albo leży
+        # zważone na palecie, albo stoi w masownicy. Patrz
+        # `kg_zablokowane_dla_masowni`.
+        zablokowane = kg_zablokowane_dla_masowni(sid, conn)
+        na_sprzedaz = max(0.0, avail - zablokowane)
+        if na_sprzedaz + 1e-6 < qty:
+            powod = (f" ({zablokowane:.0f} kg jest w masowni — na paletach "
+                     f"albo w masownicy)") if zablokowane > 0 else ""
+            raise HTTPException(
+                400,
+                f"Za mało mięsa (partia {row.get('lot_no')}): do wydania "
+                f"{na_sprzedaz:.0f} kg, potrzeba {qty}{powod}")
+        # Ruch PRZED zdjęciem stanu — walidacja OUT w create_stock_movement
+        # czyta kg_available z bazy; po dekremencie widziałaby stan już
+        # pomniejszony i odrzucała wydania > połowy lotu ("przekracza 0.0").
+        create_stock_movement(
+            conn, product_type="meat", batch_id=sid, qty=qty,
+            movement_type="OUT", source_type="wz", source_id=wz_id)
+        cx_execute(
+            conn,
+            "UPDATE meat_stock SET kg_available=GREATEST(0, kg_available-%s) WHERE id=%s",
+            (qty, sid))
+
+    elif stype == "byproduct":
+        row = cx_query_one(
+            conn,
+            "SELECT id, raw_batch_no, kind, kg, containers_available "
+            "FROM byproduct_lots WHERE id=%s FOR UPDATE",
+            (sid,))
+        if not row:
+            raise HTTPException(400, "Pozycja magazynowa nie istnieje")
+        avail = float(row.get("kg") or 0)
+        what = "grzbietów" if row.get("kind") == "backs" else "kości"
+        if avail + 1e-6 < qty:
+            raise HTTPException(
+                400, f"Za mało {what} (partia {row.get('raw_batch_no')}): jest {avail} kg, potrzeba {qty}")
+        # Lot wydany w całości → status 'shipped' (nie trafi do utylizacji).
+        cx_execute(
+            conn,
+            "UPDATE byproduct_lots SET kg=GREATEST(0, kg-%s), "
+            "status=CASE WHEN kg-%s <= 0.001 THEN 'shipped' ELSE status END "
+            "WHERE id=%s",
+            (qty, qty, sid))
+        # Pojemniki fizycznie zabrane przez kierowcę — licznik na
+        # magazynie schodzi RAZEM z kg (kierowca bierze 1 pojemnik
+        # z partii 408 → 59 → 58), nie tylko kosmetycznie na WZ.
+        try:
+            cont_taken = int(sel.get("containers") or 0)
+        except (TypeError, ValueError):
+            cont_taken = 0
+        if cont_taken > 0 and row.get("containers_available") is not None:
+            cx_execute(
+                conn,
+                "UPDATE byproduct_lots SET containers_available=GREATEST(0, containers_available-%s) "
+                "WHERE id=%s",
+                (cont_taken, sid))
+        create_stock_movement(
+            conn, product_type="byproduct", batch_id=sid, qty=qty,
+            movement_type="OUT", source_type="wz", source_id=wz_id)
+
+    else:
+        raise HTTPException(400, f"Nieznany typ magazynu: {stype}")
+    return {"stock_type": stype, "stock_id": sid}
+
+
+def zwroc_surowiec(conn, wz_id: str, line: Dict[str, Any], qty: Optional[float] = None) -> None:
+    """Zwrot pozycji surowca z dokumentu `wz_id` na stan (ruch CANCEL);
+    `qty` domyślnie cała ilość linii. Lot ubocznych wraca do 'open'."""
+    stype, sid = line.get("stock_type"), line.get("stock_id")
+    qty = float(line.get("qty") or 0) if qty is None else float(qty)
+    if stype not in SUROWIEC or not sid or qty <= 0:
+        return
+    if stype == "raw":
+        cx_execute(conn, "UPDATE raw_batches SET kg_available=kg_available+%s WHERE id=%s", (qty, sid))
+        create_stock_movement(
+            conn, product_type="raw", batch_id=sid, qty=qty,
+            movement_type="CANCEL", source_type="wz", source_id=wz_id)
+    elif stype == "meat":
+        cx_execute(conn, "UPDATE meat_stock SET kg_available=kg_available+%s WHERE id=%s", (qty, sid))
+        create_stock_movement(
+            conn, product_type="meat", batch_id=sid, qty=qty,
+            movement_type="CANCEL", source_type="wz", source_id=wz_id)
+    elif stype == "byproduct":
+        cont = int(line.get("containers") or 0)
+        cx_execute(
+            conn,
+            "UPDATE byproduct_lots SET kg=kg+%s, status='open', "
+            "containers_available=CASE WHEN containers_available IS NOT NULL "
+            "THEN containers_available+%s ELSE containers_available END "
+            "WHERE id=%s",
+            (qty, cont, sid))
+        create_stock_movement(
+            conn, product_type="byproduct", batch_id=sid, qty=qty,
+            movement_type="CANCEL", source_type="wz", source_id=wz_id)
+
+
+
 def create_manual_wz(
     buyer: Dict[str, Any],
     selections: List[Dict[str, Any]],
@@ -970,91 +1106,8 @@ def create_manual_wz(
                     qty=need * float(row.get("kg_per_unit") or 0),
                     movement_type="OUT", source_type="wz", source_id=wid)
 
-            elif stype == "raw":
-                row = cx_query_one(
-                    conn,
-                    "SELECT id, internal_batch_no, kg_available FROM raw_batches WHERE id=%s FOR UPDATE",
-                    (sid,))
-                if not row:
-                    raise HTTPException(400, "Pozycja magazynowa nie istnieje")
-                avail = float(row.get("kg_available") or 0)
-                if avail + 1e-6 < qty:
-                    raise HTTPException(
-                        400, f"Za mało surowca (partia {row.get('internal_batch_no')}): jest {avail} kg, potrzeba {qty}")
-                cx_execute(
-                    conn,
-                    "UPDATE raw_batches SET kg_available=GREATEST(0, kg_available-%s) WHERE id=%s",
-                    (qty, sid))
-                create_stock_movement(
-                    conn, product_type="raw", batch_id=sid, qty=qty,
-                    movement_type="OUT", source_type="wz", source_id=wid)
-            elif stype == "meat":
-                row = cx_query_one(
-                    conn,
-                    "SELECT id, lot_no, kg_available FROM meat_stock WHERE id=%s FOR UPDATE",
-                    (sid,))
-                if not row:
-                    raise HTTPException(400, "Pozycja magazynowa nie istnieje")
-                avail = float(row.get("kg_available") or 0)
-                # Mięso przygotowane do masowania nie jest towarem: albo leży
-                # zważone na palecie, albo stoi w masownicy. Patrz
-                # `kg_zablokowane_dla_masowni`.
-                zablokowane = kg_zablokowane_dla_masowni(sid, conn)
-                na_sprzedaz = max(0.0, avail - zablokowane)
-                if na_sprzedaz + 1e-6 < qty:
-                    powod = (f" ({zablokowane:.0f} kg jest w masowni — na paletach "
-                             f"albo w masownicy)") if zablokowane > 0 else ""
-                    raise HTTPException(
-                        400,
-                        f"Za mało mięsa (partia {row.get('lot_no')}): do wydania "
-                        f"{na_sprzedaz:.0f} kg, potrzeba {qty}{powod}")
-                # Ruch PRZED zdjęciem stanu — walidacja OUT w create_stock_movement
-                # czyta kg_available z bazy; po dekremencie widziałaby stan już
-                # pomniejszony i odrzucała wydania > połowy lotu ("przekracza 0.0").
-                create_stock_movement(
-                    conn, product_type="meat", batch_id=sid, qty=qty,
-                    movement_type="OUT", source_type="wz", source_id=wid)
-                cx_execute(
-                    conn,
-                    "UPDATE meat_stock SET kg_available=GREATEST(0, kg_available-%s) WHERE id=%s",
-                    (qty, sid))
-
-            elif stype == "byproduct":
-                row = cx_query_one(
-                    conn,
-                    "SELECT id, raw_batch_no, kind, kg, containers_available "
-                    "FROM byproduct_lots WHERE id=%s FOR UPDATE",
-                    (sid,))
-                if not row:
-                    raise HTTPException(400, "Pozycja magazynowa nie istnieje")
-                avail = float(row.get("kg") or 0)
-                what = "grzbietów" if row.get("kind") == "backs" else "kości"
-                if avail + 1e-6 < qty:
-                    raise HTTPException(
-                        400, f"Za mało {what} (partia {row.get('raw_batch_no')}): jest {avail} kg, potrzeba {qty}")
-                # Lot wydany w całości → status 'shipped' (nie trafi do utylizacji).
-                cx_execute(
-                    conn,
-                    "UPDATE byproduct_lots SET kg=GREATEST(0, kg-%s), "
-                    "status=CASE WHEN kg-%s <= 0.001 THEN 'shipped' ELSE status END "
-                    "WHERE id=%s",
-                    (qty, qty, sid))
-                # Pojemniki fizycznie zabrane przez kierowcę — licznik na
-                # magazynie schodzi RAZEM z kg (kierowca bierze 1 pojemnik
-                # z partii 408 → 59 → 58), nie tylko kosmetycznie na WZ.
-                try:
-                    cont_taken = int(sel.get("containers") or 0)
-                except (TypeError, ValueError):
-                    cont_taken = 0
-                if cont_taken > 0 and row.get("containers_available") is not None:
-                    cx_execute(
-                        conn,
-                        "UPDATE byproduct_lots SET containers_available=GREATEST(0, containers_available-%s) "
-                        "WHERE id=%s",
-                        (cont_taken, sid))
-                create_stock_movement(
-                    conn, product_type="byproduct", batch_id=sid, qty=qty,
-                    movement_type="OUT", source_type="wz", source_id=wid)
+            elif stype in SUROWIEC:
+                wydaj_surowiec(conn, wid, sel)
 
             else:
                 raise HTTPException(400, f"Nieznany typ magazynu: {stype}")
@@ -1423,28 +1476,8 @@ def cancel_wz(wz_id: str) -> Dict[str, Any]:
                     conn, product_type="finished_goods", batch_id=sid,
                     qty=qty_i * float(fg.get("kg_per_unit") or 0),
                     movement_type="CANCEL", source_type="wz", source_id=wz_id)
-            elif stype == "raw":
-                cx_execute(conn, "UPDATE raw_batches SET kg_available=kg_available+%s WHERE id=%s", (qty, sid))
-                create_stock_movement(
-                    conn, product_type="raw", batch_id=sid, qty=qty,
-                    movement_type="CANCEL", source_type="wz", source_id=wz_id)
-            elif stype == "meat":
-                cx_execute(conn, "UPDATE meat_stock SET kg_available=kg_available+%s WHERE id=%s", (qty, sid))
-                create_stock_movement(
-                    conn, product_type="meat", batch_id=sid, qty=qty,
-                    movement_type="CANCEL", source_type="wz", source_id=wz_id)
-            elif stype == "byproduct":
-                cont = int(line.get("containers") or 0)
-                cx_execute(
-                    conn,
-                    "UPDATE byproduct_lots SET kg=kg+%s, status='open', "
-                    "containers_available=CASE WHEN containers_available IS NOT NULL "
-                    "THEN containers_available+%s ELSE containers_available END "
-                    "WHERE id=%s",
-                    (qty, cont, sid))
-                create_stock_movement(
-                    conn, product_type="byproduct", batch_id=sid, qty=qty,
-                    movement_type="CANCEL", source_type="wz", source_id=wz_id)
+            elif stype in SUROWIEC:
+                zwroc_surowiec(conn, wz_id, line)
 
         cx_execute(conn, "UPDATE wz_documents SET status='anulowany' WHERE id=%s", (wz_id,))
         # Numer WRACA DO PULI, a dokument schodzi z serii jako „ANUL WZ/…":
