@@ -73,3 +73,22 @@ describe('okna działań modułu Dokumenty', () => {
     expect(wz.quantityChain).toHaveBeenCalledWith('o1')
   })
 })
+
+describe('okna — poprawki z przeglądu', () => {
+  it('#4: CMR z zamówienia — dodatkowy towar tylko do odczytu, zapis odsyła go bez zmian', async () => {
+    cmr.get.mockResolvedValue({ id: 'c1', order_id: 'o1', payload: { carrier: { name: 'TRANS-POL', plate: 'KR 1' }, attachments: {}, instructions: 'X',
+      goods: [{ name: 'KEBAB', qty: 20, kg: 600, auto: true }, { name: '', qty: 1, kg: 2 }] } })
+    cmr.update.mockResolvedValue({})
+    mount({ co: 'edytujCmr', dok: zCmr({ id: 'c1', number: '68/11/26', status: 'wystawiony', order_id: 'o1', order_no: 'A/1' }) })
+    await screen.findByLabelText('Nr rejestracyjny')
+    expect(screen.queryByRole('button', { name: 'Dodaj' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Zapisz CMR' }))
+    await waitFor(() => expect(cmr.update).toHaveBeenCalledWith('c1', expect.objectContaining({ goods_manual: [{ name: '', qty: 1, kg: 2 }] })))
+  })
+  it('#6: ostrzeżenie o rozliczonym potrąceniu po anulowaniu WZ nie znika', async () => {
+    wz.cancel.mockResolvedValue({ deductionWarning: 'Potrącenie 120 zł jest już rozliczone na pasku — skoryguj ręcznie' })
+    mount({ co: 'anuluj', dok: DOK_WZ })
+    fireEvent.click(screen.getByRole('button', { name: 'Anuluj dokument' }))
+    await waitFor(() => expect(app.toast).toHaveBeenCalledWith(expect.objectContaining({ kind: 'warn', detail: expect.stringMatching(/rozliczone na pasku/) })))
+  })
+})

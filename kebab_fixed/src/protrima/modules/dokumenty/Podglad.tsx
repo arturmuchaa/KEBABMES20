@@ -10,9 +10,12 @@ export function Podglad({ url, tytul, onOtworz }: { url: string; tytul: string; 
   useEffect(() => {
     let zywe = true, obj: string | null = null
     setSrc(null); setBlad(null)
-    fetchBlob(url).then(b => { if (!zywe) return; obj = URL.createObjectURL(b); setSrc(obj) })
-      .catch(e => { if (zywe) setBlad(e instanceof Error ? e.message : 'błąd') })
-    return () => { zywe = false; if (obj) URL.revokeObjectURL(obj) }
+    // Chwila zwłoki: przechodzenie strzałkami po liście nie zamawia na serwerze PDF dla każdego wiersza.
+    const t = window.setTimeout(() => {
+      fetchBlob(url).then(b => { if (!zywe) return; obj = URL.createObjectURL(b); setSrc(obj) })
+        .catch(e => { if (zywe) setBlad(e instanceof Error ? e.message : 'błąd') })
+    }, 250)
+    return () => { zywe = false; window.clearTimeout(t); if (obj) URL.revokeObjectURL(obj) }
   }, [url])
   if (blad) return (
     <div className="dk-podglad-blad note warn" role="alert"><FlagIcon level="warn" size={15} />

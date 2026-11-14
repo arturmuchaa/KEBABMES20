@@ -81,3 +81,23 @@ describe('Dokumenty — działania', () => {
     expect(dzialania(zHdi({ id: 'h', number: '1', status: 'anulowany' })).anulujHdi.ok).toBe(false)
   })
 })
+
+describe('Dokumenty — poprawki z przeglądu', () => {
+  it('#5: daty CMR/HDI w formacie DD.MM.RRRR (tak zapisuje serwer)', () => {
+    expect(zCmr({ id: 'c', number: '1', status: 'wystawiony', issue_date: '14.11.2026', created_at: '2026-11-13T23:30:00Z' }).data).toBe('2026-11-14')
+    expect(zHdi({ id: 'h', number: '1', status: 'wystawiony', issue_date: '01.11.2026' }).data).toBe('2026-11-01')
+  })
+  it('#3: anulowanie WZ wyłączone, gdy jest do niego aktywne HDI', () => {
+    const d = wz({ id: 'w9' })
+    expect(dzialania(d, { wzZHdi: new Set(['w9']) }).anuluj).toEqual({ ok: false, powod: expect.stringMatching(/HDI/) })
+    expect(dzialania(d, { wzZHdi: new Set(['inne']) }).anuluj.ok).toBe(true)
+  })
+  it('#8: CMR z wydania (bez numeru zamówienia) nie ma przejścia do zamówienia', () => {
+    expect(zCmr({ id: 'c', number: '1', status: 'x', order_id: 'disp-1' }).orderId).toBeUndefined()
+    expect(zCmr({ id: 'c', number: '1', status: 'x', order_id: 'o1', order_no: 'A/1' }).orderId).toBe('o1')
+  })
+  it('sort po dacie malejąco: ten sam dzień — numery też malejąco', () => {
+    const l = [wz({ id: 'a', number: 'WZ/1/11/26' }), wz({ id: 'b', number: 'WZ/2/11/26' })]
+    expect(sortuj(l, 'data', 'desc').map(x => x.id)).toEqual(['b', 'a'])
+  })
+})

@@ -26,7 +26,13 @@ export interface Dok {
 }
 
 const s = (v: unknown) => (v == null ? '' : String(v))
-const iso = (v: unknown) => { const t = s(v); return /^\d{4}-\d{2}-\d{2}/.test(t) ? t.slice(0, 10) : '' }
+// CMR i HDI zapisują `issue_date` jako DD.MM.RRRR, WZ — ISO.
+const iso = (v: unknown) => {
+  const t = s(v).trim()
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10)
+  const m = t.match(/^(\d{2})\.(\d{2})\.(\d{4})$/)
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : ''
+}
 const anulowany = (r: Wiersz) => s(r.status).toLowerCase().startsWith('anul')
 const RODZAJ: Record<string, string> = { calosc: 'całość', fv: 'do faktury', usluga: 'usługa' }
 
@@ -44,7 +50,8 @@ export function zCmr(r: Wiersz): Dok {
   const an = anulowany(r)
   return {
     rodzaj: 'cmr', id: s(r.id), numer: s(r.number), data: iso(r.issue_date) || iso(r.created_at), klient: s(r.client_name),
-    orderId: r.order_id ? s(r.order_id) : undefined, orderNo: r.order_no ? s(r.order_no) : undefined,
+    // CMR z wydania z kiosku trzyma w `order_id` id wydania — zamówienie tylko, gdy jest jego numer.
+    orderId: r.order_id && r.order_no ? s(r.order_id) : undefined, orderNo: r.order_no ? s(r.order_no) : undefined,
     stan: an ? 'anulowany' : 'aktywny', etykietaStanu: an ? 'anulowany' : 'wystawiony',
     przewoznik: r.carrier_name ? s(r.carrier_name) : undefined, rodzajHdi: r.scope ? RODZAJ[s(r.scope)] ?? s(r.scope) : undefined, zrodlo: r,
   }
@@ -115,7 +122,7 @@ export function sortuj(dok: Dok[], kol: Kolumna, kier: 'asc' | 'desc'): Dok[] {
   const cmp = (a: Dok, b: Dok): number => {
     switch (kol) {
       case 'numer': { const x = kluczNumeru(a.numer), y = kluczNumeru(b.numer); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return ((x[i] as number) - (y[i] as number)) * z; return a.numer.localeCompare(b.numer, 'pl') * z }
-      case 'data': if (!a.data || !b.data) return a.data ? -1 : b.data ? 1 : 0; return a.data.localeCompare(b.data) * z || cmpNum(a, b)
+      case 'data': if (!a.data || !b.data) return a.data ? -1 : b.data ? 1 : 0; return a.data.localeCompare(b.data) * z || cmpNum(a, b) * z
       case 'klient': return a.klient.localeCompare(b.klient, 'pl') * z
       case 'zamowienie': return (a.orderNo ?? '').localeCompare(b.orderNo ?? '', 'pl', { numeric: true }) * z
       case 'wartosc': return ((a.wartosc ?? -1) - (b.wartosc ?? -1)) * z
@@ -133,7 +140,7 @@ const tak: Dostepnosc = { ok: true }
 
 /** Co wolno zrobić z dokumentem — te same reguły, których pilnuje serwer, żeby
  *  przycisk był wyłączony z podpowiedzią zamiast kończyć się błędem po kliknięciu. */
-export function dzialania(d: Dok): Record<Dzialanie, Dostepnosc> {
+export function dzialania(d: Dok, kontekst: { wzZHdi?: Set<string> } = {}): Record<Dzialanie, Dostepnosc> {
   const brak = nie('nie dotyczy tego dokumentu')
   const r = d.zrodlo
   const an = d.stan === 'anulowany'
@@ -142,6 +149,7 @@ export function dzialania(d: Dok): Record<Dzialanie, Dostepnosc> {
     w.ceny = an ? nie('dokument jest anulowany') : tak
     w.dopisz = an ? nie('dokument jest anulowany') : tak
     w.anuluj = an ? nie('dokument jest już anulowany')
+      : kontekst.wzZHdi?.has(d.id) ? nie('do tej WZ jest wystawione HDI — najpierw anuluj HDI (zakładka HDI)')
       : r.split_scope ? nie('dokument podziału wysyłki — anuluj komplet z zamówienia (zakładka Dokumenty)')
       : r.source_type === 'order' && (r.loaded_at || r.loading_status) ? nie('po załadunku towar jest na aucie — anulowanie oddałoby na stan coś, czego nie ma')
       : (r.source_type === 'order' || r.source_type === 'manual') ? tak

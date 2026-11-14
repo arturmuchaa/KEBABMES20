@@ -51,13 +51,14 @@ export function DokumentyModule({ active, setCtx, setCmds }: { active: boolean; 
   const [maxed, setMaxed] = useState(false)
   const [okno, setOkno] = useState<Okno | null>(null)
   const [dopisz, setDopisz] = useState<string | null>(null)
+  const [wersja, setWersja] = useState(0)
   const okresMenu = useMenu(), klientMenu = useMenu(), stanMenu = useMenu()
   const workRef = useRef<HTMLDivElement>(null)
   const dock = useDock(workRef, 'dokumenty')
   const dzis = dzisIso()
 
   const wczytaj = useCallback(() => {
-    setBlad(null)
+    setBlad(null); setWersja(v => v + 1)
     Promise.all([dokumentyApi.wz(), dokumentyApi.cmr(), dokumentyApi.hdi()])
       .then(([w, c, h]) => setDane({ wz: (w ?? []).map(zWz), cmr: (c ?? []).map(zCmr), hdi: (h ?? []).map(zHdi) }))
       .catch(e => setBlad(e instanceof Error ? e.message : 'Nie udało się pobrać dokumentów'))
@@ -72,6 +73,7 @@ export function DokumentyModule({ active, setCtx, setCmds }: { active: boolean; 
   const wszystkie = dane[zakladka]
   const widoczne = useMemo(() => sortuj(filtruj(wszystkie ?? [], filtr, dzis), sort.kol, sort.kier), [wszystkie, filtr, dzis, sort])
   const wybrany = (wszystkie ?? []).find(d => d.id === sel[zakladka]) ?? null
+  const wzZHdi = useMemo(() => new Set((dane.hdi ?? []).filter(h => h.stan === 'aktywny' && h.zrodlo.wz_id).map(h => String(h.zrodlo.wz_id))), [dane.hdi])
   const klienci = useMemo(() => {
     const m = new Map<string, { nazwa: string; n: number }>()
     for (const r of ZAKLADKI) for (const d of dane[r.key] ?? []) { if (!d.klient) continue; const k = normKlient(d.klient); const x = m.get(k); m.set(k, { nazwa: x?.nazwa ?? d.klient, n: (x?.n ?? 0) + 1 }) }
@@ -196,7 +198,7 @@ export function DokumentyModule({ active, setCtx, setCmds }: { active: boolean; 
           <div className={`splitter${dock.drag ? ' drag' : ''}`} role="separator" aria-orientation={dock.side ? 'vertical' : 'horizontal'}
             onMouseDown={e => { setMaxed(false); dock.startDrag(e) }} onDoubleClick={() => { dock.reset(); setMaxed(false) }} data-tip="Przeciągnij, aby zmienić rozmiar. Dwuklik — domyślnie." />
           <div className="dock" aria-label={`Dokument ${wybrany.numer}`}>
-            <PanelDokumentu d={wybrany} maxed={maxed} onMax={() => setMaxed(m => !m)} onClose={() => setSel(s => ({ ...s, [zakladka]: null }))}
+            <PanelDokumentu d={wybrany} wersja={wersja} wzZHdi={wzZHdi} maxed={maxed} onMax={() => setMaxed(m => !m)} onClose={() => setSel(s => ({ ...s, [zakladka]: null }))}
               onOtworz={() => void otworz(wybrany)} onDzialanie={co => uruchom(wybrany, co)} />
           </div>
         </>}
@@ -216,11 +218,11 @@ export function DokumentyModule({ active, setCtx, setCmds }: { active: boolean; 
   )
 }
 
-function PanelDokumentu({ d, maxed, onMax, onClose, onOtworz, onDzialanie }: {
-  d: Dok; maxed: boolean; onMax: () => void; onClose: () => void; onOtworz: () => void; onDzialanie: (co: Dzialanie) => void
+function PanelDokumentu({ d, wersja, wzZHdi, maxed, onMax, onClose, onOtworz, onDzialanie }: {
+  d: Dok; wersja: number; wzZHdi: Set<string>; maxed: boolean; onMax: () => void; onClose: () => void; onOtworz: () => void; onDzialanie: (co: Dzialanie) => void
 }) {
   const app = useApp()
-  const dz = dzialania(d)
+  const dz = dzialania(d, { wzZHdi })
   const przycisk = (co: Dzialanie, label: string, ikona: React.ReactNode, aria?: string, danger?: boolean) => (
     <button className={`btn sm${danger ? ' danger-ghost' : ''}`} disabled={!dz[co].ok} data-tip={dz[co].ok ? undefined : dz[co].powod} aria-label={aria ?? label} onClick={() => onDzialanie(co)}>{ikona}{label}</button>
   )
@@ -250,7 +252,7 @@ function PanelDokumentu({ d, maxed, onMax, onClose, onOtworz, onDzialanie }: {
         {d.orderId && <button className="btn sm ghost" onClick={() => app.openOrder(d.orderId!)}><ShoppingCart size={14} />Zamówienie</button>}
       </div>
       <div className="dock-body dk-podglad-wrap">
-        <Podglad url={pdfUrl(d)} tytul={d.numer} onOtworz={onOtworz} />
+        <Podglad key={`${d.id}-${wersja}`} url={pdfUrl(d)} tytul={d.numer} onOtworz={onOtworz} />
       </div>
     </>
   )

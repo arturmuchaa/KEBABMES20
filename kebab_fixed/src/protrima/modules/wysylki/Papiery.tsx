@@ -30,7 +30,8 @@ export function useZaznaczonePapiery(wszystkie: PapierKursu[], nazwaZestawu: str
     catch (e) { app.toast({ kind: 'warn', title: 'Nie udało się przygotować wydruku', detail: e instanceof Error ? e.message : '' }) }
     finally { setBusy(null) }
   }, [zaznaczone, nazwaZestawu, app])
-  return { wybrane, zaznaczone, przelacz, ustaw, otworz, drukuj, busy }
+  // Stały obiekt między renderami — moduły trzymają go w zależnościach `cmds`; nowy co render kręcił pętlę setCmds ↔ powłoka.
+  return useMemo(() => ({ wybrane, zaznaczone, przelacz, ustaw, otworz, drukuj, busy }), [wybrane, zaznaczone, przelacz, ustaw, otworz, drukuj, busy])
 }
 
 export type ZaznaczonePapiery = ReturnType<typeof useZaznaczonePapiery>

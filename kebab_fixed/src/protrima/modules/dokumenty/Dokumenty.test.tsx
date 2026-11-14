@@ -15,8 +15,9 @@ const WZ = [
   { id: 'w2', number: 'WM/1/11/26', buyer_name: 'VATAN Sp. z o.o.', total_value: 0, valued: false, status: 'wstepny', release_date: DZIS, source_type: 'order', source_id: 'o1', order_id: 'o1', order_no: 'VATAN/Z/3/11/26', split_scope: 'calosc', doc_series: 'WM', loaded_at: 'x' },
   { id: 'w3', number: 'WZ/1/11/26', buyer_name: 'BEYOGLU', total_value: 100, valued: true, status: 'wstepny', release_date: DZIS, source_type: 'manual', doc_series: 'WZ' },
 ]
-const CMR = [{ id: 'c1', number: '68/11/26', client_name: 'VATAN Sp. z o.o.', status: 'wystawiony', issue_date: DZIS, carrier_name: 'TRANS-POL', order_no: 'VATAN/Z/3/11/26' }]
-const HDI = [{ id: 'h1', number: '52/11/26', client_name: 'BEYOGLU', status: 'wystawiony', issue_date: DZIS, scope: 'calosc' }]
+const DZIS_PL = DZIS.split('-').reverse().join('.')
+const CMR = [{ id: 'c1', number: '68/11/26', client_name: 'VATAN Sp. z o.o.', status: 'wystawiony', issue_date: DZIS_PL, carrier_name: 'TRANS-POL', order_no: 'VATAN/Z/3/11/26' }]
+const HDI = [{ id: 'h1', number: '52/11/26', client_name: 'BEYOGLU', status: 'wystawiony', issue_date: DZIS_PL, scope: 'calosc' }]
 const app = { toast: vi.fn(), openOrder: vi.fn(), setPanel: vi.fn(), panel: 'bok' } as unknown as AppApi
 const mount = () => render(<AppCtx.Provider value={app}><DokumentyModule active setCtx={vi.fn()} setCmds={vi.fn()} /></AppCtx.Provider>)
 const lista = () => screen.getByRole('grid', { name: /Lista dokumentów/ })
@@ -78,5 +79,45 @@ describe('moduł Dokumenty', () => {
     fireEvent.click(within(lista()).getByText('WZ/2/11/26'))
     expect(await screen.findByText(/Nie udało się wczytać podglądu/)).toBeTruthy()
     expect(document.querySelector('iframe[title^="Podgląd"]')).toBeNull()
+  })
+})
+
+describe('moduł Dokumenty — poprawki z przeglądu', () => {
+  it('#1: powłoka renderująca się po setCmds nie wpada w pętlę', async () => {
+    let wywolan = 0
+    function Powloka() {
+      const [, setC] = React.useState<unknown>(null)
+      const ustaw = React.useCallback((c: unknown) => { wywolan++; setC(c) }, [])
+      const ctx = React.useCallback(() => {}, [])
+      return <AppCtx.Provider value={app}><DokumentyModule active setCtx={ctx} setCmds={ustaw} /></AppCtx.Provider>
+    }
+    render(<Powloka />)
+    await waitFor(() => expect(numery().length).toBe(3))
+    const po = wywolan
+    await new Promise(r => setTimeout(r, 80))
+    expect(wywolan).toBe(po)
+    expect(wywolan).toBeLessThan(15)
+  })
+  it('#7: szybkie przechodzenie po liście nie zamawia PDF dla każdego wiersza', async () => {
+    mount()
+    await waitFor(() => expect(numery().length).toBe(3))
+    const l = lista()
+    fireEvent.click(within(l).getByText('WZ/2/11/26'))
+    fireEvent.click(within(l).getByText('WZ/1/11/26'))
+    fireEvent.click(within(l).getByText('WM/1/11/26'))
+    await waitFor(() => expect(document.querySelector('iframe[title^="Podgląd"]')).toBeTruthy())
+    expect(blob).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('moduł Dokumenty — podgląd po zmianie', () => {
+  it('#2: po odświeżeniu listy (np. po zmianie cen) podgląd PDF pobiera się od nowa', async () => {
+    let cmds: Array<{ id: string; run?: () => void }> = []
+    render(<AppCtx.Provider value={app}><DokumentyModule active setCtx={vi.fn()} setCmds={c => { cmds = c }} /></AppCtx.Provider>)
+    await waitFor(() => expect(numery().length).toBe(3))
+    fireEvent.click(within(lista()).getByText('WZ/2/11/26'))
+    await waitFor(() => expect(blob).toHaveBeenCalledTimes(1))
+    React.act(() => { cmds.find(c => c.id === 'reload')!.run!() })
+    await waitFor(() => expect(blob).toHaveBeenCalledTimes(2))
   })
 })

@@ -96,8 +96,10 @@ function AnulujDialog({ d, onClose, onZmiana }: { d: Dok; onClose: () => void; o
     if (lock.current) return
     lock.current = true; setZapis(true); setErr(null)
     try {
-      if (d.rodzaj === 'hdi') await hdiApi.anuluj(d.id); else await wzApi.cancel(d.id)
+      const wynik = (d.rodzaj === 'hdi' ? await hdiApi.anuluj(d.id) : await wzApi.cancel(d.id)) as { deductionWarning?: string } | undefined
       app.toast({ kind: 'ok', title: `Anulowano ${d.numer}`, detail: d.rodzaj === 'wz' ? 'towar wrócił na stan, numer wrócił do puli' : undefined })
+      // Potrącenie pracownika już rozliczone na pasku — serwer go nie cofnie, biuro musi wiedzieć.
+      if (wynik?.deductionWarning) app.toast({ kind: 'warn', title: 'Sprawdź potrącenie pracownika', detail: wynik.deductionWarning })
       onZmiana(); onClose()
     } catch (e) { setErr(blad(e, 'Nie udało się anulować')) } finally { lock.current = false; setZapis(false) }
   }
@@ -120,6 +122,10 @@ function EdycjaCmrDialog({ d, onClose, onZmiana }: { d: Dok; onClose: () => void
   const [przewoznicy, setPrzewoznicy] = useState<Array<{ id: string; name: string }>>([])
   const [f, setF] = useState({ carrier_id: '', plate: '', invoice_no: '', instructions: '' })
   const [towary, setTowary] = useState<Towar[]>([])
+  // CMR z zamówienia: serwer nie pozwala zmienić dodatkowego towaru (409) — pokazujemy go tylko do odczytu
+  // i odsyłamy dokładnie tak, jak był zapisany.
+  const [zapisane, setZapisane] = useState<Towar[] | null>(null)
+  const zZamowienia = !!d.zrodlo.order_id
   const [err, setErr] = useState<string | null>(null)
   const [zapis, setZapis] = useState(false)
   useEffect(() => {
@@ -129,14 +135,15 @@ function EdycjaCmrDialog({ d, onClose, onZmiana }: { d: Dok; onClose: () => void
       const p = (doc as { payload?: Record<string, any> }).payload ?? {}
       const c = p.carrier ?? {}
       setF({ carrier_id: list.find(x => x.name === c.name)?.id ?? '', plate: c.plate ?? '', invoice_no: p.attachments?.invoice_no ?? '', instructions: p.instructions ?? 'TRANSPORT MROŻNICZY -22' })
-      setTowary(((p.goods ?? []) as Array<Record<string, any>>).filter(g => !g.auto).map(g => ({ name: g.name ?? '', qty: Number(g.qty) || 0, kg: Number(g.kg) || 0 })))
+      const reczne = ((p.goods ?? []) as Array<Record<string, any>>).filter(g => !g.auto).map(g => ({ name: g.name ?? '', qty: Number(g.qty) || 0, kg: Number(g.kg) || 0 }))
+      setTowary(reczne); setZapisane(reczne)
       setOk(true)
     }).catch(e => setErr(blad(e, 'Nie udało się wczytać CMR')))
   }, [d.id])
   const zapisz = async () => {
     setZapis(true); setErr(null)
     try {
-      await cmrApi.update(d.id, { ...f, goods_manual: towary.filter(t => t.name.trim()) })
+      await cmrApi.update(d.id, { ...f, goods_manual: zZamowienia ? (zapisane ?? []) : towary.filter(t => t.name.trim()) })
       app.toast({ kind: 'ok', title: `Zapisano ${d.numer}` }); onZmiana(); onClose()
     } catch (e) { setErr(blad(e, 'Nie udało się zapisać CMR')) } finally { setZapis(false) }
   }
@@ -156,7 +163,12 @@ function EdycjaCmrDialog({ d, onClose, onZmiana }: { d: Dok; onClose: () => void
           {pole('invoice_no', 'Nr faktury (pole 5)', 'FV 11/06/2026')}
           {pole('instructions', 'Instrukcje (pole 13)')}
         </div>
-        <div className="sect-h"><h3>Dodatkowy towar</h3><span className="sub">poza wyrobem z zamówienia (ten liczy się sam)</span>
+        {zZamowienia ? <>
+          <div className="sect-h"><h3>Dodatkowy towar</h3><span className="sub">CMR z zamówienia — towar wynika z zamówienia i nie zmienia się tutaj</span></div>
+          {towary.filter(t => t.name.trim()).length ? <ul className="dk-towary-ro">{towary.filter(t => t.name.trim()).map((t, i) => <li key={i}>{t.name} · {t.qty} szt · {t.kg} kg</li>)}</ul>
+            : <p className="muted" style={{ margin: 0 }}>brak dodatkowego towaru</p>}
+        </> : <>
+        <div className="sect-h"><h3>Dodatkowy towar</h3><span className="sub">poza wyrobem (np. jogurt na tym samym aucie)</span>
           <div className="tools"><button className="btn sm" type="button" onClick={() => setTowary(t => [...t, { name: '', qty: 0, kg: 0 }])}><Plus size={14} />Dodaj</button></div></div>
         {towary.map((t, i) => (
           <div key={i} className="dk-towar">
@@ -165,6 +177,7 @@ function EdycjaCmrDialog({ d, onClose, onZmiana }: { d: Dok; onClose: () => void
             <input className="field num" value={t.kg || ''} placeholder="kg" inputMode="decimal" onChange={e => setTowary(x => x.map((y, j) => (j === i ? { ...y, kg: liczba(e.target.value) || 0 } : y)))} aria-label={`Towar ${i + 1}, kg`} />
             <button className="btn ghost icon sm" onClick={() => setTowary(x => x.filter((_, j) => j !== i))} aria-label={`Usuń towar ${i + 1}`}><Trash2 size={15} /></button>
           </div>))}
+        </>}
       </>}
     </Dialog>
   )
@@ -177,7 +190,7 @@ const ETAPY: Array<{ k: keyof QuantityChain['lines'][number]; label: string }> =
 function RozjazdDialog({ d, onClose }: { d: Dok; onClose: () => void }) {
   const [q, setQ] = useState<QuantityChain | null>(null)
   const [err, setErr] = useState<string | null>(null)
-  const orderId = String(d.zrodlo.source_id ?? d.orderId ?? '')
+  const orderId = String(d.orderId ?? d.zrodlo.source_id ?? '')
   useEffect(() => { wzApi.quantityChain(orderId).then(setQ).catch(e => setErr(blad(e, 'Nie udało się pobrać raportu'))) }, [orderId])
   return (
     <Dialog title={`Rozjazd załadunku — ${d.numer}`} icon={<AlertTriangle size={20} />} xl onClose={onClose} footer={<button className="btn" onClick={onClose}>Zamknij</button>}>
