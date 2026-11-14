@@ -1279,3 +1279,17 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .pm-zbiorczo { margin: 0; padding: 0; list-style: none; max-height: 240px; overflow: auto; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); }
 .pm-zbiorczo li { display: grid; grid-template-columns: 84px minmax(0, 1fr) 80px; gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--line-soft); }
 .pm-zbiorczo li .tnum { text-align: right; }
+
+/* ─── Dokumenty (WZ / CMR / HDI) ─────────────────────────────────────── */
+.dk-toolbar { flex-wrap: wrap; row-gap: 8px; }
+.dk-zakres { display: inline-flex; gap: 6px; }
+.dk-zakres .field { width: 150px; }
+.dk-lista td.code { white-space: nowrap; }
+.dk-lista tr.dk-anul td { color: var(--ink-3); }
+.dk-lista tr.dk-anul td.code { text-decoration: line-through; text-decoration-color: var(--ink-4, var(--ink-3)); }
+.dk-akcje { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px 10px; border-bottom: 1px solid var(--line-soft); }
+.dk-akcje .btn.danger-ghost:not(:disabled) { color: var(--crit-ink); }
+.dk-podglad-wrap { display: flex; flex-direction: column; min-height: 0; padding: 0; }
+.dk-podglad { flex: 1; width: 100%; min-height: 320px; border: 0; background: var(--surface-alt); }
+.dk-podglad-ladowanie { padding: 24px 16px; }
+.dk-podglad-blad { margin: 16px; }

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Search, ShoppingCart, Plus, Moon, PanelLeft, Keyboard, CornerDownLeft, Package, PackagePlus, Archive } from 'lucide-react'
+import { Search, ShoppingCart, Plus, Moon, PanelLeft, Keyboard, CornerDownLeft, Package, PackagePlus, Archive, FileText } from 'lucide-react'
 import { ALL_MODULES } from './modules'
+import { ZDARZENIE_ZAKLADKI } from '../modules/dokumenty/DokumentyModule'
 import type { Order } from '../data/model'
 import { etapZamowienia, relDay, computeMetrics, kg, isClosed, fmtDate } from '../data/model'
 import { posKg, type StockPos } from '../data/stock'
@@ -81,6 +82,12 @@ export function CommandPalette({ orders, stock, modulDostepny = () => true, onCl
       const I = md.icon
       return { id: `m-${md.key}`, group: 'Moduły', icon: <I size={16} />, label: md.label, run: () => openModule(md.key), text: norm(md.label) }
     }),
+    // „WZ”, „CMR”, „HDI” w palecie otwierają Dokumenty od razu na właściwej zakładce.
+    ...(modulDostepny('dokumenty') ? (['wz', 'cmr', 'hdi'] as const).map((r): Cmd => ({
+      id: `dok-${r}`, group: 'Moduły', icon: <FileText size={16} />, label: `Dokumenty — ${r.toUpperCase()}`,
+      run: () => { openModule('dokumenty'); setTimeout(() => window.dispatchEvent(new CustomEvent(ZDARZENIE_ZAKLADKI, { detail: r })), 0) },
+      text: norm(`dokumenty ${r} ${r === 'wz' ? 'wydanie zewnetrzne wm' : r === 'hdi' ? 'handlowy dokument identyfikacyjny' : 'list przewozowy'}`),
+    })) : []),
   ], [orders, stock, modulDostepny, openOrder, openModule, newOrder, newReception, gotoStock, toggleTheme, toggleNav, showShortcuts])
 
   const words = useMemo(() => norm(q.trim()).split(/\s+/).filter(Boolean), [q])

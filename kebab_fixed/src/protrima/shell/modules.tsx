@@ -19,7 +19,7 @@ export const AREAS: AreaDef[] = [
     { key: 'zamowienia', label: 'Zamówienia', icon: ShoppingCart },
     { key: 'kontrahenci', label: 'Kontrahenci', icon: Building2, info: ['Kartoteki odbiorców i dostawców', 'Pobieranie danych z GUS i VIES po NIP', 'Grupy kontrahentów i nazwy do WZ'] },
     { key: 'wysylki', label: 'Wysyłki i załadunki', icon: Truck, info: ['Kursy i załadunki skanowane kodem QR', 'Pojazdy, kierowcy, przewoźnicy', 'Wydruk dokumentów dla kierowcy'] },
-    { key: 'dokumenty', label: 'Dokumenty WZ, CMR, HDI', icon: FileText, info: ['WZ, CMR z konfiguratorem układu, HDI', 'Podział wysyłki na fakturę i WZ', 'Rejestr wystawionych dokumentów'] },
+    { key: 'dokumenty', label: 'Dokumenty', icon: FileText, info: ['WZ, CMR i HDI w jednym miejscu', 'Filtry, podgląd PDF, druk zbiorczy', 'Ceny, dopisywanie pozycji, anulowanie'] },
     { key: 'rozrachunki', label: 'Rozrachunki', icon: Wallet, info: ['Salda odbiorców z WZ i faktur', 'Wpłaty rozliczane od najstarszych', 'Wydruk salda dla klienta'] },
   ] },
   { key: 'planowanie', label: 'Planowanie', icon: CalendarRange, modules: [
@@ -64,7 +64,7 @@ export const AREAS: AreaDef[] = [
 export const PINNED = ['zamowienia', 'plan-produkcji', 'magazyn-wg', 'wysylki']
 
 /** Moduły z własnym ekranem w PROTRIMA. Pozostałe działają na razie w starym MES (zaślepka z drogowskazem). */
-export const W_PROTRIMA = new Set(['pulpit', 'zamowienia', 'przyjecia', 'magazyn-wg', 'rozbior', 'rozrachunki', 'receptury', 'plan-masowania'])
+export const W_PROTRIMA = new Set(['pulpit', 'zamowienia', 'przyjecia', 'magazyn-wg', 'rozbior', 'rozrachunki', 'receptury', 'plan-masowania', 'dokumenty'])
 export const wProtrima = (key: string) => W_PROTRIMA.has(key)
 
 /** Czy konto o tej roli widzi i otwiera moduł. Serwer i tak pilnuje uprawnień — tu chodzi o to,
@@ -76,8 +76,6 @@ export const dostepnyDla = (key: string, rola: 'admin' | 'office' | null | undef
 export const JUZ_W_PROTRIMA: Record<string, Array<{ co: string; gdzie: string; idz: { modul: string; widok?: string } }>> = {
   haccp: [{ co: 'Kontrola HACCP przyjęcia z podpisami', gdzie: 'Przyjęcia surowca → zakładka Kontrola HACCP', idz: { modul: 'przyjecia' } },
     { co: 'Karty 1.1.1 i 1.1.1/2 (PDF)', gdzie: 'Przyjęcia surowca → Karty HACCP', idz: { modul: 'przyjecia' } }],
-  dokumenty: [{ co: 'WZ, CMR i HDI do zamówienia', gdzie: 'Zamówienia → panel zamówienia → Dokumenty', idz: { modul: 'zamowienia', widok: 'ready' } },
-    { co: 'WZ z zaznaczonego wyrobu', gdzie: 'Wyrób gotowy → Wydaj (WZ)', idz: { modul: 'magazyn-wg' } }],
   wysylki: [{ co: 'Papiery kursu po załadunku', gdzie: 'Pulpit → Kursy po załadunku', idz: { modul: 'pulpit' } }],
   palety: [{ co: 'Palety zamówienia, rozpis i kartki', gdzie: 'Zamówienia → panel zamówienia → Palety', idz: { modul: 'zamowienia' } },
     { co: 'Kartony magazynowe', gdzie: 'Wyrób gotowy → Kartony magazynowe', idz: { modul: 'magazyn-wg' } }],

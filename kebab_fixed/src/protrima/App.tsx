@@ -18,6 +18,7 @@ import { RozbiorModule } from './modules/rozbior/RozbiorModule'
 import { RozrachunkiModule } from './modules/rozrachunki/RozrachunkiModule'
 import { RecepturyModule } from './modules/receptury/RecepturyModule'
 import { PlanMasowaniaModule } from './modules/plan-masowania/PlanMasowaniaModule'
+import { DokumentyModule } from './modules/dokumenty/DokumentyModule'
 import { OrderEditor } from './modules/orders/edytor/OrderEditor'
 import { ZamowienieDrukDialog } from './modules/orders/druk/ZamowienieDruk'
 import { KartkiPaletDialog } from './modules/orders/druk/KartkiPalet'
@@ -439,6 +440,7 @@ function Shell() {
     if (t.key === 'rozrachunki') return <RozrachunkiModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'receptury') return <RecepturyModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'plan-masowania') return <PlanMasowaniaModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
+    if (t.key === 'dokumenty') return <DokumentyModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'system') return <DesignSystem />
     const def = moduleDef(t.key)
     return def ? <Placeholder def={def} /> : null

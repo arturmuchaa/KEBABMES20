@@ -3433,6 +3433,13 @@ export const rozliczeniaPdf = {
     `${BASE}${rozlKlient(clientId)}/historia/pdf${rozlQuery({ od, do: do_ })}`,
 }
 
+/** Surowe listy dokumentów dla modułu PROTRIMA „Dokumenty” (pola jak z serwera). */
+export const dokumentyApi = {
+  wz: () => get<Array<Record<string, unknown>>>('/wz'),
+  cmr: () => get<Array<Record<string, unknown>>>('/cmr'),
+  hdi: () => get<Array<Record<string, unknown>>>('/hdi'),
+}
+
 export interface LiniaWz {
   line_id?: string; stock_type?: string; stock_id?: string; name: string; qty: number; unit: string
   price?: number | null; value?: number | null; vat_rate?: number; batch_no?: string | null; total_kg?: number; dopisana_at?: string
