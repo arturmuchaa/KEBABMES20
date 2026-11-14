@@ -628,7 +628,10 @@ div.pstage { cursor: default; }
 .pd-zaplata { display: inline-flex; align-items: center; gap: 8px; margin: 8px 0 4px; }
 .dialog .box + .pd-form, .dialog .box + .pd-zaplata { margin-top: 12px; }
 .dialog-b > .box, .dialog-b > .pd-form, .dialog-b > .pd-naglowek { flex-shrink: 0; }
-.pd-dopisz .pd-partie { max-height: 172px; }
+.pd-dopisz .pd-partie { max-height: 128px; }
+/* Wysokie okno „Dopisz pozycję” zaczyna się pod paskiem tytułu (jak okna Rozrachunków). */
+.dialog-wrap:has(.pd-dopisz) { align-items: flex-start; padding-top: 56px; }
+.dialog-wrap:has(.pd-dopisz) > .dialog { max-height: calc(100vh - 56px - 16px); }
 .pd-dopisz .pd-naglowek { margin-bottom: 0; }
 .wz-p-groups { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .wz-p-row { display: flex; align-items: center; gap: 12px; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--line-soft); }
