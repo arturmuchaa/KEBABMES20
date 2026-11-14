@@ -1272,6 +1272,16 @@ def update_wz_prices(wz_id: str, prices: List[Dict[str, Any]],
     return get_wz(wz_id)
 
 
+def _ruch_korekty(conn, product_type: str, batch_id: str, delta: float, wz_id: str) -> None:
+    """Korekta ilości pozycji WZ jako osobny ruch: +delta = wydano więcej (OUT),
+    −delta = zwrot różnicy (CANCEL). Historia partii zostaje prawdziwa."""
+    if abs(delta) < 1e-9:
+        return
+    create_stock_movement(conn, product_type=product_type, batch_id=batch_id, qty=abs(delta),
+                          movement_type="OUT" if delta > 0 else "CANCEL",
+                          source_type="wz", source_id=wz_id)
+
+
 def update_wz_lines(wz_id: str, edits: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Edycja pozycji ręcznego WZ: cena/pojemniki swobodnie, ILOŚĆ z korektą
     stanów magazynowych (różnica wraca/schodzi ze stanu + korekta ruchu OUT).
@@ -1352,9 +1362,10 @@ def update_wz_lines(wz_id: str, edits: List[Dict[str, Any]]) -> Dict[str, Any]:
                             "UPDATE finished_goods SET qty_available=qty_available-%s, qty_shipped=qty_shipped+%s WHERE id=%s",
                             (need, need, sid))
                         kgpu = float(fg.get("kg_per_unit") or 0)
-                        cx_execute(conn,
-                            "UPDATE stock_movements SET qty=%s WHERE source_type='wz' AND source_id=%s AND batch_id=%s",
-                            (-(new_qty * kgpu), wz_id, sid))
+                        # Ruch o RÓŻNICĘ, nie nadpisanie: ta sama partia może mieć na
+                        # dokumencie kilka ruchów (np. pozycja dopisana) — UPDATE po
+                        # batch_id ustawiał każdy z nich na nową ilość linii.
+                        _ruch_korekty(conn, "finished_goods", sid, need * kgpu, wz_id)
                         line["qty"] = int(round(new_qty))
                         if kgpu > 0:
                             line["total_kg"] = round(new_qty * kgpu, 3)
@@ -1370,15 +1381,14 @@ def update_wz_lines(wz_id: str, edits: List[Dict[str, Any]]) -> Dict[str, Any]:
                         if diff > 0 and float(st.get("avail") or 0) + 1e-6 < diff:
                             raise HTTPException(
                                 400, f"Za mało na stanie (partia {line.get('batch_no')}): jest {float(st.get('avail') or 0)} kg, potrzeba +{round(diff, 2)} kg")
+                        # Ruch PRZED zmianą stanu (walidacja OUT mięsa czyta kg_available).
+                        _ruch_korekty(conn, stype, sid, diff, wz_id)
                         cx_execute(conn, f"UPDATE {table} SET {col}=GREATEST(0, {col}-%s) WHERE id=%s", (diff, sid))
                         if stype == "byproduct":
                             # zwrot na lot > 0 → znowu otwarty; wyzerowany → shipped
                             cx_execute(conn,
                                 "UPDATE byproduct_lots SET status=CASE WHEN kg <= 0.001 THEN 'shipped' ELSE 'open' END "
                                 "WHERE id=%s AND status IN ('open','shipped')", (sid,))
-                        cx_execute(conn,
-                            "UPDATE stock_movements SET qty=%s WHERE source_type='wz' AND source_id=%s AND batch_id=%s",
-                            (-new_qty, wz_id, sid))
                         line["qty"] = new_qty
                         if line.get("total_kg") is not None:
                             line["total_kg"] = round(new_qty, 3)
@@ -1428,6 +1438,8 @@ def _odmow_anulowania_z_zamowienia(conn, row: Dict[str, Any],
         raise HTTPException(
             409, "WZ jest już załadowany na auto — po załadunku nie da się go anulować")
     for line in lines:
+        if line.get("stock_type") == "reczna":
+            continue          # pozycja z ręki nie zeszła z żadnego stanu — nie ma czego zwracać
         if float(line.get("qty") or 0) > 0 and not line.get("stock_id"):
             raise HTTPException(
                 409, "Ten WZ nie wie, z której partii zeszedł towar — "

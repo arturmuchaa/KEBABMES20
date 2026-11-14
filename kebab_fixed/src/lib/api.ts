@@ -3443,6 +3443,7 @@ export interface OpisPozycjiWz {
   currency: 'PLN' | 'EUR'
   eur_rate: number | null
   valued: boolean
+  buyer_nip?: string
   dokumenty: Array<{ id: string; number: string; doc_series: string; valued: boolean; lines: LiniaWz[] }>
 }
 

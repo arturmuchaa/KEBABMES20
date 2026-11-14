@@ -121,7 +121,9 @@ def _live_portions(conn, order_id):
         ORDER BY created_at LIMIT 1""", (order_id,))
     if existing:
         portions = []
-        for line in _json(existing["lines"]) or []:
+        # Pozycje dodatkowe (łój dopisany do WM, z ręki) nie jadą na paletach — tylko wyrób.
+        from app.services.wz_service import linie_wyrobu
+        for line in linie_wyrobu(_json(existing["lines"]) or []):
             fg = cx_query_one(conn, "SELECT * FROM finished_goods WHERE id=%s", (line.get("stock_id"),))
             if not fg:
                 return []  # Read-only reuse remains possible; new issuance requires a source.

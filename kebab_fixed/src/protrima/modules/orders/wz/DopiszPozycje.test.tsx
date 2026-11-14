@@ -75,6 +75,26 @@ describe('Dopisz pozycję do wystawionego dokumentu', () => {
   })
 })
 
+describe('Dopisz pozycję — poprawki z przeglądu', () => {
+  it('I3: błąd serwera nie czyści formularza, ponowienie idzie z TYM SAMYM lineId (bez dubla)', async () => {
+    wz.dopiszPozycje.mockRejectedValueOnce(new Error('Za mało surowca (partia 735)')).mockResolvedValueOnce({})
+    mount()
+    await wpiszJogurt()
+    fireEvent.click(screen.getByRole('button', { name: 'Dodaj pozycję' }))
+    expect(await screen.findByText(/Za mało surowca/)).toBeTruthy()
+    expect((screen.getByLabelText('Nazwa pozycji') as HTMLInputElement).value).toBe('Jogurt naturalny')
+    fireEvent.click(screen.getByRole('button', { name: 'Dodaj pozycję' }))
+    await waitFor(() => expect(wz.dopiszPozycje).toHaveBeenCalledTimes(2))
+    expect(wz.dopiszPozycje.mock.calls[1][1].lineId).toBe(wz.dopiszPozycje.mock.calls[0][1].lineId)
+    await waitFor(() => expect((screen.getByLabelText('Nazwa pozycji') as HTMLInputElement).value).toBe(''))
+  })
+  it('I4: VAT domyślny za nabywcą — klient z Niemiec 0%', async () => {
+    wz.opisPozycji.mockResolvedValue(OPIS({ buyer_nip: 'DE811234567' }))
+    mount()
+    expect(((await screen.findByLabelText('Stawka VAT')) as HTMLSelectElement).value).toBe('0')
+  })
+})
+
 describe('Dopisz pozycję — stan surowca po dopisaniu', () => {
   it('po dopisaniu łoju lista partii wczytuje się od nowa (wolne kg spadają)', async () => {
     wz.stockRaw.mockResolvedValueOnce([{ id: 'rb', stock_type: 'raw', internal_batch_no: '735', name: 'Łój wołowy zwykły', kg_available: 80 }])

@@ -91,12 +91,13 @@ def _linie(row: Dict[str, Any]) -> List[Dict[str, Any]]:
     return json.loads(lines) if isinstance(lines, str) else list(lines)
 
 
-def _dokument(conn, wz_id: str) -> Dict[str, Any]:
-    row = cx_query_one(
-        conn,
-        "SELECT id, number, status, source_type, source_id, loading_id, split_scope, "
-        "       COALESCE(doc_series,'WZ') AS doc_series, valued, lines "
-        "FROM wz_documents WHERE id=%s FOR UPDATE", (wz_id,))
+_KOLUMNY = ("id, number, status, source_type, source_id, loading_id, split_scope, "
+            "COALESCE(doc_series,'WZ') AS doc_series, valued, lines")
+
+
+def _odczyt(conn, wz_id: str, *, blokuj: bool) -> Dict[str, Any]:
+    row = cx_query_one(conn, f"SELECT {_KOLUMNY} FROM wz_documents WHERE id=%s"
+                       + (" FOR UPDATE" if blokuj else ""), (wz_id,))
     if not row:
         raise HTTPException(404, "Dokument WZ nie istnieje")
     if row.get("status") == "anulowany":
@@ -104,35 +105,46 @@ def _dokument(conn, wz_id: str) -> Dict[str, Any]:
     return dict(row)
 
 
-def _para(conn, wz: Dict[str, Any]) -> Dict[str, Optional[Dict[str, Any]]]:
-    """WM (`calosc`) i WZ klienta tej samej wysyłki. Blokady w stałej
-    kolejności: najpierw WM, potem WZ klienta."""
+def _id_pary(conn, wz: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    """Id WM (`calosc`) i WZ klienta tej samej wysyłki — bez blokad."""
     if wz["source_type"] != "order" or not wz.get("split_scope"):
         return {"wm": None, "wzk": None}
-    if wz["split_scope"] == "calosc":
-        wm = wz
-    else:
-        wm_row = cx_query_one(
+
+    def znajdz(scope: str) -> Optional[str]:
+        if wz["split_scope"] == scope:
+            return wz["id"]
+        r = cx_query_one(
             conn,
             "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s "
-            "AND split_scope='calosc' AND loading_id IS NOT DISTINCT FROM %s "
+            "AND split_scope=%s AND loading_id IS NOT DISTINCT FROM %s "
             "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1",
-            (wz["source_id"], wz.get("loading_id")))
-        wm = _dokument(conn, wm_row["id"]) if wm_row else None
-    wzk_row = cx_query_one(
-        conn,
-        "SELECT id FROM wz_documents WHERE source_type='order' AND source_id=%s "
-        "AND split_scope='wz_klienta' AND loading_id IS NOT DISTINCT FROM %s "
-        "AND COALESCE(status,'')<>'anulowany' ORDER BY created_at LIMIT 1",
-        (wz["source_id"], wz.get("loading_id")))
-    wzk = (wz if wz["split_scope"] == "wz_klienta"
-           else _dokument(conn, wzk_row["id"]) if wzk_row else None)
-    return {"wm": wm, "wzk": wzk}
+            (wz["source_id"], scope, wz.get("loading_id")))
+        return r["id"] if r else None
+    return {"wm": znajdz("calosc"), "wzk": znajdz("wz_klienta")}
 
 
-def cel_pozycji(conn, wz: Dict[str, Any], rodzaj: str, do_zaplaty: bool = True) -> Dict[str, Optional[Dict[str, Any]]]:
+def kolejnosc_blokad(conn, wz_id: str) -> List[str]:
+    """Stała kolejność blokad: WM, potem WZ klienta (tak jak anulowanie kompletu
+    i załadunek) — niezależnie od tego, z którego dokumentu otwarto okno.
+    Inna kolejność przy dwóch biurach na tym samym zamówieniu = zakleszczenie."""
+    wz = _odczyt(conn, wz_id, blokuj=False)
+    para = _id_pary(conn, wz)
+    ids = [i for i in (para["wm"], para["wzk"]) if i]
+    return ids or [wz_id]
+
+
+def _zablokuj(conn, wz_id: str):
+    """(dokument, para) — wszystkie wiersze zablokowane w kolejności `kolejnosc_blokad`."""
+    docs = {i: _odczyt(conn, i, blokuj=True) for i in kolejnosc_blokad(conn, wz_id)}
+    wz = docs.get(wz_id) or _odczyt(conn, wz_id, blokuj=True)
+    para = _id_pary(conn, wz)
+    return wz, {"wm": docs.get(para["wm"]) if para["wm"] else None,
+                "wzk": docs.get(para["wzk"]) if para["wzk"] else None}
+
+
+def cel_pozycji(wz: Dict[str, Any], para: Dict[str, Optional[Dict[str, Any]]], rodzaj: str,
+                do_zaplaty: bool = True) -> Dict[str, Optional[Dict[str, Any]]]:
     """Na który dokument idzie stan („stan”), a na który pozycja do zapłaty („zaplata”)."""
-    para = _para(conn, wz)
     wm, wzk = para["wm"], para["wzk"]
     if wm is None and wzk is None:
         # Zwykła WZ albo ręczna — jeden dokument robi obie rzeczy.
@@ -162,8 +174,8 @@ def dopisz_pozycje(wz_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
     body = {**body, "lineId": line_id}
     teraz = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with transaction() as conn:
-        wz = _dokument(conn, wz_id)
-        cel = cel_pozycji(conn, wz, rodzaj, bool(body.get("doZaplaty", True)))
+        wz, para = _zablokuj(conn, wz_id)
+        cel = cel_pozycji(wz, para, rodzaj, bool(body.get("doZaplaty", True)))
         dokumenty = [d for d in (cel["stan"], cel["zaplata"]) if d is not None]
         # Powtórzone kliknięcie (ten sam line_id) — nic nie dopisujemy drugi raz.
         if any(l.get("line_id") == line_id for d in dokumenty for l in _linie(d)):
@@ -199,8 +211,7 @@ def dopisz_pozycje(wz_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
 
 def usun_pozycje(wz_id: str, line_id: str) -> Dict[str, Any]:
     with transaction() as conn:
-        wz = _dokument(conn, wz_id)
-        para = _para(conn, wz)
+        wz, para = _zablokuj(conn, wz_id)
         dokumenty = [d for d in (para["wm"], para["wzk"]) if d is not None] or [wz]
         znaleziono = False
         for doc in dokumenty:
@@ -223,22 +234,24 @@ def opis_dokumentu(wz_id: str) -> Dict[str, Any]:
     """Dla okna „Dopisz pozycję”: waluta, para dokumentów i czy wolno dopisać
     pozycję z ręki. Tylko odczyt (transakcja bez zmian — blokady zwalnia commit)."""
     with transaction() as conn:
-        wz = _dokument(conn, wz_id)
-        para = _para(conn, wz)
-        wm, wzk = para["wm"], para["wzk"]
+        wz = _odczyt(conn, wz_id, blokuj=False)
+        ids = _id_pary(conn, wz)
+        wm = _odczyt(conn, ids["wm"], blokuj=False) if ids["wm"] else None
+        wzk = _odczyt(conn, ids["wzk"], blokuj=False) if ids["wzk"] else None
         if wm is None and wzk is None:
             rodzaj, docs, bez = "jeden", [wz], None
         elif wzk is None:
             rodzaj, docs, bez = "sam_wm", [wm], KOMUNIKAT_SAM_WM
         else:
             rodzaj, docs, bez = "wm_wzk", [d for d in (wm, wzk) if d], None
-        glowny = cx_query_one(conn, "SELECT currency, eur_rate, valued FROM wz_documents WHERE id=%s",
+        glowny = cx_query_one(conn, "SELECT currency, eur_rate, valued, buyer_nip FROM wz_documents WHERE id=%s",
                               ((wzk or wz)["id"],))
     return {
         "para": rodzaj, "bez_recznej": bez,
         "currency": glowny.get("currency") or "PLN",
         "eur_rate": float(glowny["eur_rate"]) if glowny.get("eur_rate") is not None else None,
         "valued": bool(glowny.get("valued")),
+        "buyer_nip": glowny.get("buyer_nip") or "",
         "dokumenty": [{"id": d["id"], "number": d["number"], "doc_series": d["doc_series"],
                        "valued": bool(d.get("valued")), "lines": _linie(d)} for d in docs],
     }

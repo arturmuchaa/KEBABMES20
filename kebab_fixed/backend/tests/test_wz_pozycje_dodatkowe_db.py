@@ -74,7 +74,7 @@ def _loj_sel(bid, kg="15", line="L1", **kw):
 def _zwykla_wz(currency="PLN", eur_rate=None):
     _firma(); _klient()
     bid = _loj(bid="rb-x", no="901")
-    return create_manual_wz(buyer={"name": "YBM Gastro GmbH"}, currency=currency, eur_rate=eur_rate, selections=[
+    return create_manual_wz(buyer={"name": "YBM Gastro GmbH", "nip": "DE811234567"}, currency=currency, eur_rate=eur_rate, selections=[
         {"stock_type": "raw", "stock_id": bid, "qty": 10.0, "name": "Łój wołowy zwykły", "unit": "kg", "price": 3}])
 
 
@@ -259,3 +259,62 @@ def test_opis_zwykla_wz(db):
     o = opis_dokumentu(wz["id"])
     assert o["para"] == "jeden" and o["currency"] == "EUR" and float(o["eur_rate"]) == 4.25
     assert len(o["dokumenty"]) == 1
+    assert "buyer_nip" in o          # VAT domyślny w oknie idzie za nabywcą (I4)
+
+
+# ── Poprawki z przeglądu końcowego ───────────────────────────────────────
+def test_I1_loj_na_wm_nie_blokuje_wz_klienta_w_trakcie_zaladunku(db):
+    _przygotuj_z_podzialem(cel_kg=300.0)          # palety na aucie, kurs niezakończony
+    wm = wystaw_wz_wewnetrzny("o1")
+    bid = _loj()
+    dopisz_pozycje(wm["id"], _loj_sel(bid, doZaplaty=False))
+    wzk = wystaw_wz_klienta("o1")
+    assert wzk["number"].startswith("WZ/")
+
+
+def test_I2_anulowanie_starej_wz_z_zamowienia_z_jogurtem(db):
+    from tests.conftest_split import _stary_wz
+    _przygotuj_bez_podzialu(scanned=False)
+    wz_id = _stary_wz("o1")
+    wz_id = wz_id["id"] if isinstance(wz_id, dict) else wz_id
+    dopisz_pozycje(wz_id, dict(JOGURT))
+    cancel_wz(wz_id)
+    assert query_one("SELECT status FROM wz_documents WHERE id=%s", (wz_id,))["status"] == "anulowany"
+
+
+def test_I5_blokady_zawsze_wm_potem_wz_klienta(db):
+    from app.services.wz_pozycje_dodatkowe import kolejnosc_blokad
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wm = wystaw_wz_wewnetrzny("o1"); wzk = wystaw_wz_klienta("o1")
+    with transaction() as conn:
+        assert kolejnosc_blokad(conn, wzk["id"]) == [wm["id"], wzk["id"]]
+        assert kolejnosc_blokad(conn, wm["id"]) == [wm["id"], wzk["id"]]
+    wz = _zwykla_wz()
+    with transaction() as conn:
+        assert kolejnosc_blokad(conn, wz["id"]) == [wz["id"]]
+
+
+def test_I6_edycja_ilosci_nie_nadpisuje_ruchow_tej_samej_partii(db):
+    from app.services.wz_service import update_wz_lines
+    _firma(); _klient()
+    bid = _loj()
+    wz = create_manual_wz(buyer={"name": "YBM Gastro GmbH"}, selections=[
+        {"stock_type": "raw", "stock_id": bid, "qty": 10.0, "name": "Łój wołowy otokowy", "unit": "kg", "price": 2}])
+    dopisz_pozycje(wz["id"], _loj_sel(bid, kg="5"))
+    update_wz_lines(wz["id"], [{"index": 0, "qty": 12}])
+    suma = float(query_one("SELECT COALESCE(SUM(qty),0) s FROM stock_movements WHERE source_type='wz' "
+                           "AND source_id=%s AND batch_id=%s", (wz["id"], bid))["s"])
+    assert suma == pytest.approx(-17.0)
+    assert _kg(bid) == pytest.approx(83.0)
+    # zmniejszenie: zwrot różnicy jako osobny ruch, nie nadpisanie
+    update_wz_lines(wz["id"], [{"index": 0, "qty": 8}])
+    suma = float(query_one("SELECT COALESCE(SUM(qty),0) s FROM stock_movements WHERE source_type='wz' "
+                           "AND source_id=%s AND batch_id=%s", (wz["id"], bid))["s"])
+    assert suma == pytest.approx(-13.0)
+    assert _kg(bid) == pytest.approx(87.0)
+
+
+def test_I4_opis_oddaje_nip_nabywcy(db):
+    from app.services.wz_pozycje_dodatkowe import opis_dokumentu
+    wz = _zwykla_wz(currency="EUR", eur_rate=4.25)
+    assert opis_dokumentu(wz["id"])["buyer_nip"] == "DE811234567"

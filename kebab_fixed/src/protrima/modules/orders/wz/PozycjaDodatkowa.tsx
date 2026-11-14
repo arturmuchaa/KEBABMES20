@@ -39,7 +39,9 @@ export function PozycjaDodatkowaForm({ start = 'reczna', waluta, kurs, vatDomysl
   /** Zmiana wartości = stan magazynu surowca wczytuje się od nowa (po dopisaniu do wystawionego dokumentu). */
   odswiez?: number
   className?: string
-  onDodaj: (w: WierszDodatkowy) => void
+  /** Może zwrócić Promise: formularz czyści się dopiero po sukcesie (`false`/błąd = zostaje wypełniony
+   *  z tym samym lineId, więc ponowienie po zerwanym połączeniu nie dopisze pozycji drugi raz). */
+  onDodaj: (w: WierszDodatkowy) => void | boolean | Promise<boolean | void>
 }) {
   const [rodzaj, setRodzaj] = useState<'reczna' | 'surowiec'>(bezRecznej ? 'surowiec' : start)
   const [w, setW] = useState<WierszDodatkowy>(() => ({ lineId: nowyLineId(), rodzaj, name: '', qtyStr: '', unit: rodzaj === 'surowiec' ? 'kg' : 'szt', priceStr: '', vatRate: vatDomyslny }))
@@ -71,13 +73,20 @@ export function PozycjaDodatkowaForm({ start = 'reczna', waluta, kurs, vatDomysl
   const wybierz = (p: PartiaSurowca, wolne: number) => setW(x => ({ ...x, stockId: p.id, stockType: p.stock_type, batchNo: p.internal_batch_no ?? undefined, wolneKg: wolne, name: p.name }))
 
   const blad = bladDodatkowej(w, wartosciowy) || (rodzaj === 'surowiec' && !w.stockId ? 'Wybierz partię z listy.' : '')
-  const dodaj = () => {
-    if (blad) { setPokazBlad(true); return }
-    onDodaj({ ...w, name: w.name.trim() })
+  const wyczysc = () => {
     setW({ lineId: nowyLineId(), rodzaj, name: '', qtyStr: '', unit: rodzaj === 'surowiec' ? 'kg' : w.unit, priceStr: '', vatRate: w.vatRate })
     setPokazBlad(false)
   }
-  const naEnter = (e: React.KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); dodaj() } }
+  const dodaj = async () => {
+    if (blad) { setPokazBlad(true); return }
+    const wynik = onDodaj({ ...w, name: w.name.trim() })
+    // Edytor przed wystawieniem dodaje od razu — czyścimy synchronicznie; zapis na serwer — po sukcesie.
+    if (!(wynik instanceof Promise)) { if (wynik !== false) wyczysc(); return }
+    let ok: boolean | void
+    try { ok = await wynik } catch { ok = false }
+    if (ok !== false) wyczysc()
+  }
+  const naEnter = (e: React.KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); void dodaj() } }
 
   return (
     <div className={`pd-form${className ? ` ${className}` : ''}`}>
@@ -136,7 +145,7 @@ export function PozycjaDodatkowaForm({ start = 'reczna', waluta, kurs, vatDomysl
         {wartosciowy && w.qtyStr && w.priceStr && !bladDodatkowej(w, true) && <span className="sub">Wartość netto: <b>{zl(wartoscDodatkowej(w), waluta)}</b></span>}
         <span className="grow" />
         {pokazBlad && blad && <span className="crit-ink" role="alert">{blad}</span>}
-        <button type="button" className="btn primary" disabled={zapisuje} onClick={dodaj}>Dodaj pozycję</button>
+        <button type="button" className="btn primary" disabled={zapisuje} onClick={() => void dodaj()}>Dodaj pozycję</button>
       </div>
     </div>
   )
