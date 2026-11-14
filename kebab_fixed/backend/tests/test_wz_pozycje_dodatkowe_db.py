@@ -6,10 +6,15 @@ stan); WZ = dokument dla klienta do zapłaty (Rozrachunki liczą tylko WZ).
 import json
 
 from app.db import execute, query_one, transaction
-from app.services.split_documents_service import anuluj_dokumenty_podzialu, wystaw_wz_wewnetrzny
-from app.services.wz_service import create_manual_wz, cancel_wz, wydaj_surowiec
+from app.services.split_documents_service import anuluj_dokumenty_podzialu, wystaw_wz_klienta, wystaw_wz_wewnetrzny
+import pytest
+from fastapi import HTTPException
+
+from app.services.wz_service import create_manual_wz, create_wz_from_order, cancel_wz, get_wz, wydaj_surowiec
+from app.services.wz_pozycje_dodatkowe import dopisz_pozycje, usun_pozycje
+from app.services.rozrachunki_service import karta_klienta
 from app.utils.ids import now_iso
-from tests.conftest_split import _przygotuj_z_podzialem
+from tests.conftest_split import _firma, _klient, _przygotuj_bez_podzialu, _przygotuj_z_podzialem
 
 
 def _loj(kg=100.0, bid="rb-loj", no="950"):
@@ -54,3 +59,143 @@ def test_cancel_wz_raw_bez_zmian(db):
     assert _kg(bid) == 85.0
     cancel_wz(wz["id"])
     assert _kg(bid) == 100.0
+
+
+# ── Task 2: dopisywanie / usuwanie ────────────────────────────────────────
+JOGURT = {"lineId": "J1", "rodzaj": "reczna", "name": "Jogurt naturalny", "qty": "10",
+          "unit": "szt", "price": "4,50", "vatRate": 5}
+
+
+def _loj_sel(bid, kg="15", line="L1", **kw):
+    return {"lineId": line, "rodzaj": "surowiec", "stockType": "raw", "stockId": bid,
+            "name": "Łój wołowy otokowy", "qty": kg, "unit": "kg", "price": "2,00", "vatRate": 5, **kw}
+
+
+def _zwykla_wz(currency="PLN", eur_rate=None):
+    _firma(); _klient()
+    bid = _loj(bid="rb-x", no="901")
+    return create_manual_wz(buyer={"name": "YBM Gastro GmbH"}, currency=currency, eur_rate=eur_rate, selections=[
+        {"stock_type": "raw", "stock_id": bid, "qty": 10.0, "name": "Łój wołowy zwykły", "unit": "kg", "price": 3}])
+
+
+def _linie(wz_id):
+    return get_wz(wz_id)["lines"]
+
+
+def test_a_jogurt_na_zwyklej_wz_podnosi_wartosc_i_saldo_bez_stanu(db):
+    wz = _zwykla_wz()
+    przed = float(get_wz(wz["id"])["total_value"])
+    ruchy = query_one("SELECT count(*) n FROM stock_movements")["n"]
+    dopisz_pozycje(wz["id"], dict(JOGURT))
+    po = get_wz(wz["id"])
+    assert float(po["total_value"]) == pytest.approx(przed + 45.0)
+    assert query_one("SELECT count(*) n FROM stock_movements")["n"] == ruchy
+    jog = [l for l in po["lines"] if l.get("line_id") == "J1"][0]
+    assert jog["stock_type"] == "reczna" and jog.get("dopisana_at")
+    obc = [o for o in karta_klienta("c1")["obciazenia"] if o.get("source_id") == wz["id"]]
+    assert abs(float(obc[0]["amount"])) == pytest.approx(przed + 45.0)
+
+
+def test_b_loj_przy_wm_i_wz_klienta(db):
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wm = wystaw_wz_wewnetrzny("o1"); wzk = wystaw_wz_klienta("o1")
+    execute("UPDATE wz_documents SET valued=true WHERE id=%s", (wzk["id"],))  # WZ do zapłaty ma ceny
+    bid = _loj()
+    dopisz_pozycje(wm["id"], _loj_sel(bid))
+    assert _kg(bid) == 85.0
+    na_wm = [l for l in _linie(wm["id"]) if l.get("line_id") == "L1"]
+    na_wzk = [l for l in _linie(wzk["id"]) if l.get("line_id") == "L1"]
+    assert na_wm[0]["stock_id"] == bid and na_wm[0]["stock_type"] == "raw"
+    assert not na_wzk[0].get("stock_id") and na_wzk[0]["value"] == 30.0
+
+
+def test_b2_wywolanie_na_wz_klienta_trafia_do_pary(db):
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wm = wystaw_wz_wewnetrzny("o1"); wzk = wystaw_wz_klienta("o1")
+    bid = _loj()
+    dopisz_pozycje(wzk["id"], _loj_sel(bid))
+    assert any(l.get("stock_id") == bid for l in _linie(wm["id"]))
+    dopisz_pozycje(wzk["id"], dict(JOGURT))
+    assert any(l.get("line_id") == "J1" for l in _linie(wzk["id"]))
+    assert not any(l.get("line_id") == "J1" for l in _linie(wm["id"]))
+
+
+def test_b3_loj_nie_do_zaplaty_tylko_na_wm(db):
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wm = wystaw_wz_wewnetrzny("o1"); wzk = wystaw_wz_klienta("o1")
+    bid = _loj()
+    dopisz_pozycje(wm["id"], _loj_sel(bid, doZaplaty=False))
+    assert not any(l.get("line_id") == "L1" for l in _linie(wzk["id"]))
+
+
+def test_c_sam_wm_odrzuca_jogurt_przyjmuje_loj(db):
+    _przygotuj_bez_podzialu()
+    wm = create_wz_from_order("o1")
+    with pytest.raises(HTTPException) as e:
+        dopisz_pozycje(wm["id"], dict(JOGURT))
+    assert e.value.status_code == 409 and "Subiekt" in e.value.detail
+    bid = _loj()
+    dopisz_pozycje(wm["id"], _loj_sel(bid))
+    assert _kg(bid) == 85.0
+
+
+def test_d_loj_ponad_stan_odmowa_i_nic_nie_zapisane(db):
+    wz = _zwykla_wz()
+    bid = _loj(kg=10.0)
+    przed = _linie(wz["id"])
+    with pytest.raises(HTTPException) as e:
+        dopisz_pozycje(wz["id"], _loj_sel(bid, kg="15"))
+    assert e.value.status_code == 400 and "950" in e.value.detail
+    assert _kg(bid) == 10.0 and _linie(wz["id"]) == przed
+
+
+def test_e_powtorzony_line_id_nie_dubluje(db):
+    wz = _zwykla_wz()
+    bid = _loj()
+    dopisz_pozycje(wz["id"], _loj_sel(bid))
+    dopisz_pozycje(wz["id"], _loj_sel(bid))
+    assert len([l for l in _linie(wz["id"]) if l.get("line_id") == "L1"]) == 1
+    assert _kg(bid) == 85.0
+
+
+def test_f_usuniecie_oddaje_stan_i_znika_z_obu(db):
+    _przygotuj_z_podzialem(cel_kg=300.0)
+    wm = wystaw_wz_wewnetrzny("o1"); wzk = wystaw_wz_klienta("o1")
+    bid = _loj()
+    dopisz_pozycje(wm["id"], _loj_sel(bid))
+    usun_pozycje(wzk["id"], "L1")
+    assert _kg(bid) == 100.0
+    assert not any(l.get("line_id") == "L1" for l in _linie(wm["id"]) + _linie(wzk["id"]))
+
+
+def test_f2_wyrobu_nie_da_sie_usunac(db):
+    wz = _zwykla_wz()
+    with pytest.raises(HTTPException) as e:
+        usun_pozycje(wz["id"], "nie-ma")
+    assert e.value.status_code == 409
+
+
+def test_g_eur_wartosc_w_walucie_dokumentu(db):
+    wz = _zwykla_wz(currency="EUR", eur_rate=4.25)
+    przed = float(get_wz(wz["id"])["total_value"])
+    dopisz_pozycje(wz["id"], dict(JOGURT))
+    po = get_wz(wz["id"])
+    assert po["currency"] == "EUR" and float(po["eur_rate"]) == 4.25
+    assert float(po["total_value"]) == pytest.approx(przed + 45.0)
+
+
+def test_h_anulowana_odrzuca(db):
+    wz = _zwykla_wz()
+    cancel_wz(wz["id"])
+    with pytest.raises(HTTPException) as e:
+        dopisz_pozycje(wz["id"], dict(JOGURT))
+    assert e.value.status_code == 409
+
+
+def test_trasy_dopisz_i_usun(db):
+    from app.routes import wz as route
+    wz = _zwykla_wz()
+    po = route.dopisz_pozycje(wz["id"], dict(JOGURT))
+    assert any(l.get("line_id") == "J1" for l in po["lines"])
+    po = route.usun_pozycje(wz["id"], "J1")
+    assert not any(l.get("line_id") == "J1" for l in po["lines"])

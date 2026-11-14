@@ -144,6 +144,20 @@ def update_lines(wz_id: str, body: dict):
     return svc.update_wz_lines(wz_id, body.get("edits") or [])
 
 
+@router.post("/{wz_id}/pozycje")
+def dopisz_pozycje(wz_id: str, body: dict):
+    """Dopisz pozycję z ręki albo z magazynu surowca do wystawionej WZ/WM
+    (także z kursu) — reguły WM/WZ w `wz_pozycje_dodatkowe`."""
+    from app.services.wz_pozycje_dodatkowe import dopisz_pozycje as dopisz
+    return dopisz(wz_id, body or {})
+
+
+@router.delete("/{wz_id}/pozycje/{line_id}")
+def usun_pozycje(wz_id: str, line_id: str):
+    from app.services.wz_pozycje_dodatkowe import usun_pozycje as usun
+    return usun(wz_id, line_id)
+
+
 @router.patch("/{wz_id}/cancel")
 def cancel(wz_id: str):
     """Anuluj WZ: pełny zwrot wszystkich pozycji na magazyn, dokument

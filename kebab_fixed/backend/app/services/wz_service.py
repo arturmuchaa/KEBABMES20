@@ -847,6 +847,22 @@ def zdejmij_stempel_obcej_sprzedazy(conn, fg_id: str, stempel: str, nabywca: str
 SUROWIEC = ("raw", "meat", "byproduct")
 
 
+def stempluj_daty_surowca(lines: List[Dict[str, Any]]) -> None:
+    """Daty uboju/ważności partii na liniach surowca — snapshot w chwili
+    wystawienia (tabela HDI na dokumencie)."""
+    nos = sorted({raw_batch_no_from_lot(str(l.get("batch_no") or "")) for l in lines
+                  if l.get("batch_no") and l.get("stock_type") in ("raw", "meat", "byproduct")})
+    if nos:
+        dates = {r["internal_batch_no"]: r for r in query_all(
+            "SELECT internal_batch_no, slaughter_date, expiry_date FROM raw_batches "
+            "WHERE internal_batch_no = ANY(%s)", (nos,))}
+        for l in lines:
+            d = dates.get(raw_batch_no_from_lot(str(l.get("batch_no") or "")))
+            if d and l.get("stock_type") in ("raw", "meat", "byproduct"):
+                l["slaughter_date"] = str(d.get("slaughter_date") or "")[:10] or None
+                l["expiry_date"] = str(d.get("expiry_date") or "")[:10] or None
+
+
 def wydaj_surowiec(conn, wz_id: str, sel: Dict[str, Any]) -> Dict[str, Any]:
     """Rozchód jednej pozycji surowca na dokument `wz_id` (raw/meat/byproduct):
     kontrola wolnego stanu, zdjęcie stanu i ruch OUT. Zwraca pola do linii.
@@ -944,7 +960,8 @@ def wydaj_surowiec(conn, wz_id: str, sel: Dict[str, Any]) -> Dict[str, Any]:
 
     else:
         raise HTTPException(400, f"Nieznany typ magazynu: {stype}")
-    return {"stock_type": stype, "stock_id": sid}
+    partia = row.get("internal_batch_no") or row.get("lot_no") or row.get("raw_batch_no")
+    return {"stock_type": stype, "stock_id": sid, "batch_no": partia}
 
 
 def zwroc_surowiec(conn, wz_id: str, line: Dict[str, Any], qty: Optional[float] = None) -> None:
@@ -1026,17 +1043,7 @@ def create_manual_wz(
     # Numer LOTU mięsa b/s ma sufiks rodzaju („440-BS"), a partia ćwiartki
     # nazywa się „440" — bez normalizacji dokument wychodził bez daty uboju
     # i ważności (prod 2026-07-28, WZ/38 z mięsem b/s).
-    nos = sorted({raw_batch_no_from_lot(str(l.get("batch_no") or "")) for l in lines
-                  if l.get("batch_no") and l.get("stock_type") in ("raw", "meat", "byproduct")})
-    if nos:
-        dates = {r["internal_batch_no"]: r for r in query_all(
-            "SELECT internal_batch_no, slaughter_date, expiry_date FROM raw_batches "
-            "WHERE internal_batch_no = ANY(%s)", (nos,))}
-        for l in lines:
-            d = dates.get(raw_batch_no_from_lot(str(l.get("batch_no") or "")))
-            if d and l.get("stock_type") in ("raw", "meat", "byproduct"):
-                l["slaughter_date"] = str(d.get("slaughter_date") or "")[:10] or None
-                l["expiry_date"] = str(d.get("expiry_date") or "")[:10] or None
+    stempluj_daty_surowca(lines)
     co = get_company()
     today = date.today()
     issued = issued_date or today.isoformat()
