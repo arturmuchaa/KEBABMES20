@@ -120,9 +120,9 @@ describe('Receptury — ekran', () => {
     ;(app.toast as ReturnType<typeof vi.fn>).mockClear()
     rec.list.mockResolvedValue([KIRMIZI, BEYAZ])
     rec.archived.mockResolvedValue([{ ...BEYAZ, id: 'r9', name: 'STARA', active: false }])
-    rec.usage.mockResolvedValue([{ recipeId: 'r1', openOrders: 2, openOrdersKg: 420, plannedMixing: 1, seasonedKg: 410.5, finishedKg: 0, catalogItems: 1, lastMixedAt: '2026-11-13T07:00:00Z' }])
+    rec.usage.mockResolvedValue([{ recipeId: 'r1', openOrders: 2, openOrdersKg: 420, plannedMixing: 1, seasonedKg: 410.5, finishedKg: 0, catalogItems: 1, lastMixedAt: new Date().toISOString() }])   // „dziś” niezależnie od dnia uruchomienia testów
     rec.usageOf.mockResolvedValue({ recipeId: 'r1', orders: [{ id: 'o1', orderNo: 'VATAN/Z/1/11/26', clientName: 'VATAN', deliveryDate: '2026-11-15', status: 'confirmed', qty: 10, kg: 300 }],
-      mixing: [{ id: 'm1', orderNo: 'M/1', meatKg: 500, outputKg: 629, status: 'planned', createdAt: '2026-11-13T05:00:00Z' }], seasoned: [], catalog: [],
+      mixing: [{ id: 'm1', orderNo: 'M/1', meatKg: 500, outputKg: 629, status: 'planned', createdAt: '2026-11-13T05:00:00Z', planDate: '2026-09-19' }], seasoned: [], catalog: [],
       blockers: ['otwarte zamówienia (1): VATAN/Z/1/11/26'] })
     ing.list.mockResolvedValue(SKL)
     ing.stock.mockResolvedValue([{ ingredientId: 'i-van', ingredientName: 'VAN', unit: 'kg', isUnlimited: false, qtyAvailable: 0, qtyReserved: 0 }])
@@ -153,6 +153,8 @@ describe('Receptury — ekran', () => {
     fireEvent.click(await within(dock).findByText(/VATAN\/Z\/1\/11\/26/))
     expect(app.openOrder).toHaveBeenCalledWith('o1')
     expect(within(dock).getByText('zaplanowane')).toBeTruthy()
+    expect(within(dock).getByText('19.09.2026')).toBeTruthy()            // dzień planu, nie data utworzenia
+    expect(within(dock).getByText('zaległe')).toBeTruthy()
   })
 
   it('wycofanie receptury w użyciu jest zablokowane z powodem', async () => {
@@ -188,13 +190,26 @@ describe('Receptury — ekran', () => {
     await waitFor(() => expect(app.toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Dodano recepturę „YAPRAK”' })))
   })
 
-  it('wycofane: przywrócenie jednym przyciskiem', async () => {
+  it('wycofane: panel bez zdublowanych przycisków', async () => {
     rec.activate.mockResolvedValue({ ...BEYAZ, id: 'r9', name: 'STARA' })
     mount()
     await screen.findByText('KIRMIZI')
     fireEvent.click(screen.getByRole('button', { name: /Wycofane/ }))
     fireEvent.click(await screen.findByText('STARA'))
-    fireEvent.click(within(screen.getByLabelText('Szczegóły receptury')).getByRole('button', { name: /Przywróć/ }))
+    // przywracanie jest na pasku narzędzi — panel nie dubluje przycisku (przegląd UI 14.11)
+    expect(within(screen.getByLabelText('Szczegóły receptury')).queryByRole('button', { name: /^Przywróć$/ })).toBeNull()
+    expect(within(screen.getByLabelText('Szczegóły receptury')).queryByRole('button', { name: /^Edytuj$/ })).toBeNull()
+  })
+
+  it('wycofane: przywrócenie z paska narzędzi', async () => {
+    rec.activate.mockResolvedValue({ ...BEYAZ, id: 'r9', name: 'STARA' })
+    const cmds = vi.fn()
+    render(<AppCtx.Provider value={app}><RecepturyModule active setCtx={vi.fn()} setCmds={cmds} /></AppCtx.Provider>)
+    await screen.findByText('KIRMIZI')
+    fireEvent.click(screen.getByRole('button', { name: /Wycofane/ }))
+    fireEvent.click(await screen.findByText('STARA'))
+    await waitFor(() => expect(cmds.mock.lastCall![0].find((c: { id: string }) => c.id === 'restore').disabled).toBe(false))
+    React.act(() => cmds.mock.lastCall![0].find((c: { id: string }) => c.id === 'restore').run())
     await waitFor(() => expect(rec.activate).toHaveBeenCalledWith('r9'))
   })
 })

@@ -321,9 +321,9 @@ def recipe_usage(recipe_id: str) -> Dict:
     )
     masowania = query_all(
         f"""
-        SELECT id, order_no, meat_kg, planned_output_kg, status, created_at
+        SELECT id, order_no, meat_kg, planned_output_kg, status, created_at, plan_date
         FROM mixing_orders WHERE recipe_id = %s AND {_MASOWANIE_W_TOKU}
-        ORDER BY created_at
+        ORDER BY plan_date NULLS LAST, created_at
         """,
         (recipe_id,),
     )
@@ -356,7 +356,7 @@ def recipe_usage(recipe_id: str) -> Dict:
         "mixing": [
             {"id": m["id"], "orderNo": m["order_no"], "meatKg": _f(m["meat_kg"]),
              "outputKg": _f(m["planned_output_kg"]), "status": m["status"],
-             "createdAt": _iso(m["created_at"])}
+             "createdAt": _iso(m["created_at"]), "planDate": _iso(m["plan_date"])}
             for m in masowania
         ],
         "seasoned": [

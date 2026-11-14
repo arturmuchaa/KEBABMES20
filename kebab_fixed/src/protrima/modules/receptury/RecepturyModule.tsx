@@ -16,7 +16,7 @@ import type { Ingredient, IngredientStock, Recipe } from '@/features/ingredients
 import type { ProductType } from '@/features/products/types'
 import { EdytorReceptury, type MaterialType } from './EdytorReceptury'
 import {
-  ETYKIETA_MASOWANIA, dataPl, dawka, filtruj, kalkulator, kg2, kiedy, liczba, miesoNaPolprodukt, proc1, pustyFormularz, sortuj,
+  ETYKIETA_MASOWANIA, dataPl, dawka, zalegle, filtruj, kalkulator, kg2, kiedy, liczba, miesoNaPolprodukt, proc1, pustyFormularz, sortuj,
   typowyTermin, wUzyciu, zReceptury, type Formularz, type Kolumna, type Sort,
 } from './model'
 
@@ -31,7 +31,7 @@ const KOLUMNY: Array<{ kol: Kolumna | null; label: string; cls?: string; tip?: s
   { kol: 'nazwa', label: 'Receptura' },
   { kol: 'rodzaj', label: 'Rodzaj', cls: 'hide-s' },
   { kol: null, label: 'Składniki', cls: 'num hide-m' },
-  { kol: 'wydajnosc', label: 'Półprodukt', cls: 'num', tip: 'Ile kg półproduktu daje 100 kg mięsa' },
+  { kol: 'wydajnosc', label: 'Półprodukt / 100 kg', cls: 'num', tip: 'Ile kg półproduktu daje 100 kg mięsa' },
   { kol: 'termin', label: 'Termin', cls: 'num hide-m' },
   { kol: null, label: 'Masowanie', cls: 'num hide-m' },
   { kol: 'uzycie', label: 'W użyciu', tip: 'Otwarte zamówienia i niedokończone masowania' },
@@ -219,8 +219,7 @@ export function RecepturyModule({ active, setCtx, setCmds }: { active: boolean; 
             onMouseDown={e => { setMaxed(false); dock.startDrag(e) }} onDoubleClick={() => { dock.reset(); setMaxed(false) }} data-tip="Przeciągnij, aby zmienić rozmiar. Dwuklik — domyślnie." />
           <div className="dock" aria-label="Szczegóły receptury">
             <Szczegoly r={wybrana} rodzaj={nazwaRodzaju(wybrana)} wycofana={widok === 'wycofane'} u={uzycie.get(wybrana.id)} stany={(stanyRes.data ?? null) as IngredientStock[] | null}
-              skladniki={skladniki} zakladka={zakladka} onZakladka={setZakladka} maxed={maxed} onMax={() => setMaxed(m => !m)} onClose={() => setSel(null)}
-              onEdytuj={() => edytuj(wybrana)} onPrzywroc={() => void przywroc(wybrana)} />
+              skladniki={skladniki} zakladka={zakladka} onZakladka={setZakladka} maxed={maxed} onMax={() => setMaxed(m => !m)} onClose={() => setSel(null)} />
           </div>
         </>}
       </div>
@@ -254,9 +253,9 @@ function Uzycie({ u }: { u?: RecipeUsage }) {
   )
 }
 
-function Szczegoly({ r, rodzaj, wycofana, u, stany, skladniki, zakladka, onZakladka, maxed, onMax, onClose, onEdytuj, onPrzywroc }: {
+function Szczegoly({ r, rodzaj, wycofana, u, stany, skladniki, zakladka, onZakladka, maxed, onMax, onClose }: {
   r: Recipe; rodzaj: string; wycofana: boolean; u?: RecipeUsage; stany: IngredientStock[] | null; skladniki: Ingredient[]
-  zakladka: Zakladka; onZakladka: (z: Zakladka) => void; maxed: boolean; onMax: () => void; onClose: () => void; onEdytuj: () => void; onPrzywroc: () => void
+  zakladka: Zakladka; onZakladka: (z: Zakladka) => void; maxed: boolean; onMax: () => void; onClose: () => void
 }) {
   const app = useApp()
   const zKomp = (r.components ?? []).length > 0
@@ -276,8 +275,6 @@ function Szczegoly({ r, rodzaj, wycofana, u, stany, skladniki, zakladka, onZakla
           <div className="f"><span className="k">Masowanie</span><span className="v">{r.mixingMinutes ?? 50} min<small>{r.mixingMinutes ? '' : 'standard'}</small></span></div>
         </div>
         <div className="dock-actions">
-          {wycofana ? <button className="btn" onClick={onPrzywroc}><RotateCcw size={15} />Przywróć</button> : <button className="btn" onClick={onEdytuj}><Pencil size={15} />Edytuj</button>}
-          <span style={{ width: 1, height: 22, background: 'var(--line)', margin: '0 4px' }} />
           <button className="btn ghost icon" onClick={() => app.setPanel(app.panel === 'bok' ? 'dol' : 'bok')} aria-label={app.panel === 'bok' ? 'Panel na dole' : 'Panel z boku'} data-tip={app.panel === 'bok' ? 'Przenieś panel na dół' : 'Przenieś panel na bok'}>{app.panel === 'bok' ? <PanelBottom size={16} /> : <PanelRight size={16} />}</button>
           <button className="btn ghost icon" onClick={onMax} aria-label={maxed ? 'Przywróć panel' : 'Powiększ panel'} data-tip={maxed ? 'Przywróć' : 'Powiększ panel'}>{maxed ? <Minimize2 size={16} /> : <Maximize2 size={16} />}</button>
           <button className="btn ghost icon" onClick={onClose} aria-label="Zamknij panel (Esc)" data-tip="Zamknij panel (Esc)"><X size={17} /></button>
@@ -394,9 +391,9 @@ function GdzieUzyta({ r }: { r: Recipe }) {
             <td className="ell" style={{ maxWidth: 220 }}>{o.clientName || '—'}</td><td className="tnum">{dataPl(o.deliveryDate)}</td>
             <td className="num">{num(o.qty)}</td><td className="num">{num(o.kg)}</td></tr>)}</tbody></table></section>}
       {d.mixing.length > 0 && <section><h3 className="rc-h">Masowania w toku <span className="muted">{d.mixing.length}</span></h3>
-        <table className="tbl rc-sklad-tbl"><thead><tr><th>Zlecenie</th><th>Stan</th><th className="num">Mięso</th><th className="num">Półprodukt</th><th>Zaplanowano</th></tr></thead>
+        <table className="tbl rc-sklad-tbl"><thead><tr><th>Zlecenie</th><th>Stan</th><th className="num">Mięso</th><th className="num">Półprodukt</th><th>Na dzień</th></tr></thead>
           <tbody>{d.mixing.map(m => <tr key={m.id} className="row"><td className="code">{m.orderNo}</td><td><span className="tag warn">{ETYKIETA_MASOWANIA[m.status] ?? m.status}</span></td>
-            <td className="num">{num(m.meatKg)} <span className="sub">kg</span></td><td className="num">{num(m.outputKg)} <span className="sub">kg</span></td><td className="tnum">{dataPl(m.createdAt)}</td></tr>)}</tbody></table></section>}
+            <td className="num">{num(m.meatKg)} <span className="sub">kg</span></td><td className="num">{num(m.outputKg)} <span className="sub">kg</span></td><td className="tnum rc-dzien">{dataPl(m.planDate)}{zalegle(m) && <> <span className="tag crit">zaległe</span></>}</td></tr>)}</tbody></table></section>}
       {d.seasoned.length > 0 && <section><h3 className="rc-h">Półprodukt na stanie <span className="muted">{num(d.seasoned.reduce((s, p) => s + p.kgAvailable, 0))} kg</span></h3>
         <table className="tbl rc-sklad-tbl"><thead><tr><th>Partia</th><th className="num">Na stanie</th><th>Masowana</th><th>Przydatna do</th></tr></thead>
           <tbody>{d.seasoned.map(p => <tr key={p.id} className="row"><td className="code">{p.batchNo}</td><td className="num">{kg2(p.kgAvailable)}</td><td className="tnum">{dataPl(p.createdAt)}</td><td className="tnum">{dataPl(p.expiryDate)}</td></tr>)}</tbody></table></section>}

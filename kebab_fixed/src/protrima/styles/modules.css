@@ -519,6 +519,13 @@ div.pstage { cursor: default; }
 .workarea.side .dock .box { overflow-x: auto; }
 .workarea.side .dock .empty-state .es-text { flex-basis: 100%; }
 .workarea.side .dock .row-wrap { flex-wrap: wrap; }
+/* Receptury w wąskim panelu bocznym (1366 px): nazwy składników łamią się, liczby i stany zostają widoczne. */
+.workarea.side .dock .rc-sklad-tbl th, .workarea.side .dock .rc-sklad-tbl td { padding-left: 7px; padding-right: 7px; }
+.workarea.side .dock .rc-sklad-tbl td:not(.num):not(.c):not(.tnum):not(.code) { white-space: normal; overflow-wrap: anywhere; height: auto; padding-top: 6px; padding-bottom: 6px; }
+.workarea.side .dock .rc-sklad-tbl td .sub { margin-left: 4px; }
+.rc-sklad-tbl .tag { white-space: nowrap; }
+.workarea.side .dock .rc-sklad-tbl td.rc-dzien { white-space: normal; height: auto; padding-top: 6px; padding-bottom: 6px; }
+.workarea.side .dock .rc-sklad-tbl td.rc-dzien .tag { display: inline-block; margin-top: 2px; }
 /* Rozpis palet ponad ilość pozycji (incydent ISSA 30.10.2026) — zawsze czerwono. */
 .achip.over { background: var(--crit-tint); box-shadow: inset 0 0 0 1px var(--crit); }
 .achip.over .bar i { background: var(--crit); }
@@ -1188,6 +1195,7 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .pm-partie-tbl td { height: auto; padding: 5px 6px; vertical-align: middle; }
 .pm-partie-tbl td:not(.num) .sub { display: block; margin-left: 0; white-space: normal; }
 .pm-partie-tbl td.num { white-space: nowrap; }
+.pm-przyprawy .pm-partie-tbl td:not(.num) { white-space: normal; overflow-wrap: anywhere; }   /* długie nazwy przypraw łamią się zamiast ucinać kolumnę „Na stanie” */
 .pm-partie-tbl td .field { width: 72px; }
 .pm-partie-tbl .pm-termin { color: var(--ink-3); font-size: var(--fs-sm); white-space: nowrap; }
 .pm-partie-tbl tr.pm-zajeta td { color: var(--ink-4); }
@@ -1234,7 +1242,13 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .pm-kolej button:disabled { opacity: .25; cursor: default; }
 .pm-wsady { display: block; margin-top: 2px; color: var(--ink-3); font-size: var(--fs-xs); text-align: right; white-space: nowrap; }
 .pm-zal-glowa { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; justify-content: space-between; }
-.pm-zal-bez { opacity: .75; }
+.pm-zal-bez { font-weight: 400; }   /* bez opacity — kontrast na żółtym banerze musi zostać ≥ 4,5:1 */
+/* Rozwinięta lista nie może zabrać tabeli planu (1366×768): ok. 5 wierszy, dalej przewijanie w banerze. */
+.pm-zalegle ul.pm-zal-lista { max-height: 196px; overflow-y: auto; padding-right: 6px; overscroll-behavior: contain; }
+/* Data planu = przejście do tamtego dnia (zamiast osobnego „Pokaż dzień”). */
+.pm-zal-dzien { color: inherit; font: inherit; text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 45%, transparent); text-underline-offset: 2px; cursor: pointer; border-radius: var(--r-xs); }
+.pm-zal-dzien:hover { text-decoration-color: currentColor; }
+.pm-zal-dzien:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .pm-zbiorczo { margin: 0; padding: 0; list-style: none; max-height: 240px; overflow: auto; display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-sm); }
 .pm-zbiorczo li { display: grid; grid-template-columns: 84px minmax(0, 1fr) 80px; gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--line-soft); }
 .pm-zbiorczo li .tnum { text-align: right; }

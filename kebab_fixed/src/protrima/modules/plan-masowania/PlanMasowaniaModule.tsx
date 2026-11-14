@@ -527,12 +527,11 @@ function Zalegle({ lista, zmieniony, onPrzenies, onAnuluj, onDzien, onZbiorczo }
   const zMiesem = lista.filter(z => z.reservedKg > 0), bez = lista.filter(z => z.reservedKg <= 0)
   const kg = zMiesem.reduce((s, z) => s + z.reservedKg, 0)
   const wiersz = (z: StaleMixingOrder) => (
-    <li key={z.id}><span><b>{z.recipeName}</b> · {fmt(z.meatKg)} kg · plan na {dataPl(z.planDate)}
+    <li key={z.id}><span><b>{z.recipeName}</b> · {fmt(z.meatKg)} kg · plan na <button type="button" className="pm-zal-dzien" onClick={() => onDzien(z.planDate)} data-tip="Pokaż ten dzień planu">{dataPl(z.planDate)}</button>
       {z.reservedKg > 0 ? <> · <b>trzyma {fmt(z.reservedKg)} kg</b> z partii {z.meatLots.filter(l => l.kgPlanned > 0).map(l => l.meatLotNo).join(', ')}</> : <span className="pm-zal-bez"> · bez mięsa</span>}</span>
       <span className="pm-zal-akcje">
         {z.status !== 'in_progress' && <button className="btn sm" disabled={zmieniony} data-tip={zmieniony ? 'najpierw zapisz plan' : undefined} onClick={() => onPrzenies(z)}><CalendarClock size={14} />Przenieś…</button>}
         <button className="btn sm ghost danger" onClick={() => onAnuluj(z)}><XCircle size={14} />Anuluj…</button>
-        <button className="btn sm ghost" onClick={() => onDzien(z.planDate)}>Pokaż dzień</button>
       </span></li>
   )
   return (
@@ -544,7 +543,7 @@ function Zalegle({ lista, zmieniony, onPrzenies, onAnuluj, onDzien, onZbiorczo }
             {bez.length > 1 && <button className="btn sm" onClick={onZbiorczo} data-tip="Anuluje naraz zaległe zlecenia, które nie mają zarezerwowanego mięsa">Anuluj {bez.length} bez mięsa…</button>}
             {lista.length > 3 && <button className="btn sm ghost" aria-expanded={rozwiniete} onClick={() => setRozwiniete(r => !r)}>{rozwiniete ? 'Zwiń' : 'Pokaż listę'}</button>}
           </span></div>
-        {rozwiniete ? <ul>{[...zMiesem, ...bez].map(wiersz)}</ul> : zMiesem.length > 0 && <ul>{zMiesem.slice(0, 3).map(wiersz)}{zMiesem.length > 3 && <li className="muted">…i {zMiesem.length - 3} kolejnych z mięsem — „Pokaż listę”</li>}</ul>}
+        {rozwiniete ? <ul className="pm-zal-lista" aria-label="Zaległe zlecenia">{[...zMiesem, ...bez].map(wiersz)}</ul> : zMiesem.length > 0 && <ul>{zMiesem.slice(0, 3).map(wiersz)}{zMiesem.length > 3 && <li className="muted">…i {zMiesem.length - 3} kolejnych z mięsem — „Pokaż listę”</li>}</ul>}
       </div></div>
   )
 }

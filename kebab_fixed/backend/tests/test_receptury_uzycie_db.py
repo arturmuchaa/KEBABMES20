@@ -93,6 +93,7 @@ def test_uzycie_zbiorcze_i_szczegoly(db):
     d = svc.recipe_usage("r1")
     assert [z["orderNo"] for z in d["orders"]] == ["Z/o1", "Z/o2"]
     assert [m["orderNo"] for m in d["mixing"]] == ["M/m1"]
+    assert d["mixing"][0]["planDate"] is None                 # bez dnia planu — nie udaje daty utworzenia
     assert [p["batchNo"] for p in d["seasoned"]] == ["131126 M1"]
     assert len(d["blockers"]) == 2
 
@@ -108,3 +109,12 @@ def test_edycja_zachowuje_kolejnosc_skladnikow(db):
     assert [i["ingredient_id"] for i in r["ingredients"]] == ["i1", "i2"]
     assert float(r["total_output_per_100kg"]) == 124.5
     assert r["shelf_life_days"] == 364
+
+
+def test_gdzie_uzyta_pokazuje_dzien_planu_nie_date_utworzenia(db):
+    """Przegląd UI 14.11: zlecenia z września miały w „Gdzie użyta” datę utworzenia 13.11."""
+    _receptura(); _masowanie("m1"); _masowanie("m2")
+    execute("UPDATE mixing_orders SET plan_date='2026-09-19', created_at='2026-11-13 07:00+00' WHERE id='m1'")
+    execute("UPDATE mixing_orders SET plan_date='2026-11-15', created_at='2026-11-01 07:00+00' WHERE id='m2'")
+    d = svc.recipe_usage("r1")
+    assert [(m["orderNo"], m["planDate"][:10]) for m in d["mixing"]] == [("M/m1", "2026-09-19"), ("M/m2", "2026-11-15")]

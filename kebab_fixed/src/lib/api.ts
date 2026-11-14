@@ -1671,7 +1671,7 @@ export interface RecipeUsage {
 export interface RecipeUsageDetail {
   recipeId: string
   orders: Array<{ id: string; orderNo: string; clientName: string; deliveryDate: string | null; status: string; qty: number; kg: number }>
-  mixing: Array<{ id: string; orderNo: string; meatKg: number; outputKg: number; status: string; createdAt: string | null }>
+  mixing: Array<{ id: string; orderNo: string; meatKg: number; outputKg: number; status: string; createdAt: string | null; planDate?: string | null }>
   seasoned: Array<{ id: string; batchNo: string; kgAvailable: number; expiryDate: string | null; createdAt: string | null }>
   catalog: Array<{ id: string; code: string; productTypeName: string; packagingName: string; kgPerUnit: number }>
   /** Powody, dla których serwer odmówi wycofania (pusta = wolno). */

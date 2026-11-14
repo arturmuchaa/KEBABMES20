@@ -264,6 +264,14 @@ export const dataPl = (iso?: string | null) => {
   return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
+/** Masowanie z minionego dnia, którego nikt nie zaczął — w „Gdzie użyta” dostaje etykietę „zaległe”. */
+export function zalegle(m: { planDate?: string | null; status: string }, teraz = new Date()): boolean {
+  if (!m.planDate || m.status === 'in_progress') return false
+  const p2 = (n: number) => String(n).padStart(2, '0')
+  const dzis = `${teraz.getFullYear()}-${p2(teraz.getMonth() + 1)}-${p2(teraz.getDate())}`
+  return m.planDate.slice(0, 10) < dzis
+}
+
 /** „dziś”, „wczoraj”, „5 dni temu”, potem data — do kolumny „Ostatnio masowana”. */
 export function kiedy(iso: string | null | undefined, teraz = new Date()): string {
   if (!iso) return '—'
