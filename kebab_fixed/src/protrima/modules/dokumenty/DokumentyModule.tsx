@@ -105,8 +105,8 @@ export function DokumentyModule({ active, setCtx, setCmds }: { active: boolean; 
   }, [active, zakladka, widoczne.length, wszystkie?.length, z.zaznaczone.length, setCtx])
 
   const KOL: Array<{ kol: Kolumna | null; label: string; cls?: string }> = [
-    { kol: 'numer', label: 'Numer' }, { kol: 'data', label: 'Data' }, { kol: 'klient', label: 'Klient' }, { kol: 'zamowienie', label: 'Zamówienie', cls: 'hide-s' },
-    ...(zakladka === 'wz' ? [{ kol: 'wartosc' as Kolumna, label: 'Wartość', cls: 'num' }] : zakladka === 'cmr' ? [{ kol: null, label: 'Przewoźnik', cls: 'hide-m' }] : [{ kol: null, label: 'Rodzaj', cls: 'hide-m' }]),
+    { kol: 'numer', label: 'Numer' }, { kol: 'data', label: 'Data' }, { kol: 'klient', label: 'Klient' }, { kol: 'zamowienie', label: 'Zamówienie' },
+    ...(zakladka === 'wz' ? [{ kol: 'wartosc' as Kolumna, label: 'Wartość', cls: 'num' }] : zakladka === 'cmr' ? [{ kol: null, label: 'Przewoźnik' }] : [{ kol: null, label: 'Rodzaj' }]),
     { kol: 'stan', label: 'Stan' },
   ]
   const th = (k: (typeof KOL)[number]) => {
@@ -179,10 +179,10 @@ export function DokumentyModule({ active, setCtx, setCmds }: { active: boolean; 
                       <td className="code strong" data-testid="numer">{d.numer}</td>
                       <td className="tnum">{dataPl(d.data)}</td>
                       <td className="ell" style={{ maxWidth: 260 }}>{d.klient || <span className="faint">—</span>}</td>
-                      <td className="code hide-s">{d.orderNo ?? <span className="faint">{d.rodzaj === 'wz' ? 'ręczna' : '—'}</span>}</td>
+                      <td className="code">{d.orderNo ?? <span className="faint">{d.rodzaj === 'wz' ? 'ręczna' : '—'}</span>}</td>
                       {zakladka === 'wz' && <td className="num tnum">{d.wartosc != null ? zl(d.wartosc, d.waluta) : <span className="faint" data-tip="dokument bez cen">—</span>}</td>}
-                      {zakladka === 'cmr' && <td className="hide-m ell" style={{ maxWidth: 180 }}>{d.przewoznik ?? <span className="faint">—</span>}</td>}
-                      {zakladka === 'hdi' && <td className="hide-m">{d.rodzajHdi}</td>}
+                      {zakladka === 'cmr' && <td className="ell" style={{ maxWidth: 180 }}>{d.przewoznik ?? <span className="faint">—</span>}</td>}
+                      {zakladka === 'hdi' && <td>{d.rodzajHdi}</td>}
                       <td>{d.seria === 'WM' && <span className="tag outline" data-tip="Wydanie z magazynu — zdejmuje stan" style={{ marginRight: 6 }}>WM</span>}
                         <span className={`tag ${KLASA_STANU[d.etykietaStanu] ?? 'neutral'}`}>{d.etykietaStanu}</span></td>
                     </tr>

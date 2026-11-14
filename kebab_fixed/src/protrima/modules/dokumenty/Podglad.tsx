@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { FileDown } from 'lucide-react'
+import { FileDown, RefreshCw } from 'lucide-react'
 import { fetchBlob } from '@/lib/api'
 import { FlagIcon } from '../../ui/Glyphs'
 
@@ -18,6 +18,9 @@ export function Podglad({ url, tytul, onOtworz }: { url: string; tytul: string; 
     <div className="dk-podglad-blad note warn" role="alert"><FlagIcon level="warn" size={15} />
       <div><b>Nie udało się wczytać podglądu.</b> {blad}<div style={{ marginTop: 8 }}><button className="btn sm" onClick={onOtworz}><FileDown size={14} />Otwórz PDF</button></div></div></div>
   )
-  if (!src) return <div className="dk-podglad-ladowanie muted">Wczytywanie podglądu…</div>
+  if (!src) return (
+    <div className="dk-podglad-ladowanie" aria-live="polite"><RefreshCw size={16} className="spin" aria-hidden="true" />
+      <div><b>Serwer składa PDF…</b><div className="muted">To ten sam dokument, który wyjdzie z drukarki — zwykle kilka sekund.</div></div></div>
+  )
   return <iframe className="dk-podglad" title={`Podgląd ${tytul}`} src={`${src}#toolbar=1&view=FitH`} />
 }

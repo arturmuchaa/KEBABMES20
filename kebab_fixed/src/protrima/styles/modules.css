@@ -1299,3 +1299,4 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .dk-cmr-grid .field { width: 100%; }
 .dk-towar { display: grid; grid-template-columns: minmax(0, 1fr) 90px 100px 32px; gap: 8px; align-items: center; }
 .dk-rozjazd { background: var(--crit-tint); color: var(--crit-ink); font-weight: 600; }
+.dk-podglad-ladowanie { display: flex; gap: 12px; align-items: flex-start; }
