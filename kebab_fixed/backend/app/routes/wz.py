@@ -72,6 +72,18 @@ def pdf(wz_id: str):
     )
 
 
+@router.get("/podglad/{rodzaj}/{doc_id}")
+def podglad_druku(rodzaj: str, doc_id: str):
+    """Adres strony wydruku z tokenem tylko do odczytu (2 min) — podgląd w PROTRIMA
+    otwiera ją w ramce zamiast czekać, aż serwer złoży PDF. To ta sama strona,
+    z której `render_url_to_pdf` robi PDF, więc podgląd = wydruk."""
+    import re
+    from app.auth.render_token import make_render_token
+    if rodzaj not in ("wz", "cmr", "hdi") or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", doc_id or ""):
+        raise HTTPException(400, "Nieprawidłowy dokument")
+    return {"sciezka": f"/office/{rodzaj}/{doc_id}/druk?pdf=1&render_token={make_render_token(ttl=120)}"}
+
+
 @router.get("/stock/finished-goods")
 def stock_fg(client_id: str = ""):
     """`client_id` — po to, by nazwa pozycji na ekranie była TĄ, którą

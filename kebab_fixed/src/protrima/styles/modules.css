@@ -1299,7 +1299,9 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .dk-akcje { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px 10px; border-bottom: 1px solid var(--line-soft); }
 .dk-akcje .btn.danger-ghost:not(:disabled) { color: var(--crit-ink); }
 .dk-podglad-wrap { display: flex; flex-direction: column; min-height: 0; padding: 0; }
-.dk-podglad { flex: 1; width: 100%; min-height: 320px; border: 0; background: var(--surface-alt); }
+.dk-podglad-skala { flex: 1; overflow: auto; padding: 12px; background: var(--surface-sunk, var(--surface-alt)); }
+.dk-kartka { margin: 0 auto; overflow: hidden; background: #fff; box-shadow: 0 1px 6px rgba(0, 0, 0, .18); }
+.dk-podglad { border: 0; background: #fff; display: block; }
 .dk-podglad-ladowanie { padding: 24px 16px; }
 .dk-podglad-blad { margin: 16px; }
 .dk-waluta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }

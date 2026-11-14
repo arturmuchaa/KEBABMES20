@@ -44,7 +44,7 @@ describe('WzDocumentView — dopisek dokumentu wewnętrznego (seria WM)', () => 
     render(<WzDocumentView doc={{ ...DOC, doc_series: 'WM', number: 'WM/1/09/26',
                                   ukrywa_czesc_poza_faktura: true }} />)
     expect(screen.queryByText(/DOKUMENT WEWNĘTRZNY|NIE WYDAWAĆ/i)).toBeNull()
-    expect(screen.getByText(/Wydanie zewnętrzne\s+WM\/1\/09\/26/)).toBeTruthy()
+    expect(document.body.textContent).toMatch(/Wydanie zewnętrzne\s+WM\/1\/09\/26/)
     expect(screen.queryByText(/WZ — Wydanie/)).toBeNull()
   })
 
@@ -78,5 +78,28 @@ describe('WzDocumentView — logo zakładu', () => {
     const img = container.querySelector('img')!
     expect(img.getAttribute('src')).toBe(LOGO_ZAKLADU.src)
     expect(img.getAttribute('alt')).toBe(LOGO_ZAKLADU.alt)
+  })
+})
+
+describe('WzDocumentView — wariant A (właściciel 14.11.2026)', () => {
+  it('duże pola na pieczątkę i podpis wystawiającego oraz odbiorcy', () => {
+    render(<WzDocumentView doc={DOC} />)
+    expect(screen.getByText('Pieczątka i podpis wystawiającego')).toBeTruthy()
+    expect(screen.getByText('Data, pieczątka i podpis odbiorcy')).toBeTruthy()
+    const pole = screen.getByTestId('pole-podpisu-wystawiajacy')
+    expect(parseInt(pole.style.height)).toBeGreaterThanOrEqual(90)
+  })
+  it('bez szarych pasów sekcji — etykiety „Sprzedawca” i „Nabywca” nad danymi', () => {
+    const { container } = render(<WzDocumentView doc={DOC} />)
+    expect(screen.getByText('Sprzedawca')).toBeTruthy()
+    expect(screen.getByText('Nabywca')).toBeTruthy()
+    expect(container.innerHTML).not.toContain('#d7d7d7')
+  })
+})
+
+describe('WzDocumentView — kwoty', () => {
+  it('spacja tysięcy także w kwotach 4-cyfrowych', () => {
+    render(<WzDocumentView doc={{ ...DOC, valued: true, total_value: 8520, lines: [{ name: 'KEBAB', qty: 20, unit: 'szt', total_kg: 600, price: 14.2, value: 8520, vat_rate: 5 }] }} />)
+    expect(screen.getAllByText(/8\s520,00/).length).toBeGreaterThan(0)
   })
 })

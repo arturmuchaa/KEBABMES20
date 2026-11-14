@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Printer, Download } from 'lucide-react'
 import { hdiApi, downloadDocPdf, type HdiDoc } from '@/lib/api'
 import { drukuj } from '@/lib/print'
@@ -109,7 +109,9 @@ export function HdiPrintPage() {
   // arkusz bez 20 mm nagłówka i dopasowanie wychodzi za wysokie.
   const [assetsReady, setAssetsReady] = useState(false)
   // ?pdf=1 → render do PDF przez headless Chrome; nie wywołuj wtedy void drukuj().
-  const isPdf = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('pdf')
+  // Z routera (jak WZ/CMR), nie z window.location — w ramce podglądu i w testach to ten sam adres.
+  const [sp] = useSearchParams()
+  const isPdf = sp.has('pdf')
   useEffect(() => { hdiApi.get(id).then(setDoc).catch(e => setErr(e instanceof Error ? e.message : 'Błąd')) }, [id])
 
   // Pomiar SYNCHRONICZNY w useLayoutEffect (przed paintem), bez requestAnimationFrame
@@ -381,8 +383,8 @@ export function HdiPrintPage() {
         }
       `}</style>
 
-      {/* Toolbar — hidden on print */}
-      <div className="no-print" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 12px', background: '#f8f9fa', borderBottom: '1px solid #dee2e6' }}>
+      {/* Toolbar — hidden on print; w trybie ?pdf=1 (PDF z serwera i podgląd w PROTRIMA) wcale */}
+      {!isPdf && <div className="no-print" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '8px 12px', background: '#f8f9fa', borderBottom: '1px solid #dee2e6' }}>
         <Link to="/office/zamowienia" style={{ fontSize: '13px', color: '#1d4ed8', display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}>
           <ArrowLeft size={14} /> Zamówienia
         </Link>
@@ -399,7 +401,7 @@ export function HdiPrintPage() {
         >
           <Download size={14} /> Pobierz PDF
         </button>
-      </div>
+      </div>}
 
       <div
         className="sheet-wrap"

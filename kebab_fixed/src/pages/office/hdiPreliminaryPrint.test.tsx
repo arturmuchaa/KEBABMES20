@@ -33,3 +33,9 @@ it('po załadunku pokazuje datę wysyłki niezależnie od daty wystawienia', asy
   expect(view.container.querySelector('.ship-row')?.textContent).toContain('31.10.2026')
   expect(view.container.querySelector('.meta-table')?.textContent).toContain('30.10.2026')
 })
+
+it('w trybie ?pdf=1 (PDF z serwera, podgląd w PROTRIMA) bez paska przycisków', async () => {
+  show({})
+  await screen.findByText('1/10/26', { exact: false })
+  expect(screen.queryByText(/Pobierz PDF/)).toBeNull()
+})

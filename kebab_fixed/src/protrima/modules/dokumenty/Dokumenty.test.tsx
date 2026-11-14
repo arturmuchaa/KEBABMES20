@@ -6,7 +6,7 @@ import { AppCtx, type AppApi } from '../../shell/context'
 
 const dok = vi.hoisted(() => ({ wz: vi.fn(), cmr: vi.fn(), hdi: vi.fn() }))
 const blob = vi.hoisted(() => vi.fn())
-vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), dokumentyApi: dok, fetchBlob: blob }))
+vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), dokumentyApi: dok, podgladDrukuApi: { adres: blob } }))
 import { DokumentyModule } from './DokumentyModule'
 
 const DZIS = new Date().toISOString().slice(0, 10)
@@ -25,7 +25,7 @@ const numery = () => within(lista()).queryAllByTestId('numer').map(e => e.textCo
 afterEach(cleanup)
 beforeEach(() => {
   dok.wz.mockResolvedValue(WZ); dok.cmr.mockResolvedValue(CMR); dok.hdi.mockResolvedValue(HDI)
-  blob.mockReset(); blob.mockResolvedValue(new Blob(['%PDF'], { type: 'application/pdf' }))
+  blob.mockReset(); blob.mockImplementation((r: string, id: string) => Promise.resolve(`http://serwer/office/${r}/${id}/druk?pdf=1&render_token=t`))
   ;(globalThis.URL as unknown as { createObjectURL: unknown }).createObjectURL = vi.fn(() => 'blob:x')
   ;(globalThis.URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = vi.fn()
 })
@@ -63,11 +63,11 @@ describe('moduł Dokumenty', () => {
     fireEvent.click(screen.getByRole('tab', { name: /CMR/ }))
     expect(screen.getByRole('button', { name: /^Drukuj zaznaczone$/ })).toBeTruthy()
   })
-  it('podgląd PDF wybranego; „Anuluj” przy WM z kursu wyłączone z podpowiedzią', async () => {
+  it('podgląd = strona wydruku w ramce; „Anuluj” przy WM z kursu wyłączone z podpowiedzią', async () => {
     mount()
     await waitFor(() => expect(numery().length).toBe(3))
     fireEvent.click(within(lista()).getByText('WM/1/11/26'))
-    await waitFor(() => expect(document.querySelector('iframe[title^="Podgląd"]')).toBeTruthy())
+    await waitFor(() => expect(document.querySelector('iframe[title^="Podgląd"]')?.getAttribute('src')).toBe('http://serwer/office/wz/w2/druk?pdf=1&render_token=t'))
     const an = screen.getByRole('button', { name: 'Anuluj dokument' }) as HTMLButtonElement
     expect(an.disabled).toBe(true)
     expect(an.getAttribute('data-tip')).toMatch(/komplet/)

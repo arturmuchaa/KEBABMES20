@@ -252,7 +252,7 @@ function PanelDokumentu({ d, wersja, wzZHdi, maxed, onMax, onClose, onOtworz, on
         {d.orderId && <button className="btn sm ghost" onClick={() => app.openOrder(d.orderId!)}><ShoppingCart size={14} />Zamówienie</button>}
       </div>
       <div className="dock-body dk-podglad-wrap">
-        <Podglad key={`${d.id}-${wersja}`} url={pdfUrl(d)} tytul={d.numer} onOtworz={onOtworz} />
+        <Podglad key={`${d.id}-${wersja}`} rodzaj={d.rodzaj} id={d.id} tytul={d.numer} onOtworz={onOtworz} />
       </div>
     </>
   )

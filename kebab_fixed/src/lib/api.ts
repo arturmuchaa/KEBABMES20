@@ -3433,6 +3433,14 @@ export const rozliczeniaPdf = {
     `${BASE}${rozlKlient(clientId)}/historia/pdf${rozlQuery({ od, do: do_ })}`,
 }
 
+/** Pełny adres strony na serwerze MES (przeglądarka: ten sam host; PROTRIMA na Windows: serwer z `BASE`). */
+export const adresSerwera = (sciezka: string) => `${BASE.replace(/\/api$/, '')}${sciezka}`
+/** Szybki podgląd: strona wydruku z tokenem tylko do odczytu (ta sama, z której serwer robi PDF). */
+export const podgladDrukuApi = {
+  adres: (rodzaj: 'wz' | 'cmr' | 'hdi', id: string) =>
+    get<{ sciezka: string }>(`/wz/podglad/${rodzaj}/${encodeURIComponent(id)}`).then(r => adresSerwera(r.sciezka)),
+}
+
 /** Surowe listy dokumentów dla modułu PROTRIMA „Dokumenty” (pola jak z serwera). */
 export const dokumentyApi = {
   wz: () => get<Array<Record<string, unknown>>>('/wz'),
