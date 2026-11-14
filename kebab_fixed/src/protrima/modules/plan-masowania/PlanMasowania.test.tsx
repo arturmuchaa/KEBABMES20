@@ -137,6 +137,26 @@ describe('Plan masowania — ekran', () => {
     ], DZIS)
   })
 
+  it('powłoka renderująca się po setCmds nie wpada w pętlę (zablokowany pasek boczny)', async () => {
+    // Jak App: setCmds zapisuje polecenia w stanie powłoki, co renderuje moduł ponownie.
+    let wywolan = 0
+    function Powloka() {
+      const [, setC] = React.useState<unknown>(null)
+      const ustaw = React.useCallback((c: unknown) => { wywolan++; setC(c) }, [])
+      return <AppCtx.Provider value={app}><PlanMasowaniaModule active setCtx={vi.fn()} setCmds={ustaw} /></AppCtx.Provider>
+    }
+    const blad = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<Powloka />)
+    const tbl = await screen.findByLabelText('Pozycje planu masowania')
+    await within(tbl).findByDisplayValue('600')
+    const po = wywolan
+    await new Promise(r => setTimeout(r, 50))
+    expect(wywolan).toBe(po)
+    expect(wywolan).toBeLessThan(20)
+    expect(blad.mock.calls.some(c => String(c[0]).includes('Maximum update depth'))).toBe(false)
+    blad.mockRestore()
+  })
+
   it('zaległe zlecenie widać na dzisiejszym planie; przeniesienie woła serwer', async () => {
     mix.move.mockResolvedValue({})
     mount()

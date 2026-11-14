@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 
 /**
  * Stabilny JSON-equality check.
@@ -59,7 +59,9 @@ export function useApi<T>(fetcher: () => Promise<T>, deps: unknown[] = []) {
     return () => { abortRef.current?.abort() }
   }, [run, ...deps]) // eslint-disable-line
 
-  return { data, loading, error, refetch: run }
+  // Stały obiekt między renderami: moduły PROTRIMA trzymają wynik w zależnościach
+  // `useMemo`/`useCallback` — nowy obiekt co render kręcił pętlę setCmds ↔ render powłoki.
+  return useMemo(() => ({ data, loading, error, refetch: run }), [data, loading, error, run])
 }
 
 export function useMutation<I = void, O = unknown>(fn: (i: I) => Promise<O>) {

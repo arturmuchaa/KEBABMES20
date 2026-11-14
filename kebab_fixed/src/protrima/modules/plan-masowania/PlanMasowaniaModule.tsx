@@ -47,6 +47,8 @@ export function PlanMasowaniaModule({ active, setCtx, setCmds }: { active: boole
   const stanyRes = useApi(() => ingredientsApi.stock())
   const potrzebyRes = useApi(() => mixingOrdersApi.demand(dzien), [dzien])
   const zalegleRes = useApi(() => mixingOrdersApi.stale())
+  // useApi zwraca nowy obiekt przy każdym renderze — w zależnościach tylko stałe `refetch`.
+  const odswiezPotrzeby = potrzebyRes.refetch, odswiezZalegle = zalegleRes.refetch, odswiezStany = stanyRes.refetch
 
   const [wiersze, setWiersze] = useState<Wiersz[]>([])
   const [zapisany, setZapisany] = useState('[]')
@@ -94,9 +96,9 @@ export function PlanMasowaniaModule({ active, setCtx, setCmds }: { active: boole
   }, [dzien, wczytaj])
 
   const odswiez = useCallback(() => {
-    void potrzebyRes.refetch(); void zalegleRes.refetch(); void stanyRes.refetch()
+    void odswiezPotrzeby(); void odswiezZalegle(); void odswiezStany()
     if (!zmienionyRef.current) void wczytaj(dzienRef.current)
-  }, [potrzebyRes, zalegleRes, stanyRes, wczytaj])
+  }, [odswiezPotrzeby, odswiezZalegle, odswiezStany, wczytaj])
 
   const partie = useMemo<PartiaMiesa[]>(() => withDayPool(
     mieso.filter(m => m.status !== 'DEPLETED' && m.status !== 'IN_PRODUCTION').map(m => ({
@@ -114,8 +116,9 @@ export function PlanMasowaniaModule({ active, setCtx, setCmds }: { active: boole
   const doZamasowania = potrzeby.filter(p => p.brakKg > 0).length
   const zalegle = ((zalegleRes.data ?? []) as StaleMixingOrder[]).filter(z => z.planDate !== dzien)
   const bl = useMemo(() => bledy(wiersze), [wiersze])
-  const brak = pierwszyBlad(wiersze, bl)
-  const pelne = wiersze.filter(wypelniony)
+  // Stałe referencje: `cmds` zależy od nich, a każde nowe `cmds` → setCmds → render powłoki → render modułu (pętla).
+  const brak = useMemo(() => pierwszyBlad(wiersze, bl), [wiersze, bl])
+  const pelne = useMemo(() => wiersze.filter(wypelniony), [wiersze])
   const wybrany = wiersze.find(w => w.klucz === sel) ?? null
   const recItems = useMemo<WyborItem[]>(() => [...receptury.values()].sort((x, y) => x.name.localeCompare(y.name, 'pl'))
     .map(r => ({ id: r.id, label: r.name, sub: `${fmt(r.totalOutputPer100kg)} kg / 100 kg` })), [receptury])
@@ -166,10 +169,10 @@ export function PlanMasowaniaModule({ active, setCtx, setCmds }: { active: boole
       await wczytaj(dzien)
       setPokazBledy(false)
       app.toast({ kind: 'ok', title: `Plan masowania na ${nazwaDnia(dzien, dzis)} zapisany`, detail: `${b.pozycji} poz. · ${fmt(b.miesoKg)} kg mięsa → ${fmt(b.polproduktKg)} kg półproduktu${b.bezPartiiKg > 0.5 ? ` · ${fmt(b.bezPartiiKg)} kg bez partii` : ''}` })
-      void potrzebyRes.refetch()
+      void odswiezPotrzeby()
       return true
     } catch (e) { setBladZapisu(e instanceof Error ? e.message : 'Nie udało się zapisać planu'); return false } finally { setZapisuje(false) }
-  }, [zapisuje, tylkoPodglad, brak, zmieniony, wiersze, dzien, dzis, wczytaj, app, b, potrzebyRes])
+  }, [zapisuje, tylkoPodglad, brak, zmieniony, wiersze, dzien, dzis, wczytaj, app, b, odswiezPotrzeby])
 
   const zmienDzien = (cel: string) => { if (cel === dzien) return; if (zmieniony) setOkno({ rodzaj: 'dzien', cel }); else setDzien(cel) }
   const poOperacji = (tytul: string, detail?: string) => {
