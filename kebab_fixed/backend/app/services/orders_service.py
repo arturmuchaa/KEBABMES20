@@ -1203,7 +1203,8 @@ def quantity_chain(order_id: str) -> Dict[str, Any]:
         wz_lines = wz.get("lines")
         if isinstance(wz_lines, str):
             wz_lines = _json.loads(wz_lines or "[]")
-        for ln in wz_lines or []:
+        from app.services.wz_service import linie_wyrobu
+        for ln in linie_wyrobu(wz_lines):
             b = bucket(ln.get("recipe_id"), ln.get("kg_per_unit"), ln.get("name") or "")
             b["documented"] += int(ln.get("qty") or 0)
 

@@ -33,7 +33,7 @@ from app.services.order_stock_service import picks_for_order
 from app.services.orders_service import zamknij_wyslane_zamowienia
 from app.services.settings_service import get_company
 from app.services import shipment_documents as shipment
-from app.services.wz_service import (SUROWIEC, zwroc_surowiec, _fmt_kg, _insert_wz, _rebook_wz_containers,
+from app.services.wz_service import (SUROWIEC, linie_wyrobu, zwroc_surowiec, _fmt_kg, _insert_wz, _rebook_wz_containers,
                                      _seller_block, build_goods_wz_lines,
                                      build_wz_lines, naming_context,
                                      wyprowadz_wz_poza_serie_cx)
@@ -133,7 +133,7 @@ def _linie_z_dokumentu(doc: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 def _kg_z_linii(lines: List[Dict[str, Any]]) -> float:
     total = 0.0
-    for l in lines or []:
+    for l in linie_wyrobu(lines):
         if l.get("total_kg") is not None:
             total += float(l["total_kg"])
         else:

@@ -847,6 +847,14 @@ def zdejmij_stempel_obcej_sprzedazy(conn, fg_id: str, stempel: str, nabywca: str
 SUROWIEC = ("raw", "meat", "byproduct")
 
 
+def linie_wyrobu(lines: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Linie wyrobu gotowego. Pozycje dodatkowe (z ręki, surowiec dopisany do
+    yapraku) nie jadą na paletach i nie są w zamówieniu — załadunek, rozpis
+    palet, pokrycie kursu i łańcuch ilości ich nie widzą. Stare linie bez
+    `stock_type` to wyrób."""
+    return [l for l in lines or [] if (l.get("stock_type") or "fg") == "fg"]
+
+
 def stempluj_daty_surowca(lines: List[Dict[str, Any]]) -> None:
     """Daty uboju/ważności partii na liniach surowca — snapshot w chwili
     wystawienia (tabela HDI na dokumencie)."""

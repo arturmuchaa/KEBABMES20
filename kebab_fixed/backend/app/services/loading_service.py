@@ -28,7 +28,7 @@ from app.services import vehicle_loading_service
 from app.services.dispatch_completeness import dispatch_contents_cx
 from app.services.order_stock_service import picks_for_pallets, picks_z_dokumentu
 from app.services.settings_service import get_company
-from app.services.wz_service import (_insert_wz, _seller_block, build_goods_wz_lines,
+from app.services.wz_service import (_insert_wz, _seller_block, build_goods_wz_lines, linie_wyrobu,
                                      naming_context)
 from app.utils.stock import create_stock_movement
 from app.utils.unit_codes import SHIPPED, group_units_by_goods
@@ -82,7 +82,7 @@ def verify_wz_against_loaded(
     {name, batch_no, doc_qty, loaded_qty, diff} (diff = loaded - doc).
     """
     doc: Dict[Tuple, Dict[str, Any]] = {}
-    for ln in wz_lines or []:
+    for ln in linie_wyrobu(wz_lines):
         k = _line_key(ln.get("recipe_id"), ln.get("kg_per_unit"), ln.get("batch_no"))
         d = doc.setdefault(k, {"qty": 0, "name": ln.get("name") or ""})
         d["qty"] += int(ln.get("qty") or 0)
@@ -463,7 +463,7 @@ def finalize_loading(
             if not without_units:
                 z_rozpisu = []
             elif wm:
-                document_lines = _linie_dokumentu(wm)
+                document_lines = linie_wyrobu(_linie_dokumentu(wm))
                 # Odejmij sztuki QR od dokumentu zanim przypiszesz jego partie
                 # do pozostałych palet, aby ta sama porcja nie pokryła obu.
                 remaining_qr = aggregate_loaded_units(units_all)

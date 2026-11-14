@@ -199,3 +199,13 @@ def test_trasy_dopisz_i_usun(db):
     assert any(l.get("line_id") == "J1" for l in po["lines"])
     po = route.usun_pozycje(wz["id"], "J1")
     assert not any(l.get("line_id") == "J1" for l in po["lines"])
+
+
+def test_lancuch_ilosci_bez_pozycji_dodatkowych(db):
+    from app.services.orders_service import quantity_chain
+    _przygotuj_bez_podzialu()
+    wm = create_wz_from_order("o1")
+    przed = quantity_chain("o1")["lines"]
+    bid = _loj()
+    dopisz_pozycje(wm["id"], _loj_sel(bid))
+    assert quantity_chain("o1")["lines"] == przed
