@@ -5,6 +5,7 @@ with FOR UPDATE row locks on every touched seasoned_meat row, so a
 concurrent plan cannot double-book the same lot.
 """
 import json
+import re
 from typing import Any, Dict, List
 
 from fastapi import HTTPException
@@ -402,25 +403,34 @@ def _allocate_components(
 
 
 def _compute_component_allocation(
-    conn, line: PlanLineCreate, components: list[dict]
+    conn, line: PlanLineCreate, components: list[dict],
+    locked: Dict[str, Dict] | None = None,
+    remaining: Dict[str, float] | None = None,
 ) -> tuple[list[str], dict, str | None, str]:
-    """Alokacja dla receptury komponentowej — partie wybierane automatycznie
-    (FEFO) per rodzaj mięsa, bez ręcznego zaznaczania w planowaniu."""
+    """Alokacja komponentowa: ręczny wybór ogranicza pulę, FEFO ustala kolejność."""
     kg_pu = float(line.kg_per_unit or 0)
+    selected_ids = list(line.seasoned_batch_ids or [])
+    if not selected_ids and line.seasoned_batch_id:
+        selected_ids = [line.seasoned_batch_id]
     pools: list[list[dict]] = []
     all_ids: list[str] = []
     rows_by_comp: list[list[str]] = []
     for c in components:
-        rows = cx_query_all(
+        rows = ([r for r in locked.values()
+                 if r.get("material_type_id") == c.get("materialTypeId")
+                 and (not selected_ids or r["id"] in selected_ids)]
+                if locked is not None else cx_query_all(
             conn,
             """
             SELECT id FROM seasoned_meat
             WHERE COALESCE(material_type_id,'') = %s
+              AND recipe_id = %s
               AND status = 'available'
               AND (kg_available - COALESCE(kg_reserved,0)) > 0.01
+              AND (%s OR id = ANY(%s))
             """,
-            (c.get("materialTypeId") or "",),
-        )
+            (c.get("materialTypeId") or "", line.recipe_id, not selected_ids, selected_ids),
+        ))
         ids = [r["id"] for r in rows]
         rows_by_comp.append(ids)
         all_ids.extend(ids)
@@ -428,23 +438,27 @@ def _compute_component_allocation(
     # Lock deterministycznie (sorted) — potem pule w kolejności FEFO
     locked_rows: Dict[str, Dict] = {}
     for bid in sorted(set(all_ids)):
-        r = cx_query_one(
+        r = locked.get(bid) if locked is not None else cx_query_one(
             conn, "SELECT * FROM seasoned_meat WHERE id=%s FOR UPDATE", (bid,)
         )
         if r:
             locked_rows[bid] = r
 
-    for ids in rows_by_comp:
+    for component, ids in zip(components, rows_by_comp):
         pool = []
         for bid in ids:
             r = locked_rows.get(bid)
-            if not r:
+            if (not r or r.get("status") != "available"
+                    or r.get("recipe_id") != line.recipe_id
+                    or r.get("material_type_id") != component.get("materialTypeId")):
                 continue
             free = max(
                 0.0,
                 float(r.get("kg_available") or 0)
                 - float(r.get("kg_reserved") or 0),
             )
+            if remaining is not None:
+                free = remaining.get(bid, free)
             if free <= 0.01:
                 continue
             pool.append({
@@ -453,10 +467,18 @@ def _compute_component_allocation(
                 "free": free,
                 "expiry": str(r.get("expiry_date") or ""),
             })
-        pool.sort(key=lambda b: (b["expiry"], b["b_no"]))
+        # Same numeric batch ordering as frontend fefoLotCompare (99 before 100).
+        pool.sort(key=lambda b: (b["expiry"], [
+            (0, int(part)) if part.isdigit() else (1, part.lower())
+            for part in re.split(r"(\d+)", b["b_no"])
+        ], b["bid"]))
         pools.append(pool)
 
     allocation = _allocate_components(int(line.qty), kg_pu, components, pools)
+
+    if remaining is not None:
+        for bid, kg in _allocation_kg_per_batch(allocation).items():
+            remaining[bid] -= kg
 
     # Partie źródłowe (lineage / seasoned_batch_nos)
     src_nos: list[str] = []
@@ -470,6 +492,25 @@ def _compute_component_allocation(
     primary_id = src_ids[0] if src_ids else None
     primary_no = src_nos[0] if src_nos else ""
     return src_nos, allocation, primary_id, primary_no
+
+
+def _plan_batch_ids(conn, lines: List[PlanLineCreate]) -> list[str]:
+    """Lock the entire plan pool in one deterministic order, including auto FEFO."""
+    ids: set[str] = set()
+    for line in lines:
+        selected = line.seasoned_batch_ids or ([line.seasoned_batch_id] if line.seasoned_batch_id else [])
+        ids.update(selected)
+        if selected:
+            continue
+        components = _line_components(conn, line)
+        if components:
+            rows = cx_query_all(conn, """
+                SELECT id FROM seasoned_meat
+                WHERE recipe_id=%s AND material_type_id=ANY(%s)
+                  AND status='available' AND kg_available-COALESCE(kg_reserved,0)>0.01
+            """, (line.recipe_id, [c.get("materialTypeId") or "" for c in components]))
+            ids.update(r["id"] for r in rows)
+    return sorted(b for b in ids if b)
 
 
 def _allocation_kg_per_batch(allocation: dict) -> Dict[str, float]:
@@ -550,6 +591,24 @@ def _check_plan_shortfalls(
     for line in valid_lines:
         line_kg = round(line.qty * line.kg_per_unit, 3)
         if line_kg <= 0:
+            continue
+        components = _line_components(conn, line)
+        if components:
+            _, allocation, _, _ = _compute_component_allocation(
+                conn, line, components, locked=locked, remaining=remaining,
+            )
+            pieces = sum(int(g.get("pieces") or 0) for g in allocation.values())
+            if pieces < int(line.qty):
+                recipe_name, _, _ = _resolve_line_names(conn, line)
+                composition = ", ".join(
+                    f'{c.get("materialName") or c.get("materialTypeId")} {float(c["pct"]):g}%'
+                    for c in components
+                )
+                shortfalls.append(
+                    f'"{recipe_name or line.recipe_id}": skład {composition} — '
+                    f'z wybranych partii wychodzi {pieces} z {line.qty} szt. '
+                    'Wybierz wystarczającą ilość każdego składnika.'
+                )
             continue
         ids = (
             list(line.seasoned_batch_ids)
@@ -811,16 +870,7 @@ def create_plan(dto: ProductionPlanCreate) -> Dict:
         # Lock every seasoned_meat row required by the plan up-front,
         # in deterministic order, to avoid deadlocks between concurrent
         # plan creates.
-        all_ids = {
-            bid
-            for line in valid_lines
-            for bid in (
-                line.seasoned_batch_ids
-                or ([line.seasoned_batch_id] if line.seasoned_batch_id else [])
-            )
-            if bid
-        }
-        locked = _lock_seasoned_batches(conn, sorted(all_ids))
+        locked = _lock_seasoned_batches(conn, _plan_batch_ids(conn, valid_lines))
 
         # Walidacja: czy zaznaczone partie mają wystarczająco kg na wszystkie linie?
         # Jeśli nie — rzuć 400 PRZED nadaniem numeru planu i utworzeniem rekordu.
@@ -864,11 +914,12 @@ def create_plan(dto: ProductionPlanCreate) -> Dict:
             )
             comps = _line_components(conn, line)
             if comps:
-                # Receptura komponentowa (np. 70/30) — partie per komponent
-                # dobierane automatycznie FEFO po rodzaju mięsa
+                # Selected batches (or automatic FEFO) in component proportions.
                 nos, allocation, primary_id, primary_no = (
-                    _compute_component_allocation(conn, line, comps)
+                    _compute_component_allocation(conn, line, comps, locked=locked)
                 )
+                for bid, kg in _allocation_kg_per_batch(allocation).items():
+                    locked[bid]["kg_reserved"] = float(locked[bid].get("kg_reserved") or 0) + kg
             else:
                 nos, allocation, primary_id, primary_no = _compute_allocation(
                     conn, line, line_kg, locked
@@ -971,16 +1022,7 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
             (dto.plan_date, round(total_kg, 3), total_units, dto.notes or None, plan_id),
         )
 
-        new_ids = {
-            bid
-            for line in editable_lines
-            for bid in (
-                line.seasoned_batch_ids
-                or ([line.seasoned_batch_id] if line.seasoned_batch_id else [])
-            )
-            if bid
-        }
-        locked = _lock_seasoned_batches(conn, sorted(new_ids))
+        locked = _lock_seasoned_batches(conn, _plan_batch_ids(conn, editable_lines))
 
         # Walidacja braków tylko dla pozycji edytowalnych — zamrożone mają
         # rezerwacje utrzymane (nie zwalniamy ich), więc ich partie nie są tu liczone.
@@ -1015,8 +1057,10 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
             comps = _line_components(conn, line)
             if comps:
                 nos, allocation, primary_id, primary_no = (
-                    _compute_component_allocation(conn, line, comps)
+                    _compute_component_allocation(conn, line, comps, locked=locked)
                 )
+                for bid, kg in _allocation_kg_per_batch(allocation).items():
+                    locked[bid]["kg_reserved"] = float(locked[bid].get("kg_reserved") or 0) + kg
             else:
                 nos, allocation, primary_id, primary_no = _compute_allocation(
                     conn, line, line_kg, locked

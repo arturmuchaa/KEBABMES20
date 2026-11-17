@@ -205,13 +205,14 @@ describe('recalcAll', () => {
   })
 
   it('mięso trzymane przez pozycję rozpoczętą nie wraca do puli', () => {
-    // Zamrożona bierze CAŁE 300 kg z b1; przeliczana musi pójść na b2.
+    // API kgFree already excludes the frozen line's reservation.
+    // withOwnReservations deliberately does NOT return it to the draft pool.
     const out = recalcAll(
       [linia({ recipeId: 'r1', qty: '30', kgPerUnit: '10',
         seasonedBatchIds: ['b1'], seasonedBatchId: 'b1', qtyDone: 5 }),
        linia({ recipeId: 'r1', qty: '10', kgPerUnit: '10',
         seasonedBatchIds: ['b1'], seasonedBatchId: 'b1', batchesManual: true })],
-      partie,
+      partie.map(b => b.id === 'b1' ? { ...b, kgFree: 0 } : b),
     )
     expect(out[0].seasonedBatchIds).toEqual(['b1'])
     expect(out[1].seasonedBatchIds).toEqual(['b2'])

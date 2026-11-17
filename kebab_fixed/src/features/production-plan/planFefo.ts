@@ -19,8 +19,11 @@
  * Zero importów z React/UI — czysta logika, testowana w node.
  */
 import { fefoLotCompare } from '@/lib/utils/fefo'
+import { allocatePlanMeat } from './planMeatAllocation'
+import { lineComponents, type CompositionCatalog } from './planComponents'
 
 export interface FefoLine {
+  productTypeId?: string
   recipeId:          string
   qty:               string | number
   kgPerUnit:         string | number
@@ -33,6 +36,7 @@ export interface FefoLine {
 }
 
 export interface FefoBatch {
+  materialTypeId?: string
   id:          string
   recipeId:    string
   batchNo?:    string
@@ -56,7 +60,7 @@ const maPartie = (l: FefoLine): boolean =>
 export function assignFefo<T extends FefoLine>(
   lines: T[],
   batches: FefoBatch[],
-  opts: { recipeId?: string; force?: boolean } = {},
+  opts: { recipeId?: string; force?: boolean; catalog?: CompositionCatalog } = {},
 ): T[] {
   const pula = [...batches]
     .filter(b => b.kgFree > 0)
@@ -64,7 +68,7 @@ export function assignFefo<T extends FefoLine>(
       { expiryDate: a.expiryDate, no: a.batchNo, id: a.id },
       { expiryDate: b.expiryDate, no: b.batchNo, id: b.id },
     ))
-    .map(b => ({ id: b.id, recipeId: b.recipeId, rem: b.kgFree }))
+    .map(b => ({ ...b, rem: b.kgFree }))
 
   return lines.map(line => {
     if (opts.recipeId && line.recipeId !== opts.recipeId) return line
@@ -74,6 +78,19 @@ export function assignFefo<T extends FefoLine>(
     const qty  = num(line.qty)
     const kgPu = num(line.kgPerUnit)
     if (!line.recipeId || qty <= 0 || kgPu <= 0) return line
+
+    const components = lineComponents(line, opts.catalog)
+    if (components.length > 0) {
+      const candidates = pula.filter(b => b.recipeId === line.recipeId
+        && components.some(c => c.materialTypeId === b.materialTypeId) && b.rem > 0)
+      const ids = candidates.map(b => b.id)
+      const alloc = allocatePlanMeat([{ ...line, seasonedBatchIds: ids, seasonedBatchId: '' }],
+        pula.map(b => ({ ...b, kgFree: b.rem })), opts.catalog)
+      const used = ids.filter(id => (alloc.usedByBatch[id] ?? 0) > 0)
+      for (const b of pula) b.rem = alloc.freeByBatch[b.id] ?? b.rem
+      const selected = used.length > 0 ? used : ids
+      return { ...line, seasonedBatchIds: selected, seasonedBatchId: selected[0] ?? '', batchesManual: false }
+    }
 
     let zostaloSztuk = qty
     const przydzielone: string[] = []

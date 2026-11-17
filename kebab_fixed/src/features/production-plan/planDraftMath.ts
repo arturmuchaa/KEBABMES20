@@ -13,8 +13,11 @@ import { assignFefo, type FefoBatch } from './planFefo'
 import { batchIdsFromAllocation } from './planMeatAllocation'
 import { emptyPlanLine } from './planLineModel'
 import type { BatchPanelRow } from './components/BatchPanel'
+import type { CompositionCatalog } from './planComponents'
 
 export interface SeasonedLite {
+  materialTypeId?: string
+  materialName?: string
   id:             string
   recipeId:       string
   recipeName?:    string
@@ -97,6 +100,9 @@ export function buildBatchRows(
     id:            s.id,
     recipeId:      s.recipeId,
     recipeName:    s.recipeName ?? s.recipeId,
+    materialTypeId: s.materialTypeId,
+    materialName: s.materialName,
+    expiryDate: s.expiryDate,
     batchNo:       s.batchNo ?? '',
     productionDay: s.productionDay,
     // Surowe wolne kg — mianownik dla braku. Liczenie braku od `kgFreeLive`
@@ -113,6 +119,7 @@ function pulaPo(seasoned: SeasonedLite[], alloc: PlanAllocation): FefoBatch[] {
   return seasoned.map(s => ({
     id:         s.id,
     recipeId:   s.recipeId,
+    materialTypeId: s.materialTypeId,
     batchNo:    s.batchNo,
     expiryDate: s.expiryDate,
     kgFree:     alloc.freeByBatch[s.id] ?? Math.max(0, Number(s.kgFree ?? s.kgAvailable ?? 0)),
@@ -129,27 +136,27 @@ function pulaPo(seasoned: SeasonedLite[], alloc: PlanAllocation): FefoBatch[] {
  */
 export function addLineWithFefo(
   lines: PlanLine[], nowa: PlanLine, seasoned: SeasonedLite[],
+  catalog: CompositionCatalog = {},
 ): PlanLine[] {
-  const alloc = allocatePlanMeat(lines, seasoned as any)
-  const przydzielona = assignFefo([nowa], pulaPo(seasoned, alloc))[0]
+  const alloc = allocatePlanMeat(lines, seasoned, catalog)
+  const przydzielona = assignFefo([nowa], pulaPo(seasoned, alloc), { catalog })[0]
   return [...lines, przydzielona]
 }
 
 /**
  * Przelicz przydział całego planu od nowa.
  *
- * Zdejmujemy partie ze wszystkich pozycji POZA rozpoczętymi na hali, liczymy
- * co trzymają te rozpoczęte, i dopiero resztę rozdajemy FEFO. Wersja „na
- * skróty" — assignFefo z force na surowej puli — oddawałaby do rozdania mięso,
- * które fizycznie poszło już w produkcję.
+ * Zdejmujemy partie ze wszystkich pozycji POZA rozpoczętymi na hali.
+ * Ich rezerwacje pozostają odjęte w kgFree (withOwnReservations ich nie oddaje),
+ * więc nie odejmujemy ich drugi raz od puli szkicu.
  */
-export function recalcAll(lines: PlanLine[], seasoned: SeasonedLite[]): PlanLine[] {
+export function recalcAll(lines: PlanLine[], seasoned: SeasonedLite[], catalog: CompositionCatalog = {}): PlanLine[] {
   const zdjete = lines.map(l => (num(l.qtyDone) > 0
     ? l
     : { ...l, seasonedBatchIds: [], seasonedBatchId: '', batchesManual: false }))
   // Po zdjęciu partii tylko pozycje zamrożone cokolwiek zajmują.
-  const trzymaneRegularnie = allocatePlanMeat(zdjete, seasoned as any)
-  return assignFefo(zdjete, pulaPo(seasoned, trzymaneRegularnie))
+  const trzymaneRegularnie = allocatePlanMeat(zdjete, seasoned, catalog)
+  return assignFefo(zdjete, pulaPo(seasoned, trzymaneRegularnie), { catalog })
 }
 
 /**

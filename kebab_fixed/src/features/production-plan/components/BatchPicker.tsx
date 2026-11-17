@@ -15,10 +15,15 @@ import {
 } from '@/components/ui/dialog'
 import { fmtKgTrim } from '@/lib/utils'
 import { RotateCcw } from 'lucide-react'
-import { toggleBatchSelection } from '../planMeatAllocation'
+import { allocatePlanMeat, toggleBatchSelection } from '../planMeatAllocation'
+import type { MeatComponent } from '../planComponents'
 import type { BatchPanelRow } from './BatchPanel'
 
-export function BatchPicker({ recipeName, neededKg, batches, selected, onSave, onClose }: {
+export function BatchPicker({ recipeName, neededKg, batches, selected, onSave, onClose,
+  components = [], qty, kgPerUnit }: {
+  components?: MeatComponent[]
+  qty?: number
+  kgPerUnit?: number
   recipeName: string
   /** Ile kilogramów pozycja potrzebuje — po to, żeby było widać, czy starczy. */
   neededKg:   number
@@ -31,12 +36,17 @@ export function BatchPicker({ recipeName, neededKg, batches, selected, onSave, o
   const [wybrane, setWybrane] = useState<string[]>(selected)
   const kolejnoscFefo = useMemo(() => batches.map(b => b.id), [batches])
 
-  // Ile realnie stoi za zaznaczeniem: bierzemy SUROWE wolne kg, bo żywe są już
-  // pomniejszone o bieżący przydział tej samej pozycji.
+  // The caller returns this line's own allocation, excluding all other lines.
   const zaznaczoneKg = batches
     .filter(b => wybrane.includes(b.id))
     .reduce((s, b) => s + b.kgFreeRaw, 0)
-  const brakuje = Math.max(0, neededKg - zaznaczoneKg)
+  const allocation = qty && kgPerUnit ? allocatePlanMeat([
+    { recipeId: 'picker', qty, kgPerUnit, seasonedBatchIds: wybrane },
+  ], batches.map(b => ({ ...b, recipeId: 'picker', kgFree: b.kgFreeRaw })), {
+    recipes: [{ id: 'picker', components }],
+  }).lines[0] : null
+  const brakuje = allocation ? (wybrane.length ? allocation.missingKg : neededKg)
+    : Math.max(0, neededKg - zaznaczoneKg)
 
   return (
     <Dialog open onOpenChange={v => { if (!v) onClose() }}>
@@ -48,6 +58,19 @@ export function BatchPicker({ recipeName, neededKg, batches, selected, onSave, o
             znaczenia — przydział zawsze idzie od najstarszej partii.
           </DialogDescription>
         </DialogHeader>
+
+        {components.length > 0 && (
+          <div className="space-y-1 text-[12px]" data-testid="picker-components">
+            {components.map((c, i) => {
+              const free = batches.filter(b => wybrane.includes(b.id) && b.materialTypeId === c.materialTypeId)
+                .reduce((sum, b) => sum + b.kgFreeRaw, 0)
+              return <p key={`${c.materialTypeId}-${i}`}>
+                {c.materialName || c.materialTypeId} ({c.pct}%): potrzeba {fmtKgTrim(neededKg * c.pct / 100)} kg,
+                {' '}wybrane {fmtKgTrim(free)} kg
+              </p>
+            })}
+          </div>
+        )}
 
         <div className="max-h-[46vh] space-y-1 overflow-y-auto">
           {batches.length === 0 && (
@@ -62,6 +85,7 @@ export function BatchPicker({ recipeName, neededKg, batches, selected, onSave, o
                 checked={wybrane.includes(b.id)}
                 onChange={() => setWybrane(w => toggleBatchSelection(w, b.id, kolejnoscFefo))} />
               <code className="font-mono text-[12.5px] font-bold text-ink">{b.batchNo}</code>
+              {b.materialName && <span className="text-[11px] text-ink-3">{b.materialName}</span>}
               {b.productionDay && (
                 <span className="text-[10.5px] text-ink-4">
                   {b.productionDay.slice(8, 10)}.{b.productionDay.slice(5, 7)}
@@ -79,8 +103,11 @@ export function BatchPicker({ recipeName, neededKg, batches, selected, onSave, o
             brakuje > 0 ? 'bg-danger-light text-danger' : 'bg-surface-2 text-ink-2'
           }`}>
           {brakuje > 0
-            ? `Zaznaczone ${fmtKgTrim(zaznaczoneKg)} kg — brakuje ${fmtKgTrim(brakuje)} kg`
+            ? `Zaznaczone ${fmtKgTrim(zaznaczoneKg)} kg — brakuje pokrycia na ${fmtKgTrim(brakuje)} kg produktu${components.length ? ' w wymaganych proporcjach' : ''}`
             : `Zaznaczone ${fmtKgTrim(zaznaczoneKg)} kg — starczy`}
+          {components.length > 0 && allocation && <div className="mt-1">
+            {allocation.joined.map(j => `${j.label}: ${j.pieces} szt.`).join(' · ')}
+          </div>}
         </div>
 
         <DialogFooter className="gap-2">

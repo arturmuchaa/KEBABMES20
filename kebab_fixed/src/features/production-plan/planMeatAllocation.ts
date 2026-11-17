@@ -32,16 +32,25 @@
  * Do czasu ustalenia zapisu z HACCP resztka zostaje w partii.
  * MUSI odpowiadać backendowemu MIXED_PIECE_NUMBERING.
  */
+import { lineComponents, type CompositionCatalog } from './planComponents'
+import { fefoLotCompare } from '@/lib/utils/fefo'
+
 export const JOIN_LEFTOVER_PIECES = false
 
 export interface AllocSeasonedBatch {
   id:           string
+  recipeId?:    string
+  materialTypeId?: string
+  expiryDate?: string
   batchNo?:     string
   kgFree?:      number
   kgAvailable?: number
 }
 
 export interface AllocPlanLine {
+  productTypeId?: string
+  recipeId?: string
+  qtyDone?: number
   qty:               string | number
   kgPerUnit:         string | number
   seasonedBatchIds?: string[]
@@ -55,7 +64,7 @@ export interface LineBatchTake {
   kg:      number
 }
 
-/** Sztuka złożona z resztek kilku partii — numer łączony "471/472". */
+/** Celowy skład produktu (95/5 → 711/715), lub resztki gdy tryb ich łączenia jest włączony. */
 export interface JoinedPieceTake {
   label:  string
   pieces: number
@@ -130,6 +139,7 @@ export function toggleBatchSelection(
 export function allocatePlanMeat(
   lines: AllocPlanLine[] | undefined | null,
   seasoned: AllocSeasonedBatch[] | undefined | null,
+  catalog: CompositionCatalog = {},
 ): PlanAllocation {
   const byId = new Map<string, AllocSeasonedBatch>()
   const free: Record<string, number> = {}
@@ -148,13 +158,52 @@ export function allocatePlanMeat(
     const perBatch: LineBatchTake[] = []
     const joinedMap = new Map<string, JoinedPieceTake>()
 
-    if (qty <= 0 || kgPu <= 0 || ids.length === 0) {
+    if (qty <= 0 || kgPu <= 0 || ids.length === 0 || num(line.qtyDone) > 0) {
       return {
         qty, neededKg, pieces: 0, allocatedKg: 0,
         missingPieces: 0, missingKg: 0,
         hasBatches: ids.length > 0,
         ok: true,   // nic do oceny: pozycja niekompletna albo bez partii
         perBatch, joined: [],
+      }
+    }
+
+    const components = lineComponents(line, catalog)
+    if (components.length > 0) {
+      // Each complete piece needs ALL components. Never consume a partial piece,
+      // nor substitute excess thigh for missing fillet. Remainders stay in stock.
+      const pools = components.map(c => [...new Set(ids)]
+        .map(id => byId.get(id))
+        .filter((b): b is AllocSeasonedBatch => !!b
+          && b.recipeId === line.recipeId && b.materialTypeId === c.materialTypeId)
+        .sort((a, b) => fefoLotCompare(
+          { expiryDate: a.expiryDate, no: a.batchNo, id: a.id },
+          { expiryDate: b.expiryDate, no: b.batchNo, id: b.id },
+        )))
+      let pieces = 0
+      for (; pieces < qty; pieces++) {
+        const takes = components.map((c, i) => {
+          const kg = kgPu * c.pct / 100
+          const batch = pools[i].find(b => (free[b.id] ?? 0) + EPS >= kg)
+          return batch ? { batchId: batch.id, batchNo: batch.batchNo ?? '', kg } : null
+        })
+        if (takes.some(t => !t)) break
+        const parts = takes.filter((t): t is NonNullable<typeof t> => !!t)
+        const label = parts.map(p => p.batchNo).join('/')
+        const bucket = joinedMap.get(label) ?? { label, pieces: 0, parts: [] }
+        for (const p of parts) {
+          free[p.batchId] -= p.kg
+          const existing = bucket.parts.find(x => x.batchId === p.batchId)
+          if (existing) existing.kg += p.kg
+          else bucket.parts.push({ ...p })
+        }
+        bucket.pieces++
+        joinedMap.set(label, bucket)
+      }
+      return {
+        qty, neededKg, pieces, allocatedKg: pieces * kgPu,
+        missingPieces: qty - pieces, missingKg: (qty - pieces) * kgPu,
+        hasBatches: true, ok: pieces === qty, perBatch, joined: [...joinedMap.values()],
       }
     }
 

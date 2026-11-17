@@ -27,7 +27,8 @@ const PARTIE = [
 ]
 
 const braki = (lines: PlanLine[], toProduction = false) =>
-  planShortfalls(lines, PARTIE as any, RECEPTURY, allocatePlanMeat(lines, PARTIE as any), toProduction)
+  planShortfalls(lines, PARTIE, RECEPTURY,
+    allocatePlanMeat(lines, PARTIE, { recipes: RECEPTURY }), toProduction)
 
 describe('planShortfalls', () => {
   it('plan z pokryciem nie zgłasza nic', () => {
@@ -53,14 +54,14 @@ describe('planShortfalls', () => {
     expect(out[0]).toContain('brak przydzielonych partii')
   })
 
-  it('recepturę komponentową sprawdza per komponent, nie po partiach', () => {
-    // 70/30 z 200 kg: udo potrzebuje 140 (jest 300 — OK), filet 60 (jest 100 — OK)
+  it('szkic bez ręcznego wyboru zostawia automatowi backendu', () => {
     expect(braki([linia({ recipeId: 'r7', qty: '20', kgPerUnit: '10' })])).toEqual([])
   })
 
   it('brak komponentu nazywa surowiec i procent', () => {
     // 70/30 z 1000 kg: filet potrzebuje 300, a jest 100.
-    const out = braki([linia({ recipeId: 'r7', qty: '100', kgPerUnit: '10' })])
+    const out = braki([linia({ recipeId: 'r7', qty: '100', kgPerUnit: '10',
+      seasonedBatchIds: ['b1', 'b2'] })])
     expect(out.some(s => s.includes('Filet') && s.includes('30%'))).toBe(true)
   })
 

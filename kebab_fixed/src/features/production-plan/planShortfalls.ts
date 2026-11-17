@@ -10,13 +10,13 @@
  *  • zwykła — sprawdzamy, czy z ZAZNACZONYCH partii wychodzi tyle sztuk,
  *    ile pozycja zamawia (całe sztuki z jednej partii — patrz
  *    planMeatAllocation);
- *  • komponentowa (70/30) — partie dobiera backend per komponent, więc
- *    sprawdzamy tylko, czy wolnych kilogramów danego RODZAJU mięsa starczy.
+ *  • komponentowa (95/5) — ta sama alokacja sprawdza udział każdego składnika.
  *
  * Zero importów z React/UI — testowane w node.
  */
 import { num, type PlanLine } from './planLineModel'
 import type { PlanAllocation } from './planMeatAllocation'
+import { lineComponents, type CompositionCatalog } from './planComponents'
 
 export interface RecipeComponentLite {
   materialTypeId: string
@@ -36,13 +36,6 @@ export interface SeasonedForCheck {
   kgAvailable?:    number
 }
 
-/** Wolne kilogramy danego rodzaju mięsa w całej puli. */
-function wolneDlaKomponentu(seasoned: SeasonedForCheck[], materialTypeId: string): number {
-  return (seasoned ?? [])
-    .filter(s => (s.materialTypeId ?? '') === materialTypeId)
-    .reduce((sum, s) => sum + Math.max(0, Number(s.kgFree ?? s.kgAvailable ?? 0)), 0)
-}
-
 /**
  * Lista braków gotowa do pokazania planiście. Pusta = plan da się zapisać.
  *
@@ -51,36 +44,22 @@ function wolneDlaKomponentu(seasoned: SeasonedForCheck[], materialTypeId: string
  */
 export function planShortfalls(
   lines: PlanLine[],
-  seasoned: SeasonedForCheck[],
+  _seasoned: SeasonedForCheck[],
   recipes: RecipeLite[],
   alloc: PlanAllocation,
   toProduction: boolean,
+  catalog?: CompositionCatalog,
 ): string[] {
   const out: string[] = []
 
   lines.forEach((l, idx) => {
     const qty  = num(l.qty)
     const kgPu = num(l.kgPerUnit)
-    if (!l.recipeId || qty <= 0 || kgPu <= 0) return
+    if (!l.recipeId || qty <= 0 || kgPu <= 0 || num(l.qtyDone) > 0) return
 
     const receptura = recipes.find(r => r.id === l.recipeId)
     const nazwa = receptura?.name ?? l.recipeId
-    const comps = receptura?.components ?? []
-
-    if (comps.length > 0) {
-      for (const c of comps) {
-        const need = qty * kgPu * c.pct / 100
-        const free = wolneDlaKomponentu(seasoned, c.materialTypeId)
-        // Tolerancja 0,1 kg — ta sama, którą stosuje backend.
-        if (free < need - 0.1) {
-          out.push(
-            `„${nazwa}": komponent ${c.materialName} (${c.pct}%) — `
-            + `potrzeba ${need.toFixed(0)} kg, wolne ${free.toFixed(0)} kg`,
-          )
-        }
-      }
-      return
-    }
+    const comps = lineComponents(l, catalog ?? { recipes })
 
     const ids = l.seasonedBatchIds.length > 0
       ? l.seasonedBatchIds
@@ -92,8 +71,10 @@ export function planShortfalls(
 
     const la = alloc.lines[idx]
     if (la && !la.ok) {
+      const composition = comps.length
+        ? `skład ${comps.map(c => `${c.materialName || c.materialTypeId} ${c.pct}%`).join(' / ')} — ` : ''
       out.push(
-        `„${nazwa}": z zaznaczonych partii wychodzi ${la.pieces} z ${la.qty} szt — `
+        `„${nazwa}": ${composition}z zaznaczonych partii wychodzi ${la.pieces} z ${la.qty} szt — `
         + `brakuje ${la.missingPieces} szt (${la.missingKg.toFixed(0)} kg). `
         + 'Dołóż kolejną partię.',
       )

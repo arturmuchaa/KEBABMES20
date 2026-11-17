@@ -19,6 +19,9 @@ import { Button } from '@/components/ui/button'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 
 export interface BatchPanelRow {
+  materialTypeId?: string
+  materialName?: string
+  expiryDate?: string
   id:             string
   recipeId:       string
   recipeName:     string

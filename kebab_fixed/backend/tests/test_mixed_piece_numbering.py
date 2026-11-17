@@ -35,6 +35,12 @@ def _pool(*rows):
     return [dict(r) for r in rows]
 
 
+@pytest.fixture(autouse=True)
+def ordinary_recipe(monkeypatch):
+    # These pure tests exercise ordinary whole-piece numbering, without a DB.
+    monkeypatch.setattr(svc, "_line_components", lambda conn, line: [])
+
+
 @pytest.fixture
 def tryb_joined(monkeypatch):
     monkeypatch.setattr(svc, "MIXED_PIECE_NUMBERING", "joined")

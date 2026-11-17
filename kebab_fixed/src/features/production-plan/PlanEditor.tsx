@@ -94,7 +94,7 @@ export function PlanEditor({
   const [progress, setProgress] = useState<ProgressByLine>({})
   const [panelZamowien, setPanelZamowien] = useState(false)
 
-  const draft = usePlanDraft({ initialPlan, seasoned, recipes: (recipes ?? []) as any[] })
+  const draft = usePlanDraft({ initialPlan, seasoned, recipes: (recipes ?? []) as any[], productTypes })
 
   // Pozycja poprawiana — wraca do paska wsadu, a z listy znika na czas edycji.
   const [editingIdx, setEditingIdx] = useState<number | null>(null)
@@ -127,13 +127,15 @@ export function PlanEditor({
   const numerPartii = (id: string) =>
     draft.batchRows.find(b => b.id === id)?.batchNo ?? ''
 
-  const rows: PlanLineRow[] = draft.lines.map(l => ({
+  const rows: PlanLineRow[] = draft.lines.map((l, i) => ({
     qty:             l.qty,
     kgPerUnit:       l.kgPerUnit,
     productTypeName: nazwaRodzaju(l.productTypeId),
     recipeName:      nazwaReceptury(l.recipeId),
     clientName:      l.clientName,
-    batchNos:        l.seasonedBatchIds.map(numerPartii).filter(Boolean),
+    batchNos:        draft.planAlloc.lines[i]?.joined.length
+      ? draft.planAlloc.lines[i].joined.map(j => j.label)
+      : l.seasonedBatchIds.map(numerPartii).filter(Boolean),
     frozen:          num(l.qtyDone) > 0,
   }))
 
@@ -279,11 +281,16 @@ export function PlanEditor({
       {/* Ręczny wybór partii — druga połowa zasady „FEFO proponuje". */}
       {pickerIdx !== null && draft.lines[pickerIdx] && (() => {
         const pozycja = draft.lines[pickerIdx]
+        const components = draft.componentsFor(pozycja)
         return (
           <BatchPicker
             recipeName={nazwaReceptury(pozycja.recipeId) || '—'}
             neededKg={num(pozycja.qty) * num(pozycja.kgPerUnit)}
-            batches={draft.batchRows.filter(b => b.recipeId === pozycja.recipeId)}
+            qty={num(pozycja.qty)}
+            kgPerUnit={num(pozycja.kgPerUnit)}
+            components={components}
+            batches={draft.pickerBatches(pickerIdx).filter(b => b.recipeId === pozycja.recipeId
+              && (!components.length || components.some(c => c.materialTypeId === b.materialTypeId)))}
             selected={pozycja.seasonedBatchIds}
             onSave={ids => draft.setLineBatches(pickerIdx, ids)}
             onClose={() => setPickerIdx(null)}
