@@ -520,6 +520,9 @@ def _odmow(result_code: str, message: str, status: int = 409) -> None:
     zgadywać z treści komunikatu (tłumaczenie, literówka, zmiana słowa = cicho
     zepsuta obsługa błędu). `detail` jest słownikiem `{code, message}`.
     """
+    # Odmowa trafia do logu: bez tego journal widział tylko „409" i nie dało
+    # się ustalić, którą kartkę operator skanował ani dlaczego nie przeszła.
+    logger.info("pallet.scan.refused", extra={"kod_wyniku": result_code, "powod": message})
     raise HTTPException(status, {"code": result_code, "message": message})
 
 

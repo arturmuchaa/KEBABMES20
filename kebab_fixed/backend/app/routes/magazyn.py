@@ -13,6 +13,9 @@ from pydantic import BaseModel, Field
 from app.services import magazyn_pakowanie_service as svc
 from app.services import mroznia_wazenie_service, settings_service
 from app.services import mroznia_lokalizacje_service as lokalizacje
+from app.logging_config import get_logger
+
+_log = get_logger(__name__)
 
 router = APIRouter(prefix="/api/magazyn", tags=["magazyn"])
 
@@ -154,9 +157,17 @@ def mroznia_palety_zapis(body: ZapisPalet):
 
 
 @router.post("/mroznia/sprawdz")
-def mroznia_sprawdz(body: SkanKodu):
+def mroznia_sprawdz(body: SkanKodu, request: Request):
     """Co to za karton, czy pełny (= ważenie obowiązkowe), netto i skład."""
-    return mroznia_wazenie_service.sprawdz(body.code)
+    wynik = mroznia_wazenie_service.sprawdz(body.code)
+    # „Nieznana kartka" wraca jako 200 z result=INVALID, więc bez tego wpisu
+    # w logu nie zostaje żaden ślad nieudanego skanu w mroźni.
+    _log.info("magazyn.mroznia.sprawdz", extra={
+        "kod": (body.code or "")[:120], "wynik": wynik.get("result"),
+        "status_kartonu": wynik.get("status"), "carton_no": wynik.get("cartonNo"),
+        "order_no": wynik.get("orderNo"), "pallet_no": wynik.get("palletNo"),
+        "operator": _operator(request)})
+    return wynik
 
 
 @router.post("/mroznia/wazenie")

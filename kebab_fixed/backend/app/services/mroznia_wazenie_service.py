@@ -334,8 +334,10 @@ def zwaz_i_wstaw(code: str, pallet_type_id: str, gross_kg: float, mode: str,
          w["ok"], tryb, operator or ""),
     )
     logger.info("magazyn.mroznia.wazenie", extra={
-        "container_id": info["id"], "carton_no": info["cartonNo"], "gross_kg": w["grossKg"],
-        "net_kg": w["netKg"], "diff_kg": w["diffKg"], "zgodna": w["ok"], "tryb": tryb})
+        "container_id": info["id"], "carton_no": info["cartonNo"], "order_no": info.get("orderNo"),
+        "pallet_no": info.get("palletNo"), "gross_kg": w["grossKg"],
+        "net_kg": w["netKg"], "diff_kg": w["diffKg"], "zgodna": w["ok"], "tryb": tryb,
+        "operator": operator or ""})
     return ostatnie_wazenie(info["id"])  # type: ignore[return-value]
 
 
@@ -373,7 +375,9 @@ def wyjedz_z_mrozni(code: str, operator: str = "") -> Dict[str, Any]:
                        (docelowy, info["id"]))
             cx_execute(conn, "INSERT INTO pallet_scans (id, pallet_id, action, operator, vehicle_id) "
                              "VALUES (%s,%s,'undo',%s,NULL)", (cuid(), info["id"], operator or ""))
-    logger.info("magazyn.mroznia.wyjazd", extra={"container_id": info["id"], "carton_no": info["cartonNo"]})
+    logger.info("magazyn.mroznia.wyjazd", extra={
+        "container_id": info["id"], "carton_no": info["cartonNo"], "order_no": info.get("orderNo"),
+        "pallet_no": info.get("palletNo"), "operator": operator or ""})
     return {"result": "SUCCESS", **opis}
 
 

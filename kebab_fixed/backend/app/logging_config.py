@@ -14,6 +14,17 @@ from typing import Any
 from app.config import settings
 
 
+#: Atrybuty, które ma KAŻDY LogRecord — wszystko inne przyszło z ``extra=``.
+_STANDARDOWE = frozenset(
+    logging.LogRecord("n", logging.INFO, "p", 1, "m", None, None).__dict__
+) | {"message", "asctime"}
+
+
+def _extra(record: logging.LogRecord) -> dict[str, Any]:
+    return {k: v for k, v in record.__dict__.items()
+            if k not in _STANDARDOWE and not k.startswith("_")}
+
+
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
@@ -24,15 +35,7 @@ class JsonFormatter(logging.Formatter):
         }
         if record.exc_info:
             payload["exc"] = self.formatException(record.exc_info)
-        for key, value in record.__dict__.items():
-            if key in ("args", "msg", "levelname", "name", "exc_info",
-                       "exc_text", "stack_info", "lineno", "funcName",
-                       "created", "msecs", "relativeCreated", "thread",
-                       "threadName", "processName", "process", "pathname",
-                       "filename", "module", "levelno"):
-                continue
-            if key.startswith("_"):
-                continue
+        for key, value in _extra(record).items():
             try:
                 json.dumps(value)
                 payload[key] = value
@@ -41,12 +44,37 @@ class JsonFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
+def _wartosc(value: Any) -> str:
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False) if (not value or any(c in value for c in ' "=')) else value
+    try:
+        return json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:
+        return repr(value)
+
+
 class PlainFormatter(logging.Formatter):
+    """Linia dla ludzi + pola z ``extra`` jako ``klucz=wartość``.
+
+    Bez pól journal mówił tylko „pallet.scan" — bez numeru palety, zamówienia
+    i auta (śledztwo TRUVA/Z/2/11/26, 19.11.2026).
+    """
+
     def __init__(self) -> None:
         super().__init__(
             fmt="%(asctime)s %(levelname)-7s [%(name)s] %(message)s",
             datefmt="%Y-%m-%dT%H:%M:%S%z",
         )
+
+    def format(self, record: logging.LogRecord) -> str:
+        linia = super().format(record)
+        pola = _extra(record)
+        if not pola:
+            return linia
+        dopisek = " ".join(f"{k}={_wartosc(v)}" for k, v in pola.items())
+        # Ślad wyjątku zostaje na końcu, pola idą do pierwszej linii.
+        glowna, sep, reszta = linia.partition("\n")
+        return f"{glowna} {dopisek}{sep}{reszta}"
 
 
 _CONFIGURED = False
