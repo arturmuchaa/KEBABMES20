@@ -11,9 +11,9 @@ Druga potrzeba wyszła przy TRUVA/Z/2/11/26 (19.11): nie było widać, czy kartk
 ## Cele
 
 1. Każdy wydruk z programów na komputerze (MES biuro, PROTRIMA) otwiera nasze okno druku zamiast systemowego.
-2. W oknie: drukarka, zasobnik (nazwy odczytane ze sterownika), kolor albo czarno-biały, liczba kopii, dwustronnie, zakres stron, przycisk „Ustawienia drukarki…” otwierający oryginalne okno sterownika Konica.
+2. W oknie: drukarka, a pod nią wszystkie ustawienia, które udostępnia jej sterownik (nie tylko zasobnik 1–4): zasobnik, kolor albo czarno-biały, dwustronnie, format i rodzaj papieru, jakość, sortowanie, zszywanie i dziurkowanie, jeśli bizhub ma finiszer, i inne opcje sterownika Konica. Do tego kopie, zakres stron i przycisk „Ustawienia drukarki…” otwierający oryginalne okno sterownika (właściciel 19.11: „nie tylko wybór zasobnika od 1–4, jeżeli drukarka udostępnia takie rzeczy”).
 3. Domyślnie zasobnik 1. Ustawienia zapamiętane osobno dla każdego rodzaju dokumentu i osobno na każdym komputerze.
-4. Zasobnikom można nadać kolor papieru („Zasobnik 3 – zielone”). Lista pokazuje oba: numer ze sterownika i kolor.
+4. Zasobnikom można nadać kolor papieru („Zasobnik 3 – zielone”), osobno na każdym komputerze (decyzja właściciela 19.11). Lista pokazuje oba: nazwę ze sterownika i kolor.
 5. Każdy wydruk zapisuje się na serwerze: co, kto, na jakim komputerze, kiedy, drukarka, zasobnik, kopie.
 6. Przy paletach (rozpis w PROTRIMA i w MES) widać „wydrukowano 19.11 11:40 · am” albo wyróżnione „kartka niewydrukowana”.
 
@@ -43,26 +43,30 @@ Druga potrzeba wyszła przy TRUVA/Z/2/11/26 (19.11): nie było widać, czy kartk
 
 ### Druk natywny (Rust, `src-tauri`, tylko Windows)
 
+Opcje drukarki bierzemy z **PrintCapabilities** (Print Schema Windows): sterownik opisuje w nim WSZYSTKIE swoje ustawienia, razem z nazwami do pokazania, także te własne Konica (zszywanie, dziurkowanie, rodzaj papieru w zasobniku). Dzięki temu okno pokazuje to, co drukarka naprawdę oferuje, zamiast stałej listy. Wybór zapisujemy jako **PrintTicket** (XML), a przy druku sterownik zamienia go na swoje ustawienia.
+
 Nowe komendy Tauri (moduł `src-tauri/src/druk.rs`, pod `#[cfg(windows)]`; na innych systemach zwracają błąd „nieobsługiwane”):
 
-- `drukarki()` – lista drukarek (`EnumPrintersW`) z domyślną, a dla każdej: zasobniki (`DeviceCapabilitiesW` z `DC_BINS` i `DC_BINNAMES`), czy obsługuje kolor (`DC_COLORDEVICE`), dwustronny druk (`DC_DUPLEX`).
-- `ustawienia_sterownika(drukarka, devmode?)` – otwiera oryginalne okno sterownika (`DocumentPropertiesW` z `DM_IN_PROMPT | DM_OUT_BUFFER`) i zwraca wynikowy DEVMODE jako base64. Okno ustawień Konica ma właściciela w oknie aplikacji.
-- `drukuj_pdf(drukarka, pdf_base64, ustawienia)` – drukuje PDF: bierze zapisany DEVMODE albo domyślny drukarki, nadpisuje `dmDefaultSource` (zasobnik), `dmColor`, `dmDuplex`, `dmCopies`, tworzy kontekst `CreateDCW` i rysuje strony PDF przez PDFium (crate `pdfium-render`, `pdfium.dll` dołączona do instalatora) w skali 1:1 względem fizycznego marginesu drukarki (`GetDeviceCaps` PHYSICALOFFSETX/Y). Zwraca liczbę stron.
+- `drukarki()` – lista drukarek (`EnumPrintersW`) z zaznaczoną domyślną Windows.
+- `mozliwosci(drukarka, ticket?)` – `PTOpenProvider` + `PTGetPrintCapabilities`: lista funkcji (`psf:Feature`) z nazwą wyświetlaną, typem i opcjami (`psf:Option` z nazwą), plus parametry liczbowe (np. kopie). Do tego aktualny wybór z ticketu (podanego albo domyślnego dla użytkownika). Zwracamy prosty JSON: `[{ id, nazwa, opcje: [{ id, nazwa }], wybrana }]`.
+- `ustawienia_sterownika(drukarka, ticket?)` – otwiera oryginalne okno sterownika (`DocumentPropertiesW` z `DM_IN_PROMPT | DM_OUT_BUFFER`, ticket → DEVMODE i z powrotem przez `PTConvertPrintTicketToDevMode` / `PTConvertDevModeToPrintTicket`) i zwraca nowy ticket.
+- `drukuj_pdf(drukarka, pdf_base64, ticket, kopie, strony)` – ticket → DEVMODE (`PTConvertPrintTicketToDevMode`, zakres `kPTJobScope`), kontekst `CreateDCW` z tym DEVMODE, strony PDF rysowane przez PDFium (crate `pdfium-render`, `pdfium.dll` dołączona do instalatora) w skali 1:1 względem fizycznego marginesu drukarki (`GetDeviceCaps` PHYSICALOFFSETX/Y). Zwraca liczbę stron.
 - Źródło PDF: bieżąca strona wydruku zamieniona na PDF przez WebView2 (`ICoreWebView2_7::PrintToPdf` przez `with_webview`, bez marginesów, z tłem, rozmiar papieru z `@page` dokumentu). Gdzie dokument już jest PDF-em z serwera (podgląd WZ/CMR/HDI w PROTRIMA), drukujemy ten PDF bez ponownej zamiany.
 
-Druk przez PDF, a nie przez GDI bezpośrednio ze strony, bo WebView2 nie potrafi narysować strony na kontekście drukarki z naszym DEVMODE, a PDF zachowuje dokładnie to, co dziś wychodzi z wydruku przeglądarkowego.
+Druk przez PDF, a nie przez GDI bezpośrednio ze strony, bo WebView2 nie potrafi narysować strony na kontekście drukarki z naszymi ustawieniami, a PDF zachowuje dokładnie to, co dziś wychodzi z wydruku przeglądarkowego.
 
 ### Okno druku (React, wspólne)
 
 - Jeden komponent `OknoDruku` w `src/lib/druk/` używany przez MES i PROTRIMA. Wygląd w stylu PROTRIMA (tokeny PROTRIMA), ten sam w MES.
 - Wywołanie: `drukuj({ rodzaj: 'kartki-palet', tytul, rejestr: {...} })`. Funkcja `drukuj()` z `src/lib/print.ts` zostaje punktem wejścia: w Tauri otwiera nasze okno, w przeglądarce `window.print()`. Miejsca, które dziś wołają `window.print()` bezpośrednio (10 plików, m.in. `KartkiPalet.tsx`, `ZamowienieDruk.tsx`, `ListaKompletacji.tsx`, `RozrachunkiDrukPage.tsx`), przechodzą na `drukuj()`.
-- Pola: drukarka, zasobnik, kolor/czarno-biały (ukryte, gdy drukarka nie ma koloru), kopie, dwustronnie (ukryte, gdy brak), zakres stron, „Ustawienia drukarki…”, „zapamiętaj dla <rodzaj dokumentu>” (domyślnie zaznaczone), Drukuj / Anuluj. Enter drukuje.
+- Pola stałe: drukarka, kopie, zakres stron, „Ustawienia drukarki…”, „zapamiętaj dla <rodzaj dokumentu>” (domyślnie zaznaczone), Drukuj / Anuluj. Enter drukuje.
+- Pola ze sterownika (z `mozliwosci`): na górze najczęstsze, jeśli drukarka je ma: zasobnik (`psk:PageInputBin` / `psk:JobInputBin`), kolor (`psk:PageOutputColor`), dwustronnie (`psk:JobDuplexAllDocumentsContiguously`), format papieru (`psk:PageMediaSize`), rodzaj papieru (`psk:PageMediaType`). Pozostałe funkcje sterownika (jakość, sortowanie, zszywanie, dziurkowanie, opcje własne Konica…) w rozwijanej sekcji „Więcej ustawień drukarki”, każda jako lista wyboru z nazwami ze sterownika. Funkcje bez opcji do wyboru i czysto techniczne (np. `psk:PageScaling`, `psk:PageResolution` z jedną opcją) pomijamy. Skalowanie jest zawsze wyłączone (1:1).
 - Przy błędzie druku natywnego: komunikat z treścią błędu i przycisk „Drukuj oknem systemowym” (dzisiejsza ścieżka `print_page`).
 
 ### Ustawienia na komputerze
 
-- Plik JSON w katalogu danych aplikacji (`app_config_dir`, osobny dla każdego komputera i każdej aplikacji Tauri): domyślna drukarka i ustawienia na rodzaj dokumentu (drukarka, numer zasobnika, kolor, dwustronnie, kopie, DEVMODE base64), kolory zasobników na drukarkę.
-- Pierwsze uruchomienie: domyślna drukarka Windows, zasobnik 1 (pierwszy z listy `DC_BINS`, gdy nie ma pozycji o nazwie zawierającej „1”), czarno-biały, 1 kopia.
+- Plik JSON w katalogu danych komputera (wspólny dla MES i PROTRIMA na tym komputerze, np. `%APPDATA%\\KebabMES\\druk.json`), osobny na każdym z trzech komputerów: ustawienia na rodzaj dokumentu (drukarka, PrintTicket XML, kopie) i kolory zasobników na drukarkę.
+- Pierwsze uruchomienie: domyślna drukarka Windows z jej domyślnym ticketem, a w nim zasobnik 1 (opcja, której nazwa zawiera „1”, inaczej pierwsza na liście), czarno-biały, 1 kopia.
 - Rodzaje dokumentów: stała lista w kodzie (kartki palet, WZ, WM, CMR, HDI, lista kompletacji, zamówienie, rozrachunki, rozliczenie dostawy, paski wypłat, plan masowania, inne). Nieznany wydruk idzie jako „inne”.
 
 ### Rejestr wydruków (backend)
@@ -81,5 +85,6 @@ Druk przez PDF, a nie przez GDI bezpośrednio ze strony, bo WebView2 nie potrafi
 ## Zostawione budującemu
 
 - Dokładne wywołanie `PrintToPdf` przez `webview2-com` w Tauri 2 i wersje crate'ów.
-- Obsługa drukarek bez `DC_BINNAMES` (pokazać „Zasobnik N”).
+- Drukarki ze starym sterownikiem bez sensownych nazw w PrintCapabilities: pokazać nazwę techniczną opcji.
+- Kolejność pól w „Więcej ustawień drukarki” (alfabetycznie albo jak w sterowniku).
 - Gdzie dokładnie w nagłówku zakładki „Palety” stoi licznik palet bez kartki (zgodnie z istniejącym układem).
