@@ -147,6 +147,24 @@ _DDL: list[str] = [
         operator TEXT, weighed_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )""",
     "CREATE INDEX IF NOT EXISTS idx_cold_weighings_container ON cold_storage_weighings(container_id, weighed_at DESC)",
+    # Rejestr wydruków (19.11.2026): co, kto, na jakim komputerze i drukarce.
+    # Bez niego nie było widać, czy kartki palet w ogóle wydrukowano (TRUVA).
+    # `id` nadaje klient — ponowienie z kolejki offline nie dubluje wpisu.
+    """CREATE TABLE IF NOT EXISTS print_log (
+        id TEXT PRIMARY KEY,
+        rodzaj TEXT NOT NULL,
+        tytul TEXT,
+        order_id TEXT,
+        pallet_ids TEXT[] NOT NULL DEFAULT '{}',
+        dokument_id TEXT,
+        drukarka TEXT, zasobnik TEXT,
+        kopie INTEGER NOT NULL DEFAULT 1,
+        stron INTEGER,
+        komputer TEXT, operator TEXT,
+        at TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_print_log_order ON print_log(order_id, at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_print_log_pallets ON print_log USING GIN (pallet_ids)",
     # Wykaz partii na etykiecie ważenia („3 szt 290926 591") — migawka z chwili ważenia.
     "ALTER TABLE cold_storage_weighings ADD COLUMN IF NOT EXISTS batches JSONB NOT NULL DEFAULT '[]'::jsonb",
     """CREATE TABLE IF NOT EXISTS warehouse_events (

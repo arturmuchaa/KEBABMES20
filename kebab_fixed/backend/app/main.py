@@ -102,6 +102,7 @@ def create_app() -> FastAPI:
         order_split,
         rozrachunki,
         rozliczenia,
+        druk,
         suppliers,
         clients,
         client_groups,
@@ -240,6 +241,7 @@ def create_app() -> FastAPI:
         order_split,
         rozrachunki,
         rozliczenia,
+        druk,
     ):
         app.include_router(getattr(mod, "router", mod))
 

@@ -216,6 +216,9 @@ def permission_for_path(path: str, method: str = "GET") -> str:
         return "pakowanie|wydanie" if method == "GET" else "office"
     # Lista aut: skaner załadunku wybiera z niej pojazd. Kartoteka aut
     # (dodanie, edycja, usunięcie) zostaje w biurze.
+    # Rejestr wydruków: drukuje każdy dział, wpis nie może odpaść na uprawnieniach.
+    if _matches(path, "/api/druk"):
+        return "any"
     if _matches(path, "/api/vehicles"):
         return "wydanie" if method == "GET" else "office"
     for dept, prefixes in DEPARTMENT_PREFIXES.items():

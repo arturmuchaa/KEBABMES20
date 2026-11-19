@@ -104,8 +104,14 @@ def list_pallets(order_id: str) -> List[Dict]:
     by_pallet: Dict[str, List[Dict]] = {}
     for it in items:
         by_pallet.setdefault(it["pallet_id"], []).append(it)
+    from app.services.druk_rejestr_service import ostatnie_wydruki_palet
+    wydruki = ostatnie_wydruki_palet(ids)
     for p in pallets:
         p["items"] = by_pallet.get(p["id"], [])
+        w = wydruki.get(p["id"])
+        p["ostatni_wydruk_at"] = w["at"] if w else None
+        p["ostatni_wydruk_kto"] = w["kto"] if w else None
+        p["liczba_wydrukow"] = w["n"] if w else 0
     return pallets
 
 

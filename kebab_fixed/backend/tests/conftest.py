@@ -27,7 +27,7 @@ _TRUNCATE = [
     # Reset it explicitly, ONLY in the guarded isolated test database.
     "label_print_events", "label_print_job_items", "label_print_jobs",
     "label_template_revisions", "label_templates", "zebra_label_designs",
-    "warehouse_events", "cold_storage_weighings", "cold_storage_blocked_slots", "dispatches",
+    "warehouse_events", "cold_storage_weighings", "print_log", "cold_storage_blocked_slots", "dispatches",
     "orphan_pallets", "pallet_label_aliases",
     # Rozliczenia z odbiorcami: dokumenty i historia nie mają twardego FK do
     # `clients` (SET NULL / brak FK), więc CASCADE ich nie sprząta.
