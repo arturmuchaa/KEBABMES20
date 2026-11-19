@@ -3,8 +3,10 @@ use tauri_plugin_updater::UpdaterExt;
 // Moduł wagi tylko dla kiosku (i testów) — build biurowy nie kompiluje
 // ścieżek dotykających portów szeregowych.
 #[cfg(any(feature = "kiosk", test))]
-mod druk;
 mod scale;
+
+// Okno druku (drukarki, opcje sterownika, druk PDF) — wszystkie aplikacje.
+mod druk;
 
 // Most dozownika wody DW-1C (masownia) — jak waga, tylko kiosk. Do czasu
 // dokupienia modułu RS-485 jest wyłączony w `doser.json` i nic nie emituje.
