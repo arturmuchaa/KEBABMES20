@@ -1,0 +1,51 @@
+/* Okno druku — wspólne dla MES i PROTRIMA. Kolory z tokenów PROTRIMA, a gdzie
+   ich nie ma (MES), z wartości zapasowych o tym samym charakterze. */
+.okno-druku-tlo {
+  position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center;
+  background: rgba(15, 20, 28, .45); padding: 16px;
+  font-family: var(--f-ui, "Segoe UI", system-ui, sans-serif);
+}
+.okno-druku {
+  width: min(520px, 100%); max-height: calc(100vh - 32px); overflow: auto;
+  background: var(--surface, #fff); color: var(--ink-1, #17202b);
+  border: 1px solid var(--line, #d3d9e0); border-radius: var(--r-md, 8px);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .28);
+}
+.okno-druku header { padding: 14px 18px 4px; }
+.okno-druku h2 { margin: 0; font-size: 16px; font-weight: 600; text-wrap: balance; }
+.okno-druku form { display: grid; gap: 10px; padding: 10px 18px 16px; }
+.od-pole { display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 10px; border: 0; margin: 0; padding: 0; }
+.od-pole > label, .od-pole > legend { font-size: 13px; color: var(--ink-2, #3d4856); }
+.od-wiersz { display: flex; gap: 6px; min-width: 0; }
+.okno-druku select, .okno-druku input[type="number"], .od-kolor {
+  height: 30px; min-width: 0; font: inherit; font-size: 13px; padding: 0 8px;
+  background: var(--field, #fff); color: var(--ink-1, #17202b);
+  border: 1px solid var(--line-strong, #b8c0ca); border-radius: var(--r-xs, 4px);
+}
+.od-wiersz select { flex: 1; }
+.od-kolor { width: 120px; }
+.od-dwa { display: grid; gap: 10px; }
+.od-strony { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.od-strony legend { float: left; width: 140px; margin-right: 10px; }
+.od-strony input[type="number"] { width: 64px; }
+.od-wiecej { border-top: 1px solid var(--line, #d3d9e0); padding-top: 8px; display: grid; gap: 10px; }
+.od-wiecej summary { cursor: pointer; font-size: 13px; color: var(--accent-ink, #1d44a0); margin-bottom: 8px; }
+.od-uwaga { margin: 0; padding: 8px 10px; font-size: 13px; border-radius: var(--r-xs, 4px);
+  background: var(--warn-tint, #fff4d6); color: var(--warn-ink, #7a5200); }
+.od-blad { display: grid; gap: 8px; justify-items: start; padding: 8px 10px; font-size: 13px; border-radius: var(--r-xs, 4px);
+  background: var(--crit-tint, #fde7e7); color: var(--crit-ink, #9b1c1c); }
+.od-blad p { margin: 0; }
+.okno-druku footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px;
+  border-top: 1px solid var(--line, #d3d9e0); padding-top: 12px; }
+.od-odstep { flex: 1; }
+.od-zapamietaj { font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
+.od-zajete { font-size: 12px; color: var(--ink-3, #5b6676); }
+.od-btn { height: 32px; padding: 0 14px; font: inherit; font-size: 13px; cursor: pointer;
+  background: var(--surface, #fff); color: var(--ink-1, #17202b);
+  border: 1px solid var(--line-strong, #b8c0ca); border-radius: var(--r-xs, 4px); }
+.od-btn.od-glowny { background: var(--accent, #2350b8); color: var(--on-accent, #fff); border-color: transparent; font-weight: 600; }
+.od-btn:disabled { opacity: .55; cursor: default; }
+.okno-druku :focus-visible { outline: 2px solid var(--accent, #2350b8); outline-offset: 1px; }
+@media (max-width: 480px) { .od-pole { grid-template-columns: 1fr; } .od-strony legend { float: none; } }
+/* Strona zamieniana na PDF (druk) nie może zawierać samego okna. */
+@media print { .okno-druku-tlo { display: none !important; } }
