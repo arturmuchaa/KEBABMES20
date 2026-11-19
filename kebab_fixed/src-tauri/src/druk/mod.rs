@@ -4,7 +4,10 @@
 //! każdym wydruku, jak w Subiekcie, bez wchodzenia w ustawienia drukarki.
 //! Spec: docs/superpowers/specs/2026-11-19-okno-druku-design.md
 pub mod mozliwosci;
+pub mod pdf;
 pub mod ustawienia;
+#[cfg(windows)]
+pub mod webview;
 #[cfg(windows)]
 pub mod win;
 
@@ -31,7 +34,7 @@ pub struct Mozliwosci {
 const NIEOBSLUGIWANE: &str = "nieobsługiwane: druk natywny działa tylko w Windows";
 
 #[tauri::command]
-pub fn druk_drukarki() -> Result<Vec<Drukarka>, String> {
+pub async fn druk_drukarki() -> Result<Vec<Drukarka>, String> {
     #[cfg(windows)]
     { Ok(win::drukarki()?.into_iter().map(|(nazwa, domyslna)| Drukarka { nazwa, domyslna }).collect()) }
     #[cfg(not(windows))]
@@ -39,7 +42,7 @@ pub fn druk_drukarki() -> Result<Vec<Drukarka>, String> {
 }
 
 #[tauri::command]
-pub fn druk_mozliwosci(drukarka: String, ticket: Option<String>) -> Result<Mozliwosci, String> {
+pub async fn druk_mozliwosci(drukarka: String, ticket: Option<String>) -> Result<Mozliwosci, String> {
     #[cfg(windows)]
     {
         let ticket = win::ticket_sprawdzony(&drukarka, ticket.as_deref())?;
@@ -72,6 +75,59 @@ pub fn druk_ustawienia_czytaj() -> Result<String, String> {
 #[tauri::command]
 pub fn druk_ustawienia_zapisz(json: String) -> Result<(), String> {
     ustawienia::zapisz(&ustawienia::katalog_domyslny(), &json)
+}
+
+/// Oryginalne okno sterownika. Komenda synchroniczna = wątek główny, więc
+/// okno Konica jest modalne względem okna aplikacji.
+#[tauri::command]
+pub fn druk_ustawienia_sterownika(window: tauri::WebviewWindow, drukarka: String, ticket: String) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+        win::okno_sterownika(hwnd, &drukarka, &ticket)
+    }
+    #[cfg(not(windows))]
+    { let _ = (window, drukarka, ticket); Err(NIEOBSLUGIWANE.into()) }
+}
+
+/// Bieżąca strona jako PDF (base64).
+#[tauri::command]
+pub async fn druk_strona_pdf(window: tauri::WebviewWindow) -> Result<String, String> {
+    #[cfg(windows)]
+    {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        window.with_webview(move |wv| {
+            let wynik = unsafe { wv.controller().CoreWebView2() };
+            match wynik {
+                Ok(core) => webview::zamow_pdf(&core, tx),
+                Err(e) => { let _ = tx.send(Err(e.message().to_string())); }
+            }
+        }).map_err(|e| e.to_string())?;
+        rx.await.map_err(|_| "Zamiana strony na PDF przerwana".to_string())?
+    }
+    #[cfg(not(windows))]
+    { let _ = window; Err(NIEOBSLUGIWANE.into()) }
+}
+
+/// Druk PDF z ustawieniami sterownika. Zwraca liczbę wydrukowanych stron.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn druk_pdf(app: tauri::AppHandle, drukarka: String, pdf: String, ticket: String, kopie: u32,
+                      od: Option<u32>, r#do: Option<u32>, tytul: String) -> Result<u32, String> {
+    #[cfg(windows)]
+    {
+        use base64::Engine;
+        use tauri::Manager;
+        let bajty = base64::engine::general_purpose::STANDARD.decode(pdf.as_bytes()).map_err(|e| format!("PDF: {e}"))?;
+        let dll = app.path().resource_dir().map(|d| d.join("pdfium.dll")).ok()
+            .filter(|p| p.exists())
+            .or_else(|| std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("pdfium.dll"))))
+            .ok_or("Brak biblioteki PDF (pdfium.dll) obok programu")?;
+        tauri::async_runtime::spawn_blocking(move || win::drukuj_pdf(&drukarka, &bajty, &ticket, kopie, od, r#do, &tytul, &dll))
+            .await.map_err(|e| e.to_string())?
+    }
+    #[cfg(not(windows))]
+    { let _ = (app, drukarka, pdf, ticket, kopie, od, r#do, tytul); Err(NIEOBSLUGIWANE.into()) }
 }
 
 #[cfg(test)]

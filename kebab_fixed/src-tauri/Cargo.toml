@@ -39,7 +39,7 @@ quick-xml = "0.36"
 # Tauri używa tokio wewnętrznie (tranzytywnie) — deklarujemy jawnie tylko po
 # to, żeby móc użyć tokio::time::sleep w pętli cichego sprawdzania aktualizacji
 # w kiosku; wersja "1" ujednolici się z tym, co i tak ciągnie Tauri.
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["time", "sync"] }
 # Most wagowy RS232 (HMI rozbiór v10): odczyt wagi najazdowej z portu
 # szeregowego. default-features=false — bez enumeracji udev, port otwieramy
 # po nazwie z configu (COM3), co kompiluje się czysto na Linux/Windows.
@@ -48,3 +48,6 @@ serialport = { version = "4", default-features = false }
 # Okno druku (druk/win.rs): drukarki, Print Schema, DEVMODE, druk na kontekście GDI.
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Graphics_Printing", "Win32_Graphics_Printing_PrintTicket", "Win32_Storage_Xps", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+# Druk PDF na kontekście drukarki (pdfium.dll dołączona do instalatora) i PDF strony z WebView2.
+pdfium-render = { version = "0.8", default-features = false, features = ["pdfium_latest", "thread_safe"] }
+webview2-com = "0.38"
