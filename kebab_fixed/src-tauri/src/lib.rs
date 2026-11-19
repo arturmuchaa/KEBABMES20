@@ -3,6 +3,7 @@ use tauri_plugin_updater::UpdaterExt;
 // Moduł wagi tylko dla kiosku (i testów) — build biurowy nie kompiluje
 // ścieżek dotykających portów szeregowych.
 #[cfg(any(feature = "kiosk", test))]
+mod druk;
 mod scale;
 
 // Most dozownika wody DW-1C (masownia) — jak waga, tylko kiosk. Do czasu
@@ -189,7 +190,9 @@ pub fn run() {
                                 doser_dose,
                                 apply_update_now, protrima_aktualizacja, protrima_zainstaluj,
                                 scan_document, scanner_diagnose,
-                                open_last_scan, open_document, print_page])
+                                open_last_scan, open_document, print_page,
+                                druk::druk_drukarki, druk::druk_mozliwosci, druk::druk_ustaw_opcje,
+                                druk::druk_ustawienia_czytaj, druk::druk_ustawienia_zapisz])
         .on_window_event(|_window, _event| {
             // Kiosk: operator nie może zamknąć okna (Alt+F4 / żądania zamknięcia ignorowane).
             #[cfg(feature = "kiosk")]

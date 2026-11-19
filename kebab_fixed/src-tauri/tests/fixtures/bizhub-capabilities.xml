@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<psf:PrintCapabilities xmlns:psf="http://schemas.microsoft.com/windows/2003/08/printing/printschemaframework" xmlns:psk="http://schemas.microsoft.com/windows/2003/08/printing/printschemakeywords" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:ns0000="http://www.konicaminolta.com/printing/schema" version="1">
+  <psf:Feature name="psk:PageMediaType">
+    <psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Rodzaj papieru</psf:Value></psf:Property>
+    <psf:Option name="psk:Plain"><psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Zwykły</psf:Value></psf:Property></psf:Option>
+    <psf:Option name="ns0000:Colored"><psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Kolorowy</psf:Value></psf:Property></psf:Option>
+  </psf:Feature>
+  <psf:Feature name="ns0000:Staple">
+    <psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Zszywanie</psf:Value></psf:Property>
+    <psf:Option name="ns0000:StapleOff"><psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Wyłączone</psf:Value></psf:Property></psf:Option>
+    <psf:Option name="ns0000:StapleCorner"><psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Róg</psf:Value></psf:Property></psf:Option>
+  </psf:Feature>
+  <psf:Feature name="psk:PageInputBin">
+    <psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Źródło papieru</psf:Value></psf:Property>
+    <psf:Option name="psk:AutoSelect"><psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Automatyczny</psf:Value></psf:Property></psf:Option>
+    <psf:Option name="ns0000:Tray1"><psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Zasobnik 1</psf:Value></psf:Property></psf:Option>
+    <psf:Option name="ns0000:Tray2"><psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Zasobnik 2</psf:Value></psf:Property></psf:Option>
+    <psf:Option name="ns0000:Tray3"><psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Zasobnik 3</psf:Value></psf:Property></psf:Option>
+    <psf:Option name="ns0000:Tray4"><psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Zasobnik 4</psf:Value></psf:Property></psf:Option>
+  </psf:Feature>
+  <psf:Feature name="psk:PageScaling">
+    <psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Skalowanie</psf:Value></psf:Property>
+    <psf:Option name="psk:None"/>
+    <psf:Option name="psk:FitApplicationBleedSizeToPageImageableSize"/>
+  </psf:Feature>
+  <psf:Feature name="psk:PageResolution">
+    <psf:Option name="ns0000:Res600"><psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">600 dpi</psf:Value></psf:Property></psf:Option>
+  </psf:Feature>
+  <psf:Feature name="psk:JobDuplexAllDocumentsContiguously">
+    <psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Druk dwustronny</psf:Value></psf:Property>
+    <psf:Option name="psk:OneSided"><psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Jednostronnie</psf:Value></psf:Property></psf:Option>
+    <psf:Option name="psk:TwoSidedLongEdge"><psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Dwustronnie (długa krawędź)</psf:Value></psf:Property></psf:Option>
+  </psf:Feature>
+  <psf:Feature name="psk:PageOutputColor">
+    <psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Kolor</psf:Value></psf:Property>
+    <psf:Option name="psk:Color"><psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Kolor</psf:Value></psf:Property></psf:Option>
+    <psf:Option name="psk:Monochrome"><psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Czarno-biały</psf:Value></psf:Property></psf:Option>
+  </psf:Feature>
+  <psf:Feature name="psk:PageMediaSize">
+    <psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">Format papieru</psf:Value></psf:Property>
+    <psf:Option name="psk:ISOA4"><psf:ScoredProperty name="psk:MediaSizeWidth"><psf:Value xsi:type="xsd:integer">210000</psf:Value></psf:ScoredProperty><psf:Property name="psk:DisplayName"><psf:Value xsi:type="xsd:string">A4</psf:Value></psf:Property></psf:Option>
+    <psf:Option name="psk:ISOA5"/>
+  </psf:Feature>
+  <psf:ParameterDef name="psk:JobCopiesAllDocuments">
+    <psf:Property name="psf:MaxValue"><psf:Value xsi:type="xsd:integer">9999</psf:Value></psf:Property>
+  </psf:ParameterDef>
+</psf:PrintCapabilities>

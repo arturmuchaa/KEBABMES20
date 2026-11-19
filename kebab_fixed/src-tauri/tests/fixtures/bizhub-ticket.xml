@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<psf:PrintTicket xmlns:psf="http://schemas.microsoft.com/windows/2003/08/printing/printschemaframework" xmlns:psk="http://schemas.microsoft.com/windows/2003/08/printing/printschemakeywords" xmlns:km="http://www.konicaminolta.com/printing/schema" version="1">
+  <psf:Feature name="psk:PageInputBin"><psf:Option name="km:Tray2"/></psf:Feature>
+  <psf:Feature name="psk:PageOutputColor"><psf:Option name="psk:Color"/></psf:Feature>
+  <psf:Feature name="psk:PageMediaType"><psf:Option name="km:Glossy"/></psf:Feature>
+  <psf:Feature name="psk:PageMediaSize"><psf:Option name="psk:ISOA4"><psf:ScoredProperty name="psk:MediaSizeWidth"><psf:Value>210000</psf:Value></psf:ScoredProperty></psf:Option></psf:Feature>
+</psf:PrintTicket>
