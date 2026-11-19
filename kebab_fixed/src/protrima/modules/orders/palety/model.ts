@@ -160,3 +160,11 @@ export function wykryjSztuki(lines: PozycjaLite[], pallets: Array<{ items: ItemL
   }
   return out
 }
+
+/** Rodzaj wyrobu krótko, do odróżnienia pozycji o tej samej wadze i recepturze:
+ *  „KEBAB MIX 95/5" → „MIX 95/5", „KEBAB UDO 100%" → „UDO 100%". Brak → ''. */
+export function rodzajKrotko(product?: string | null): string {
+  const t = (product ?? '').trim()
+  if (!t || t === '—') return ''
+  return t.replace(/^kebab\s+/i, '')
+}

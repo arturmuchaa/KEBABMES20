@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { bezPalety, bledyPalety, edytowalna, pozostalo, rozpisz, sztukNaPalete, wykryjSztuki, zDodanymi, zZmieniona, type PozycjaLite } from './model'
+import { rodzajKrotko } from './model'
 import type { OrderPallet } from '@/lib/api'
 
 const L: PozycjaLite[] = [
@@ -85,5 +86,18 @@ describe('wykrywanie wariantu 25 kg / 35 kg', () => {
     expect(wykryjSztuki([poz('a', 35, 100)], [])).toEqual({ '35': 25 })    // dzielą oba → standard
     expect(wykryjSztuki([poz('a', 25, 47)], [])).toEqual({ '25': 35 })     // żaden → standard
     expect(wykryjSztuki([poz('a', 40, 47)], [])).toEqual({})
+  })
+})
+
+describe('rodzajKrotko', () => {
+  it('ucina „KEBAB” i zostawia rodzaj', () => {
+    expect(rodzajKrotko('KEBAB MIX 95/5')).toBe('MIX 95/5')
+    expect(rodzajKrotko('KEBAB UDO 100%')).toBe('UDO 100%')
+    expect(rodzajKrotko('KEBAB YAPRAK')).toBe('YAPRAK')
+  })
+  it('pusty rodzaj nie daje znaczka', () => {
+    expect(rodzajKrotko('')).toBe('')
+    expect(rodzajKrotko('—')).toBe('')
+    expect(rodzajKrotko(undefined)).toBe('')
   })
 })

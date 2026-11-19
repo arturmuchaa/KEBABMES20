@@ -766,6 +766,7 @@ div.pstage { cursor: default; }
 /* Rozpiska palet: tuleja przy pozycji */
 .tul { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: var(--r-xs); background: var(--surface-sunk); font-size: var(--fs-xs); font-weight: 500; line-height: 1.5; vertical-align: 1px; }
 .tul, .pal li .tul { color: var(--ink-3); }
+.rodz { display: inline-block; margin-right: 6px; padding: 0 5px; border-radius: var(--r-xs); background: var(--accent-tint); color: var(--accent-ink); font-size: var(--fs-xs); font-weight: 650; line-height: 1.5; vertical-align: 1px; white-space: nowrap; }
 
 /* Szczegóły palety: ważenie przed mroźnią */
 .waz { display: flex; flex-direction: column; gap: 8px; }

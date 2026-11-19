@@ -8,7 +8,7 @@ import { Pusto } from '../../../ui/Pusto'
 import { ile, odm } from '../../../data/tekst'
 import { WazeniePalety } from './WazeniePalety'
 import { orderPalletsApi, type OrderPallet } from '@/lib/api'
-import { bezPalety, bledyPalety, rozpisz, sztukNaPalete, wykryjSztuki, zDodanymi, zZmieniona, MAX_KG_RESZTKI, STANDARD_SZTUK, WARIANTY_SZTUK, type ItemLite } from '../palety/model'
+import { bezPalety, bledyPalety, rozpisz, sztukNaPalete, wykryjSztuki, zDodanymi, zZmieniona, MAX_KG_RESZTKI, STANDARD_SZTUK, WARIANTY_SZTUK, rodzajKrotko, type ItemLite } from '../palety/model'
 
 /** Zasada numeracji palet — w notce przy szczegółach palety i w podpowiedzi „Nowa paleta”. */
 const STALE_NUMERY = 'Numery palet i kartonów są stałe — usunięta paleta nie oddaje numeru, nowa dostaje kolejny.'
@@ -94,7 +94,7 @@ export function PalletsTab({ order }: { order: Order }) {
                   const on = onPal[l.id] ?? 0
                   return (
                     <span key={l.id} className={`achip${on > l.qty ? ' over' : ''}`} data-tip={`Poz. ${l.lp}: ${l.product}, ${l.recipe} ${l.kgPerUnit} kg${l.packaging ? `, tuleja ${l.packaging}` : ''}\nNa paletach ${on} z ${l.qty} szt.${on > l.qty ? `\nROZPIS PONAD ZAMÓWIENIE o ${on - l.qty} szt.` : ''}`}>
-                      <span className="t"><span>{l.recipe} {l.kgPerUnit} kg<Tuleja n={l.packaging} /></span>
+                      <span className="t"><span><Rodzaj p={l.product} />{l.recipe} {l.kgPerUnit} kg<Tuleja n={l.packaging} /></span>
                         <span className="num">{on > l.qty && <span className="alert-ico crit"><FlagIcon level="crit" size={13} /></span>}<b>{on}</b>/{l.qty}</span></span>
                       <span className="bar" aria-hidden="true"><i style={{ width: `${Math.min(100, on / l.qty * 100)}%` }} /></span>
                     </span>
@@ -187,6 +187,12 @@ export function PalletsTab({ order }: { order: Order }) {
 }
 
 /** Tuleja przy pozycji — ten sam kebab z inną tuleją to inna pozycja na palecie (właściciel 31.10.2026). */
+/** Rodzaj (MIX / UDO…) — bez niego dwie pozycje „KIRMIZI 25 kg” były nie do odróżnienia. */
+function Rodzaj({ p }: { p?: string }) {
+  const r = rodzajKrotko(p)
+  return r ? <span className="rodz" data-tip="Rodzaj wyrobu">{r}</span> : null
+}
+
 function Tuleja({ n }: { n?: string }) {
   return n ? <span className="tul" data-tip="Tuleja / opakowanie">{n}</span> : null
 }
@@ -202,7 +208,7 @@ function PalletCard({ order, p, sel, marked, onSelect, onMark }: { order: Order;
       </div>
       <ul>
         {p.items.map(it => { const l = order.lines.find(x => x.id === it.lineId); return (
-          <li key={it.lineId}><span>{l ? <>{l.recipe} {l.kgPerUnit} kg<Tuleja n={l.packaging} /></> : 'pozycja usunięta'} × {it.qty}</span><span>{l ? kg(it.qty * l.kgPerUnit) : '—'}</span></li>) })}
+          <li key={it.lineId}><span>{l ? <><Rodzaj p={l.product} />{l.recipe} {l.kgPerUnit} kg<Tuleja n={l.packaging} /></> : 'pozycja usunięta'} × {it.qty}</span><span>{l ? kg(it.qty * l.kgPerUnit) : '—'}</span></li>) })}
       </ul>
       <div className="pf">
         <PalletStatusLabel status={p.status} />
@@ -238,7 +244,7 @@ export function PaletaDialog({ title, order, wolne, start, busy, blad, onClose, 
           <thead><tr><th>Pozycja</th><th className="num">Do rozpisania</th><th className="num" style={{ width: 130 }}>Na palecie</th></tr></thead>
           <tbody>{pozycje.map((l, i) => (
             <React.Fragment key={l.id}>
-              <tr className="row editing"><td><b>{l.recipe}</b> {l.kgPerUnit} kg <span className="sub">poz. {l.lp} · {l.packaging || l.product}</span></td>
+              <tr className="row editing"><td><Rodzaj p={l.product} /><b>{l.recipe}</b> {l.kgPerUnit} kg <span className="sub">poz. {l.lp}{l.packaging ? ` · ${l.packaging}` : ''}</span></td>
                 <td className="num">{wolne[l.id] ?? 0} szt.</td>
                 <td className="num"><input className={`field num${tried && errs[l.id] ? ' invalid' : ''}`} inputMode="numeric" value={qty[l.id] ?? ''} placeholder="0" autoFocus={i === 0}
                   onChange={e => setQty(q => ({ ...q, [l.id]: e.target.value }))} onKeyDown={e => { if (e.key === 'Enter') go() }} aria-label={`Sztuk z pozycji ${l.lp}`} /></td></tr>
@@ -307,7 +313,7 @@ export function RozpisDialog({ order, wolne, busy, blad, onClose, onSave, lineOf
             const pelna = p.items.length === 1 && p.szt === sztukNaPalete(lineOf(p.items[0].lineId)?.kgPerUnit ?? 0, nadpisz)
             return (
               <tr key={i} className="row"><td className="strong">{i + 1}.</td>
-                <td style={{ whiteSpace: 'normal' }}>{p.items.map(it => { const l = lineOf(it.lineId); return <div key={it.lineId}><b>{l?.recipe ?? ''} {l?.kgPerUnit ?? ''} kg</b> × {it.qty}{l?.packaging ? <span className="sub" style={{ display: 'inline', marginLeft: 6 }}>{l.packaging}</span> : null}</div> })}</td>
+                <td style={{ whiteSpace: 'normal' }}>{p.items.map(it => { const l = lineOf(it.lineId); return <div key={it.lineId}><Rodzaj p={l?.product} /><b>{l?.recipe ?? ''} {l?.kgPerUnit ?? ''} kg</b> × {it.qty}{l?.packaging ? <span className="sub" style={{ display: 'inline', marginLeft: 6 }}>{l.packaging}</span> : null}</div> })}</td>
                 <td className="num">{p.szt}</td><td className="num">{kg(p.kg)}</td>
                 <td>{pelna ? <span className="tag ok">pełna</span> : p.mieszana ? <span className="tag warn">mieszana</span> : <span className="tag outline">z resztek</span>}</td></tr>
             )
