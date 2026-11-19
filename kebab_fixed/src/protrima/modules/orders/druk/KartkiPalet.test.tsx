@@ -148,10 +148,19 @@ describe('Kartki palet — okno', () => {
     const btn = screen.getByRole('button', { name: /Drukuj 4 kartki/ }) as HTMLButtonElement
     // jsdom nie liczy układu — dopasowanie kończy się na dolnym stopniu, ale się kończy.
     await waitFor(() => expect(btn.disabled).toBe(false))
+    // Arkusz istnieje tylko na czas druku (po nim drukuj() go sprząta) — oglądamy go w chwili druku.
+    let strony = -1, kody = -1
+    window.print = vi.fn(() => {
+      const arkusz = document.querySelector('.print-sheet.kartki-print') as HTMLElement
+      strony = arkusz.querySelectorAll('.kp-page').length
+      kody = arkusz.querySelectorAll('img[alt="QR"]').length
+    })
     fireEvent.click(btn)
     await waitFor(() => expect(window.print).toHaveBeenCalled())
-    const arkusz = document.querySelector('.print-sheet.kartki-print') as HTMLElement
-    expect(arkusz.querySelectorAll('.kp-page')).toHaveLength(4)
-    expect(arkusz.querySelectorAll('img[alt="QR"]')).toHaveLength(4)
+    expect(strony).toBe(4)
+    expect(kody).toBe(4)
+    // Rejestr wydruków (serwer w teście nieosiągalny → kolejka offline) zna drukowane palety.
+    await waitFor(() => expect(JSON.parse(localStorage.getItem('druk.rejestr.kolejka') || '[]')[0])
+      .toMatchObject({ rodzaj: 'kartki-palet', orderId: 'o1', palletIds: ['p1', 'p2'] }))
   })
 })

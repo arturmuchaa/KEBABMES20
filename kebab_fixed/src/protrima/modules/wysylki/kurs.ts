@@ -6,6 +6,9 @@
  * Wystawienie robi serwer jedną operacją (`zaladunkiApi.wystaw`).
  */
 import { cmrApi, fetchBlob, hdiApi, openDocumentBlob, rozliczeniaPdf, wzApi } from '@/lib/api'
+import { drukuj } from '@/lib/print'
+import { doBase64 } from '@/lib/druk/base64'
+import type { RodzajDruku } from '@/lib/druk/rodzaje'
 
 export interface DokKursu { id: string; number: string; doc_series?: string; split_scope?: string | null; scope?: string | null; date?: string | null; status?: string | null; loading_status?: string | null }
 /** Tyle wystarczy, żeby złożyć listę papierów: pozycja kursu albo dokumenty zamówienia. */
@@ -163,5 +166,16 @@ export async function polaczPdf(papiery: PapierKursu[]): Promise<Blob> {
 export async function drukujZaznaczone(papiery: PapierKursu[], nazwa: string): Promise<void> {
   if (!papiery.length) return
   const plik = `${nazwa.replace(/[\\/:*?"<>|\s]+/g, '_')}.pdf`
+  // Nowa aplikacja na Windows: okno druku z zasobnikiem (19.11.2026).
+  // Przeglądarka i starsza aplikacja: PDF w programie systemowym, jak dotąd.
+  const { natywny } = await import('@/lib/druk/natywny')
+  if (await natywny.dostepny()) {
+    const rodzaje = new Set(papiery.map(p => p.key.split('-')[0]))
+    const jeden = rodzaje.size === 1 ? [...rodzaje][0] : ''
+    const rodzaj: RodzajDruku = jeden === 'wz' || jeden === 'cmr' || jeden === 'hdi' ? jeden : 'inne'
+    const dokumentId = papiery.length === 1 ? papiery[0].key.slice(papiery[0].key.indexOf('-') + 1) : undefined
+    await drukuj({ rodzaj, tytul: nazwa, pdfBase64: doBase64(await polaczPdfBajty(papiery)), rejestr: { dokumentId } })
+    return
+  }
   await openDocumentBlob(await polaczPdf(papiery), papiery.length === 1 ? papiery[0].plik : plik)
 }

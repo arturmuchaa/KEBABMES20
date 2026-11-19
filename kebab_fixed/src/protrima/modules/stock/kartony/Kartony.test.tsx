@@ -211,8 +211,10 @@ describe('nowy karton i kartka', () => {
     expect(within(podglad).getAllByText(/000709/).length).toBeGreaterThan(0)
     const btn = screen.getByRole('button', { name: /Drukuj 2 kartki/ })
     await waitFor(() => expect((btn as HTMLButtonElement).disabled).toBe(false))
+    let strony = -1
+    window.print = vi.fn(() => { strony = document.querySelectorAll('.kartki-print .kp-page').length })
     fireEvent.click(btn)
     await waitFor(() => expect(window.print).toHaveBeenCalled())
-    expect(document.querySelectorAll('.kartki-print .kp-page')).toHaveLength(2)
+    expect(strony).toBe(2)
   })
 })

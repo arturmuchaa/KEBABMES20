@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { drukuj } from '@/lib/print'
 import { createPortal } from 'react-dom'
 import { Printer, FileDown } from 'lucide-react'
 import { Dialog } from '../../../shell/context'
@@ -46,9 +47,8 @@ export function ZamowienieDrukDialog({ orderId, onClose }: { orderId: string; on
     const prev = document.title
     document.title = `Zamowienie ${o.orderNo.replace(/\//g, '-')}`  // podpowiedź nazwy pliku PDF
     const done = () => { setDruk(false); document.title = prev }
-    window.addEventListener('afterprint', done)
-    const t = window.setTimeout(() => window.print(), 60)
-    return () => { window.clearTimeout(t); window.removeEventListener('afterprint', done); document.title = prev }
+    const t = window.setTimeout(() => { void drukuj({ rodzaj: 'zamowienie', tytul: document.title }).finally(done) }, 60)
+    return () => { window.clearTimeout(t); document.title = prev }
   }, [druk, o])
 
   const doc = gotowe ? <DokumentZamowienia o={o!} firma={firmaRes.data!} klient={klient} wystawil={user?.name} uwagiPoz={uwagiPoz} /> : null

@@ -12,6 +12,7 @@
  * i skrypty inline nie działają.
  */
 import { useEffect, useState } from 'react'
+import { drukuj } from '@/lib/print'
 import { useParams } from 'react-router-dom'
 import { rozrachunkiApi, type RozrachunkiKarta } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -60,7 +61,7 @@ export function RozrachunkiDrukPage() {
       }`}</style>
 
       <div className="bez-druku mb-4 flex justify-end">
-        <Button size="sm" className="gap-1.5" onClick={() => window.print()}>
+        <Button size="sm" className="gap-1.5" onClick={() => void drukuj({ rodzaj: 'rozrachunki' })}>
           <Printer size={14} /> Drukuj
         </Button>
       </div>

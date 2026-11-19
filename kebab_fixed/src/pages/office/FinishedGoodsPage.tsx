@@ -5,6 +5,7 @@
  * → modal ze szczegółami per SKU + rozbiciem wg partii + łańcuchem traceability.
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { drukuj } from '@/lib/print'
 import { useNavigate } from 'react-router-dom'
 import { useApi } from '@/hooks/useApi'
 import { finishedGoodsApi } from '@/lib/apiClient'
@@ -442,7 +443,7 @@ export function FinishedGoodsPage() {
           </div>
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={() => void drukuj({ rodzaj: 'inne' })}
             title="Wydrukuj aktualny stan listy"
             className="flex items-center gap-1.5 rounded-md border border-ink-4 px-3 h-8 text-xs font-bold hover:bg-surface-3/60 whitespace-nowrap"
           >

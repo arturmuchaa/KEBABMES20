@@ -19,6 +19,7 @@
  * to po turecku „długi" — stąd ta linia na oryginale.
  */
 import { useCallback, useEffect, useState } from 'react'
+import { drukuj } from '@/lib/print'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { rozrachunkiApi } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -98,7 +99,7 @@ export function RozliczenieDostawyPage() {
           </label>
         ))}
         <Button size="sm" variant="outline" onClick={przelicz}>Przelicz</Button>
-        <Button size="sm" className="gap-1.5 ml-auto" onClick={() => window.print()}>
+        <Button size="sm" className="gap-1.5 ml-auto" onClick={() => void drukuj({ rodzaj: 'rozliczenie-dostawy' })}>
           <Printer size={14} /> Drukuj
         </Button>
       </div>

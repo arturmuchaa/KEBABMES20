@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { drukuj } from '@/lib/print'
 import { createPortal } from 'react-dom'
 import { ClipboardList, Printer } from 'lucide-react'
 import { Dialog } from '../../../shell/context'
@@ -38,9 +39,8 @@ export function ListaKompletacjiDialog({ orderIds, onClose }: { orderIds: string
     const prev = document.title
     document.title = lista.length > 1 ? `Kompletacja ${lista.length} zamówień` : `Kompletacja ${o.orderNo.replace(/\//g, '-')}`
     const done = () => { setDruk(false); document.title = prev }
-    window.addEventListener('afterprint', done)
-    const t = window.setTimeout(() => window.print(), 60)
-    return () => { window.clearTimeout(t); window.removeEventListener('afterprint', done); document.title = prev }
+    const t = window.setTimeout(() => { void drukuj({ rodzaj: 'lista-kompletacji', tytul: document.title }).finally(done) }, 60)
+    return () => { window.clearTimeout(t); document.title = prev }
   }, [druk, o, lista.length])
   const doc = gotowe ? <>{lista.map(([zam, pal], i) => <div key={zam.id} className={i > 0 ? 'dk-page' : ''}><KartkaKompletacji o={zam} pallets={pal} firma={firmaRes.data!.name} /></div>)}</> : null
   const err = dane.error || firmaRes.error

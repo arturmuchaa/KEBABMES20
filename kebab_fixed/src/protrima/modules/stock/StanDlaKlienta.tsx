@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { drukuj } from '@/lib/print'
 import { createPortal } from 'react-dom'
 import { Printer } from 'lucide-react'
 import { Dialog } from '../../shell/context'
@@ -70,9 +71,8 @@ export function StanDlaKlientaDialog({ stock, start, onClose }: { stock: StockPo
   useEffect(() => {
     if (!druk) return
     const done = () => setDruk(false)
-    window.addEventListener('afterprint', done)
-    const t = window.setTimeout(() => window.print(), 50)
-    return () => { window.clearTimeout(t); window.removeEventListener('afterprint', done) }
+    const t = window.setTimeout(() => { void drukuj({ rodzaj: 'inne', tytul: document.title }).finally(done) }, 50)
+    return () => { window.clearTimeout(t) }
   }, [druk])
 
   const doc = <ArkuszStanu odbiorca={odbiorca} rows={rows} partie={partie} jezyk={jezyk} firma={firma} />

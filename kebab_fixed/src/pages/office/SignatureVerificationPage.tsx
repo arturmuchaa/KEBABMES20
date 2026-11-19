@@ -11,6 +11,7 @@
  * nie jest dowodem.
  */
 import { useEffect, useState } from 'react'
+import { drukuj } from '@/lib/print'
 import { useParams } from 'react-router-dom'
 import { signaturesApi, type Weryfikacja } from '@/lib/api'
 import { Button } from '@/components/ui/button'
@@ -39,7 +40,7 @@ export function SignatureVerificationPage() {
       <style>{'@media print{.noprint{display:none!important}@page{size:A4;margin:12mm}}'}</style>
 
       <div className="noprint mb-4 flex justify-end">
-        <Button type="button" variant="outline" size="sm" onClick={() => window.print()}>
+        <Button type="button" variant="outline" size="sm" onClick={() => void drukuj({ rodzaj: 'inne' })}>
           Drukuj protokół
         </Button>
       </div>

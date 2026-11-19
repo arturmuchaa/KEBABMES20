@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { drukuj } from '@/lib/print'
 import { createPortal } from 'react-dom'
 import { Printer, Boxes } from 'lucide-react'
 import QRCode from 'qrcode'
@@ -197,7 +198,7 @@ export function useRodzajNaDokumentach() {
  * i okno drukowania. Druk dopiero, gdy KAŻDA kartka ma kod i stopień — kartka
  * bez QR jest nie do zeskanowania. W próbie bez kodów (numery z kopii).
  */
-export function useDrukKartek(kartki: Kartka[], proba: boolean, tytul: string) {
+export function useDrukKartek(kartki: Kartka[], proba: boolean, tytul: string, rejestr?: { orderId: string; palletIds: string[] }) {
   const [qr, setQr] = useState<Record<string, string>>({})
   const [pt, setPt] = useState<Record<string, number>>({})
   const [druk, setDruk] = useState(false)
@@ -218,10 +219,9 @@ export function useDrukKartek(kartki: Kartka[], proba: boolean, tytul: string) {
     const prev = document.title
     document.title = tytul
     const done = () => setDruk(false)
-    window.addEventListener('afterprint', done)
-    const t = window.setTimeout(() => window.print(), 80)
-    return () => { window.clearTimeout(t); window.removeEventListener('afterprint', done); document.title = prev }
-  }, [druk, tytul])
+    const t = window.setTimeout(() => { void drukuj({ rodzaj: 'kartki-palet', tytul: document.title, rejestr }).finally(done) }, 80)
+    return () => { window.clearTimeout(t); document.title = prev }
+  }, [druk, tytul]) // eslint-disable-line react-hooks/exhaustive-deps
   const ustawPt = (k: Kartka) => (v: number) => setPt(s => (s[k.qr] === v ? s : { ...s, [k.qr]: v }))
   const arkusz = druk ? createPortal(<div className="print-sheet kartki-print">
     {kartki.flatMap(k => Array.from({ length: KOPII_NA_PALETE }, (_, i) => <Strona key={`${k.qr}-${i}`} k={k} qr={qr[k.qr] ?? ''} pt={pt[k.qr]} proba={false} />))}
@@ -250,7 +250,8 @@ export function KartkiPaletDialog({ orderId, palletNos, onClose, proba = import.
   const kartki = useMemo(() => (order ? zbudujKartki(order, wybrane, klientNa, recepturaNa, { nazwa: tresc.nazwa, tryb: tresc.tryb, rodzajNa, zamiany: tresc.zamiany }) : []),
     [order, wybrane, klientNa, recepturaNa, tresc.nazwa, tresc.tryb, tresc.zamiany, rodzajNa])
   const wyroby = useMemo(() => (order ? wyrobyPalet(order, wybrane, recepturaNa, rodzajNa) : { rodzaje: [], receptury: [] }), [order, wybrane, recepturaNa, rodzajNa])
-  const { qr, ustawPt, gotowe, druk, drukuj, arkusz } = useDrukKartek(kartki, proba, `Kartki palet — ${order?.no ?? ''}`)
+  const rejestr = useMemo(() => (order ? { orderId: order.id, palletIds: order.pallets.filter(p => wybrane.includes(p.no)).map(p => p.id) } : undefined), [order, wybrane])
+  const { qr, ustawPt, gotowe, druk, drukuj, arkusz } = useDrukKartek(kartki, proba, `Kartki palet — ${order?.no ?? ''}`, rejestr)
 
   if (!order) return null
   const przelacz = (nr: number) => setWybrane(w => (w.includes(nr) ? w.filter(x => x !== nr) : [...w, nr].sort((a, b) => a - b)))

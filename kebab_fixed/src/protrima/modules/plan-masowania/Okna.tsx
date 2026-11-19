@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
+import { drukuj } from '@/lib/print'
 import { createPortal } from 'react-dom'
 import { CheckCheck, RotateCcw, XCircle, CalendarClock, Printer } from 'lucide-react'
 import { Dialog } from '../../shell/context'
@@ -193,9 +194,8 @@ export function DrukPlanuDialog({ dzien, receptury, onClose }: { dzien: string; 
     const prev = document.title
     document.title = `Plan masowania ${dzien}`
     const done = () => { setDruk(false); document.title = prev }
-    window.addEventListener('afterprint', done)
-    const t = window.setTimeout(() => window.print(), 60)
-    return () => { window.clearTimeout(t); window.removeEventListener('afterprint', done); document.title = prev }
+    const t = window.setTimeout(() => { void drukuj({ rodzaj: 'plan-masowania', tytul: document.title }).finally(done) }, 60)
+    return () => { window.clearTimeout(t); document.title = prev }
   }, [druk, dzien])
   const gotowe = !!plan && plan.length > 0
   const doc = gotowe ? <KartkaPlanu dzien={dzien} plan={plan!} receptury={receptury} firma={firmaRes.data ?? null} /> : null
