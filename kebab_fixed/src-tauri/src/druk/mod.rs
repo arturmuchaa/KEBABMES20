@@ -130,6 +130,12 @@ pub async fn druk_pdf(app: tauri::AppHandle, drukarka: String, pdf: String, tick
     { let _ = (app, drukarka, pdf, ticket, kopie, od, r#do, tytul); Err(NIEOBSLUGIWANE.into()) }
 }
 
+/// Nazwa komputera do rejestru wydruków („który z trzech komputerów”).
+#[tauri::command]
+pub fn druk_komputer() -> String {
+    std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")).unwrap_or_default()
+}
+
 #[cfg(test)]
 mod testy {
     #[test]
