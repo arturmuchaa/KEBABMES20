@@ -44,3 +44,8 @@ npm-debug.log*
 # Archiwa
 *.tar.gz
 *.zip
+
+# Okno druku: pdfium.dll pobierany w CI (bblanchon/pdfium-binaries), nie w repo
+src-tauri/pdfium.dll
+pdfium/
+pdfium.tgz

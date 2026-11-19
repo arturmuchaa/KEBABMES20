@@ -81,6 +81,20 @@ jobs:
       - name: Ikony PROTRIMA (tylko w tym przebiegu)
         run: npx tauri icon public/brand/PROTRIMA_ikona_1024px.png
 
+      - name: PDFium do okna druku (pdfium.dll w instalatorze)
+        shell: pwsh
+        run: |
+          $url = 'https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7543/pdfium-win-x64.tgz'
+          Invoke-WebRequest $url -OutFile pdfium.tgz
+          $h = (Get-FileHash pdfium.tgz -Algorithm SHA256).Hash.ToLower()
+          if ($h -ne '0b08b606792a6cc593426efdefc6622611bce446d9e0270743846956ea1554ca') { throw "Zła suma pdfium.tgz: $h" }
+          New-Item -ItemType Directory -Force pdfium | Out-Null
+          tar -xzf pdfium.tgz -C pdfium
+          Copy-Item pdfium/bin/pdfium.dll src-tauri/pdfium.dll
+
+      - name: Testy Rust (okno druku)
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib druk
+
       - name: Build PROTRIMA (NSIS, podpisany pod cichą aktualizację)
         run: npx tauri build --target x86_64-pc-windows-msvc --config src-tauri/tauri.protrima.conf.json --features protrima
         env:

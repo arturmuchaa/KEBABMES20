@@ -59,6 +59,7 @@
   },
   "bundle": {
     "active": true,
+    "resources": ["pdfium.dll"],
     "createUpdaterArtifacts": true,
     "targets": [
       "nsis"
