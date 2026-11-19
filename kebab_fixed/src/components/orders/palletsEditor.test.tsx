@@ -162,3 +162,23 @@ describe('PalletsEditor — druk zbiorczy', () => {
     await waitFor(() => expect(location.href).toBe('/office/zamowienia/o1/palety/druk'))
   })
 })
+
+describe('PalletsEditor — czy kartki wydrukowano', () => {
+  it('paleta bez wydruku ma ostrzeżenie, drukowana dwa razy pokazuje 2×', async () => {
+    stan.palety[0] = { ...stan.palety[0], lastPrintAt: '2026-11-19T11:40:00', lastPrintBy: 'am', printCount: 2 }
+    stan.palety[1] = { ...stan.palety[1], lastPrintAt: '2026-11-19T09:05:00', lastPrintBy: 'olek', printCount: 1 }
+    await pokaz()
+    expect(screen.getByText('wydrukowano 19.11 11:40 · am · 2×')).toBeTruthy()
+    expect(screen.getByText('wydrukowano 19.11 09:05 · olek')).toBeTruthy()
+    expect(screen.getAllByText('kartka niewydrukowana')).toHaveLength(1)
+  })
+
+  it('licznik palet bez kartki, ukryty gdy wszystkie wydrukowane', async () => {
+    await pokaz()
+    expect(screen.getByText('3 palety bez kartki')).toBeTruthy()
+    cleanup()
+    stan.palety = stan.palety.map(p => ({ ...p, lastPrintAt: '2026-11-19T10:00:00', printCount: 1 }))
+    await pokaz()
+    expect(screen.queryByText(/bez kartki/)).toBeNull()
+  })
+})

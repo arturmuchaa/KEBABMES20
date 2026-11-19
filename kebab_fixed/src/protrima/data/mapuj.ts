@@ -70,6 +70,9 @@ export function mapujPalete(p: OrderPallet): Pallet {
     readyQty: p.items.reduce((a, it) => a + it.qty, 0),
     coldAt: godzina(p.coldStorageAt),
     loadedAt: godzina(p.loadedAt),
+    printedAt: godzina(p.lastPrintAt),
+    printedBy: p.lastPrintBy ?? undefined,
+    printCount: p.printCount ?? 0,
     batches: [],
   }
 }

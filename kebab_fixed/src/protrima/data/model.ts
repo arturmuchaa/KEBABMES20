@@ -65,6 +65,10 @@ export interface Pallet {
   packedAt?: string
   coldAt?: string
   loadedAt?: string
+  /** Ostatni wydruk kartki („19.11 11:40”), kto i ile razy — z rejestru wydruków. */
+  printedAt?: string
+  printedBy?: string
+  printCount?: number
   by?: string
   batches: string[]
 }

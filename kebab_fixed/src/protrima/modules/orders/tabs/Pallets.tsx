@@ -58,6 +58,7 @@ export function PalletsTab({ order }: { order: Order }) {
   }
 
   const maPalety = order.pallets.length > 0
+  const bezKartki = order.pallets.filter(p => !p.printedAt).length
   // Pasek „Rozpisanie”: pozycja rozpisana w całości to norma — zwinięta do liczby (duże zamówienie ma 20+ pozycji
   // i w panelu z boku pasek spychał palety o ekran niżej). Widać pozycje w toku i rozpis ponad zamówienie.
   const pelne = order.lines.filter(l => (onPal[l.id] ?? 0) === l.qty)
@@ -72,6 +73,7 @@ export function PalletsTab({ order }: { order: Order }) {
           <div className="sect-h">
             <h3>Palety zamówienia</h3>
             {(maPalety || !closed) && <span className="sub">{m.palletsTotal ? `${m.palletsReady} z ${m.palletsTotal} gotowych · ${m.palletsLoaded} załadowanych` : 'nierozpisane'}</span>}
+            {bezKartki > 0 && <span className="warn-ink strong" data-tip="Tych kartek nikt jeszcze nie wydrukował — mroźnia nie zeskanuje palety bez kartki">{ile(bezKartki, 'paleta', 'palety', 'palet')} bez kartki</span>}
             {maPalety && <div className="tools">
               <button className="btn sm" onClick={() => app.printPallets(order.id, marked.length ? marked : undefined)}>
                 <Printer size={15} />{marked.length ? `Drukuj kartki (${marked.length})` : 'Drukuj wszystkie kartki'}
@@ -210,6 +212,9 @@ function PalletCard({ order, p, sel, marked, onSelect, onMark }: { order: Order;
         {p.items.map(it => { const l = order.lines.find(x => x.id === it.lineId); return (
           <li key={it.lineId}><span>{l ? <><Rodzaj p={l.product} />{l.recipe} {l.kgPerUnit} kg<Tuleja n={l.packaging} /></> : 'pozycja usunięta'} × {it.qty}</span><span>{l ? kg(it.qty * l.kgPerUnit) : '—'}</span></li>) })}
       </ul>
+      {p.printedAt
+        ? <div className="pprint">{`wydrukowano ${p.printedAt}${p.printedBy ? ` · ${p.printedBy}` : ''}${(p.printCount ?? 0) > 1 ? ` · ${p.printCount}×` : ''}`}</div>
+        : <div className="pprint warn-ink">kartka niewydrukowana</div>}
       <div className="pf">
         <PalletStatusLabel status={p.status} />
         <PalletFlow status={p.status} />

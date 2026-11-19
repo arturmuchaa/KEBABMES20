@@ -32,6 +32,16 @@ interface Props {
   clientName?: string
 }
 
+/** „19.11 11:40” — czas ostatniego wydruku kartki (rejestr wydruków). */
+function kiedy(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+const odmPalet = (n: number) => `${n} ${n === 1 ? 'paleta' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'palety' : 'palet'}`
+
 function lineLabel(l: OrderLine): string {
   const parts = [`${l.kgPerUnit} kg`]
   if (l.recipeName)      parts.push(l.recipeName)
@@ -132,10 +142,13 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [], orderNo, c
   const stockQty = stock.reduce((s, c) => s + c.lines.reduce((q, l) => q + l.targetQty, 0), 0)
   const stockKg = stock.reduce((s, c) => s + c.lines.reduce((kg, l) => kg + l.targetQty * l.kgPerUnit, 0), 0)
 
+  const bezKartki = list.filter(p => p.id && !p.lastPrintAt).length
+
   return (
     <div className="orders-workspace mt-4">
       <OrderSection title="Palety wydania" description={[clientName, orderNo, `${list.length} palet · ${totalUnits} szt. · ${kgText(totalKg)}`].filter(Boolean).join(' · ')} action={
         <div className="flex flex-wrap items-center gap-2">
+          {bezKartki > 0 && <span className="text-xs font-semibold text-amber-700" title="Tych kartek nikt jeszcze nie wydrukował — mroźnia nie zeskanuje palety bez kartki">{odmPalet(bezKartki)} bez kartki</span>}
           {list.length > 0 && (
             <>
               <Button
@@ -275,7 +288,10 @@ export function PalletsEditor({ orderId, lines, assignedCartons = [], orderNo, c
                     </Button>
                   </div>
                 </header>
-                <div className="px-4 pt-3 flex flex-wrap gap-2 text-xs text-slate-600"><span>Przypisana do {orderNo || 'tego zamówienia'}</span><StatusBadge tone={p.status === 'cold_storage' ? 'blue' : p.status === 'packed' || p.status === 'loaded' ? 'green' : 'gray'} label={PACK_STATUS_LABEL[p.status || 'created'] ?? p.status ?? 'Rozpisana'} /></div>
+                <div className="px-4 pt-3 flex flex-wrap gap-2 text-xs text-slate-600"><span>Przypisana do {orderNo || 'tego zamówienia'}</span><StatusBadge tone={p.status === 'cold_storage' ? 'blue' : p.status === 'packed' || p.status === 'loaded' ? 'green' : 'gray'} label={PACK_STATUS_LABEL[p.status || 'created'] ?? p.status ?? 'Rozpisana'} />
+                  {p.lastPrintAt
+                    ? <span>{`wydrukowano ${kiedy(p.lastPrintAt)}${p.lastPrintBy ? ` · ${p.lastPrintBy}` : ''}${(p.printCount ?? 0) > 1 ? ` · ${p.printCount}×` : ''}`}</span>
+                    : <span className="font-semibold text-amber-700">kartka niewydrukowana</span>}</div>
                 <div className="p-4 space-y-3">
                   {p.items.map(it => {
                     const ln = lines.find(l => l.id === it.orderLineId)

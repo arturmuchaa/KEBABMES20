@@ -1312,3 +1312,7 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .dk-towar { display: grid; grid-template-columns: minmax(0, 1fr) 90px 100px 32px; gap: 8px; align-items: center; }
 .dk-rozjazd { background: var(--crit-tint); color: var(--crit-ink); font-weight: 600; }
 .dk-podglad-ladowanie { display: flex; gap: 12px; align-items: flex-start; }
+
+/* Znacznik wydruku kartki na karcie palety (rejestr wydruków, 19.11.2026). */
+.pal .pprint { padding: 0 12px 6px; font-size: var(--fs-xs); color: var(--ink-3); }
+.pal .pprint.warn-ink { color: var(--warn-ink); font-weight: 600; }

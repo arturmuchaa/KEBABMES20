@@ -179,3 +179,13 @@ describe('PalletLabelsBatchPrintPage — tresc kartek', () => {
     expect(screen.queryAllByTestId('label-page')).toHaveLength(0)
   })
 })
+
+describe('rejestr wydruków kartek z MES', () => {
+  it('auto-druk podaje rodzaj i id drukowanych palet', async () => {
+    const { drukuj } = await import('@/lib/print')
+    vi.mocked(drukuj).mockClear()
+    await pokaz('?palety=3,1')
+    await waitFor(() => expect(drukuj).toHaveBeenCalled(), { timeout: 3000 })
+    expect(vi.mocked(drukuj).mock.calls[0][0]).toMatchObject({ rodzaj: 'kartki-palet', rejestr: { orderId: 'o1', palletIds: ['p3', 'p1'] } })
+  })
+})

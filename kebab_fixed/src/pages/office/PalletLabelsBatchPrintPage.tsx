@@ -117,11 +117,16 @@ export function PalletLabelsBatchPrintPage() {
   // Auto-druk dopiero, gdy KAŻDA kartka ma swój kod — inaczej z drukarki
   // wychodzą palety bez QR, którego magazynier nie ma jak zeskanować.
   const qrKomplet = kartki.length > 0 && kartki.every(k => qrByCode[k.qrCode])
+  // Rejestr wydruków: które palety dostały kartki (znacznik „wydrukowano” w rozpisie).
+  const opcjeDruku = useMemo(() => ({
+    rodzaj: 'kartki-palet' as const,
+    rejestr: { orderId: id, palletIds: wybrane.map(p => p.id).filter((x): x is string => !!x) },
+  }), [id, wybrane])
   useEffect(() => {
     if (!qrKomplet) return
-    const t = window.setTimeout(() => void drukuj(), 400)
+    const t = window.setTimeout(() => void drukuj(opcjeDruku), 400)
     return () => window.clearTimeout(t)
-  }, [qrKomplet])
+  }, [qrKomplet]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (orderRes.loading || palletsRes.loading) {
     return <div className="p-10 text-center text-muted-foreground">Ładowanie kartek palet…</div>
@@ -166,7 +171,7 @@ export function PalletLabelsBatchPrintPage() {
         <div className="text-sm text-slate-700">
           {order.orderNo} · palety {opisPalet} · {kartki.length * KOPII_NA_PALETE} kartek
         </div>
-        <button disabled={!qrKomplet} onClick={() => void drukuj()} className="flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50">
+        <button disabled={!qrKomplet} onClick={() => void drukuj(opcjeDruku)} className="flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50">
           <Printer size={14} /> Drukuj wszystkie
         </button>
       </div>

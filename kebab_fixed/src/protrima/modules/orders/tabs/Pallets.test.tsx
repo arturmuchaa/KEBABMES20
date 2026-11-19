@@ -138,3 +138,34 @@ describe('zakładka Palety', () => {
     ])
   })
 })
+
+describe('zakładka Palety — czy kartki wydrukowano', () => {
+  const zWydrukiem = (p: Record<string, unknown>[]) =>
+    mapujZamowienie(mapClientOrder(RAW), { clients: [], pallets: { o1: p as never }, wz: [], planByLine: {} })
+  const P = [
+    { ...FRESH[0], lastPrintAt: '2026-11-19T11:40:00', lastPrintBy: 'am', printCount: 2 },
+    { ...FRESH[1] },
+    { id: 'p4', palletNo: 4, cartonNo: '000651', notes: '', status: 'created', items: [{ orderLineId: 'c', qty: 5 }], lastPrintAt: '2026-11-19T09:05:00', lastPrintBy: 'olek', printCount: 1 },
+  ]
+  const karta = (nr: number, karton: string) => screen.getByRole('button', { name: new RegExp(`Paleta ${nr}, karton ${karton}`) })
+
+  it('paleta bez wydruku ma ostrzeżenie', () => {
+    render(<AppCtx.Provider value={app}><PalletsTab order={zWydrukiem(P)} /></AppCtx.Provider>)
+    expect(within(karta(3, '000650')).getByText('kartka niewydrukowana')).toBeTruthy()
+  })
+
+  it('paleta drukowana dwa razy pokazuje 2×, raz — bez licznika', () => {
+    render(<AppCtx.Provider value={app}><PalletsTab order={zWydrukiem(P)} /></AppCtx.Provider>)
+    expect(within(karta(1, '000634')).getByText('wydrukowano 19.11 11:40 · am · 2×')).toBeTruthy()
+    expect(within(karta(4, '000651')).getByText('wydrukowano 19.11 09:05 · olek')).toBeTruthy()
+  })
+
+  it('licznik palet bez kartki w nagłówku, ukryty przy zera', () => {
+    const bez = [{ ...P[1] }, { ...P[1], id: 'p5', palletNo: 5, cartonNo: '000652' }, { ...P[1], id: 'p6', palletNo: 6, cartonNo: '000653' }, P[0]]
+    render(<AppCtx.Provider value={app}><PalletsTab order={zWydrukiem(bez)} /></AppCtx.Provider>)
+    expect(screen.getByText('3 palety bez kartki')).toBeTruthy()
+    cleanup()
+    render(<AppCtx.Provider value={app}><PalletsTab order={zWydrukiem([P[0]])} /></AppCtx.Provider>)
+    expect(screen.queryByText(/bez kartki/)).toBeNull()
+  })
+})

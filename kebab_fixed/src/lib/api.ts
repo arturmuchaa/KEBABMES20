@@ -2268,6 +2268,10 @@ export interface OrderPallet {
   loadedAt?:      string | null
   totalQty?:      number
   totalKg?:       number
+  /** Rejestr wydruków: ostatni wydruk kartki tej palety (ISO), kto, ile razy. */
+  lastPrintAt?:   string | null
+  lastPrintBy?:   string | null
+  printCount?:    number
 }
 
 function mapPalletItem(raw: any): OrderPalletItem {
@@ -2296,6 +2300,9 @@ function mapPallet(raw: any): OrderPallet {
     loadedAt:        raw.loaded_at       ?? raw.loadedAt       ?? null,
     totalQty:        raw.total_qty != null ? Number(raw.total_qty) : undefined,
     totalKg:         raw.total_kg  != null ? Number(raw.total_kg)  : undefined,
+    lastPrintAt:     raw.ostatni_wydruk_at ?? raw.lastPrintAt ?? null,
+    lastPrintBy:     raw.ostatni_wydruk_kto ?? raw.lastPrintBy ?? null,
+    printCount:      Number(raw.liczba_wydrukow ?? raw.printCount ?? 0),
   }
 }
 
