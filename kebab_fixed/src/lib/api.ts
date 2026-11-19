@@ -4918,6 +4918,6 @@ export { BASE as API_BASE }
 
 // ── Rejestr wydruków (okno druku, 19.11.2026) ─────────────────────────
 export const drukApi = {
-  rejestr: (wpis: Record<string, unknown>) => req<Record<string, unknown>>('POST', '/druk/rejestr', wpis),
+  rejestr: (wpis: object) => req<Record<string, unknown>>('POST', '/druk/rejestr', wpis),
   lista: (orderId: string) => req<Record<string, unknown>[]>('GET', `/druk/rejestr?order_id=${encodeURIComponent(orderId)}`),
 }
