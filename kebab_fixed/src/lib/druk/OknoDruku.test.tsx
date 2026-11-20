@@ -12,6 +12,9 @@ const n = vi.hoisted(() => ({
   stronaPdf: vi.fn(), drukujPdf: vi.fn(), czytajPlik: vi.fn(), zapiszPlik: vi.fn(), komputer: vi.fn(), dostepny: vi.fn(),
 }))
 vi.mock('./natywny', () => ({ natywny: n }))
+// pdfjs nie działa w jsdom — podgląd udaje 3 strony A4 (trzecia pozioma).
+const podglad = vi.hoisted(() => ({ stronyPodgladu: vi.fn() }))
+vi.mock('./podglad', () => ({ MAKS_STRON_PODGLADU: 40, stronyPodgladu: podglad.stronyPodgladu }))
 
 function mozliwosci(wybrane: Record<string, string> = {}): Mozliwosci {
   const f = (id: string, nazwa: string, opcje: [string, string][]) =>
@@ -19,7 +22,7 @@ function mozliwosci(wybrane: Record<string, string> = {}): Mozliwosci {
   return {
     ticket: 'T0', kopieMax: 999, zasobnikDomyslny: [PSK + 'PageInputBin', KM + 'Tray1'],
     funkcje: [
-      f(PSK + 'PageInputBin', 'Źródło papieru', [[PSK + 'AutoSelect', 'Automatyczny'], [KM + 'Tray1', 'Zasobnik 1'], [KM + 'Tray3', 'Zasobnik 3']]),
+      f(PSK + 'PageInputBin', 'Zasobnik papieru', [[PSK + 'AutoSelect', 'Automatyczny'], [KM + 'Tray1', 'Zasobnik 1'], [KM + 'Tray3', 'Zasobnik 3']]),
       f(PSK + 'PageOutputColor', 'Kolor', [[PSK + 'Color', 'Kolor'], [PSK + 'Monochrome', 'Czarno-biały']]),
       f(PSK + 'JobDuplexAllDocumentsContiguously', 'Druk dwustronny', [[PSK + 'OneSided', 'Jednostronnie'], [PSK + 'TwoSidedLongEdge', 'Dwustronnie']]),
       f(KM + 'Staple', 'Zszywanie', [[KM + 'Off', 'Wyłączone'], [KM + 'Corner', 'Róg']]),
@@ -36,6 +39,10 @@ beforeEach(() => {
   n.ustawOpcje.mockImplementation(async (t: string, f: string, o: string) => `${t}|${f}=${o}`)
   n.stronaPdf.mockResolvedValue('PDF64')
   n.drukujPdf.mockResolvedValue(2)
+  podglad.stronyPodgladu.mockImplementation(async (_pdf: string, naStrone: (i: number, s: object, n: number) => void) => {
+    ;[[595, 842], [595, 842], [842, 595]].forEach(([szer, wys], i) => naStrone(i, { src: `data:image/png;base64,S${i}`, szer, wys }, 3))
+    return 3
+  })
 })
 afterEach(() => { cleanup(); vi.clearAllMocks() })
 
@@ -44,7 +51,7 @@ async function otworz(props: Partial<React.ComponentProps<typeof import('./OknoD
   const onZamknij = vi.fn()
   render(<OknoDruku rodzaj="kartki-palet" tytul="Kartki palet TRUVA" zrodlo={{ typ: 'strona' }} onZamknij={onZamknij} {...props} />)
   await screen.findByRole('button', { name: 'Drukuj' })
-  await waitFor(() => expect(screen.getByLabelText('Źródło papieru')).toBeTruthy())
+  await waitFor(() => expect(screen.getByLabelText('Zasobnik papieru')).toBeTruthy())
   return onZamknij
 }
 const sel = (label: string) => screen.getByLabelText(label) as HTMLSelectElement
@@ -53,7 +60,7 @@ describe('okno druku', () => {
   it('pierwszy raz: domyślna drukarka, zasobnik 1 i czarno-biały', async () => {
     await otworz()
     expect(sel('Drukarka').value).toBe('bizhub')
-    await waitFor(() => expect(sel('Źródło papieru').value).toBe(KM + 'Tray1'))
+    await waitFor(() => expect(sel('Zasobnik papieru').value).toBe(KM + 'Tray1'))
     expect(sel('Kolor').value).toBe(PSK + 'Monochrome')
   })
 
@@ -63,7 +70,7 @@ describe('okno druku', () => {
     await otworz()
     expect(sel('Drukarka').value).toBe('HP biuro')
     expect(n.mozliwosci).toHaveBeenCalledWith('HP biuro', 'T-zapis')
-    expect(sel('Źródło papieru').value).toBe(KM + 'Tray3')
+    expect(sel('Zasobnik papieru').value).toBe(KM + 'Tray3')
     expect((screen.getByLabelText('Kopie') as HTMLInputElement).value).toBe('3')
     expect(n.ustawOpcje).not.toHaveBeenCalled()
   })
@@ -134,12 +141,12 @@ describe('okno druku', () => {
 
   it('kolor zasobnika zapisany per drukarka i widoczny na liście', async () => {
     await otworz()
-    fireEvent.change(sel('Źródło papieru'), { target: { value: KM + 'Tray3' } })
+    fireEvent.change(sel('Zasobnik papieru'), { target: { value: KM + 'Tray3' } })
     const pole = await screen.findByLabelText('Kolor papieru w zasobniku „Zasobnik 3”')
     fireEvent.change(pole, { target: { value: 'zielone' } })
     fireEvent.blur(pole)
     await waitFor(() => expect(JSON.parse(plik.tresc).koloryZasobnikow?.bizhub?.[KM + 'Tray3']).toBe('zielone'))
-    expect(within(sel('Źródło papieru')).getByText('Zasobnik 3 – zielone')).toBeTruthy()
+    expect(within(sel('Zasobnik papieru')).getByText('Zasobnik 3 – zielone')).toBeTruthy()
   })
 
   it('ustawienia drukarki z okna sterownika wracają do okna', async () => {
@@ -162,5 +169,54 @@ describe('okno druku', () => {
     cleanup()
     await otworz({ rodzaj: 'wz' })
     expect(screen.getByLabelText('Od strony')).toBeTruthy()
+  })
+
+  it('podgląd: strony tego samego PDF, który idzie do drukarki (PDF robiony raz)', async () => {
+    const onZamknij = await otworz({ rodzaj: 'wz' })
+    const pg = screen.getByRole('region', { name: 'Podgląd wydruku' })
+    await waitFor(() => expect(within(pg).getAllByRole('img')).toHaveLength(3))
+    expect(podglad.stronyPodgladu.mock.calls[0][0]).toBe('PDF64')
+    expect(within(pg).getByText(/3 strony × 1 kopia/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Drukuj' }))
+    await waitFor(() => expect(onZamknij).toHaveBeenCalled())
+    expect(n.stronaPdf).toHaveBeenCalledTimes(1)
+    expect(n.drukujPdf.mock.calls[0][0].pdfBase64).toBe('PDF64')
+  })
+
+  it('podgląd: zakres stron przyciemnia resztę, kopie i zasobnik w pasku, czarno-biało w szarości', async () => {
+    await otworz({ rodzaj: 'wz' })
+    const pg = screen.getByRole('region', { name: 'Podgląd wydruku' })
+    await waitFor(() => expect(within(pg).getAllByRole('img')).toHaveLength(3))
+    fireEvent.click(screen.getByLabelText('od'))
+    fireEvent.change(screen.getByLabelText('Do strony'), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('Kopie'), { target: { value: '2' } })
+    expect(within(pg).getByText(/2 strony × 2 kopie/)).toBeTruthy()
+    expect(within(pg).getByAltText('Strona 3').closest('figure')!.className).toContain('od-poza')
+    expect(within(pg).getByAltText('Strona 1').closest('figure')!.className).not.toContain('od-poza')
+    await waitFor(() => expect(within(pg).getByText(/Zasobnik 1/)).toBeTruthy())
+    expect(pg.querySelector('.od-cb')).toBeTruthy()
+    fireEvent.change(sel('Kolor'), { target: { value: PSK + 'Color' } })
+    await waitFor(() => expect(pg.querySelector('.od-cb')).toBeNull())
+  })
+
+  it('opcje po polsku, także gdy sterownik podaje je po angielsku', async () => {
+    n.mozliwosci.mockImplementation(async () => ({
+      ...mozliwosci(), funkcje: mozliwosci().funkcje.map(f => (f.id === PSK + 'PageInputBin'
+        ? { ...f, nazwa: 'Paper Source', opcje: [{ id: PSK + 'AutoSelect', nazwa: 'Auto Select' }, { id: KM + 'Tray1', nazwa: 'Tray 1' }, { id: KM + 'Tray3', nazwa: 'Tray 3' }] }
+        : f.id === KM + 'Staple' ? { ...f, nazwa: 'Staple', opcje: [{ id: KM + 'Off', nazwa: 'Off' }, { id: KM + 'Corner', nazwa: 'Corner' }] } : f)),
+    }))
+    await otworz()
+    expect(within(sel('Zasobnik papieru')).getByText('Wybór automatyczny')).toBeTruthy()
+    expect(within(sel('Zasobnik papieru')).getByText('Zasobnik 3')).toBeTruthy()
+    expect(within(sel('Zszywanie')).getByText('Wyłączone')).toBeTruthy()
+    expect(within(sel('Zszywanie')).getByText('W rogu')).toBeTruthy()
+  })
+
+  it('błąd podglądu nie blokuje druku', async () => {
+    podglad.stronyPodgladu.mockRejectedValue(new Error('zły PDF'))
+    const onZamknij = await otworz()
+    expect(await screen.findByText('Podgląd niedostępny: zły PDF')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Drukuj' }))
+    await waitFor(() => expect(onZamknij).toHaveBeenCalledWith(expect.objectContaining({ wydrukowano: true })))
   })
 })

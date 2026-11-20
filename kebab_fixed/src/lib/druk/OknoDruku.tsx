@@ -2,12 +2,18 @@
  * Okno druku — jak w Subiekcie: drukarka i wszystkie opcje jej sterownika
  * (zasobnik, kolor, dwustronnie, papier, opcje Konica), zapamiętane dla
  * rodzaju dokumentu na tym komputerze. Spec: 2026-11-19-okno-druku-design.md
+ *
+ * 20.11.2026 (po próbie w biurze): duże okno jak drukowanie w Windows —
+ * po lewej drukarka i opcje (po polsku), po prawej podgląd tego samego PDF,
+ * który pójdzie do drukarki.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { natywny } from './natywny'
 import { NAZWA_RODZAJU, type RodzajDruku } from './rodzaje'
 import type { Drukarka, Funkcja } from './typy'
 import { czytajUstawienia, zapiszDokument, zapiszKolor } from './ustawienia'
+import { poPolsku } from './tlumaczenia'
+import { MAKS_STRON_PODGLADU, stronyPodgladu, type StronaPodgladu } from './podglad'
 import './okno-druku.css'
 
 export type ZrodloDruku = { typ: 'strona' } | { typ: 'pdf'; pdfBase64: string }
@@ -20,6 +26,9 @@ const NA_GORZE = ['PageInputBin', 'JobInputBin', 'PageOutputColor', 'JobDuplexAl
 const lokalna = (id: string) => id.slice(id.lastIndexOf('}') + 1)
 const jestZasobnik = (f: Funkcja) => ['PageInputBin', 'JobInputBin'].includes(lokalna(f.id))
 const tekstBledu = (e: unknown) => (e instanceof Error ? e.message : String(e))
+const spolszcz = (fs: Funkcja[]): Funkcja[] => fs.map(f => ({ ...f, nazwa: poPolsku(f.id, f.nazwa), opcje: f.opcje.map(o => ({ ...o, nazwa: poPolsku(o.id, o.nazwa) })) }))
+const CZARNO_BIALO = /Monochrome|Grayscale|Mono|Black/i
+const odmianaStron = (n: number) => (n === 1 ? 'strona' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'strony' : 'stron')
 
 export function OknoDruku({ rodzaj, tytul, zrodlo, onZamknij }: {
   rodzaj: RodzajDruku; tytul: string; zrodlo: ZrodloDruku; onZamknij: (w: WynikOkna) => void
@@ -39,6 +48,35 @@ export function OknoDruku({ rodzaj, tytul, zrodlo, onZamknij }: {
   const [blad, setBlad] = useState<string | null>(null)
   const [zajete, setZajete] = useState<string | null>('Wczytywanie drukarek…')
   const pierwszy = useRef<HTMLSelectElement>(null)
+  // Podgląd: PDF robiony raz przy otwarciu — ten sam idzie potem do drukarki.
+  const pdfRef = useRef<Promise<string> | null>(null)
+  const [strony, setStrony] = useState<StronaPodgladu[]>([])
+  const [liczbaStron, setLiczbaStron] = useState<number | null>(null)
+  const [bladPodgladu, setBladPodgladu] = useState<string | null>(null)
+  const pobierzPdf = () => {
+    if (!pdfRef.current) {
+      pdfRef.current = zrodlo.typ === 'pdf' ? Promise.resolve(zrodlo.pdfBase64) : natywny.stronaPdf()
+      pdfRef.current.catch(() => { pdfRef.current = null })
+    }
+    return pdfRef.current
+  }
+
+  useEffect(() => {
+    let zyje = true
+    ;(async () => {
+      try {
+        const pdf = await pobierzPdf()
+        if (!zyje) return
+        const n = await stronyPodgladu(pdf, (i, s, wszystkich) => {
+          if (!zyje) return
+          setLiczbaStron(wszystkich)
+          setStrony(st => { const k = st.slice(); k[i] = s; return k })
+        }, () => zyje)
+        if (zyje) setLiczbaStron(n)
+      } catch (e) { if (zyje) setBladPodgladu(`Podgląd niedostępny: ${tekstBledu(e)}`) }
+    })()
+    return () => { zyje = false }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Wczytaj możliwości drukarki; przy pierwszym użyciu ustaw zasobnik 1 i czarno-biały. */
   async function wczytaj(nazwa: string, t: string | null, domyslne: boolean) {
@@ -46,7 +84,7 @@ export function OknoDruku({ rodzaj, tytul, zrodlo, onZamknij }: {
     try {
       const m = await natywny.mozliwosci(nazwa, t)
       let tk = m.ticket
-      let fs = m.funkcje
+      let fs = spolszcz(m.funkcje)
       const ustaw = async (fid: string, oid: string) => {
         tk = await natywny.ustawOpcje(tk, fid, oid)
         fs = fs.map(f => (f.id === fid ? { ...f, wybrana: oid } : f))
@@ -141,7 +179,7 @@ export function OknoDruku({ rodzaj, tytul, zrodlo, onZamknij }: {
     const n = Math.max(1, Math.min(kopieMax, Math.floor(Number(kopie) || 1)))
     setBlad(null); setZajete('Drukowanie…')
     try {
-      const pdf = zrodlo.typ === 'pdf' ? zrodlo.pdfBase64 : await natywny.stronaPdf()
+      const pdf = await pobierzPdf()
       // Kartki palet zawsze w całości: rejestr oznacza palety, nie strony (przegląd I8).
       const zakresStron = zakres === 'od-do' && rodzaj !== 'kartki-palet'
         ? { od: Number(od) || undefined, do: doStr.trim() ? Number(doStr) : undefined } : {}
@@ -175,48 +213,81 @@ export function OknoDruku({ rodzaj, tytul, zrodlo, onZamknij }: {
     )
   }
 
+  const kolorF = funkcje.find(f => lokalna(f.id) === 'PageOutputColor')
+  const czarnoBialy = !!kolorF?.wybrana && CZARNO_BIALO.test(lokalna(kolorF.wybrana))
+  const zZakresem = zakres === 'od-do' && rodzaj !== 'kartki-palet'
+  const odN = Math.max(1, Number(od) || 1)
+  const doN = doStr.trim() ? Number(doStr) || odN : Infinity
+  const wZakresie = (nr: number) => !zZakresem || (nr >= odN && nr <= doN)
+  const nKopii = Math.max(1, Math.floor(Number(kopie) || 1))
+  const doDruku = liczbaStron == null ? null : Array.from({ length: liczbaStron }, (_, i) => i + 1).filter(wZakresie).length
+  const kolorZasobnika = zasobnik?.wybrana ? koloryDrukarki[zasobnik.wybrana] : undefined
+
   return (
     <div className="okno-druku-tlo" role="presentation">
       <div className="okno-druku" role="dialog" aria-modal="true" aria-labelledby="okno-druku-tytul">
         <header><h2 id="okno-druku-tytul">Drukuj: {tytul}</h2></header>
-        <form aria-label="Ustawienia wydruku" onSubmit={drukuj}>
-          {uwaga && <p className="od-uwaga" role="status">{uwaga}</p>}
-          <div className="od-pole">
-            <label htmlFor="druk-drukarka">Drukarka</label>
-            <select id="druk-drukarka" ref={pierwszy} value={drukarka} disabled={!!zajete && !funkcje.length && !drukarki.length}
-              onChange={ev => void zmienDrukarke(ev.target.value)}>
-              {drukarki.map(d => <option key={d.nazwa} value={d.nazwa}>{d.nazwa}{d.domyslna ? ' (domyślna)' : ''}</option>)}
-            </select>
-          </div>
-          {gora.map((f, i) => pole(f, i))}
-          <div className="od-dwa">
+        <form className="od-uklad" aria-label="Ustawienia wydruku" onSubmit={drukuj}>
+          <div className="od-panel">
+            {uwaga && <p className="od-uwaga" role="status">{uwaga}</p>}
+            <div className="od-pole">
+              <label htmlFor="druk-drukarka">Drukarka</label>
+              <select id="druk-drukarka" ref={pierwszy} value={drukarka} disabled={!!zajete && !funkcje.length && !drukarki.length}
+                onChange={ev => void zmienDrukarke(ev.target.value)}>
+                {drukarki.map(d => <option key={d.nazwa} value={d.nazwa}>{d.nazwa}{d.domyslna ? ' (domyślna)' : ''}</option>)}
+              </select>
+            </div>
             <div className="od-pole">
               <label htmlFor="druk-kopie">Kopie</label>
               <input id="druk-kopie" type="number" min={1} max={kopieMax} inputMode="numeric" value={kopie} onChange={ev => setKopie(ev.target.value)} />
             </div>
             {rodzaj !== 'kartki-palet' && <fieldset className="od-pole od-strony">
               <legend>Strony</legend>
-              <label><input type="radio" name="druk-zakres" checked={zakres === 'wszystkie'} onChange={() => setZakres('wszystkie')} /> wszystkie</label>
-              <label><input type="radio" name="druk-zakres" checked={zakres === 'od-do'} onChange={() => setZakres('od-do')} /> od</label>
-              <input aria-label="Od strony" type="number" min={1} value={od} disabled={zakres !== 'od-do'} onChange={ev => setOd(ev.target.value)} />
-              <span>do</span>
-              <input aria-label="Do strony" type="number" min={1} value={doStr} disabled={zakres !== 'od-do'} onChange={ev => setDoStr(ev.target.value)} />
+              <div className="od-strony-wybor">
+                <label><input type="radio" name="druk-zakres" checked={zakres === 'wszystkie'} onChange={() => setZakres('wszystkie')} /> wszystkie</label>
+                <span className="od-od-do">
+                  <label><input type="radio" name="druk-zakres" checked={zakres === 'od-do'} onChange={() => setZakres('od-do')} /> od</label>
+                  <input aria-label="Od strony" type="number" min={1} value={od} disabled={zakres !== 'od-do'} onChange={ev => setOd(ev.target.value)} />
+                  <span>do</span>
+                  <input aria-label="Do strony" type="number" min={1} value={doStr} disabled={zakres !== 'od-do'} onChange={ev => setDoStr(ev.target.value)} />
+                </span>
+              </div>
             </fieldset>}
+            {gora.map((f, i) => pole(f, i))}
+            {reszta.length > 0 && (
+              <details className="od-wiecej">
+                <summary>Więcej ustawień drukarki</summary>
+                <div className="od-wiecej-pola">{reszta.map((f, i) => pole(f, gora.length + i))}</div>
+              </details>
+            )}
+            <button type="button" className="od-btn od-sterownik" onClick={() => void ustawieniaSterownika()} disabled={!!zajete || !drukarka}>Ustawienia drukarki…</button>
+            {blad && (
+              <div className="od-blad" role="alert">
+                <p>{blad}</p>
+                <button type="button" className="od-btn" onClick={() => onZamknij({ systemowe: true })}>Drukuj oknem systemowym</button>
+              </div>
+            )}
           </div>
-          {reszta.length > 0 && (
-            <details className="od-wiecej">
-              <summary>Więcej ustawień drukarki</summary>
-              {reszta.map((f, i) => pole(f, gora.length + i))}
-            </details>
-          )}
-          {blad && (
-            <div className="od-blad" role="alert">
-              <p>{blad}</p>
-              <button type="button" className="od-btn" onClick={() => onZamknij({ systemowe: true })}>Drukuj oknem systemowym</button>
+          <section className="od-podglad" aria-label="Podgląd wydruku">
+            <div className="od-podglad-pasek" role="status">
+              {liczbaStron == null ? (bladPodgladu ? '' : 'Przygotowanie podglądu…')
+                : `${doDruku} ${odmianaStron(doDruku ?? 0)} × ${nKopii} ${nKopii === 1 ? 'kopia' : nKopii % 10 >= 2 && nKopii % 10 <= 4 && (nKopii % 100 < 10 || nKopii % 100 >= 20) ? 'kopie' : 'kopii'}`}
+              {wybranyZasobnik && <span> · {wybranyZasobnik.nazwa}{kolorZasobnika ? ` – ${kolorZasobnika}` : ''}</span>}
+              {czarnoBialy && <span> · czarno-biało</span>}
             </div>
-          )}
+            <div className={`od-strony-podgladu${czarnoBialy ? ' od-cb' : ''}`}>
+              {bladPodgladu && <p className="od-podglad-blad">{bladPodgladu}</p>}
+              {strony.map((st, i) => st && (
+                <figure key={i} className={`od-kartka${wZakresie(i + 1) ? '' : ' od-poza'}`} style={{ aspectRatio: `${st.szer} / ${st.wys}`, ['--od-proporcja' as string]: st.szer / st.wys }}>
+                  <img src={st.src} alt={`Strona ${i + 1}`} />
+                  <figcaption>{i + 1}{wZakresie(i + 1) ? '' : ' — nie drukuje się'}</figcaption>
+                </figure>
+              ))}
+              {liczbaStron != null && liczbaStron > MAKS_STRON_PODGLADU && strony.length >= MAKS_STRON_PODGLADU &&
+                <p className="od-podglad-blad">Podgląd pokazuje {MAKS_STRON_PODGLADU} pierwszych z {liczbaStron} stron — drukują się wszystkie.</p>}
+            </div>
+          </section>
           <footer>
-            <button type="button" className="od-btn" onClick={() => void ustawieniaSterownika()} disabled={!!zajete || !drukarka}>Ustawienia drukarki…</button>
             <label className="od-zapamietaj"><input type="checkbox" checked={zapamietaj} onChange={ev => setZapamietaj(ev.target.checked)} />
               {` Zapamiętaj dla „${NAZWA_RODZAJU[rodzaj]}”`}</label>
             <span className="od-odstep" />

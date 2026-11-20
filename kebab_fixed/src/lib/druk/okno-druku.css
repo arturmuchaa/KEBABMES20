@@ -1,4 +1,5 @@
-/* Okno druku — wspólne dla MES i PROTRIMA. Kolory z tokenów PROTRIMA, a gdzie
+/* Okno druku — wspólne dla MES i PROTRIMA. Duże jak drukowanie w Windows:
+   opcje po lewej, podgląd po prawej. Kolory z tokenów PROTRIMA, a gdzie
    ich nie ma (MES), z wartości zapasowych o tym samym charakterze. */
 .okno-druku-tlo {
   position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center;
@@ -6,46 +7,66 @@
   font-family: var(--f-ui, "Segoe UI", system-ui, sans-serif);
 }
 .okno-druku {
-  width: min(520px, 100%); max-height: calc(100vh - 32px); overflow: auto;
+  width: min(1240px, 100%); height: min(860px, calc(100vh - 32px));
+  display: grid; grid-template-rows: auto minmax(0, 1fr);
   background: var(--surface, #fff); color: var(--ink-1, #17202b);
   border: 1px solid var(--line, #d3d9e0); border-radius: var(--r-md, 8px);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, .28);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .28); overflow: hidden;
 }
-.okno-druku header { padding: 14px 18px 4px; }
-.okno-druku h2 { margin: 0; font-size: 16px; font-weight: 600; text-wrap: balance; }
-.okno-druku form { display: grid; gap: 10px; padding: 10px 18px 16px; }
-.od-pole { display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 10px; border: 0; margin: 0; padding: 0; }
-.od-pole > label, .od-pole > legend { font-size: 13px; color: var(--ink-2, #3d4856); }
+.okno-druku header { padding: 12px 18px; border-bottom: 1px solid var(--line, #d3d9e0); }
+.okno-druku h2 { margin: 0; font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.od-uklad { display: grid; grid-template-columns: 380px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; min-height: 0; }
+.od-panel { display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; overflow: auto; border-right: 1px solid var(--line, #d3d9e0); }
+.od-panel > * { flex-shrink: 0; }
+.od-pole { display: grid; gap: 4px; border: 0; margin: 0; padding: 0; min-width: 0; }
+.od-pole > label, .od-pole > legend { font-size: 12px; font-weight: 600; color: var(--ink-2, #3d4856); padding: 0; }
 .od-wiersz { display: flex; gap: 6px; min-width: 0; }
 .okno-druku select, .okno-druku input[type="number"], .od-kolor {
-  height: 30px; min-width: 0; font: inherit; font-size: 13px; padding: 0 8px;
+  height: 32px; min-width: 0; font: inherit; font-size: 13px; padding: 0 8px;
   background: var(--field, #fff); color: var(--ink-1, #17202b);
   border: 1px solid var(--line-strong, #b8c0ca); border-radius: var(--r-xs, 4px);
 }
+.od-pole > select, .od-pole > input[type="number"] { width: 100%; }
+#druk-kopie { width: 96px; }
 .od-wiersz select { flex: 1; }
-.od-kolor { width: 120px; }
-.od-dwa { display: grid; gap: 10px; }
-.od-strony { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
-.od-strony legend { float: left; width: 140px; margin-right: 10px; }
+.od-kolor { width: 116px; }
+.od-strony-wybor { display: grid; gap: 6px; font-size: 13px; }
+.od-od-do { display: flex; align-items: center; gap: 6px; }
 .od-strony input[type="number"] { width: 64px; }
-.od-wiecej { border-top: 1px solid var(--line, #d3d9e0); padding-top: 8px; display: grid; gap: 10px; }
-.od-wiecej summary { cursor: pointer; font-size: 13px; color: var(--accent-ink, #1d44a0); margin-bottom: 8px; }
+.od-wiecej { border-top: 1px solid var(--line, #d3d9e0); padding-top: 10px; }
+.od-wiecej-pola { display: grid; gap: 12px; margin-top: 12px; }
+.od-wiecej summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent-ink, #1d44a0); }
+.od-sterownik { align-self: flex-start; }
 .od-uwaga { margin: 0; padding: 8px 10px; font-size: 13px; border-radius: var(--r-xs, 4px);
   background: var(--warn-tint, #fff4d6); color: var(--warn-ink, #7a5200); }
 .od-blad { display: grid; gap: 8px; justify-items: start; padding: 8px 10px; font-size: 13px; border-radius: var(--r-xs, 4px);
   background: var(--crit-tint, #fde7e7); color: var(--crit-ink, #9b1c1c); }
 .od-blad p { margin: 0; }
-.okno-druku footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px;
-  border-top: 1px solid var(--line, #d3d9e0); padding-top: 12px; }
+/* Podgląd — szare tło jak w Windows, kartki z cieniem. */
+.od-podglad { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; background: var(--canvas-2, #e4e7eb); }
+.od-podglad-pasek { padding: 8px 16px; font-size: 13px; color: var(--ink-2, #3d4856); background: var(--surface-2, #f2f4f6);
+  border-bottom: 1px solid var(--line, #d3d9e0); font-variant-numeric: tabular-nums; }
+.od-strony-podgladu { overflow: auto; padding: 20px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.od-kartka { margin: 0; width: min(100%, calc(var(--od-proporcja, .707) * (100vh - 240px)), 900px); flex: none; position: relative; }
+.od-kartka img { display: block; width: 100%; height: 100%; background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25), 0 6px 18px rgba(0, 0, 0, .12); }
+.od-kartka figcaption { position: absolute; right: 0; bottom: -16px; font-size: 11px; color: var(--ink-3, #5b6676); }
+.od-kartka.od-poza { opacity: .35; }
+.od-cb img { filter: grayscale(1); }
+.od-podglad-blad { margin: 0; font-size: 13px; color: var(--ink-3, #5b6676); text-align: center; }
+.od-uklad > footer { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  border-top: 1px solid var(--line, #d3d9e0); padding: 12px 18px; }
 .od-odstep { flex: 1; }
 .od-zapamietaj { font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
 .od-zajete { font-size: 12px; color: var(--ink-3, #5b6676); }
 .od-btn { height: 32px; padding: 0 14px; font: inherit; font-size: 13px; cursor: pointer;
   background: var(--surface, #fff); color: var(--ink-1, #17202b);
   border: 1px solid var(--line-strong, #b8c0ca); border-radius: var(--r-xs, 4px); }
-.od-btn.od-glowny { background: var(--accent, #2350b8); color: var(--on-accent, #fff); border-color: transparent; font-weight: 600; }
+.od-btn.od-glowny { background: var(--accent, #2350b8); color: var(--on-accent, #fff); border-color: transparent; font-weight: 600; min-width: 110px; }
 .od-btn:disabled { opacity: .55; cursor: default; }
 .okno-druku :focus-visible { outline: 2px solid var(--accent, #2350b8); outline-offset: 1px; }
-@media (max-width: 480px) { .od-pole { grid-template-columns: 1fr; } .od-strony legend { float: none; } }
+@media (max-width: 760px) {
+  .od-uklad { grid-template-columns: 1fr; grid-template-rows: auto minmax(240px, 1fr) auto; overflow: auto; }
+  .od-panel { border-right: 0; border-bottom: 1px solid var(--line, #d3d9e0); overflow: visible; }
+}
 /* Strona zamieniana na PDF (druk) nie może zawierać samego okna. */
 @media print { .okno-druku-tlo { display: none !important; } }
