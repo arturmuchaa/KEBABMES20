@@ -45,3 +45,25 @@ describe('rejestr wydruków', () => {
     expect(JSON.parse(localStorage.getItem(KLUCZ) || '[]')).toEqual([])
   })
 })
+
+describe('sygnał po zapisie w rejestrze', () => {
+  it('udany zapis powiadamia słuchaczy (odświeżenie znaczników palet)', async () => {
+    rejestrApi.mockResolvedValue({})
+    const { zarejestruj, nasluchujWydrukow } = await import('./rejestr')
+    const cb = vi.fn()
+    const stop = nasluchujWydrukow(cb)
+    await zarejestruj(wpis)
+    expect(cb).toHaveBeenCalledWith({ orderId: 'o1', palletIds: ['p1'] })
+    stop()
+    await zarejestruj(wpis)
+    expect(cb).toHaveBeenCalledTimes(1)
+  })
+  it('zapis w kolejce (serwer niedostępny) nie powiadamia', async () => {
+    rejestrApi.mockRejectedValue(new Error('offline'))
+    const { zarejestruj, nasluchujWydrukow } = await import('./rejestr')
+    const cb = vi.fn()
+    nasluchujWydrukow(cb)
+    await zarejestruj(wpis)
+    expect(cb).not.toHaveBeenCalled()
+  })
+})

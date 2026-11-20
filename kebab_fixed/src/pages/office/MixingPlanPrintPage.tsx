@@ -92,7 +92,7 @@ export function MixingPlanPrintPage() {
   }, [planDate])
 
   useEffect(() => {
-    if (plan && plan.length > 0 && !isPdf) setTimeout(() => void drukuj(), 400)
+    if (plan && plan.length > 0 && !isPdf) setTimeout(() => void drukuj({ rodzaj: 'plan-masowania' }), 400)
   }, [plan, isPdf])
 
   const recipeById = useMemo(() => new Map(recipes.map((r: any) => [r.id, r])), [recipes])

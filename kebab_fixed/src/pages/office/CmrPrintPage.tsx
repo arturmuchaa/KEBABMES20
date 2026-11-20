@@ -144,7 +144,7 @@ export function CmrPrintPage() {
   useEffect(() => {
     // Drukuj dopiero, gdy mamy dokument i ustawienia układu.
     if (doc && pos && !isPdf) {
-      const t = setTimeout(() => void drukuj(), 700)
+      const t = setTimeout(() => void drukuj({ rodzaj: 'cmr' }), 700)
       return () => clearTimeout(t)
     }
   }, [doc, pos, isPdf])
@@ -198,7 +198,7 @@ export function CmrPrintPage() {
           <ArrowLeft size={14} /> Zamówienia
         </Link>
         <button
-          onClick={() => void drukuj()}
+          onClick={() => void drukuj({ rodzaj: 'cmr' })}
           style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', padding: '5px 12px', fontSize: '13px', cursor: 'pointer' }}
         >
           <Printer size={14} /> Drukuj

@@ -7,6 +7,7 @@ import { PalletFlow, PalletStatusLabel, FlagIcon } from '../../../ui/Glyphs'
 import { Pusto } from '../../../ui/Pusto'
 import { ile, odm } from '../../../data/tekst'
 import { WazeniePalety } from './WazeniePalety'
+import { nasluchujWydrukow } from '@/lib/druk/rejestr'
 import { orderPalletsApi, type OrderPallet } from '@/lib/api'
 import { bezPalety, bledyPalety, rozpisz, sztukNaPalete, wykryjSztuki, zDodanymi, zZmieniona, MAX_KG_RESZTKI, STANDARD_SZTUK, WARIANTY_SZTUK, rodzajKrotko, type ItemLite } from '../palety/model'
 
@@ -30,6 +31,8 @@ export function PalletsTab({ order }: { order: Order }) {
   const [wszystkiePoz, setWszystkiePoz] = useState(false)
   const closed = order.status === 'done' || order.status === 'cancelled'
   useEffect(() => { setSelNo(order.pallets[0]?.no ?? null); setMarked([]); setWszystkiePoz(false) }, [order.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Po wydruku kartek (także z innego okna) znaczniki „wydrukowano” od razu, bez czekania na odpytanie.
+  useEffect(() => nasluchujWydrukow(d => { if (d.orderId === order.id) void refresh() }), [order.id, refresh])
 
   const onPal = useMemo(() => {
     const r: Record<string, number> = {}

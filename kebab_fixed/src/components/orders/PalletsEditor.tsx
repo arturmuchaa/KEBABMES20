@@ -7,6 +7,7 @@
  * - Pokazuje pozostałe szt do rozdysponowania per linia.
  */
 import { useState, useMemo, useEffect } from 'react'
+import { nasluchujWydrukow } from '@/lib/druk/rejestr'
 import { useApi } from '@/hooks/useApi'
 import { orderPalletsApi, type OrderPallet, type OrderLine } from '@/lib/apiClient'
 import { palletsApi, type PalletBatchRow, type StockCartonOption } from '@/lib/api'
@@ -52,6 +53,8 @@ function lineLabel(l: OrderLine): string {
 
 export function PalletsEditor({ orderId, lines, assignedCartons = [], orderNo, clientName }: Props) {
   const { data: pallets, refetch, loading: palletsLoading, error: palletsError } = useApi(() => orderPalletsApi.list(orderId), [orderId])
+  // Kartki drukuje osobne okno — po zapisie w rejestrze odświeżamy znaczniki „wydrukowano”.
+  useEffect(() => nasluchujWydrukow(d => { if (d.orderId === orderId) void refetch() }), [orderId, refetch])
   const list = pallets ?? []
 
   const [showAdd,    setShowAdd]    = useState(false)

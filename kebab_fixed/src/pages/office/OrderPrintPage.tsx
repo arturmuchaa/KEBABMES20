@@ -38,7 +38,7 @@ function CustomerOrderPrint() {
     <nav className="order-print-toolbar no-print" aria-label="Opcje wydruku">
       <Link to="/office/zamowienia"><ArrowLeft size={16} aria-hidden="true" />Wróć do zamówień</Link>
       <span>Wydruk dla klienta · A4</span>
-      <button type="button" disabled={loading || !!error || !order} onClick={() => void drukuj()}><Printer size={16} aria-hidden="true" />Drukuj / zapisz PDF</button>
+      <button type="button" disabled={loading || !!error || !order} onClick={() => void drukuj({ rodzaj: 'zamowienie' })}><Printer size={16} aria-hidden="true" />Drukuj / zapisz PDF</button>
     </nav>
     {loading ? <p className="order-print-message" role="status">Ładowanie danych dokumentu…</p> : error || !order ?
       <div className="order-print-message" role="alert"><h1>Nie udało się otworzyć wydruku</h1><p>{error || 'Nie znaleziono zamówienia.'}</p><button onClick={() => { void orderRes.refetch(); void companyRes.refetch(); void clientsRes.refetch() }}>Ponów pobieranie</button></div> :

@@ -130,7 +130,7 @@ export function OrderPickingPrintPage() {
           <ArrowLeft size={14} /> Wróć do zamówień
         </Link>
         <button
-          onClick={() => void drukuj()}
+          onClick={() => void drukuj({ rodzaj: 'lista-kompletacji' })}
           className="flex items-center gap-2 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold px-4 py-2.5 rounded-lg"
         >
           <Printer size={14} /> Drukuj

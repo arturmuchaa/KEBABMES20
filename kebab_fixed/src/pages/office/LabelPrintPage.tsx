@@ -492,7 +492,7 @@ export function LabelPrintPage() {
         if (!target) throw new Error('Podgląd PDF nie jest gotowy do druku')
         target.print()
       } else {
-        await drukuj({ strict: true, beforePrint: assertActive })
+        await drukuj({ rodzaj: 'etykiety', strict: true, beforePrint: assertActive })
       }
     }, async () => {
       if (template?.backgroundPdf) {

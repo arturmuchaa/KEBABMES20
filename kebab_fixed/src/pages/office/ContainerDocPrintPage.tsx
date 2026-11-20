@@ -230,7 +230,7 @@ export function ContainerDocPrintPage() {
 
   useEffect(() => {
     // ?pdf=1 → renderer headless robi zrzut sam, bez dialogu drukowania.
-    if (doc && params.get('pdf') !== '1') setTimeout(() => void drukuj(), 300)
+    if (doc && params.get('pdf') !== '1') setTimeout(() => void drukuj({ rodzaj: 'wz-pojemniki' }), 300)
   }, [doc, params])
 
   if (err) return <div style={{ padding: 24, fontFamily: 'Arial' }}>Błąd: {err}</div>

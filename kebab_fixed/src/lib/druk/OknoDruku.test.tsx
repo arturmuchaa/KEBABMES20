@@ -155,4 +155,12 @@ describe('okno druku', () => {
     expect(onZamknij).toHaveBeenCalledWith({ wydrukowano: false })
     expect(n.drukujPdf).not.toHaveBeenCalled()
   })
+
+  it('kartki palet bez zakresu stron (rejestr oznacza całe palety), inne dokumenty z zakresem', async () => {
+    await otworz()
+    expect(screen.queryByLabelText('Od strony')).toBeNull()
+    cleanup()
+    await otworz({ rodzaj: 'wz' })
+    expect(screen.getByLabelText('Od strony')).toBeTruthy()
+  })
 })

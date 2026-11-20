@@ -169,3 +169,13 @@ describe('zakładka Palety — czy kartki wydrukowano', () => {
     expect(screen.queryByText(/bez kartki/)).toBeNull()
   })
 })
+
+describe('zakładka Palety — odświeżenie po wydruku', () => {
+  it('wydruk kartek tego zamówienia odświeża palety, innego — nie', () => {
+    mount()
+    window.dispatchEvent(new CustomEvent('druk:zarejestrowano', { detail: { orderId: 'inne', palletIds: ['x'] } }))
+    expect(refresh).not.toHaveBeenCalled()
+    window.dispatchEvent(new CustomEvent('druk:zarejestrowano', { detail: { orderId: 'o1', palletIds: ['p1'] } }))
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+})

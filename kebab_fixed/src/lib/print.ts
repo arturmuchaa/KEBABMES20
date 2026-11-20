@@ -38,6 +38,14 @@ async function printPage(options: OpcjeDruku): Promise<boolean> {
   const { invoke } = await import('@tauri-apps/api/core')
   try {
     await invoke('print_page')
+    // Okno systemowe WebView2 jest niemodalne: `print_page` wraca od razu, a
+    // podgląd dopiero się renderuje. Arkusz wydruku (portal) musi zostać do
+    // `afterprint` — inaczej wychodzi pusta kartka (przegląd 19.11.2026, I3).
+    await new Promise<void>(resolve => {
+      const t = window.setTimeout(koniec, 120_000)
+      function koniec() { window.clearTimeout(t); window.removeEventListener('afterprint', koniec); resolve() }
+      window.addEventListener('afterprint', koniec)
+    })
     return true
   } catch (error) {
     // Audited label jobs must surface native failure, not report the no-op
@@ -61,6 +69,12 @@ export async function drukuj(options: OpcjeDruku = {}): Promise<void> {
   const rodzaj: RodzajDruku = options.rodzaj ?? 'inne'
   const tytul = options.tytul ?? (typeof document !== 'undefined' ? document.title : '')
   const wpis = (extra: Partial<WpisRejestru>): WpisRejestru => ({ rodzaj, tytul, ...(options.rejestr ?? {}), kopie: 1, ...extra })
+  // Okno systemowe nie mówi, czy naprawdę wydrukowano — wpis tak, ale bez palet,
+  // żeby znacznik „wydrukowano” nie zapalał się po anulowaniu (przegląd I8).
+  const wpisSystemowy = (): WpisRejestru => {
+    const { palletIds: _pominiete, ...reszta } = wpis({ drukarka: 'okno systemowe' })
+    return reszta
+  }
   if (!wTauri()) {
     options.beforePrint?.()
     window.print()
@@ -71,17 +85,21 @@ export async function drukuj(options: OpcjeDruku = {}): Promise<void> {
   options.beforePrint?.()
   const { natywny } = await import('./druk/natywny')
   if (!(await natywny.dostepny())) {
-    if (await printPage(options)) await zapisz(wpis({ drukarka: 'okno systemowe' }))
+    if (await printPage(options)) await zapisz(wpisSystemowy())
     return
   }
   const { otworzOknoDruku } = await import('./druk/okno')
   const zrodlo = options.pdfBase64 ? { typ: 'pdf' as const, pdfBase64: options.pdfBase64 } : { typ: 'strona' as const }
   const wynik = await otworzOknoDruku({ rodzaj, tytul, zrodlo })
   if ('systemowe' in wynik) {
-    if (await printPage(options)) await zapisz(wpis({ drukarka: 'okno systemowe' }))
+    if (await printPage(options)) await zapisz(wpisSystemowy())
     return
   }
-  if (!wynik.wydrukowano) return
+  if (!wynik.wydrukowano) {
+    // Etykiety audytowane (strict) nie mogą zaliczyć wydruku, którego nie było (przegląd I7).
+    if (options.strict) throw new Error('Wydruk anulowany')
+    return
+  }
   await zapisz(wpis({ drukarka: wynik.drukarka, zasobnik: wynik.zasobnik, kopie: wynik.kopie, stron: wynik.stron }))
   try { const { uruchomPonawianie } = await import('./druk/rejestr'); uruchomPonawianie() } catch { /* brak */ }
 }

@@ -182,3 +182,13 @@ describe('PalletsEditor — czy kartki wydrukowano', () => {
     expect(screen.queryByText(/bez kartki/)).toBeNull()
   })
 })
+
+describe('PalletsEditor — odświeżenie po wydruku', () => {
+  it('wydruk kartek tego zamówienia (także z drugiego okna) pobiera palety ponownie', async () => {
+    const lista = vi.spyOn(orderPalletsApi, 'list')
+    await pokaz()
+    const przed = lista.mock.calls.length
+    window.dispatchEvent(new CustomEvent('druk:zarejestrowano', { detail: { orderId: 'o1', palletIds: ['p1'] } }))
+    await waitFor(() => expect(lista.mock.calls.length).toBeGreaterThan(przed))
+  })
+})

@@ -142,7 +142,8 @@ export function OknoDruku({ rodzaj, tytul, zrodlo, onZamknij }: {
     setBlad(null); setZajete('Drukowanie…')
     try {
       const pdf = zrodlo.typ === 'pdf' ? zrodlo.pdfBase64 : await natywny.stronaPdf()
-      const zakresStron = zakres === 'od-do'
+      // Kartki palet zawsze w całości: rejestr oznacza palety, nie strony (przegląd I8).
+      const zakresStron = zakres === 'od-do' && rodzaj !== 'kartki-palet'
         ? { od: Number(od) || undefined, do: doStr.trim() ? Number(doStr) : undefined } : {}
       const stron = await natywny.drukujPdf({ drukarka, pdfBase64: pdf, ticket, kopie: n, tytul, ...zakresStron })
       if (zapamietaj) await zapiszDokument(rodzaj, { drukarka, ticket, kopie: n }).catch(() => {})
@@ -193,14 +194,14 @@ export function OknoDruku({ rodzaj, tytul, zrodlo, onZamknij }: {
               <label htmlFor="druk-kopie">Kopie</label>
               <input id="druk-kopie" type="number" min={1} max={kopieMax} inputMode="numeric" value={kopie} onChange={ev => setKopie(ev.target.value)} />
             </div>
-            <fieldset className="od-pole od-strony">
+            {rodzaj !== 'kartki-palet' && <fieldset className="od-pole od-strony">
               <legend>Strony</legend>
               <label><input type="radio" name="druk-zakres" checked={zakres === 'wszystkie'} onChange={() => setZakres('wszystkie')} /> wszystkie</label>
               <label><input type="radio" name="druk-zakres" checked={zakres === 'od-do'} onChange={() => setZakres('od-do')} /> od</label>
               <input aria-label="Od strony" type="number" min={1} value={od} disabled={zakres !== 'od-do'} onChange={ev => setOd(ev.target.value)} />
               <span>do</span>
               <input aria-label="Do strony" type="number" min={1} value={doStr} disabled={zakres !== 'od-do'} onChange={ev => setDoStr(ev.target.value)} />
-            </fieldset>
+            </fieldset>}
           </div>
           {reszta.length > 0 && (
             <details className="od-wiecej">

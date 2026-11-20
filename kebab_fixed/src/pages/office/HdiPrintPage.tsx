@@ -161,7 +161,7 @@ export function HdiPrintPage() {
     // jak logo z fontami są na miejscu — inaczej okno druku łapie inny układ,
     // niż ten, pod który liczyliśmy wysokość.
     if (doc && assetsReady && !isPdf) {
-      const t = setTimeout(() => void drukuj(), 600)
+      const t = setTimeout(() => void drukuj({ rodzaj: 'hdi' }), 600)
       return () => clearTimeout(t)
     }
   }, [doc, isPdf, assetsReady, fit])
@@ -389,7 +389,7 @@ export function HdiPrintPage() {
           <ArrowLeft size={14} /> Zamówienia
         </Link>
         <button
-          onClick={() => void drukuj()}
+          onClick={() => void drukuj({ rodzaj: 'hdi' })}
           style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: '4px', padding: '5px 12px', fontSize: '13px', cursor: 'pointer' }}
         >
           <Printer size={14} /> Drukuj

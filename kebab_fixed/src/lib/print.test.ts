@@ -53,7 +53,8 @@ describe('okno druku i rejestr', () => {
     ;(window as any).__TAURI_INTERNALS__ = {}
     invoke.mockImplementation(async (cmd: string) => { if (cmd === 'druk_drukarki') throw new Error('command druk_drukarki not found') })
     const { drukuj } = await import('./print')
-    await drukuj({ rodzaj: 'wz' })
+    const p = drukuj({ rodzaj: 'wz' })
+    await new Promise(r => setTimeout(r, 20)); window.dispatchEvent(new Event('afterprint')); await p
     expect(invoke).toHaveBeenCalledWith('print_page')
     expect(otworzOknoDruku).not.toHaveBeenCalled()
   })
@@ -85,7 +86,8 @@ describe('okno druku i rejestr', () => {
     nowyDesktop()
     otworzOknoDruku.mockResolvedValue({ systemowe: true })
     const { drukuj } = await import('./print')
-    await drukuj({ rodzaj: 'cmr', tytul: 'CMR 5' })
+    const p = drukuj({ rodzaj: 'cmr', tytul: 'CMR 5' })
+    await new Promise(r => setTimeout(r, 20)); window.dispatchEvent(new Event('afterprint')); await p
     expect(invoke).toHaveBeenCalledWith('print_page')
     expect(zarejestruj).toHaveBeenCalledWith({ rodzaj: 'cmr', tytul: 'CMR 5', kopie: 1, drukarka: 'okno systemowe' })
   })
@@ -96,5 +98,40 @@ describe('okno druku i rejestr', () => {
     const { drukuj } = await import('./print')
     await drukuj()
     expect(otworzOknoDruku).toHaveBeenCalledWith({ rodzaj: 'inne', tytul: 'Plan masowania 19.11', zrodlo: { typ: 'strona' } })
+  })
+})
+
+describe('poprawki po przeglądzie', () => {
+  const nowyDesktop = () => {
+    ;(window as any).__TAURI_INTERNALS__ = {}
+    invoke.mockImplementation(async (cmd: string) => (cmd === 'druk_drukarki' ? [{ nazwa: 'bizhub', domyslna: true }] : undefined))
+  }
+  it('okno systemowe: drukuj kończy się dopiero po afterprint (arkusz zostaje na czas podglądu)', async () => {
+    nowyDesktop()
+    otworzOknoDruku.mockResolvedValue({ systemowe: true })
+    const { drukuj } = await import('./print')
+    let koniec = false
+    const p = drukuj({ rodzaj: 'kartki-palet' }).then(() => { koniec = true })
+    await new Promise(r => setTimeout(r, 20))
+    expect(invoke).toHaveBeenCalledWith('print_page')
+    expect(koniec).toBe(false)
+    window.dispatchEvent(new Event('afterprint'))
+    await p
+    expect(koniec).toBe(true)
+  })
+  it('okno systemowe i stary desktop nie oznaczają palet jako wydrukowanych', async () => {
+    nowyDesktop()
+    otworzOknoDruku.mockResolvedValue({ systemowe: true })
+    const { drukuj } = await import('./print')
+    const p = drukuj({ rodzaj: 'kartki-palet', tytul: 'K', rejestr: { orderId: 'o1', palletIds: ['p1'] } })
+    await new Promise(r => setTimeout(r, 20)); window.dispatchEvent(new Event('afterprint')); await p
+    expect(zarejestruj).toHaveBeenCalledWith({ rodzaj: 'kartki-palet', tytul: 'K', orderId: 'o1', kopie: 1, drukarka: 'okno systemowe' })
+  })
+  it('strict: anulowanie okna to błąd (etykieta nie liczy się jako wydrukowana)', async () => {
+    nowyDesktop()
+    otworzOknoDruku.mockResolvedValue({ wydrukowano: false })
+    const { drukuj } = await import('./print')
+    await expect(drukuj({ strict: true, rodzaj: 'inne' })).rejects.toThrow('Wydruk anulowany')
+    expect(zarejestruj).not.toHaveBeenCalled()
   })
 })

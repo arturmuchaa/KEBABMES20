@@ -12,7 +12,7 @@ export function WzPrintPage() {
   const [doc, setDoc] = useState<WzDoc | null>(null)
 
   useEffect(() => { wzApi.byId(id).then(setDoc) }, [id])
-  useEffect(() => { if (doc && !isPdf) setTimeout(() => void drukuj(), 300) }, [doc, isPdf])
+  useEffect(() => { if (doc && !isPdf) setTimeout(() => void drukuj({ rodzaj: doc.doc_series === 'WM' ? 'wm' : 'wz', tytul: `${doc.doc_series || 'WZ'} ${doc.number}` }), 300) }, [doc, isPdf])
 
   if (!doc) return <div style={{ padding: 24 }}>Ładowanie…</div>
   return (
