@@ -9,6 +9,8 @@ export const PROBA = import.meta.env.MODE === 'proba'
 /** Funkcja, której PROTRIMA jeszcze nie przejął — działa w starym MES (oba programy pracują równolegle). */
 export const W_STARYM_MES = 'Ta funkcja działa na razie w starym MES — PROTRIMA przejmie ją w kolejnej wersji.'
 export const BEZ_DRUKU_ETYKIET = 'Druk etykiet Zebra jest w próbie wyłączony: kopia ma prawdziwe numery palet i kartonów, a numer nadany w kopii produkcja nada później innej palecie.'
+/** Kartki palet w próbie: druk na sprawdzenie drukarki — kartki nie da się zeskanować ani pomylić z prawdziwą. */
+export const PROBA_DRUK_KARTEK = 'Próba: kartka drukuje się z napisem PRÓBA i bez kodu QR — nie da się jej zeskanować ani nakleić zamiast prawdziwej. Sprawdzasz zasobnik i ustawienia drukarki.'
 /** Druk etykiet Zebra (karton, zawieszki): w próbie wyłączony, w produkcji — na razie stary MES. */
 export const DRUK_ETYKIET = PROBA ? BEZ_DRUKU_ETYKIET : 'Druk etykiet Zebra działa na razie w starym MES.'
 export const BRAK_W_API = 'Tej informacji nie ma jeszcze w API — wpis w docs/protrima-ui/BRAKI_API.md.'

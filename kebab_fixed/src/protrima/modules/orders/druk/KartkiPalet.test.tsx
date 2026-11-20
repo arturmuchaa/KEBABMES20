@@ -94,11 +94,23 @@ describe('Kartki palet — okno', () => {
   const mount = (p: Partial<React.ComponentProps<typeof KartkiPaletDialog>> = {}) =>
     render(<AppCtx.Provider value={app}><KartkiPaletDialog orderId="o1" onClose={vi.fn()} {...p} /></AppCtx.Provider>)
 
-  it('w PRÓBIE: podgląd bez QR, druk zablokowany', async () => {
+  it('w PRÓBIE: druk próbny — napis PRÓBA, bez QR, bez wpisu do rejestru (sprawdzenie zasobnika)', async () => {
     mount({ proba: true })
-    expect(screen.getByText(/Druk etykiet Zebra jest w próbie wyłączony/)).toBeTruthy()
+    expect(screen.getByText(/drukuje się z napisem PRÓBA i bez kodu QR/)).toBeTruthy()
     expect(screen.getAllByText('QR wyłączony w próbie')).toHaveLength(2)
-    expect((screen.getByRole('button', { name: /Druk wyłączony w próbie/ }) as HTMLButtonElement).disabled).toBe(true)
+    const btn = screen.getByRole('button', { name: /Drukuj próbnie 4 kartki/ }) as HTMLButtonElement
+    await waitFor(() => expect(btn.disabled).toBe(false))
+    let strony = -1, kody = -1, proby = -1
+    window.print = vi.fn(() => {
+      const arkusz = document.querySelector('.print-sheet.kartki-print') as HTMLElement
+      strony = arkusz.querySelectorAll('.kp-page').length
+      kody = arkusz.querySelectorAll('img[alt="QR"]').length
+      proby = arkusz.querySelectorAll('.kp-proba').length
+    })
+    fireEvent.click(btn)
+    await waitFor(() => expect(window.print).toHaveBeenCalled())
+    expect([strony, kody, proby]).toEqual([4, 0, 4])
+    await waitFor(() => expect(JSON.parse(localStorage.getItem('druk.rejestr.kolejka') || '[]')[0]?.palletIds ?? []).toEqual([]))
   })
 
   it('nazwa i „Pokaż” zmieniają podgląd od razu i zapamiętują się dla klienta', async () => {

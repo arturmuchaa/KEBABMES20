@@ -7,7 +7,7 @@ import { Dialog } from '../../../shell/context'
 import { useOrders } from '../../../data/store'
 import { kg, type Order } from '../../../data/model'
 import { FlagIcon } from '../../../ui/Glyphs'
-import { BEZ_DRUKU_ETYKIET } from '../../../proba'
+import { PROBA_DRUK_KARTEK } from '../../../proba'
 import { useClientNames, useClientRecipeNames } from '@/lib/clientNames'
 import { buildCartonLabelContent, cartonLabelTotalKg, formatKgCompact } from '@/features/labels/cartonLabelLines'
 import { CARTON_QR_OPTIONS, palletQrPayload } from '@/features/labels/cartonQr'
@@ -213,27 +213,29 @@ export function useDrukKartek(kartki: Kartka[], proba: boolean, tytul: string, r
       .then(p => { if (zywe) setQr(s => ({ ...s, ...Object.fromEntries(p) })) })
     return () => { zywe = false }
   }, [adresy, proba]) // eslint-disable-line react-hooks/exhaustive-deps
-  const gotowe = kartki.length > 0 && kartki.every(k => qr[k.qr] && pt[k.qr])
+  // W próbie kartka nie ma QR z założenia — gotowa po dopasowaniu pisma.
+  const gotowe = kartki.length > 0 && kartki.every(k => (proba || qr[k.qr]) && pt[k.qr])
   useEffect(() => {
     if (!druk) return
     const prev = document.title
     document.title = tytul
     const done = () => setDruk(false)
-    const t = window.setTimeout(() => { void drukuj({ rodzaj: 'kartki-palet', tytul: document.title, rejestr }).finally(done) }, 80)
+    const t = window.setTimeout(() => { void drukuj({ rodzaj: 'kartki-palet', tytul: document.title, rejestr: proba ? undefined : rejestr }).finally(done) }, 80)
     return () => { window.clearTimeout(t); document.title = prev }
   }, [druk, tytul]) // eslint-disable-line react-hooks/exhaustive-deps
   const ustawPt = (k: Kartka) => (v: number) => setPt(s => (s[k.qr] === v ? s : { ...s, [k.qr]: v }))
   const arkusz = druk ? createPortal(<div className="print-sheet kartki-print">
-    {kartki.flatMap(k => Array.from({ length: KOPII_NA_PALETE }, (_, i) => <Strona key={`${k.qr}-${i}`} k={k} qr={qr[k.qr] ?? ''} pt={pt[k.qr]} proba={false} />))}
+    {kartki.flatMap(k => Array.from({ length: KOPII_NA_PALETE }, (_, i) => <Strona key={`${k.qr}-${i}`} k={k} qr={qr[k.qr] ?? ''} pt={pt[k.qr]} proba={proba} />))}
   </div>, document.body) : null
   return { qr, ustawPt, gotowe, druk, drukuj: () => setDruk(true), arkusz }
 }
 
 /**
  * Kartki na palety zamówienia — A4 poziomo, DWIE kopie na paletę (naklejane
- * na karton), wybór palet, podgląd. W PRÓBIE druk zablokowany i bez kodu QR:
- * kopia ma prawdziwe numery palet, a numer nadany w kopii produkcja nada
- * później innej palecie (ZASADY_PROBY pkt 4).
+ * na karton), wybór palet, podgląd. W PRÓBIE druk tylko próbny — napis PRÓBA,
+ * bez kodu QR i bez wpisu do rejestru: kopia ma prawdziwe numery palet, a numer
+ * nadany w kopii produkcja nada później innej palecie (ZASADY_PROBY pkt 4).
+ * Wydruk służy do sprawdzenia zasobnika i ustawień drukarki (20.11.2026).
  */
 export function KartkiPaletDialog({ orderId, palletNos, onClose, proba = import.meta.env.MODE === 'proba' }: {
   orderId: string; palletNos?: number[]; onClose: () => void; proba?: boolean
@@ -260,10 +262,10 @@ export function KartkiPaletDialog({ orderId, palletNos, onClose, proba = import.
     <Dialog title={`Kartki palet — ${order.no}`} icon={<Boxes size={20} />} wide onClose={onClose}
       footer={<>
         <button className="btn" onClick={onClose} data-autofocus>Zamknij</button>
-        <button className="btn primary" disabled={proba || !gotowe || druk} onClick={drukuj} data-tip={proba ? BEZ_DRUKU_ETYKIET : undefined}>
-          <Printer size={15} />{proba ? 'Druk wyłączony w próbie' : `Drukuj ${kartek} ${kartek === 1 ? 'kartkę' : kartek < 5 ? 'kartki' : 'kartek'}`}</button>
+        <button className="btn primary" disabled={!gotowe || druk} onClick={drukuj} data-tip={proba ? PROBA_DRUK_KARTEK : undefined}>
+          <Printer size={15} />{proba ? 'Drukuj próbnie ' : 'Drukuj '}{`${kartek} ${kartek === 1 ? 'kartkę' : kartek < 5 ? 'kartki' : 'kartek'}`}</button>
       </>}>
-      {proba && <div className="note warn"><FlagIcon level="warn" size={15} /><div>{BEZ_DRUKU_ETYKIET} Podgląd pokazuje układ kartki — bez kodu QR.</div></div>}
+      {proba && <div className="note warn"><FlagIcon level="warn" size={15} /><div>{PROBA_DRUK_KARTEK}</div></div>}
       <div className="kp-layout">
         <div className="kp-list">
           <div className="kp-tresc" role="group" aria-label="Treść kartki">
