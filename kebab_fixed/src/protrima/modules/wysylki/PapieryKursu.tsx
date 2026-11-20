@@ -4,13 +4,13 @@ import { useApp, CommandBar, Dialog, type Cmd } from '../../shell/context'
 import { useOrders } from '../../data/store'
 import { kg, num } from '../../data/model'
 import { FlagIcon } from '../../ui/Glyphs'
-import { carriersApi, downloadDocPdf, zaladunkiApi, type Carrier } from '@/lib/api'
+import { carriersApi, zaladunkiApi, type Carrier } from '@/lib/api'
 import { INSTRUKCJE_DOMYSLNE } from '../orders/dokumenty/Cmr'
 import {
   PUSTA_DECYZJA, calosc, doWystawienia, kgNaFakture, kgNaWz, kgSprzedazy, tylkoUsluga, papieryPozycji, saldoPozycji, uklad, wpiszKg, zamowieniaDoWystawienia,
   type Decyzja, type Kurs, type PozycjaKursu, type Transport,
 } from './kurs'
-import { PapierChip, useZaznaczonePapiery } from './Papiery'
+import { PapierChip, useZaznaczonePapiery, zapiszPapiery } from './Papiery'
 import { DopiszPozycjeDialog } from '../orders/wz/DopiszPozycjeDialog'
 
 const dzisIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
@@ -79,10 +79,7 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
   }
   const pobierzWszystkie = async () => {
     setBusy('all')
-    for (const d of wszystkiePapiery) {
-      try { await downloadDocPdf(d.url, d.plik) } catch (e) { app.toast({ kind: 'warn', title: `Nie udało się pobrać ${d.etykieta} ${d.numer}`.trim(), detail: e instanceof Error ? e.message : '' }) }
-    }
-    setBusy(null)
+    try { await zapiszPapiery(wszystkiePapiery, app) } finally { setBusy(null) }
   }
   const wydrukowane = async () => {
     if (lock.current) return
@@ -98,12 +95,14 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
   const cmds = useMemo<Cmd[]>(() => [
     ...(czekajace.length ? [{ id: 'issue', group: 1, label: 'Wystaw komplet dokumentów', icon: <FileText size={17} />, primary: true, disabled: !!busy || 'blad' in wynik, tip: 'blad' in wynik ? wynik.blad : undefined, run: () => setPytanie(true) }] : []),
     { id: 'print-sel', group: 2, label: `Drukuj zaznaczone${z.zaznaczone.length ? ` (${z.zaznaczone.length})` : ''}`, icon: <Printer size={17} />, disabled: !!busy || !!z.busy || !z.zaznaczone.length,
-      tip: z.zaznaczone.length ? 'jeden PDF ze wszystkimi zaznaczonymi' : 'zaznacz ptaszkiem dokumenty w tabeli', run: () => void z.drukuj() },
-    { id: 'all', group: 2, label: 'Pobierz wszystkie PDF', icon: <Download size={17} />, disabled: !!busy || !wszystkiePapiery.length, run: () => void pobierzWszystkie() },
+      tip: z.zaznaczone.length ? 'okno druku ze wszystkimi zaznaczonymi' : 'zaznacz ptaszkiem dokumenty w tabeli', run: () => void z.drukuj() },
+    { id: 'save-sel', group: 2, label: `Zapisz zaznaczone PDF${z.zaznaczone.length ? ` (${z.zaznaczone.length})` : ''}`, icon: <Download size={17} />, disabled: !!busy || !!z.busy || !z.zaznaczone.length,
+      tip: 'każdy dokument w osobnym pliku, od razu do folderu Pobrane', run: () => void z.zapisz() },
+    { id: 'all', group: 2, label: 'Zapisz wszystkie PDF', tip: 'każdy dokument w osobnym pliku, od razu do folderu Pobrane', icon: <Download size={17} />, disabled: !!busy || !wszystkiePapiery.length, run: () => void pobierzWszystkie() },
     { id: 'printed', group: 2, label: kurs?.printed_at ? 'Oznaczony jako wydrukowany' : 'Wydrukowane — zdejmij z pulpitu', icon: <Check size={17} />, disabled: !!busy || !kurs || !!kurs.printed_at || czekajace.length > 0, tip: czekajace.length ? 'najpierw wystaw dokumenty' : undefined, run: () => void wydrukowane() },
     { id: 'reload', group: 3, label: 'Odśwież', icon: <RefreshCw size={17} />, opt: true, disabled: !!busy, run: () => void wczytaj() },
     { id: 'close', group: 3, label: 'Zamknij', icon: <X size={17} />, run: onDone },
-  ], [czekajace.length, busy, wynik, wszystkiePapiery.length, kurs, wczytaj, onDone, z.zaznaczone.length, z.busy, z.drukuj]) // eslint-disable-line react-hooks/exhaustive-deps
+  ], [czekajace.length, busy, wynik, wszystkiePapiery.length, kurs, wczytaj, onDone, z.zaznaczone.length, z.busy, z.drukuj, z.zapisz]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (active) setCmds(cmds) }, [cmds, setCmds, active])
 
   const wybierzPrzewoznika = (id: string) => setTransport(t => ({ ...t, carrier_id: id, plate: t.plate.trim() || (carriers?.find(c => c.id === id)?.defaultPlate ?? '') }))
@@ -137,7 +136,7 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
           </>}
 
           {kurs && <>
-            <div className="sect-h"><h3>Dokumenty kursu</h3><span className="sub">zaznacz ptaszkiem, co drukujesz — „Drukuj zaznaczone” u góry złoży jeden PDF</span>
+            <div className="sect-h"><h3>Dokumenty kursu</h3><span className="sub">zaznacz ptaszkiem, co drukujesz — „Drukuj zaznaczone” drukuje komplet, „Zapisz zaznaczone PDF” — każdy w osobnym pliku</span>
               <span style={{ marginLeft: 'auto' }} className="row-wrap">
                 {doZaznaczenia.length > 0 && <button className="btn sm ghost" disabled={!!z.busy} onClick={() => z.ustaw(doZaznaczenia.map(d => d.key), z.zaznaczone.length !== doZaznaczenia.length)}>
                   {z.zaznaczone.length === doZaznaczenia.length ? 'Odznacz wszystkie' : 'Zaznacz wszystkie'}</button>}

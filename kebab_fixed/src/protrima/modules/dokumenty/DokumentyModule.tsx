@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  FileText, Search, X, RefreshCw, ArrowUp, ArrowDown, FileDown, Printer, ListPlus, Ban, Coins, Pencil, ShoppingCart, AlertTriangle,
+  FileText, Search, X, RefreshCw, ArrowUp, ArrowDown, FileDown, Download, Printer, ListPlus, Ban, Coins, Pencil, ShoppingCart, AlertTriangle,
   PanelBottom, PanelRight, Maximize2, Minimize2,
 } from 'lucide-react'
 import { useApp, CommandBar, Menu, useMenu, type Cmd } from '../../shell/context'
@@ -96,7 +96,9 @@ export function DokumentyModule({ active, setCtx, setCmds }: { active: boolean; 
 
   const cmds = useMemo<Cmd[]>(() => [
     { id: 'print', group: 1, label: z.zaznaczone.length ? `Drukuj zaznaczone (${z.zaznaczone.length})` : 'Drukuj zaznaczone', icon: <Printer size={17} />, primary: true, disabled: !z.zaznaczone.length || !!z.busy,
-      tip: 'Jeden PDF ze wszystkimi zaznaczonymi — drukujesz raz', run: () => void z.drukuj() },
+      tip: 'Okno druku ze wszystkimi zaznaczonymi — drukujesz raz', run: () => void z.drukuj() },
+    { id: 'save-sel', group: 1, label: z.zaznaczone.length ? `Zapisz zaznaczone PDF (${z.zaznaczone.length})` : 'Zapisz zaznaczone PDF', icon: <Download size={17} />, disabled: !z.zaznaczone.length || !!z.busy,
+      tip: 'Każdy dokument w osobnym pliku, od razu do folderu Pobrane', run: () => void z.zapisz() },
     { id: 'pdf', group: 2, label: 'Otwórz PDF', icon: <FileDown size={17} />, disabled: !wybrany, run: () => wybrany && void otworz(wybrany) },
     { id: 'reload', group: 4, label: 'Odśwież', icon: <RefreshCw size={17} />, opt: true, run: wczytaj },
   ], [z, wybrany, otworz, wczytaj])

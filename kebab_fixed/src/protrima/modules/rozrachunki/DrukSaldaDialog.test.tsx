@@ -7,7 +7,7 @@ import { SUROWA_KARTA } from './daneTestowe.fixture'
 import { mapujKarte } from './model'
 
 /** Drukuj saldo — zestawienie na dzień albo historia za okres; PDF z serwera (rozliczeniaPdf). */
-const dok = vi.hoisted(() => ({ openDocument: vi.fn(), downloadDocPdf: vi.fn() }))
+const dok = vi.hoisted(() => ({ openDocument: vi.fn(), zapiszDokumentPdf: vi.fn() }))
 vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), ...dok }))
 import { DrukSaldaDialog } from './DrukSaldaDialog'
 
@@ -23,7 +23,7 @@ describe('Rozrachunki — drukuj saldo', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-11-09T10:00:00'))
     dok.openDocument.mockReset().mockResolvedValue(undefined)
-    dok.downloadDocPdf.mockReset().mockResolvedValue(undefined)
+    dok.zapiszDokumentPdf.mockReset().mockResolvedValue({ nazwa: 'x.pdf', sciezka: 'C:\\Users\\biuro\\Downloads\\x.pdf' })
     onClose.mockReset()
     ;(app.toast as ReturnType<typeof vi.fn>).mockClear()
   })
@@ -42,7 +42,7 @@ describe('Rozrachunki — drukuj saldo', () => {
     expect(onClose).not.toHaveBeenCalled()
     await waitFor(() => expect(przycisk('Zapisz PDF').disabled).toBe(false))
     fireEvent.click(przycisk('Zapisz PDF'))
-    await waitFor(() => expect(dok.downloadDocPdf).toHaveBeenCalledWith(url, nazwa))
+    await waitFor(() => expect(dok.zapiszDokumentPdf).toHaveBeenCalledWith(url, nazwa))
     await waitFor(() => expect(onClose).toHaveBeenCalled())
   })
 
@@ -52,8 +52,8 @@ describe('Rozrachunki — drukuj saldo', () => {
     fireEvent.click(przycisk('Poprzedni miesiąc'))
     expect(screen.getByText('01.10.2026 – 31.10.2026')).toBeTruthy()
     fireEvent.click(przycisk('Zapisz PDF'))
-    await waitFor(() => expect(dok.downloadDocPdf).toHaveBeenCalled())
-    const [url, nazwa] = dok.downloadDocPdf.mock.calls[0]
+    await waitFor(() => expect(dok.zapiszDokumentPdf).toHaveBeenCalled())
+    const [url, nazwa] = dok.zapiszDokumentPdf.mock.calls[0]
     expect(url).toContain('/rozliczenia/klient/c1/historia/pdf?od=2026-10-01&do=2026-10-31')
     expect(nazwa).toBe('Rozliczenia RONDO GRILL 2026-10-01_2026-10-31.pdf')
   })

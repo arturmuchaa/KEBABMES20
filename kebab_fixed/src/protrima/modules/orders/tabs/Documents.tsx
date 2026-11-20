@@ -6,7 +6,7 @@ import { ile } from '../../../data/tekst'
 import { FlagIcon } from '../../../ui/Glyphs'
 import { clientOrdersApi, downloadDocPdf, wzApi, type OrderDocuments } from '@/lib/api'
 import { papieryPozycji, saldoPozycji } from '../../wysylki/kurs'
-import { DrukujZaznaczone, PapierChip, useZaznaczonePapiery } from '../../wysylki/Papiery'
+import { DrukujZaznaczone, PapierChip, ZapiszZaznaczone, useZaznaczonePapiery } from '../../wysylki/Papiery'
 import { DopiszPozycjeDialog } from '../wz/DopiszPozycjeDialog'
 
 /**
@@ -79,10 +79,11 @@ export function DocumentsTab({ order }: { order: Order }) {
       </div>
 
       {dok ? <>
-        <div className="sect-h"><h3>Wszystkie dokumenty zamówienia</h3><span className="sub">zaznacz ptaszkiem, co drukujesz — wyjdzie jeden PDF</span>
+        <div className="sect-h"><h3>Wszystkie dokumenty zamówienia</h3><span className="sub">zaznacz ptaszkiem — drukujesz raz albo zapisujesz każdy w osobnym pliku</span>
           <span style={{ marginLeft: 'auto' }} className="row-wrap">
             {papiery.length > 0 && <button className="btn sm ghost" disabled={!!z.busy} onClick={() => z.ustaw(papiery.map(p => p.key), z.zaznaczone.length !== papiery.length)}>
               {z.zaznaczone.length === papiery.length ? 'Odznacz wszystkie' : 'Zaznacz wszystkie'}</button>}
+            <ZapiszZaznaczone z={z} />
             <DrukujZaznaczone z={z} />
           </span></div>
         <div className="box">

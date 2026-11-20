@@ -195,7 +195,8 @@ pub fn run() {
                                 open_last_scan, open_document, print_page,
                                 druk::druk_drukarki, druk::druk_mozliwosci, druk::druk_ustaw_opcje,
                                 druk::druk_ustawienia_czytaj, druk::druk_ustawienia_zapisz,
-                                druk::druk_ustawienia_sterownika, druk::druk_strona_pdf, druk::druk_pdf, druk::druk_komputer])
+                                druk::druk_ustawienia_sterownika, druk::druk_strona_pdf, druk::druk_pdf, druk::druk_komputer,
+                                druk::druk_zapisz_pdf, druk::druk_pokaz_plik])
         .on_window_event(|_window, _event| {
             // Kiosk: operator nie może zamknąć okna (Alt+F4 / żądania zamknięcia ignorowane).
             #[cfg(feature = "kiosk")]

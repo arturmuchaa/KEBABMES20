@@ -1,9 +1,15 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import React from 'react'
 import { mapClientOrder } from '@/lib/api'
-import { DokumentZamowienia, pozycjeDokumentu } from './ZamowienieDruk'
+const n = vi.hoisted(() => ({ dostepny: vi.fn(), stronaPdf: vi.fn() }))
+vi.mock('@/lib/druk/natywny', () => ({ natywny: n }))
+const zapis = vi.hoisted(() => ({ zapiszPdf: vi.fn() }))
+vi.mock('@/lib/druk/zapis', () => zapis)
+const druk = vi.hoisted(() => ({ drukuj: vi.fn(() => Promise.resolve(true)) }))
+vi.mock('@/lib/print', () => druk)
+import { DokumentZamowienia, pozycjeDokumentu, zapiszJakoPdf } from './ZamowienieDruk'
 
 afterEach(cleanup)
 const o = mapClientOrder({ id: 'o1', order_no: 'ISSA/Z/3/10/26', client_id: 'c1', client_name: 'ISSA', order_date: '2026-10-26', delivery_date: '2026-11-02', status: 'confirmed', notes: 'Awizacja dzień wcześniej',
@@ -29,5 +35,23 @@ describe('zamówienie dla klienta', () => {
     expect(screen.getByText('etykiety FR')).toBeTruthy()
     expect(screen.getByText('Awizacja dzień wcześniej')).toBeTruthy()
     expect(document.querySelector('.dz-totals')!.textContent).toContain('700,3 kg')
+  })
+})
+
+describe('Zapisz PDF zamówienia', () => {
+  it('aplikacja: PDF strony od razu do Pobranych jako ZAMOWIENIE_<klient>_<nr>.pdf, bez okna druku', async () => {
+    n.dostepny.mockResolvedValue(true); n.stronaPdf.mockResolvedValue('JVBERg==')
+    zapis.zapiszPdf.mockResolvedValue({ nazwa: 'x', sciezka: 'C:\\Downloads\\ZAMOWIENIE_SAS ISSA_ISSA-Z-3-10-26.pdf' })
+    const toast = vi.fn()
+    await zapiszJakoPdf(o, 'Sas Issa', { toast })
+    expect(zapis.zapiszPdf.mock.calls[0][0]).toBe('ZAMOWIENIE_SAS ISSA_ISSA-Z-3-10-26.pdf')
+    expect(Array.from(zapis.zapiszPdf.mock.calls[0][1] as Uint8Array)).toEqual([37, 80, 68, 70])
+    expect(druk.drukuj).not.toHaveBeenCalled()
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ kind: 'ok', title: 'Zapisano PDF zamówienia' }))
+  })
+  it('przeglądarka: okno druku jak dawniej', async () => {
+    n.dostepny.mockResolvedValue(false)
+    await zapiszJakoPdf(o, 'X', { toast: vi.fn() })
+    expect(druk.drukuj).toHaveBeenCalled()
   })
 })

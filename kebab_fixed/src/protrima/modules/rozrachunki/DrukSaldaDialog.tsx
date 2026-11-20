@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { Download, Printer } from 'lucide-react'
 import { useApp, Dialog } from '../../shell/context'
-import { downloadDocPdf, openDocument, rozliczeniaPdf } from '@/lib/api'
+import { openDocument, rozliczeniaPdf, zapiszDokumentPdf } from '@/lib/api'
+import { folderPliku } from '@/lib/druk/zapis'
 import { dataPl } from '@/features/rozliczenia/druk'
 import { dzisIso, poprzedniMiesiac, zakresObrotu, type Karta } from './model'
 import { OdmowaSerwera, Segment, naEnter, useZapis } from './wspolne'
@@ -42,8 +43,14 @@ export function DrukSaldaDialog({ karta, onClose }: { karta: Karta; onClose: () 
     if (!ok || !wydruk) return
     setKtory(jak)
     void zapis.zapisz(async () => {
-      await (jak === 'podglad' ? openDocument : downloadDocPdf)(wydruk.url, wydruk.nazwa)
-      app.toast({ kind: 'ok', title: `${wydruk.tytul} — PDF gotowy`, detail: `${k.nazwa} · ${wydruk.opis}` })
+      if (jak === 'podglad') {
+        await openDocument(wydruk.url, wydruk.nazwa)
+        app.toast({ kind: 'ok', title: `${wydruk.tytul} — PDF gotowy`, detail: `${k.nazwa} · ${wydruk.opis}` })
+      } else {
+        // Zapis od razu do Pobranych, bez okna druku (20.11.2026).
+        const z = await zapiszDokumentPdf(wydruk.url, wydruk.nazwa)
+        app.toast({ kind: 'ok', title: `${wydruk.tytul} — zapisano PDF`, detail: z.sciezka ? `${folderPliku(z.sciezka)}: ${z.sciezka.slice(folderPliku(z.sciezka).length + 1)}` : `${k.nazwa} · ${wydruk.opis}` })
+      }
       // Po podglądzie okno zostaje — można jeszcze zapisać PDF do maila; po zapisie PDF robota skończona.
       if (jak === 'pdf') onClose()
     })

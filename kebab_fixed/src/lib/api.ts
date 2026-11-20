@@ -200,6 +200,17 @@ export async function downloadDocPdf(url: string, fallbackName = 'dokument.pdf')
   return openDocument(url, fallbackName)
 }
 
+/**
+ * „Zapisz PDF”: dokument z serwera ZAPISANY na dysk pod nazwą z serwera
+ * (WZ_KLIENT_nr.pdf) — w aplikacji do folderu Pobrane bez okna druku
+ * (20.11.2026), w przeglądarce zwykłe pobranie. Do otwarcia: `openDocument`.
+ */
+export async function zapiszDokumentPdf(url: string, fallbackName = 'dokument.pdf'): Promise<import('./druk/zapis').Zapisany> {
+  const { blob, name } = await fetchDoc(url, fallbackName)
+  const { zapiszPdf } = await import('./druk/zapis')
+  return zapiszPdf(name, blob)
+}
+
 /** Pobranie dokumentu z sesją — wspólne dla przeglądarki i desktopu. */
 async function fetchDoc(url: string, fallbackName: string): Promise<{ blob: Blob; name: string }> {
   const token = tokenStore.get()

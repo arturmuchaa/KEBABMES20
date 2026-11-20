@@ -6,6 +6,7 @@
 pub mod mozliwosci;
 pub mod pdf;
 pub mod ustawienia;
+pub mod zapis;
 #[cfg(windows)]
 pub mod webview;
 #[cfg(windows)]
@@ -173,4 +174,25 @@ mod testy {
         let bez = super::ticket_do_druku(include_str!("../../tests/fixtures/bizhub-ticket.xml"));
         assert!(bez.contains("PageScaling") && bez.contains("psk:None"));
     }
+}
+
+/// Folder zapisu PDF: Pobrane użytkownika (jak pobieranie w starym MES z przeglądarki).
+fn folder_pobrane(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    app.path().download_dir().or_else(|_| app.path().document_dir()).map_err(|e| format!("Nie znaleziono folderu Pobrane: {e}"))
+}
+
+/// Zapis PDF (base64) do folderu Pobrane, bez okna druku. Zwraca pełną ścieżkę pliku.
+#[tauri::command]
+pub fn druk_zapisz_pdf(app: tauri::AppHandle, nazwa: String, pdf: String) -> Result<String, String> {
+    use base64::Engine;
+    let bajty = base64::engine::general_purpose::STANDARD.decode(pdf.as_bytes()).map_err(|e| format!("Uszkodzony PDF: {e}"))?;
+    Ok(zapis::zapisz(&folder_pobrane(&app)?, &nazwa, &bajty)?.to_string_lossy().to_string())
+}
+
+/// Pokaż zapisany plik w Eksploratorze (zaznaczony).
+#[tauri::command]
+pub fn druk_pokaz_plik(app: tauri::AppHandle, sciezka: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener().reveal_item_in_dir(&sciezka).map_err(|e| format!("Nie udało się otworzyć folderu: {e}"))
 }

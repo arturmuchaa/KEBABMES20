@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { drukuj } from '@/lib/print'
 import { createPortal } from 'react-dom'
 import { Printer, FileDown } from 'lucide-react'
-import { Dialog } from '../../../shell/context'
+import { Dialog, useApp, type AppApi } from '../../../shell/context'
+import { zapiszPdf } from '@/lib/druk/zapis'
+import { zBase64 } from '@/lib/druk/base64'
 import { useApi } from '@/hooks/useApi'
 import { useAuth } from '@/features/auth/AuthContext'
 import { clientOrdersApi, clientsApi, settingsApi } from '@/lib/api'
@@ -26,9 +28,9 @@ export function pozycjeDokumentu(o: ClientOrder) {
 }
 
 /**
- * Zamówienie dla klienta — podgląd i wydruk A4. „Drukuj / zapisz PDF” otwiera
- * systemowe okno druku: drukarka albo „Microsoft Print to PDF” / „Zapisz jako PDF”;
- * nazwa pliku podpowiada się z numeru zamówienia.
+ * Zamówienie dla klienta — podgląd i wydruk A4. „Drukuj” otwiera okno druku,
+ * „Zapisz PDF” w aplikacji zapisuje plik ZAMOWIENIE_<klient>_<nr>.pdf od razu do
+ * Pobranych, bez okna drukarki (20.11.2026); w przeglądarce — okno druku jak dawniej.
  */
 export function ZamowienieDrukDialog({ orderId, onClose }: { orderId: string; onClose: () => void }) {
   const { user } = useAuth()
@@ -38,7 +40,8 @@ export function ZamowienieDrukDialog({ orderId, onClose }: { orderId: string; on
   const o = orderRes.data as ClientOrder | null
   const klient = (klienciRes.data ?? []).find(c => c.id === o?.clientId)
   const [uwagiPoz, setUwagiPoz] = useState(true)
-  const [druk, setDruk] = useState(false)
+  const [druk, setDruk] = useState<false | 'druk' | 'pdf'>(false)
+  const app = useApp()
   const err = orderRes.error || firmaRes.error || klienciRes.error
   const gotowe = !!o && !!firmaRes.data && !!klienciRes.data
 
@@ -47,9 +50,12 @@ export function ZamowienieDrukDialog({ orderId, onClose }: { orderId: string; on
     const prev = document.title
     document.title = `Zamowienie ${o.orderNo.replace(/\//g, '-')}`  // podpowiedź nazwy pliku PDF
     const done = () => { setDruk(false); document.title = prev }
-    const t = window.setTimeout(() => { void drukuj({ rodzaj: 'zamowienie', tytul: document.title }).finally(done) }, 60)
+    const t = window.setTimeout(() => {
+      if (druk === 'pdf') void zapiszJakoPdf(o, klient?.name ?? o.clientName ?? '', app).finally(done)
+      else void drukuj({ rodzaj: 'zamowienie', tytul: document.title }).finally(done)
+    }, 60)
     return () => { window.clearTimeout(t); document.title = prev }
-  }, [druk, o])
+  }, [druk, o]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const doc = gotowe ? <DokumentZamowienia o={o!} firma={firmaRes.data!} klient={klient} wystawil={user?.name} uwagiPoz={uwagiPoz} /> : null
   return (
@@ -58,8 +64,8 @@ export function ZamowienieDrukDialog({ orderId, onClose }: { orderId: string; on
         footer={<>
           <label className="left" style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><input type="checkbox" className="cbx" checked={uwagiPoz} onChange={e => setUwagiPoz(e.target.checked)} />Uwagi przy pozycjach</label>
           <button className="btn" onClick={onClose}>Zamknij</button>
-          <button className="btn" disabled={!gotowe} onClick={() => setDruk(true)} data-tip="W oknie druku wybierz „Microsoft Print to PDF” albo „Zapisz jako PDF”"><FileDown size={15} />Zapisz PDF</button>
-          <button className="btn primary" disabled={!gotowe} onClick={() => setDruk(true)} data-autofocus><Printer size={15} />Drukuj</button>
+          <button className="btn" disabled={!gotowe || !!druk} onClick={() => setDruk('pdf')} data-tip="Plik PDF od razu do folderu Pobrane"><FileDown size={15} />{druk === 'pdf' ? 'Zapisuję…' : 'Zapisz PDF'}</button>
+          <button className="btn primary" disabled={!gotowe || !!druk} onClick={() => setDruk('druk')} data-autofocus><Printer size={15} />Drukuj</button>
         </>}>
         {err && <div className="note crit">Nie udało się pobrać danych: {err}</div>}
         {!gotowe && !err && <div className="note">Przygotowywanie dokumentu…</div>}
@@ -68,6 +74,17 @@ export function ZamowienieDrukDialog({ orderId, onClose }: { orderId: string; on
       {druk && doc && createPortal(<div className="print-sheet doc-print">{doc}</div>, document.body)}
     </>
   )
+}
+
+/** Strona z arkuszem → PDF (ten sam co do drukarki) → Pobrane. Bez aplikacji: okno druku. */
+export async function zapiszJakoPdf(o: ClientOrder, klient: string, app: Pick<AppApi, 'toast'>) {
+  const { natywny } = await import('@/lib/druk/natywny')
+  if (!(await natywny.dostepny())) { await drukuj({ rodzaj: 'zamowienie', tytul: document.title }); return }
+  const nazwa = `ZAMOWIENIE_${klient.toUpperCase()}_${o.orderNo.replace(/\//g, '-')}.pdf`.replace(/\s+/g, ' ')
+  try {
+    const z = await zapiszPdf(nazwa, zBase64(await natywny.stronaPdf()))
+    app.toast({ kind: 'ok', title: 'Zapisano PDF zamówienia', detail: z.sciezka ?? nazwa })
+  } catch (e) { app.toast({ kind: 'warn', title: 'Nie udało się zapisać PDF', detail: e instanceof Error ? e.message : String(e) }) }
 }
 
 export function DokumentZamowienia({ o, firma, klient, wystawil, uwagiPoz }: { o: ClientOrder; firma: Firma; klient?: Klient; wystawil?: string; uwagiPoz: boolean }) {
