@@ -45,6 +45,7 @@ pub async fn druk_drukarki() -> Result<Vec<Drukarka>, String> {
 pub async fn druk_mozliwosci(drukarka: String, ticket: Option<String>) -> Result<Mozliwosci, String> {
     #[cfg(windows)]
     {
+        let _com = win::Com::init();
         let ticket = win::ticket_sprawdzony(&drukarka, ticket.as_deref())?;
         let caps = win::mozliwosci_xml(&drukarka, &ticket)?;
         Ok(zbuduj(&caps, ticket))
@@ -123,7 +124,11 @@ pub async fn druk_pdf(app: tauri::AppHandle, drukarka: String, pdf: String, tick
             .filter(|p| p.exists())
             .or_else(|| std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("pdfium.dll"))))
             .ok_or("Brak biblioteki PDF (pdfium.dll) obok programu")?;
-        tauri::async_runtime::spawn_blocking(move || win::drukuj_pdf(&drukarka, &bajty, &ticket, kopie, od, r#do, &tytul, &dll))
+        let ticket = ticket_do_druku(&ticket);
+        tauri::async_runtime::spawn_blocking(move || {
+            let _com = win::Com::init();
+            win::drukuj_pdf(&drukarka, &bajty, &ticket, kopie, od, r#do, &tytul, &dll)
+        })
             .await.map_err(|e| e.to_string())?
     }
     #[cfg(not(windows))]
@@ -136,6 +141,15 @@ pub fn druk_komputer() -> String {
     std::env::var("COMPUTERNAME").or_else(|_| std::env::var("HOSTNAME")).unwrap_or_default()
 }
 
+/// Ticket do druku: skalowanie zawsze wyłączone (kartki z QR 1:1), nawet gdy
+/// domyślne ustawienia użytkownika w Windows mają „dopasuj do strony”.
+#[allow(dead_code)]
+pub fn ticket_do_druku(ticket: &str) -> String {
+    const PSK: &str = "{http://schemas.microsoft.com/windows/2003/08/printing/printschemakeywords}";
+    mozliwosci::ustaw_opcje(ticket, &format!("{PSK}PageScaling"), &format!("{PSK}None"))
+        .unwrap_or_else(|_| ticket.to_string())
+}
+
 #[cfg(test)]
 mod testy {
     #[test]
@@ -146,5 +160,17 @@ mod testy {
         let (f, o) = m.zasobnik_domyslny.unwrap();
         assert!(f.ends_with("}PageInputBin") && o.ends_with("}Tray1"));
         assert_eq!(m.kopie_max, 9999);
+    }
+
+    #[test]
+    fn druk_zawsze_bez_skalowania() {
+        let t = include_str!("../../tests/fixtures/bizhub-ticket.xml")
+            .replace("</psf:PrintTicket>", "<psf:Feature name=\"psk:PageScaling\"><psf:Option name=\"psk:FitApplicationBleedSizeToPageImageableSize\"/></psf:Feature></psf:PrintTicket>");
+        let wynik = super::ticket_do_druku(&t);
+        assert!(wynik.contains("psk:None"), "{wynik}");
+        assert!(!wynik.contains("FitApplicationBleedSizeToPageImageableSize"));
+        // ticket bez tej funkcji dostaje ją dopisaną
+        let bez = super::ticket_do_druku(include_str!("../../tests/fixtures/bizhub-ticket.xml"));
+        assert!(bez.contains("PageScaling") && bez.contains("psk:None"));
     }
 }

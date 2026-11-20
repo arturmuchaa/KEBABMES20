@@ -19,9 +19,12 @@ pub fn zakres(stron: u32, od: Option<u32>, do_: Option<u32>) -> Result<(u32, u32
     Ok((a - 1, b - 1))
 }
 
-/// Rozdzielczość renderowania bitmapy: rozdzielczość drukarki, najwyżej 300 dpi
-/// (A4 przy 600 dpi to ~140 MB na stronę; 300 dpi wystarcza dla QR i tekstu).
-pub fn dpi_renderu(dpi_drukarki: i32) -> i32 { dpi_drukarki.clamp(72, 300) }
+/// Orientacja kartki dla strony PDF (DEVMODE `dmOrientation`): 1 pionowo, 2 poziomo.
+/// Kartki palet są A4 poziomo — wydrukowane na pionowej kartce traciły prawą
+/// część razem z kodem QR (przegląd 19.11.2026).
+pub fn orientacja(szer_pt: f32, wys_pt: f32) -> i16 {
+    if szer_pt > wys_pt { 2 } else { 1 }
+}
 
 #[cfg(test)]
 mod testy {
@@ -49,8 +52,9 @@ mod testy {
     }
 
     #[test]
-    fn dpi_renderu_najwyzej_300() {
-        assert_eq!(dpi_renderu(600), 300);
-        assert_eq!(dpi_renderu(200), 200);
+    fn strona_pozioma_drukuje_sie_poziomo() {
+        assert_eq!(orientacja(842.0, 595.0), 2); // kartka palety A4 poziomo
+        assert_eq!(orientacja(595.0, 842.0), 1); // WZ A4 pionowo
+        assert_eq!(orientacja(300.0, 300.0), 1); // kwadrat — jak dotąd pionowo
     }
 }

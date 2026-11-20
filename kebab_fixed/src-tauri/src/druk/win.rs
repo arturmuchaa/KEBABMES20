@@ -157,9 +157,7 @@ pub fn mozliwosci_xml(nazwa: &str, ticket: &str) -> Result<String, String> {
 
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::{
-    CreateDCW, DeleteDC, GetDeviceCaps, StretchDIBits, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
-    DIB_RGB_COLORS, DM_COPIES, HORZRES, LOGPIXELSX, LOGPIXELSY, PHYSICALOFFSETX, PHYSICALOFFSETY,
-    SRCCOPY, VERTRES,
+    CreateDCW, DeleteDC, GetDeviceCaps, DM_COPIES, LOGPIXELSX, LOGPIXELSY, PHYSICALOFFSETX, PHYSICALOFFSETY,
 };
 use windows::Win32::Storage::Xps::{EndDoc, EndPage, StartDocW, StartPage, DOCINFOW};
 
@@ -183,57 +181,149 @@ pub fn okno_sterownika(hwnd: HWND, nazwa: &str, ticket: &str) -> Result<String, 
     }
 }
 
+/// COM dla bieżącego wątku: dostawca PrintTicket (PT*) korzysta z COM, a wątki
+/// puli Tauri/tokio go nie inicjalizują (przegląd 19.11.2026, I1).
+pub struct Com(bool);
+impl Com {
+    pub fn init() -> Self {
+        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+        // S_OK / S_FALSE → trzeba zrównoważyć CoUninitialize; RPC_E_CHANGED_MODE → wątek ma już STA.
+        let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+        Com(hr.is_ok())
+    }
+}
+impl Drop for Com {
+    fn drop(&mut self) { if self.0 { unsafe { windows::Win32::System::Com::CoUninitialize() } } }
+}
+
 struct Kontekst(windows::Win32::Graphics::Gdi::HDC);
 impl Drop for Kontekst { fn drop(&mut self) { unsafe { let _ = DeleteDC(self.0); } } }
 
+/// Rozpoczęte zadanie druku: bez `zakoncz()` Drop woła AbortDoc — błąd w połowie
+/// nie wysyła drukarce części dokumentu (przegląd I5).
+struct Zadanie { hdc: windows::Win32::Graphics::Gdi::HDC, gotowe: bool }
+impl Zadanie {
+    fn zakoncz(mut self) -> Result<(), String> {
+        self.gotowe = true;
+        if unsafe { EndDoc(self.hdc) } <= 0 { return Err("Drukarka nie zakończyła zadania".into()); }
+        Ok(())
+    }
+}
+impl Drop for Zadanie {
+    fn drop(&mut self) { if !self.gotowe { unsafe { let _ = windows::Win32::Storage::Xps::AbortDoc(self.hdc); } } }
+}
+
+/// Kilka funkcji pdfium.dll wołanych wprost: `FPDF_RenderPage` rysuje stronę
+/// wektorowo na kontekście drukarki w jej pełnej rozdzielczości (bitmapa
+/// 300 dpi dawała ~35 MB na stronę w kolejce wydruku — przegląd I4).
+mod pdfium {
+    use std::ffi::{c_char, c_float, c_int, c_void};
+    use windows::core::{s, PCWSTR};
+    use windows::Win32::Foundation::HMODULE;
+    use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+
+    type Dok = *mut c_void;
+    type Str = *mut c_void;
+    pub struct Pdfium {
+        _lib: HMODULE,
+        zaladuj: unsafe extern "C" fn(*const c_void, usize, *const c_char) -> Dok,
+        stron: unsafe extern "C" fn(Dok) -> c_int,
+        strona: unsafe extern "C" fn(Dok, c_int) -> Str,
+        szer: unsafe extern "C" fn(Str) -> c_float,
+        wys: unsafe extern "C" fn(Str) -> c_float,
+        rysuj: unsafe extern "C" fn(*mut c_void, Str, c_int, c_int, c_int, c_int, c_int, c_int),
+        zamknij_strone: unsafe extern "C" fn(Str),
+        zamknij_dok: unsafe extern "C" fn(Dok),
+    }
+    pub struct Dokument<'a> { p: &'a Pdfium, d: Dok }
+    pub struct Strona<'a> { p: &'a Pdfium, s: Str }
+
+    /// FPDF_ANNOT | FPDF_PRINTING
+    const FLAGI: c_int = 0x01 | 0x800;
+
+    impl Pdfium {
+        pub fn zaladuj(dll: &std::path::Path) -> Result<Self, String> {
+            let wn = super::w(&dll.to_string_lossy());
+            unsafe {
+                let lib = LoadLibraryW(PCWSTR(wn.as_ptr())).map_err(|e| format!("Brak biblioteki PDF (pdfium.dll): {}", e.message()))?;
+                macro_rules! f { ($n:expr) => { std::mem::transmute(GetProcAddress(lib, $n).ok_or_else(|| "pdfium.dll: brak funkcji".to_string())?) } }
+                let init: unsafe extern "C" fn() = f!(s!("FPDF_InitLibrary"));
+                init();
+                Ok(Self { _lib: lib,
+                    zaladuj: f!(s!("FPDF_LoadMemDocument64")), stron: f!(s!("FPDF_GetPageCount")),
+                    strona: f!(s!("FPDF_LoadPage")), szer: f!(s!("FPDF_GetPageWidthF")), wys: f!(s!("FPDF_GetPageHeightF")),
+                    rysuj: f!(s!("FPDF_RenderPage")), zamknij_strone: f!(s!("FPDF_ClosePage")), zamknij_dok: f!(s!("FPDF_CloseDocument")) })
+            }
+        }
+        /// `pdf` musi żyć dłużej niż dokument (pdfium czyta z bufora).
+        pub fn dokument<'a>(&'a self, pdf: &'a [u8]) -> Result<Dokument<'a>, String> {
+            let d = unsafe { (self.zaladuj)(pdf.as_ptr() as *const c_void, pdf.len(), std::ptr::null()) };
+            if d.is_null() { return Err("Uszkodzony PDF".into()); }
+            Ok(Dokument { p: self, d })
+        }
+    }
+    impl<'a> Dokument<'a> {
+        pub fn stron(&self) -> u32 { unsafe { (self.p.stron)(self.d) }.max(0) as u32 }
+        pub fn strona(&self, i: u32) -> Result<Strona<'a>, String> {
+            let s = unsafe { (self.p.strona)(self.d, i as c_int) };
+            if s.is_null() { return Err(format!("Nie można odczytać strony {}", i + 1)); }
+            Ok(Strona { p: self.p, s })
+        }
+    }
+    impl Drop for Dokument<'_> { fn drop(&mut self) { unsafe { (self.p.zamknij_dok)(self.d) } } }
+    impl Strona<'_> {
+        pub fn wymiary_pt(&self) -> (f32, f32) { unsafe { ((self.p.szer)(self.s), (self.p.wys)(self.s)) } }
+        pub fn rysuj(&self, hdc: windows::Win32::Graphics::Gdi::HDC, x: i32, y: i32, w: i32, h: i32) {
+            unsafe { (self.p.rysuj)(hdc.0, self.s, x, y, w, h, 0, FLAGI) }
+        }
+    }
+    impl Drop for Strona<'_> { fn drop(&mut self) { unsafe { (self.p.zamknij_strone)(self.s) } } }
+}
+
 /// Druk PDF: ticket → DEVMODE (zasobnik, kolor, dwustronnie… ze sterownika),
-/// kopie w DEVMODE, strony rysowane 1:1 względem fizycznego marginesu.
+/// kopie i skala 100% w DEVMODE, orientacja kartki dobrana do każdej strony,
+/// strony rysowane wektorowo 1:1 względem fizycznego marginesu.
 pub fn drukuj_pdf(nazwa: &str, pdf: &[u8], ticket: &str, kopie: u32, od: Option<u32>, do_: Option<u32>,
                   tytul: &str, pdfium_dll: &std::path::Path) -> Result<u32, String> {
-    use pdfium_render::prelude::*;
+    use windows::Win32::Graphics::Gdi::{ResetDCW, DM_ORIENTATION, DM_SCALE};
     let mut dm = devmode_z_ticketu(nazwa, ticket)?;
+    let pdfium = pdfium::Pdfium::zaladuj(pdfium_dll)?;
+    let doc = pdfium.dokument(pdf)?;
+    let (a, b) = super::pdf::zakres(doc.stron(), od, do_)?;
     let wn = w(nazwa);
     let wt = w(tytul);
     unsafe {
         let p = dm.as_mut_ptr() as *mut DEVMODEW;
         (*p).Anonymous1.Anonymous1.dmCopies = kopie.clamp(1, 9999) as i16;
-        (*p).dmFields |= DM_COPIES;
+        (*p).Anonymous1.Anonymous1.dmScale = 100;
+        (*p).dmFields |= DM_COPIES | DM_SCALE | DM_ORIENTATION;
+        let pierwsza = doc.strona(a)?.wymiary_pt();
+        let mut orient = super::pdf::orientacja(pierwsza.0, pierwsza.1);
+        (*p).Anonymous1.Anonymous1.dmOrientation = orient;
         let hdc = CreateDCW(PCWSTR::null(), PCWSTR(wn.as_ptr()), PCWSTR::null(), Some(p as *const DEVMODEW));
         if hdc.is_invalid() { return Err(format!("Nie można rozpocząć druku na „{nazwa}”")); }
         let dc = Kontekst(hdc);
-        let (dpi_x, dpi_y) = (GetDeviceCaps(Some(dc.0), LOGPIXELSX), GetDeviceCaps(Some(dc.0), LOGPIXELSY));
-        let (off_x, off_y) = (GetDeviceCaps(Some(dc.0), PHYSICALOFFSETX), GetDeviceCaps(Some(dc.0), PHYSICALOFFSETY));
-        let _ = (GetDeviceCaps(Some(dc.0), HORZRES), GetDeviceCaps(Some(dc.0), VERTRES));
-
-        let pdfium = Pdfium::new(Pdfium::bind_to_library(pdfium_dll)
-            .map_err(|e| format!("Brak biblioteki PDF (pdfium.dll): {e}"))?);
-        let doc = pdfium.load_pdf_from_byte_slice(pdf, None).map_err(|e| format!("Uszkodzony PDF: {e}"))?;
-        let stron = doc.pages().len() as u32;
-        let (a, b) = super::pdf::zakres(stron, od, do_)?;
-
         let di = DOCINFOW { cbSize: std::mem::size_of::<DOCINFOW>() as i32, lpszDocName: PCWSTR(wt.as_ptr()), ..Default::default() };
         if StartDocW(dc.0, &di) <= 0 { return Err(format!("Drukarka „{nazwa}” odrzuciła zadanie")); }
-        let rdpi = super::pdf::dpi_renderu(dpi_x.min(dpi_y));
+        let zadanie = Zadanie { hdc: dc.0, gotowe: false };
         for i in a..=b {
-            let strona = doc.pages().get(i as u16).map_err(|e| e.to_string())?;
-            let (wpt, hpt) = (strona.width().value, strona.height().value);
-            let bw = (wpt / 72.0 * rdpi as f32).round() as i32;
-            let bh = (hpt / 72.0 * rdpi as f32).round() as i32;
-            let bmp = strona.render_with_config(&PdfRenderConfig::new()
-                .set_target_width(bw).set_target_height(bh)
-                .set_format(PdfBitmapFormat::BGRx).render_form_data(true))
-                .map_err(|e| format!("Nie można narysować strony {}: {e}", i + 1))?;
-            let piks = bmp.as_raw_bytes();
-            let (bw, bh) = (bmp.width(), bmp.height());
-            let bi = BITMAPINFO { bmiHeader: BITMAPINFOHEADER {
-                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32, biWidth: bw, biHeight: -bh,
-                biPlanes: 1, biBitCount: 32, biCompression: BI_RGB.0, ..Default::default() }, ..Default::default() };
+            let strona = doc.strona(i)?;
+            let (wpt, hpt) = strona.wymiary_pt();
+            let o = super::pdf::orientacja(wpt, hpt);
+            if o != orient {
+                // Strona w innej orientacji niż poprzednia (np. kartki palet po WZ) — zmiana przed StartPage.
+                orient = o;
+                (*p).Anonymous1.Anonymous1.dmOrientation = orient;
+                if ResetDCW(dc.0, p as *const DEVMODEW).is_invalid() { return Err("Drukarka nie zmieniła orientacji kartki".into()); }
+            }
+            let (dpi_x, dpi_y) = (GetDeviceCaps(Some(dc.0), LOGPIXELSX), GetDeviceCaps(Some(dc.0), LOGPIXELSY));
+            let (off_x, off_y) = (GetDeviceCaps(Some(dc.0), PHYSICALOFFSETX), GetDeviceCaps(Some(dc.0), PHYSICALOFFSETY));
             let (x, y, wpx, hpx) = super::pdf::umiesc_strone(wpt, hpt, dpi_x, dpi_y, off_x, off_y);
-            if StartPage(dc.0) <= 0 { let _ = EndDoc(dc.0); return Err("Drukarka przerwała stronę".into()); }
-            StretchDIBits(dc.0, x, y, wpx, hpx, 0, 0, bw, bh, Some(piks.as_ptr() as *const _), &bi, DIB_RGB_COLORS, SRCCOPY);
-            if EndPage(dc.0) <= 0 { let _ = EndDoc(dc.0); return Err("Drukarka przerwała stronę".into()); }
+            if StartPage(dc.0) <= 0 { return Err("Drukarka przerwała stronę".into()); }
+            strona.rysuj(dc.0, x, y, wpx, hpx);
+            if EndPage(dc.0) <= 0 { return Err("Drukarka przerwała stronę".into()); }
         }
-        if EndDoc(dc.0) <= 0 { return Err("Drukarka nie zakończyła zadania".into()); }
+        zadanie.zakoncz()?;
         Ok(b - a + 1)
     }
 }

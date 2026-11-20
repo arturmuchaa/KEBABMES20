@@ -186,6 +186,12 @@ pub fn ustaw_opcje(ticket_xml: &str, funkcja_id: &str, opcja_id: &str) -> Result
     match cel {
         Some(f) => match f.kids_named("Option").next() {
             Some(o) => wynik.replace_range(o.start..o.end, &opcja),
+            None if ticket_xml[..f.end].ends_with("/>") => {
+                // <psf:Feature name="…"/> — pusty znacznik: podmieniamy cały element.
+                let nazwa = &f.name;
+                let fq_old = f.attr("name").unwrap_or_default();
+                wynik.replace_range(f.start..f.end, &format!("<{nazwa} name=\"{fq_old}\">{opcja}</{nazwa}>"));
+            }
             None => {
                 let zamk = ticket_xml[..f.end].rfind("</").ok_or("XML: brak zamknięcia funkcji")?;
                 wynik.insert_str(zamk, &opcja);
@@ -295,6 +301,17 @@ mod testy {
         let f = parsuj_mozliwosci(CAPS, &t).unwrap();
         let st = f.iter().find(|x| x.id == km("Staple")).unwrap();
         assert_eq!(st.wybrana, Some(km("StapleCorner")));
+    }
+
+    #[test]
+    fn ustaw_opcje_w_pustej_funkcji() {
+        let t = TICKET.replace("<psf:Feature name=\"psk:PageOutputColor\"><psf:Option name=\"psk:Color\"/></psf:Feature>",
+                               "<psf:Feature name=\"psk:PageOutputColor\"/>");
+        let w = ustaw_opcje(&t, &psk("PageOutputColor"), &psk("Monochrome")).unwrap();
+        let f = parsuj_mozliwosci(CAPS, &w).unwrap();
+        let wyb = |id: String| f.iter().find(|x| x.id == id).unwrap().wybrana.clone();
+        assert_eq!(wyb(psk("PageOutputColor")), Some(psk("Monochrome")));
+        assert_eq!(wyb(psk("PageInputBin")), Some(km("Tray2")));
     }
 
     #[test]
