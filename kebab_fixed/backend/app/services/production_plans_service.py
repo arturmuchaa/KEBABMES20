@@ -1195,6 +1195,20 @@ def update_plan_status(plan_id: str, status: str) -> Dict[str, bool]:
     return {"ok": True}
 
 
+def set_pallet_gate(plan_id: str, enabled: bool) -> Dict[str, Any]:
+    """Blokada palet w planie (plan produkcji, 26.11.2026) — tylko w szkicu:
+    włączenie jej w trakcie produkcji zatrzymałoby skan sztuk z palet, których
+    nikt nie zeskanował przy wywozie."""
+    row = query_one("SELECT status FROM production_plans WHERE id=%s", (plan_id,))
+    if not row:
+        raise HTTPException(404, "Plan nie znaleziony")
+    if (row.get("status") or "draft") != "draft":
+        raise HTTPException(409, "Blokadę palet zmienia się tylko w szkicu planu")
+    with transaction() as conn:
+        cx_execute(conn, "UPDATE production_plans SET pallet_gate=%s WHERE id=%s", (bool(enabled), plan_id))
+    return {"ok": True, "planId": plan_id, "palletGate": bool(enabled)}
+
+
 def delete_plan(plan_id: str) -> Dict[str, bool]:
     """Usuń plan, którego nikt jeszcze nie zaczął robić.
 
@@ -1537,8 +1551,8 @@ def office_confirm(plan_id: str) -> Dict[str, Any]:
     from app.services.finished_goods_service import finish_day
 
     plan = query_one(
-        "SELECT id, status, tablet_pending_entries, tablet_finished_at, office_confirmed_at "
-        "FROM production_plans WHERE id=%s",
+        "SELECT id, plan_no, status, pallet_gate, tablet_pending_entries, tablet_finished_at, "
+        "office_confirmed_at FROM production_plans WHERE id=%s",
         (plan_id,),
     )
     if not plan:
@@ -1566,6 +1580,13 @@ def office_confirm(plan_id: str) -> Dict[str, Any]:
                 400, f"Niepoprawny wpis z tabletu: {exc}"
             ) from exc
 
+    # Plan z blokadą palet: najpierw zwroty wszystkich wywiezionych palet
+    # i kontrola rezerwacji — ZANIM finish_day zamknie plan.
+    if plan.get("pallet_gate"):
+        from app.services import seasoned_pallets_service as palety
+        with transaction() as conn:
+            palety.assert_plan_ready_to_confirm(conn, plan_id)
+
     dto = FinishDayDto(plan_id=plan_id, entries=entries)
     result = finish_day(dto)
 
@@ -1582,6 +1603,11 @@ def office_confirm(plan_id: str) -> Dict[str, Any]:
             """,
             (plan_id,),
         )
+    if plan.get("pallet_gate"):
+        from app.services import seasoned_pallets_service as palety
+        with transaction() as conn:
+            result["balance"] = palety.settle_plan_balance(conn, plan_id, plan.get("plan_no") or "")
+
     logger.info(
         "plan.office_confirmed",
         extra={"plan_id": plan_id, "items_created": result.get("created", 0)},

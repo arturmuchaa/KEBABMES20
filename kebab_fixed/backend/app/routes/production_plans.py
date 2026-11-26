@@ -135,3 +135,20 @@ def tablet_reopen(plan_id: str):
 def office_confirm(plan_id: str):
     """Biuro potwierdza koniec produkcji — uruchamia finish_day."""
     return svc.office_confirm(plan_id)
+
+
+class PalletGateBody(BaseModel):
+    enabled: bool
+
+
+@router.get("/{plan_id}/balance")
+def plan_balance(plan_id: str):
+    """Bilans partii planu: weszło (palety) − wyroby − końcówki = strata."""
+    from app.services import seasoned_pallets_service
+    return {"data": seasoned_pallets_service.plan_balance(plan_id)}
+
+
+@router.patch("/{plan_id}/pallet-gate")
+def set_pallet_gate(plan_id: str, body: PalletGateBody):
+    """Włącz/wyłącz blokadę palet (skan wywozu na halę) — tylko w szkicu planu."""
+    return svc.set_pallet_gate(plan_id, body.enabled)

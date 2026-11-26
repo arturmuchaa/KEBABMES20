@@ -311,3 +311,112 @@ def return_pallet(code_or_id: str, kg: float) -> Dict[str, Any]:
             "kg": float(koncowka["kg_weighed"]),
         },
     }
+
+
+# ── Bilans partii przy potwierdzeniu planu przez biuro ───────────────────
+
+def _palety_planu(conn, plan_id: str) -> list[Dict[str, Any]]:
+    return cx_query_all(
+        conn, "SELECT * FROM seasoned_pallets WHERE taken_plan_id=%s ORDER BY pallet_no", (plan_id,))
+
+
+def assert_plan_ready_to_confirm(conn, plan_id: str) -> None:
+    """Przed potwierdzeniem biura (plan z `pallet_gate`):
+
+    * każda wywieziona paleta ma zwrot końcówki (także 0 kg),
+    * po bilansie żadna partia nie zejdzie poniżej rezerwacji INNYCH planów.
+    """
+    from app.services.production_plans_service import _allocation_kg_per_batch
+
+    palety = _palety_planu(conn, plan_id)
+    na_hali = [p for p in palety if p["status"] == "on_hall"]
+    if na_hali:
+        nr = ", ".join(str(p["pallet_no"]) for p in na_hali)
+        raise HTTPException(
+            409, f"Paleta {nr} nie ma zwrotu końcówki — zważ ją albo wpisz 0")
+
+    wlasne: Dict[str, float] = {}
+    for ln in cx_query_all(
+            conn, "SELECT batch_allocation FROM production_plan_lines WHERE plan_id=%s", (plan_id,)):
+        for bid, kg in _allocation_kg_per_batch(_alokacja(ln)).items():
+            wlasne[bid] = wlasne.get(bid, 0.0) + kg
+    for sm_id in {p["seasoned_meat_id"] for p in palety if p.get("seasoned_meat_id")}:
+        row = cx_query_one(
+            conn, "SELECT batch_no, kg_reserved FROM seasoned_meat WHERE id=%s", (sm_id,)) or {}
+        target = _kg_w_chlodni(conn, sm_id)
+        cudze = round(float(row.get("kg_reserved") or 0) - wlasne.get(sm_id, 0.0), 3)
+        if cudze > target + 0.001:
+            raise HTTPException(
+                409,
+                f"Partia {row.get('batch_no')}: po bilansie zostaje {_fmt_kg(target)} kg, "
+                f"a inne plany mają zarezerwowane {_fmt_kg(cudze)} kg — popraw tamte plany",
+            )
+
+
+def _kg_w_chlodni(conn, seasoned_meat_id: str) -> float:
+    r = cx_query_one(
+        conn,
+        "SELECT COALESCE(SUM(kg_weighed), 0) AS kg FROM seasoned_pallets "
+        "WHERE seasoned_meat_id=%s AND status='in_cold'",
+        (seasoned_meat_id,),
+    )
+    return round(float((r or {}).get("kg") or 0), 3)
+
+
+def settle_plan_balance(conn, plan_id: str, plan_no: str) -> list[Dict[str, Any]]:
+    """Bilans partii planu: weszło (palety) − na wyroby − końcówki = strata.
+
+    Stan partii ustawia się na sumę jej palet w chłodni (końcówki + palety
+    nietknięte), a różnica idzie ruchem magazynowym `reconcile`.
+    """
+    from app.services.seasoned_meat_service import _reconcile_row
+
+    palety = _palety_planu(conn, plan_id)
+    po_partii: Dict[str, list] = {}
+    for p in palety:
+        po_partii.setdefault(p.get("batch_no") or "", []).append(p)
+
+    wynik = []
+    for batch, lista in po_partii.items():
+        kg_in = round(sum(float(p.get("kg_weighed") or 0) for p in lista), 3)
+        kg_ret = round(sum(float(p.get("kg_returned") or 0) for p in lista), 3)
+        goods = cx_query_one(
+            conn,
+            "SELECT COALESCE(SUM(u.weight_kg), 0) AS kg FROM finished_units u "
+            "JOIN production_plan_lines l ON l.id = u.plan_line_id "
+            "WHERE l.plan_id=%s AND u.batch_no=%s AND u.status <> 'planned'",
+            (plan_id, batch),
+        )
+        kg_goods = round(float((goods or {}).get("kg") or 0), 3)
+        kg_loss = round(kg_in - kg_goods - kg_ret, 3)
+        cx_execute_returning(
+            conn,
+            """
+            INSERT INTO plan_batch_balance (plan_id, batch_no, kg_in, kg_goods, kg_returned, kg_loss)
+            VALUES (%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (plan_id, batch_no) DO UPDATE SET
+                kg_in=EXCLUDED.kg_in, kg_goods=EXCLUDED.kg_goods,
+                kg_returned=EXCLUDED.kg_returned, kg_loss=EXCLUDED.kg_loss
+            RETURNING plan_id
+            """,
+            (plan_id, batch, kg_in, kg_goods, kg_ret, kg_loss),
+        )
+        for sm_id in {p["seasoned_meat_id"] for p in lista if p.get("seasoned_meat_id")}:
+            row = cx_query_one(conn, "SELECT * FROM seasoned_meat WHERE id=%s FOR UPDATE", (sm_id,))
+            if not row:
+                continue
+            target = _kg_w_chlodni(conn, sm_id)
+            _reconcile_row(conn, row, target, reason=f"Bilans planu {plan_no}", close=target <= 0)
+        wynik.append({"batchNo": batch, "kgIn": kg_in, "kgGoods": kg_goods,
+                      "kgReturned": kg_ret, "kgLoss": kg_loss})
+    return wynik
+
+
+def plan_balance(plan_id: str) -> list[Dict[str, Any]]:
+    from app.db import query_all
+    return [
+        {"batchNo": r["batch_no"], "kgIn": float(r["kg_in"]), "kgGoods": float(r["kg_goods"]),
+         "kgReturned": float(r["kg_returned"]), "kgLoss": float(r["kg_loss"])}
+        for r in query_all(
+            "SELECT * FROM plan_batch_balance WHERE plan_id=%s ORDER BY batch_no", (plan_id,))
+    ]
