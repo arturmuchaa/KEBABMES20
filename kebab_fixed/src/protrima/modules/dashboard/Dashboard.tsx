@@ -21,6 +21,7 @@ import { wierszeMiesa, type SeasonedLite } from './miesoPrzyprawione'
 import { ETAP } from '../../shell/etapy'
 import { ZatwierdzeniaPanel } from './zatwierdzenia/Zatwierdzenia'
 import type { PlanZ, SesjaLite } from './zatwierdzenia/model'
+import { KursyNiezakonczone } from '../wysylki/KursyNiezakonczone'
 
 /** Wariant Pulpitu do porównania: A — „Wymaga uwagi”, B — „Do zrobienia teraz” (te same słowa co kolumna „Dalej”). */
 const W = wariant('pulpit')
@@ -393,6 +394,7 @@ function ShipmentsPanel({ kursy }: { kursy: ZaladunekDoWydruku[] }) {
       <div className="panel-h"><h2>Kursy po załadunku</h2><span className="sub">dokumenty dla kierowcy do wydruku</span>
         <span className="tools"><button className="btn sm ghost" onClick={() => app.openModule('wysylki')}>Wszystkie kursy<ArrowRight size={14} /></button></span>
       </div>
+      <KursyNiezakonczone />
       <div className="panel-b">
         <table className="tbl">
           <thead><tr><th>Załadunek</th><th>Pojazd</th><th>Odbiorcy</th><th className="r">Dokumenty</th><th>Stan</th></tr></thead>

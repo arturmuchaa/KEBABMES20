@@ -4939,3 +4939,48 @@ export const drukApi = {
   rejestr: (wpis: object) => req<Record<string, unknown>>('POST', '/druk/rejestr', wpis),
   lista: (orderId: string) => req<Record<string, unknown>[]>('GET', `/druk/rejestr?order_id=${encodeURIComponent(orderId)}`),
 }
+
+// ── Zamówienia z biura (26.11.2026): kurs, wyjazd kartonem, przeniesienie sztuk ──
+export interface KursOtwarty {
+  vehicleId: string; name: string; plate: string; loadedSince: string | null
+  orders: Array<{ orderId: string; orderNo: string; clientName: string; orderStatus: string; cartons: string[]; szt: number; kg: number }>
+}
+export interface KartonDoWyjazdu {
+  id: string; kind: 'order' | 'stock'; palletNo: number | null; cartonNo: string
+  status: string; vehicleId: string | null; szt: number; kg: number
+}
+export interface PozycjaDoPrzeniesienia {
+  lineId: string; recipeId: string; recipeName: string; productTypeId: string; productTypeName: string
+  packagingId: string; packagingName: string; kgPerUnit: number; qty: number
+}
+export interface CelPrzeniesienia {
+  orderId: string; orderNo: string; clientName: string; delivery: string | null
+  lines: Array<PozycjaDoPrzeniesienia & { free: number }>
+}
+export interface PrzeniesienieOpcje {
+  palletId: string; palletNo: number; cartonNo: string; status: string
+  orderId: string; orderNo: string; clientName: string
+  items: PozycjaDoPrzeniesienia[]; orders: CelPrzeniesienia[]
+}
+export interface WynikKursu {
+  ok: boolean; plate?: string
+  orders: Array<{ order_id: string; order_no: string; client_name: string; pallets: number; skipped?: string; wz_number?: string | null; wz_status?: string; hdi_number?: string | null; hdi_error?: string | null }>
+}
+export const biuroApi = {
+  kursyOtwarte: () => req<KursOtwarty[]>('GET', '/biuro/kursy-otwarte'),
+  zakonczKurs: (vehicleId: string, partialConfirmation?: string) =>
+    req<WynikKursu>('POST', `/biuro/kursy/${encodeURIComponent(vehicleId)}/zakoncz`, { partial_confirmation: partialConfirmation ?? null }),
+  kartonyDoWyjazdu: (orderId: string) => req<KartonDoWyjazdu[]>('GET', `/biuro/zamowienia/${encodeURIComponent(orderId)}/kartony-do-wyjazdu`),
+  wyjazd: (orderId: string, vehicleId: string, containerIds: string[], partialConfirmation?: string) =>
+    req<WynikKursu>('POST', `/biuro/zamowienia/${encodeURIComponent(orderId)}/wyjazd`,
+      { vehicle_id: vehicleId, container_ids: containerIds, partial_confirmation: partialConfirmation ?? null }),
+  przeniesienieOpcje: (palletId: string) => req<PrzeniesienieOpcje>('GET', `/biuro/palety/${encodeURIComponent(palletId)}/przeniesienie`),
+  przenies: (palletId: string, body: { targetOrderId: string; zrodlo: 'zmniejsz' | 'dorob'; items: Array<{ lineId: string; qty: number; targetLineId: string; changePackaging: boolean }> }) =>
+    req<{ ok: boolean; targetOrderNo: string; palletNo: number; cartonNo: string; sourceCartonNo: string; sourceWithdrawnFromColdStorage: boolean }>(
+      'POST', `/biuro/palety/${encodeURIComponent(palletId)}/przeniesienie`, {
+        target_order_id: body.targetOrderId, zrodlo: body.zrodlo,
+        items: body.items.map(i => ({ line_id: i.lineId, qty: i.qty, target_line_id: i.targetLineId, change_packaging: i.changePackaging })),
+      }),
+  usunKartonMagazynowy: (cartonId: string) =>
+    req<{ ok: boolean; cartonNo: string; unitsReleased: number }>('DELETE', `/biuro/kartony-magazynowe/${encodeURIComponent(cartonId)}`),
+}

@@ -77,13 +77,17 @@ def is_generic_carton(carton: Dict[str, Any]) -> bool:
             and (carton.get("client_name") or "").strip().lower() in GENERIC_CLIENT_NAMES)
 
 
-def client_reason(carton: Dict[str, Any], order_client_id: str) -> Optional[str]:
-    """None, gdy karton wolno przypisać zamówieniu tego klienta."""
+def client_reason(carton: Dict[str, Any], order_client_id: str,
+                  group_ids: Optional[frozenset] = None) -> Optional[str]:
+    """None, gdy karton wolno przypisać zamówieniu tego klienta.
+
+    `group_ids` — klienci z tej samej grupy odbiorców co zamówienie
+    (właściciel 26.11.2026: karton FUDI wolno dać IGLOMEN, to jedna grupa)."""
     cid = (carton.get("client_id") or "").strip()
     if cid:
-        if cid == (order_client_id or "").strip():
+        if cid == (order_client_id or "").strip() or cid in (group_ids or ()):
             return None
-        return "Karton należy do innego klienta niż zamówienie"
+        return "Karton należy do innego klienta niż zamówienie (spoza jego grupy odbiorców)"
     if is_generic_carton(carton):
         return None
     return (f"Karton opisany klientem „{(carton.get('client_name') or '').strip()}” bez karty "
@@ -204,9 +208,10 @@ def match_reason(carton: Dict[str, Any], carton_lines: List[Dict[str, Any]],
                  order_client_id: str, order_lines: List[Dict[str, Any]],
                  pallet_res: Optional[Dict[Spec, int]] = None,
                  carton_res: Optional[Dict[Spec, int]] = None,
-                 qty_field: str = "target_qty") -> Optional[str]:
+                 qty_field: str = "target_qty",
+                 group_ids: Optional[frozenset] = None) -> Optional[str]:
     """Klient + ścisła zgodność składu + wolna ilość (bez stanu fizycznego)."""
-    r = client_reason(carton, order_client_id)
+    r = client_reason(carton, order_client_id, group_ids)
     if r:
         return r
     r = mismatch_reason([l for l in carton_lines if int(l.get(qty_field) or 0) > 0], order_lines)
@@ -225,6 +230,19 @@ def overflow_by_spec(order_qty: Dict[Spec, int], pallet_res: Dict[Spec, int],
 
 
 # ── Odczyty (w transakcji albo bez) ───────────────────────────────────────
+
+def group_client_ids(conn, client_id: str) -> frozenset:
+    """Wszyscy klienci z grupy odbiorców `client_id` (razem z nim). Bez grupy — sam klient."""
+    client_id = (client_id or "").strip()
+    if not client_id:
+        return frozenset()
+    rows = _q(conn)(
+        """SELECT c2.id FROM clients c
+             JOIN clients c2 ON c2.id = c.id
+                 OR (NULLIF(c.group_id, '') IS NOT NULL AND c2.group_id = c.group_id)
+            WHERE c.id = %s""", (client_id,))
+    return frozenset(r["id"] for r in rows) | {client_id}
+
 
 def _q(conn) -> Callable[[str, tuple], List[Dict[str, Any]]]:
     if conn is None:
@@ -403,7 +421,8 @@ def assign(carton_id: str, order_id: str, operator: str = "") -> Dict[str, Any]:
         docs = active_documents(conn, order_id)
         if docs:
             raise HTTPException(409, _docs_message(docs, "Nowego kartonu nie można już przypisać."))
-        reason = client_reason(carton, order.get("client_id") or "")
+        grupa = group_client_ids(conn, order.get("client_id") or "")
+        reason = client_reason(carton, order.get("client_id") or "", grupa)
         if reason:
             raise HTTPException(409, reason)
         lines = cx_query_all(conn, "SELECT * FROM stock_carton_lines WHERE carton_id=%s ORDER BY id",
@@ -419,7 +438,8 @@ def assign(carton_id: str, order_id: str, operator: str = "") -> Dict[str, Any]:
             raise HTTPException(409, f"Karton {label}: {reason}")
         pallet_res, carton_res = reservations(conn, order_id, carton_id)
         reason = match_reason(carton, lines, order.get("client_id") or "",
-                              _order_lines(conn, order_id), pallet_res, carton_res)
+                              _order_lines(conn, order_id), pallet_res, carton_res,
+                              group_ids=grupa)
         if reason:
             raise HTTPException(409, f"Karton {label}: {reason}")
         cx_execute(conn, "UPDATE stock_cartons SET linked_order_id=%s, linked_order_no=%s WHERE id=%s",
@@ -595,11 +615,12 @@ def options_for_order(order_id: str) -> Dict[str, Any]:
 
     assigned_rows = query_all("SELECT * FROM stock_cartons WHERE linked_order_id=%s ORDER BY carton_no",
                               (order_id,))
+    grupa = group_client_ids(None, client_id)
     candidate_rows = query_all(
         """SELECT * FROM stock_cartons
             WHERE linked_order_id IS NULL AND shipped_at IS NULL
-              AND (client_id = %s OR COALESCE(client_id,'') = '')
-            ORDER BY carton_no""", (client_id,))
+              AND (client_id = ANY(%s) OR COALESCE(client_id,'') = '')
+            ORDER BY carton_no""", (list(grupa) or [""],))
     ids = [r["id"] for r in assigned_rows] + [r["id"] for r in candidate_rows]
     lines_by, units_by = _lines_and_units(None, ids)
 
@@ -608,7 +629,7 @@ def options_for_order(order_id: str) -> Dict[str, Any]:
     available, unavailable = [], []
     for c in candidate_rows:
         lines, units = lines_by.get(c["id"], []), units_by.get(c["id"], [])
-        same_client = bool(client_id) and (c.get("client_id") or "") == client_id
+        same_client = bool(client_id) and (c.get("client_id") or "") in grupa
         if not same_client:
             # Karton niczyj: tylko gdy naprawdę niczyj i dotyczy produktów zamówienia.
             if not is_generic_carton(c):
@@ -617,7 +638,8 @@ def options_for_order(order_id: str) -> Dict[str, Any]:
                        for l in lines):
                 continue
         reason = (completeness_reason(c, lines, units, order_id)
-                  or match_reason(c, lines, client_id, order_lines, pallet_res, carton_res))
+                  or match_reason(c, lines, client_id, order_lines, pallet_res, carton_res,
+                                  group_ids=grupa))
         if not reason and is_scannerless(c, lines, units):
             if stock is None:
                 stock = scannerless_stock(None, order)

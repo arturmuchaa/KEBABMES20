@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { Plus, Printer, Wand2, Boxes, Lock, ScanLine, Pencil, Trash2, Check } from 'lucide-react'
+import { Plus, Printer, Wand2, Boxes, Lock, ScanLine, Pencil, Trash2, Check, Truck, ArrowRightLeft } from 'lucide-react'
 import { useApp, Dialog } from '../../../shell/context'
 import { useOrders } from '../../../data/store'
 import { computeMetrics, kg, num, palletKg, palletQty, PALLET_STATUS, type Order, type Pallet } from '../../../data/model'
@@ -9,6 +9,8 @@ import { ile, odm } from '../../../data/tekst'
 import { WazeniePalety } from './WazeniePalety'
 import { nasluchujWydrukow } from '@/lib/druk/rejestr'
 import { orderPalletsApi, type OrderPallet } from '@/lib/api'
+import { WyjazdZBiuraDialog } from '../biuro/WyjazdZBiura'
+import { PrzeniesSztukiDialog } from '../biuro/PrzeniesSztuki'
 import { bezPalety, bledyPalety, rozpisz, sztukNaPalete, wykryjSztuki, zDodanymi, zZmieniona, MAX_KG_RESZTKI, STANDARD_SZTUK, WARIANTY_SZTUK, rodzajKrotko, type ItemLite } from '../palety/model'
 
 /** Zasada numeracji palet — w notce przy szczegółach palety i w podpowiedzi „Nowa paleta”. */
@@ -25,7 +27,7 @@ export function PalletsTab({ order }: { order: Order }) {
   const m = computeMetrics(order)
   const [selNo, setSelNo] = useState<number | null>(order.pallets[0]?.no ?? null)
   const [marked, setMarked] = useState<number[]>([])
-  const [dlg, setDlg] = useState<null | { t: 'new' } | { t: 'edit'; p: Pallet } | { t: 'del'; p: Pallet } | { t: 'auto' }>(null)
+  const [dlg, setDlg] = useState<null | { t: 'new' } | { t: 'edit'; p: Pallet } | { t: 'del'; p: Pallet } | { t: 'auto' } | { t: 'wyjazd' } | { t: 'przenies'; p: Pallet }>(null)
   const [busy, setBusy] = useState(false)
   const [blad, setBlad] = useState<string | null>(null)
   const [wszystkiePoz, setWszystkiePoz] = useState(false)
@@ -78,6 +80,9 @@ export function PalletsTab({ order }: { order: Order }) {
             {(maPalety || !closed) && <span className="sub">{m.palletsTotal ? `${m.palletsReady} z ${m.palletsTotal} gotowych · ${m.palletsLoaded} załadowanych` : 'nierozpisane'}</span>}
             {bezKartki > 0 && <span className="warn-ink strong" data-tip="Tych kartek nikt jeszcze nie wydrukował — mroźnia nie zeskanuje palety bez kartki">{ile(bezKartki, 'paleta', 'palety', 'palet')} bez kartki</span>}
             {maPalety && <div className="tools">
+              {!closed && order.pallets.some(p => p.status !== 'shipped' && palletQty(p) > 0) && (
+                <button className="btn sm" disabled={busy} onClick={() => setDlg({ t: 'wyjazd' })} data-tip="Załaduj kartony na auto i zakończ kurs z biura — bez skanera HMI">
+                  <Truck size={15} />Wyjazd z biura</button>)}
               <button className="btn sm" onClick={() => app.printPallets(order.id, marked.length ? marked : undefined)}>
                 <Printer size={15} />{marked.length ? `Drukuj kartki (${marked.length})` : 'Drukuj wszystkie kartki'}
               </button>
@@ -165,7 +170,10 @@ export function PalletsTab({ order }: { order: Order }) {
                       <button className="btn sm" disabled={busy} onClick={() => setDlg({ t: 'edit', p: sel })}><Pencil size={14} />Zmień zawartość</button>
                       <button className="btn sm danger" disabled={busy} onClick={() => setDlg({ t: 'del', p: sel })}><Trash2 size={14} />Usuń paletę</button>
                     </div>
-                  : <div className="note"><Lock size={15} /><div>Paleta jest w obiegu ({PALLET_STATUS[sel.status].toLowerCase()}) — jej zawartości nie można zmienić ani jej usunąć.</div></div>)}
+                  : <div className="note"><Lock size={15} /><div>Paleta jest w obiegu ({PALLET_STATUS[sel.status].toLowerCase()}) — zawartość zmienisz po cofnięciu na halę.{sel.status === 'cold' || sel.status === 'packed' ? ' Sztuki możesz przenieść do innego zamówienia — karton sam wyjedzie z mroźni.' : ''}</div></div>)}
+                {!closed && (sel.status === 'created' || sel.status === 'packed' || sel.status === 'cold') && palletQty(sel) > 0 && (
+                  <button className="btn sm" disabled={busy} onClick={() => setDlg({ t: 'przenies', p: sel })}
+                    data-tip="Daj sztuki z tego kartonu innemu zamówieniu — także innego klienta"><ArrowRightLeft size={14} />Przenieś sztuki do innego zamówienia…</button>)}
               </div>
             </div>
           )}
@@ -185,6 +193,8 @@ export function PalletsTab({ order }: { order: Order }) {
         <div className="note warn"><FlagIcon level="warn" size={15} /><div>Numer {dlg.p.no} i karton zostają zablokowane — nie zostaną nadane innej palecie (wydrukowana kartka nie wskaże innego towaru).</div></div>
         {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Nie zapisano:</b> {blad}</div></div>}
       </Dialog>}
+      {dlg?.t === 'wyjazd' && <WyjazdZBiuraDialog order={order} onClose={() => setDlg(null)} />}
+      {dlg?.t === 'przenies' && <PrzeniesSztukiDialog palletId={dlg.p.id} onClose={() => setDlg(null)} />}
       {dlg?.t === 'auto' && <RozpisDialog order={order} wolne={wolne()} busy={busy} blad={blad} onClose={() => { setDlg(null); setBlad(null) }}
         onSave={plan => zapisz(fresh => zDodanymi(fresh, plan.map(p => ({ items: p.items }))), `Utworzono ${ile(plan.length, 'paletę', 'palety', 'palet')}`)} lineOf={lineOf} />}
     </div>

@@ -9,9 +9,11 @@ import { AppCtx, type AppApi } from '../../../shell/context'
  * pakowania i wydania; test na danych w kształcie API (syntetycznych).
  */
 const api = vi.hoisted(() => ({ create: vi.fn(), createBatch: vi.fn(), removeEmpty: vi.fn() }))
+const biuro = vi.hoisted(() => ({ usunKartonMagazynowy: vi.fn() }))
 vi.mock('@/lib/api', async (orig) => ({
   ...(await orig() as object),
   stockCartonsApi: api,
+  biuroApi: biuro,
   clientsApi: { list: () => Promise.resolve([{ id: 'c1', name: 'POLAT GMBH', displayName: 'POLAT', city: 'GRAZ' }]) },
   productTypesApi: { list: () => Promise.resolve([{ id: 'pt', name: 'KEBAB UDO 100%', documentName: 'KEBAB UDO' }]) },
   recipesApi: { list: () => Promise.resolve([{ id: 'r1', name: 'BEYAZ AFIYET', productTypeId: 'pt' }, { id: 'r2', name: 'KIRMIZI', productTypeId: 'pt' }]) },
@@ -117,22 +119,21 @@ describe('lista kartonów', () => {
     expect(screen.queryByText('000616')).toBeNull()
   })
 
-  it('usuwanie tylko pustego kartonu i dopiero po potwierdzeniu', async () => {
-    api.removeEmpty.mockResolvedValue({ ok: true, cartonNo: '000710' })
+  it('usuwanie z biura także kartonu ze sztukami — po potwierdzeniu, sztuki wracają na stan', async () => {
+    biuro.usunKartonMagazynowy.mockResolvedValue({ ok: true, cartonNo: '000709', unitsReleased: 12 })
     const props = mount({ wybrany: 'k1' })
     const wywolania = (props.setCmds as ReturnType<typeof vi.fn>).mock.calls
     const cmds = wywolania[wywolania.length - 1][0] as Array<{ id: string; disabled?: boolean; run?: () => void }>
-    expect(cmds.find(c => c.id === 'delete')!.disabled).toBe(true)
-    cleanup()
-    const p2 = mount({ wybrany: 'k2' })
-    const w2 = (p2.setCmds as ReturnType<typeof vi.fn>).mock.calls
-    const c2 = w2[w2.length - 1][0] as Array<{ id: string; disabled?: boolean; run?: () => void }>
-    c2.find(c => c.id === 'delete')!.run!()
+    const usun = cmds.find(c => c.id === 'delete')!
+    expect(usun.disabled).toBe(false)
+    usun.run!()
     const dlg = await screen.findByRole('dialog')
-    expect(api.removeEmpty).not.toHaveBeenCalled()
+    expect(within(dlg).getByText(/wrócą na wolny stan/)).toBeTruthy()
+    expect(within(dlg).getByText(/odpina się od zamówienia POLAT\/Z\/4\/10\/26/)).toBeTruthy()
+    expect(biuro.usunKartonMagazynowy).not.toHaveBeenCalled()
     fireEvent.click(within(dlg).getByRole('button', { name: 'Usuń karton' }))
-    await waitFor(() => expect(api.removeEmpty).toHaveBeenCalledWith('k2'))
-    expect(p2.odswiez).toHaveBeenCalled()
+    await waitFor(() => expect(biuro.usunKartonMagazynowy).toHaveBeenCalledWith('k1'))
+    expect(props.odswiez).toHaveBeenCalled()
   })
 })
 

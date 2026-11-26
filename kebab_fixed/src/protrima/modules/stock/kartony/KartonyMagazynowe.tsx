@@ -6,7 +6,7 @@ import { SzkieletWierszy } from '../../../ui/Szkielet'
 import { Pusto } from '../../../ui/Pusto'
 import { fmtDate, kg, num } from '../../../data/model'
 import { dataZApi } from '../../../data/mapuj'
-import { stockCartonsApi, type OrphanPallet, type StockCarton } from '@/lib/api'
+import { biuroApi, type OrphanPallet, type StockCarton } from '@/lib/api'
 import { formatCartonNo } from '@/lib/unitLocation'
 import { useClientNames } from '@/lib/clientNames'
 import { STAN_KARTONU, gdziePalety, gotowyBezZamowienia, kgPalety, nrKartonu, skladKartonu, skladPalety, stanKartonu, sztukPalety, type StanKartonu } from './model'
@@ -21,8 +21,9 @@ const TAG: Record<StanKartonu, string> = { pusty: 'warn', pakowany: 'info', spak
 /**
  * Kartony magazynowe w Wyrobie gotowym — wszystkie kartony biura ze stanem
  * pakowania; karton znika, gdy jego sztuki wyjadą (lista z serwera).
- * Kosz tylko przy kartonie bez żadnej sztuki: karton ze sztuką niesie śledzenie
- * partii — serwer i tak go nie usunie (25.09.2026).
+ * Usunięcie z biura (26.11.2026, „daj możliwość usunięcia kartonów magazynowych
+ * z biura”): także kartonu ze sztukami — sztuki wracają na wolny stan, partie
+ * i produkcja zostają. Karton na aucie / wydany — serwer odmawia.
  * „Gotowe bez zamówienia”: spakowane kartony bez zamówienia ORAZ palety, które
  * zostały po anulowanym/zmienionym zamówieniu (stoją w mroźni, czekają na nowe).
  */
@@ -61,8 +62,9 @@ export function KartonyMagazynowe({ widoki, active, setCmds, setCtx, kartony, cz
     if (!usun || usuwam) return
     setUsuwam(true)
     try {
-      await stockCartonsApi.removeEmpty(usun.id)
-      app.toast({ kind: 'ok', title: `Usunięto pusty karton ${nrKartonu(usun)}` })
+      const w = await biuroApi.usunKartonMagazynowy(usun.id)
+      app.toast({ kind: 'ok', title: `Usunięto karton ${nrKartonu(usun)}`,
+        detail: w.unitsReleased ? `${num(w.unitsReleased)} szt. wróciło na wolny stan wyrobu gotowego` : undefined })
       if (wybrany === usun.id) setWybrany(null)
       setUsun(null); odswiez()
     } catch (e) {
@@ -73,8 +75,8 @@ export function KartonyMagazynowe({ widoki, active, setCmds, setCtx, kartony, cz
   const cmds = useMemo<Cmd[]>(() => [
     { id: 'new', group: 1, label: 'Nowy karton', icon: <PackagePlus size={17} />, primary: true, run: onNowy },
     { id: 'print', group: 2, label: 'Kartka kartonu', icon: <Printer size={17} />, kbd: 'Ctrl+P', disabled: !wyb, run: () => wyb && onKartka(wyb) },
-    { id: 'delete', group: 9, label: 'Usuń pusty karton…', icon: <Trash2 size={15} />, menuOnly: true, danger: true, disabled: !wyb || wyb.packedQty > 0,
-      tip: wyb && wyb.packedQty > 0 ? 'karton ze sztukami niesie śledzenie partii — nie usuwa się go' : undefined, run: () => wyb && setUsun(wyb) },
+    { id: 'delete', group: 9, label: 'Usuń karton…', icon: <Trash2 size={15} />, menuOnly: true, danger: true, disabled: !wyb,
+      run: () => wyb && setUsun(wyb) },
     { id: 'refresh', group: 3, label: 'Odśwież', icon: <RefreshCw size={17} />, opt: true, run: odswiez },
   ], [wyb, onNowy, onKartka, odswiez])
   useEffect(() => { if (active) setCmds(cmds) }, [active, cmds, setCmds])
@@ -165,13 +167,21 @@ export function KartonyMagazynowe({ widoki, active, setCmds, setCtx, kartony, cz
           { label: 'Kartka kartonu…', icon: <Printer size={15} />, onSelect: () => onKartka(c) },
           { label: c.linkedOrderNo ? `Otwórz zamówienie ${c.linkedOrderNo}` : 'Bez zamówienia', disabled: !c.linkedOrderId, onSelect: () => c.linkedOrderId && app.openOrder(c.linkedOrderId) },
           { sep: true },
-          { label: 'Usuń pusty karton…', danger: true, disabled: c.packedQty > 0, onSelect: () => setUsun(c) },
+          { label: 'Usuń karton…', icon: <Trash2 size={15} />, danger: true, onSelect: () => setUsun(c) },
         ]} />
       })()}
-      {usun && <Dialog title={`Usunąć pusty karton ${nrKartonu(usun)}?`} onClose={() => setUsun(null)}
-        footer={<><button className="btn" onClick={() => setUsun(null)} data-autofocus>Wróć</button>
+      {usun && <Dialog title={`Usunąć karton ${nrKartonu(usun)}?`} icon={<Trash2 size={20} color="var(--crit)" />} onClose={() => { if (!usuwam) setUsun(null) }}
+        footer={<><button className="btn" onClick={() => setUsun(null)} data-autofocus disabled={usuwam}>Wróć</button>
           <button className="btn primary" style={{ background: 'var(--crit)', borderColor: 'var(--crit)' }} disabled={usuwam} onClick={() => void usunTeraz()}>{usuwam ? 'Usuwanie…' : 'Usuń karton'}</button></>}>
-        <p>Karton zniknie też z panelu magazynu. Do kartonu nie spakowano żadnej sztuki — nic nie traci śledzenia partii.</p>
+        <div className="box" style={{ padding: '8px 12px' }}><dl className="kv">
+          <dt>Klient</dt><dd>{usun.clientName ? klientNa(usun.clientName) : 'na magazyn'}</dd>
+          <dt>Skład</dt><dd>{skladKartonu(usun)}</dd>
+          <dt>Spakowano</dt><dd className="num">{num(usun.packedQty)} / {num(usun.targetQty)} szt.</dd>
+          {usun.linkedOrderNo && <><dt>Zamówienie</dt><dd className="code">{usun.linkedOrderNo}</dd></>}
+        </dl></div>
+        <p>Karton zniknie z listy, z panelu magazynu i z miejsca w mroźni. Wyrób gotowy (stan magazynu) się nie zmienia.</p>
+        {usun.packedQty > 0 && <div className="note warn"><FlagIcon level="warn" size={15} /><div>Zeskanowane sztuki ({num(usun.packedQty)}) wrócą na wolny stan — partie i produkcja zostają. Można je spakować do nowego kartonu.</div></div>}
+        {usun.linkedOrderNo && <div className="note info"><FlagIcon level="info" size={15} /><div>Karton odpina się od zamówienia {usun.linkedOrderNo} — jego sztuki zamówienie pokaże znowu jako do zrobienia albo do przypięcia.</div></div>}
       </Dialog>}
     </>
   )
