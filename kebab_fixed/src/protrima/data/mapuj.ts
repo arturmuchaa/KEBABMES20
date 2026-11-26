@@ -84,6 +84,8 @@ export function mapujPozycje(l: OrderLine, lp: number, planNo?: string): Line {
     product: l.productTypeName || '—',
     recipe: l.recipeName || 'Nieznana receptura',
     recipeId: l.recipeId,
+    productTypeId: l.productTypeId || '',
+    packagingId: l.packagingId ?? '',
     kgPerUnit: l.kgPerUnit,
     packaging: l.packagingName ?? '',
     qty: l.qty,

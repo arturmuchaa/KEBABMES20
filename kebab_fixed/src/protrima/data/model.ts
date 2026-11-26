@@ -46,6 +46,9 @@ export interface Line {
   /** Wyrób pozostały do zmasowania (kg) — z backendu, null = nieznane. */
   mixingRemainingKg: number | null
   recipeId: string
+  /** Rodzaj i tuleja pozycji — potrzebne, by ręczny wpis wyrobu połączył się z zamówieniem. */
+  productTypeId?: string
+  packagingId?: string
   note?: string
   /** Pozycja usługowa — towar usługobiorcy (osobne HDI „usługa”, bez WZ i faktury). */
   usluga?: boolean

@@ -126,6 +126,11 @@ describe('pozostałe mapery', () => {
     expect(mapujWyrob({ ...fg, qtyAvailable: 0 }, [o])).toBeNull()
     expect(mapujWyrob({ ...fg, clientOrderNo: 'ZAMKNIETE/1' }, [o])!.orderNo).toBe('ZAMKNIETE/1')
   })
+  it('mapujPozycje niesie productTypeId i packagingId (Dodaj wyrób)', () => {
+    const o = mapujZamowienie(mapClientOrder(RAW), ctx)
+    expect(o.lines[0].productTypeId).toBe('pt')
+    expect(o.lines[0].packagingId).toBe('pk')
+  })
   it('planyPozycji pomija anulowane plany', () => {
     expect(planyPozycji([{ planNo: 'A', status: 'cancelled', lines: [{ clientOrderLineId: 'x' }] }, { planNo: 'B', lines: [{ clientOrderLineId: 'x' }] }])).toEqual({ x: 'B' })
   })
