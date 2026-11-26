@@ -101,8 +101,13 @@ Oparty na istniejącym serwerze `routes/production_plans.py` i logice ze starego
   nadaje się `PM{n}` (`ensure_pm_assigned` już istnieje; `MIXED_PIECE_NUMBERING` zostaje `off` dla automatu,
   a PM nadaje się tylko dla pozycji świadomie zaplanowanych z końcówek).
 - „Wyślij do produkcji” = aktywacja (rezerwacja mięsa) + przygotowanie sztuk z QR (`/finished-units/from-plan-line`
-  dla każdej pozycji) w kolejności palet. Druk etykiet: istniejący przepływ druku sztuk (pełny edytor etykiet
-  to osobny projekt).
+  dla każdej pozycji) w kolejności palet.
+- **Druk etykiet sztuk z planu w PROTRIMA** (założenie przyjęte 26.11, bo właściciel nie potwierdził, że etykiety
+  kebabów idą dziś z systemu): stały, prosty szablon Zebra z QR sztuki (`U|…`), numerem partii, recepturą,
+  rodzajem, kg, datą i klientem. Drukowany przez warstwę `src/protrima/drukarka/` (druk bez obsługi), w kolejności
+  palet, z dodrukiem pojedynczych sztuk. Wzorzec danych: stary `pages/office/LabelPrintPage.tsx` +
+  `UnitReprintModal`. Pełny edytor szablonów etykiet to dalej osobny projekt 4. Bez tego wydruku numer na kebabie
+  nie byłby powiązany z paletą.
 - Zmiana planu po wydruku: system wylicza, które sztuki/etykiety są nieważne (inna partia), unieważnia je
   i każe przedrukować.
 - Karta produkcji dla kierownika (wydruk): pozycje, palety w kolejności, liczba sztuk z każdej.
@@ -154,9 +159,12 @@ masowni poza QR na etykiecie; automatyczne PM na hali.
 ## 9. Do rozstrzygnięcia przez buildera (moje decyzje oznaczone)
 
 - *(moja decyzja)* Prefiks QR palety `SP|` (seasoned pallet). Builder może zmienić, jeśli koliduje z istniejącym.
-- *(moja decyzja)* Zwrot końcówki robi kierownik na tablecie produkcji (to samo urządzenie co wywóz). Etykietę
-  końcówki drukuje się na drukarce w chłodni lub w biurze. Jeśli w chłodni nie ma drukarki, końcówka dostaje
-  etykietę w biurze przed planem wieczornym. **Do potwierdzenia z właścicielem.**
+- *(moja decyzja)* Zwrot końcówki robi kierownik na tablecie produkcji (to samo urządzenie co wywóz).
+- *(założenie 26.11, właściciel nie odpowiedział: „działaj”)* W chłodni nie zakładamy drukarki. Etykietę końcówki
+  z QR drukuje **biuro w PROTRIMA** (lista „Końcówki do oznaczenia” w dziale Plan produkcji) przed wieczornym
+  planem. Końcówka bez wydrukowanej etykiety może być w planie, ale jej skan na hali wymaga etykiety.
+- *(moja decyzja)* Jedna paleta może obsłużyć kilka pozycji planu (np. dwóch klientów z tej samej receptury).
+- *(moja decyzja)* Po wdrożeniu stary edytor planu w MES przestaje tworzyć plany (tylko podgląd i odesłanie do PROTRIMA).
 - Model danych palety/końcówki: nowa tabela `seasoned_pallets` (id, charge_id, batch_no, kg_weighed, status,
   parent_id dla końcówki) czy rozszerzenie `mixing_charges`. Do decyzji w planie implementacji.
 - Palety zamasowane przed wdrożeniem: jednorazowe wprowadzenie stanu chłodni (lista + dodruk QR).
