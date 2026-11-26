@@ -63,7 +63,7 @@ export function WyjazdZBiuraDialog({ order, onClose }: { order: Order; onClose: 
 
   const nazwaAuta = (id: string | null) => { const a = auta.find(x => x.id === id); return a ? `${a.name}${a.plate ? ` · ${a.plate}` : ''}` : 'inne auto' }
   return (
-    <Dialog wide title={`Wyjazd z biura — ${order.no}`} icon={<Truck size={20} color="var(--accent)" />} onClose={() => { if (!busy) onClose() }}
+    <Dialog wide title={`Załaduj na auto z biura — ${order.no}`} icon={<Truck size={20} color="var(--accent)" />} onClose={() => { if (!busy) onClose() }}
       footer={wynik
         ? <button className="btn primary" onClick={onClose} data-autofocus>Zamknij</button>
         : <><span className="left">{wybrane.length ? <>{num(wybrane.length)} {wybrane.length === 1 ? 'karton' : 'kartonów'} · <b className="num">{num(wybrane.reduce((a, k) => a + k.szt, 0))} szt.</b> · {kg(wybrane.reduce((a, k) => a + k.kg, 0))}</> : 'Nic nie zaznaczono'}</span>

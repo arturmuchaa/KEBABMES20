@@ -5,7 +5,8 @@ import React from 'react'
 import { AppCtx, type AppApi } from '../../../shell/context'
 
 const api = vi.hoisted(() => ({ list: vi.fn(), save: vi.fn() }))
-vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), orderPalletsApi: api }))
+const mag = vi.hoisted(() => ({ mrozniaWyjazd: vi.fn() }))
+vi.mock('@/lib/api', async (orig) => { const o = await orig() as Record<string, unknown>; return { ...o, orderPalletsApi: api, magazynApi: { ...(o.magazynApi as object), ...mag } } })
 const refresh = vi.fn(() => Promise.resolve())
 vi.mock('../../../data/store', () => ({ useOrders: () => ({ refresh }) }))
 import { mapClientOrder } from '@/lib/api'
@@ -111,6 +112,41 @@ describe('zakładka Palety', () => {
     const sent = api.save.mock.calls[0][1]
     expect(sent.map((p: { id?: string; palletNo: number }) => [p.id, p.palletNo])).toEqual([['p1', 1], ['p3', 3]])
     expect(sent[1].items).toEqual([{ orderLineId: 'a', qty: 10 }])
+  })
+
+  it('karton w mroźni: wyjazd z mroźni do poprawek z biura — jak na HMI, kod kartki palety', async () => {
+    const P = [{ id: 'p1', palletNo: 1, cartonNo: '000931', notes: '', status: 'cold_storage', items: [{ orderLineId: 'a', qty: 10 }] }]
+    const o = mapujZamowienie(mapClientOrder(RAW), { clients: [], pallets: { o1: P as never }, wz: [], planByLine: {} })
+    mag.mrozniaWyjazd.mockReset().mockResolvedValue({ result: 'SUCCESS', cartonNo: '000931' })
+    render(<AppCtx.Provider value={app}><PalletsTab order={o} /></AppCtx.Provider>)
+    fireEvent.click(screen.getByLabelText(/Paleta 1, karton 000931/))
+    fireEvent.click(screen.getByRole('button', { name: /Wyjedź z mroźni/ }))
+    const dlg = screen.getByRole('dialog')
+    expect(within(dlg).getByText(/wróci do pakowania/)).toBeTruthy()
+    fireEvent.click(within(dlg).getByRole('button', { name: /^Wyjedź z mroźni$/ }))
+    await waitFor(() => expect(mag.mrozniaWyjazd).toHaveBeenCalledWith('PAL|o1|1'))
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('wyjazd z mroźni: odmowa serwera (karton już na aucie) zostaje w oknie', async () => {
+    const P = [{ id: 'p1', palletNo: 1, cartonNo: '000931', notes: '', status: 'cold_storage', items: [{ orderLineId: 'a', qty: 10 }] }]
+    const o = mapujZamowienie(mapClientOrder(RAW), { clients: [], pallets: { o1: P as never }, wz: [], planByLine: {} })
+    mag.mrozniaWyjazd.mockReset().mockResolvedValue({ result: 'GONE', cartonNo: '000931' })
+    render(<AppCtx.Provider value={app}><PalletsTab order={o} /></AppCtx.Provider>)
+    fireEvent.click(screen.getByLabelText(/Paleta 1, karton 000931/))
+    fireEvent.click(screen.getByRole('button', { name: /Wyjedź z mroźni/ }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^Wyjedź z mroźni$/ }))
+    expect(await screen.findByText(/już na aucie albo wydany/)).toBeTruthy()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+  })
+
+  it('karton spakowany (nie w mroźni) nie ma wyjazdu z mroźni; załadunek z biura ma jasną nazwę', () => {
+    mount()
+    fireEvent.click(screen.getByLabelText(/Paleta 1, karton 000634/))
+    expect(screen.queryByRole('button', { name: /Wyjedź z mroźni/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /Załaduj na auto z biura/ })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /^Wyjazd z biura/ })).toBeNull()
   })
 
   it('usunięcie palety: bez przenumerowania; odmowa serwera jego słowami', async () => {
