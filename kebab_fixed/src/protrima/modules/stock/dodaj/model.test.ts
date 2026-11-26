@@ -134,3 +134,11 @@ describe('sumyKoszyka', () => {
     expect(sumyKoszyka([zPartiami(yal41(), ['111', '30'], ['112', '50'])])).toEqual({ partie: 2, sztuki: 80, kg: 800 })
   })
 })
+
+describe('dataLokalna', () => {
+  it('bierze dzień z czasu lokalnego, nie z UTC', async () => {
+    const { dataLokalna } = await import('./model')
+    expect(dataLokalna(new Date(2026, 10, 27, 0, 30))).toBe('2026-11-27')
+    expect(dataLokalna(new Date(2026, 0, 5, 23, 59))).toBe('2026-01-05')
+  })
+})

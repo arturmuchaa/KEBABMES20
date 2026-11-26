@@ -163,3 +163,9 @@ export function sumyKoszyka(k: PozycjaKoszyka[]): { partie: number; sztuki: numb
   }
   return { partie, sztuki, kg: zaokr(kg) }
 }
+
+/** 'YYYY-MM-DD' z czasu LOKALNEGO — `toISOString` po północy w Polsce dawał wczoraj. */
+export function dataLokalna(d: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}

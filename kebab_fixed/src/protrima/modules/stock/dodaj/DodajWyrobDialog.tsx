@@ -9,11 +9,10 @@ import { useApi } from '@/hooks/useApi'
 import { clientsApi, finishedGoodsApi, packagingApi, productTypesApi, recipesApi, seasonedMeatApi } from '@/lib/api'
 import { liczba } from '@/features/finished-goods/manualGoods'
 import {
-  bledyKoszyka, dodajPartie, drzewoZamowien, nowyKlucz, payloadKoszyka, pozycjaZLinii, rozpoznajPartie,
+  bledyKoszyka, dataLokalna as dzisiaj, dodajPartie, drzewoZamowien, nowyKlucz, payloadKoszyka, pozycjaZLinii, rozpoznajPartie,
   statusPozycji, sumaPartii, sumyKoszyka, type PozycjaKoszyka,
 } from './model'
 
-const dzisiaj = () => new Date().toISOString().slice(0, 10)
 const kgTxt = (n: number) => String(n).replace('.', ',')
 const PUSTA_RECZNA = { productTypeId: '', recipeId: '', packagingId: '', clientId: '', kgPerUnit: '', qty: '' }
 
