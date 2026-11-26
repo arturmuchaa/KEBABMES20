@@ -228,3 +228,14 @@ describe('układ etykiety się nie zlewa', () => {
     expect(out).not.toMatch(/\+ \d+ poz/)
   })
 })
+
+describe('kod QR palety (plan produkcji, 26.11.2026)', () => {
+  it('etykieta z palletQr niesie kod SP| do skanu przy wywozie na halę', () => {
+    const out = mixingLabelZpl({ ...WSAD, palletQr: 'SP|0123456789abcdef0123' })
+    expect(out).toContain('^BQN,2,')
+    expect(out).toContain('^FDQA,SP|0123456789abcdef0123^FS')
+  })
+  it('bez palletQr etykieta jest bez zmian (brak ^BQ)', () => {
+    expect(zpl()).not.toContain('^BQ')
+  })
+})

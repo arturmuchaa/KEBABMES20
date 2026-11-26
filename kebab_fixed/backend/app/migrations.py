@@ -5,6 +5,7 @@ Never DROP or ALTER TYPE in a way that destroys data.
 """
 import json
 import re
+import uuid
 from typing import Dict, List
 
 from app.db import (
@@ -2243,6 +2244,7 @@ def _run_migrations_locked() -> None:
     _rozl_klucze_bez_kaskady()
     _rozl_poszerz_checki()
     _backfill_vehicle_loading_orders()
+    _backfill_seasoned_pallets()
     logger.info("migrations.done")
 
 
@@ -2381,6 +2383,58 @@ def _strip_year_from_reception_no() -> None:
             logger.info("migrations.strip_year_from_reception_no.done", extra={"count": ile})
     except Exception as exc:
         logger.warning("migrations.strip_year_from_reception_no.failed", extra={"error": str(exc)})
+
+
+def _backfill_seasoned_pallets() -> None:
+    """JEDNORAZOWO: stan chłodni w dniu wdrożenia palet (26.11.2026).
+
+    Każda żywa partia przyprawiona bez palety dostaje jedną paletę z wagą
+    `kg_available`; biuro drukuje jej etykietę z QR. Tylko raz (znacznik
+    w `sequences`), bo później partia z kg na stanie, ale bez otwartej palety,
+    to normalny stan między zwrotem końcówki 0 kg a bilansem biura — kolejny
+    backfill zrobiłby z niej paletę-widmo.
+    """
+    try:
+        with transaction() as conn:
+            done = cx_execute_returning(
+                conn,
+                "INSERT INTO sequences (key, value) VALUES ('seasoned_pallets_backfill', 1) "
+                "ON CONFLICT (key) DO NOTHING RETURNING value",
+            )
+            if not done:
+                return
+            rows = cx_query_all(
+                conn,
+                """
+                SELECT sm.id, sm.batch_no, sm.recipe_id, sm.recipe_name, sm.kg_available
+                FROM seasoned_meat sm
+                WHERE COALESCE(sm.kg_available, 0) > 0 AND COALESCE(sm.status, '') <> 'closed'
+                  AND NOT EXISTS (SELECT 1 FROM seasoned_pallets p
+                                  WHERE p.seasoned_meat_id = sm.id AND p.status <> 'closed')
+                ORDER BY sm.created_at
+                """,
+            )
+            for r in rows:
+                nr = cx_execute_returning(
+                    conn,
+                    "INSERT INTO sequences (key, value) VALUES ('seasoned_pallet_seq', 1) "
+                    "ON CONFLICT (key) DO UPDATE SET value = sequences.value + 1 RETURNING value",
+                )
+                cx_execute(
+                    conn,
+                    """
+                    INSERT INTO seasoned_pallets
+                        (id, pallet_no, seasoned_meat_id, batch_no, recipe_id, recipe_name,
+                         kg_weighed, status)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,'in_cold')
+                    """,
+                    (uuid.uuid4().hex[:20], int(nr["value"]), r["id"], r["batch_no"] or "",
+                     r["recipe_id"] or "", r["recipe_name"] or "",
+                     round(float(r["kg_available"]), 3)),
+                )
+            logger.info("migrations.seasoned_pallets_backfill", extra={"pallets": len(rows)})
+    except Exception as exc:  # pragma: no cover
+        logger.warning("migrations.seasoned_pallets_backfill_failed", extra={"error": str(exc)})
 
 
 def _backfill_product_catalog() -> None:

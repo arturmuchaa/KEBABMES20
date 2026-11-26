@@ -73,6 +73,8 @@ export interface MixingLabelInput {
   mixMinutes?: number | null
   /** Numer palety wyrobu — własny ciąg od 1, nadawany przy odbiorze. */
   palletNo?: number | null
+  /** Kod QR palety (`SP|<id>`) — skan kierownika przy wywozie na halę. */
+  palletQr?: string | null
   meat: MixingLabelMeat[]
 }
 
@@ -191,6 +193,12 @@ export function mixingLabelZpl(
   // i przy czterocyfrowej wadze napisy wchodziły na siebie. Jedna kolumna:
   // liczba, po którą operator sięga wzrokiem, zostaje największa, a kontrola
   // idzie linijkę niżej — i tak czyta się ją dopiero wtedy, gdy coś nie gra.
+  // Kod QR palety w prawym górnym rogu pola wagi — obok liczby, która i tak
+  // zostawia tam wolne miejsce. Kierownik skanuje go przy wywozie na halę.
+  if (input.palletQr) {
+    const mag = Math.max(3, Math.round((5 * dpi) / 203))
+    body.push(`^FO${mmToDots(M + W - 20, dpi)},${mmToDots(y - 2, dpi)}^BQN,2,${mag}^FDQA,${input.palletQr}^FS`)
+  }
   body.push(text(M, y, 3.6, 'ZWAŻONO', dpi))
   body.push(text(M, y + 4, 11, `${fmtLabelKg(input.kgWeighed)} kg`, dpi))
   y += 17.5

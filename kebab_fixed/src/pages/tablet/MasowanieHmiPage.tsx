@@ -330,6 +330,7 @@ export function MasowanieHmiPage() {
       finishedAt: koniec ?? (wsad as any).finished_at ?? new Date().toISOString(),
       mixMinutes: wsad.mix_minutes ?? null,
       palletNo: (wsad as any).out_pallet_no ?? null,
+      palletQr: wsad.pallet_qr ?? null,
       meat: (wsad.meat ?? []).map((m: any) => ({
         palletNo: m.pallet_no ?? '',
         lotNo: m.lot_no,
@@ -353,12 +354,19 @@ export function MasowanieHmiPage() {
     const wsad = odbior
     setZapisuje(true)
     try {
-      await masowniaApi.finish(wsad.id, kgOutput)
+      const odebrany: any = await masowniaApi.finish(wsad.id, kgOutput)
       setOdbior(null)
       odswiez()
       setKomunikat('Wsad odebrany i zapisany.')
 
-      void drukujEtykiete(zplWsadu(wsad, kgOutput, new Date().toISOString()), wsad.batch_no || '')
+      // Numer palety i jej kod QR nadaje dopiero odbiór — bierzemy je
+      // z odpowiedzi serwera, nie ze stanu wsadu sprzed odbioru.
+      const zOdbioru: Charge = {
+        ...wsad,
+        out_pallet_no: odebrany?.out_pallet_no ?? wsad.out_pallet_no ?? null,
+        pallet_qr: odebrany?.pallet_qr ?? null,
+      }
+      void drukujEtykiete(zplWsadu(zOdbioru, kgOutput, new Date().toISOString()), wsad.batch_no || '')
     } catch (e: any) {
       setKomunikat(e?.message ?? 'Nie udało się zapisać odbioru')
     } finally {

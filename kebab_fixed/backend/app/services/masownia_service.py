@@ -399,6 +399,11 @@ def list_charges_today() -> List[Dict[str, Any]]:
         row = dict(r)
         row["kg_meat"] = float(row.get("kg_meat") or 0)
         row["kg_output"] = float(row.get("kg_output") or 0)
+        # Paleta mięsa przyprawionego tego wsadu — dodruk etykiety niesie
+        # ten sam kod QR (SP|id), który skanuje kierownik na hali.
+        paleta = query_one("SELECT id FROM seasoned_pallets WHERE charge_id=%s", (r["id"],))
+        row["pallet_id"] = (paleta or {}).get("id")
+        row["pallet_qr"] = seasoned_pallets_service.qr_of(paleta["id"]) if paleta else None
         row["meat"] = query_all(
             """
             SELECT cp.pallet_id, cp.lot_no, cp.meat_stock_id, cp.kg,

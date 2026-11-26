@@ -5,7 +5,7 @@
  * nie działo — paleta zostawała `created`, bo żądanie nie wychodziło.
  */
 import { describe, it, expect } from 'vitest'
-import { czyKompletnyKod, czyKompletnyKodPalety, czyKompletnyKodSztuki, czyWpisalSkaner,
+import { czyKompletnyKod, idPaletyMiesa, czyKompletnyKodPalety, czyKompletnyKodSztuki, czyWpisalSkaner,
          czyZaczetyKod, idKartonu, kodKartki, MAX_MS_NA_ZNAK, MIN_ZNAKOW_SKANU, OPOZNIENIE_ZACZETEGO_MS,
          opoznienieWysylki, utworzStraznikaWysylki } from './skanKodu'
 
@@ -213,5 +213,28 @@ describe('kod zaczęty, ale jeszcze niekompletny — czekamy dłużej', () => {
     expect(opoznienieWysylki(`U|${ID}`, 150)).toBe(150)
     expect(opoznienieWysylki('U|ac82b8f6', 150)).toBe(OPOZNIENIE_ZACZETEGO_MS)
     expect(opoznienieWysylki('WX12345678', 150)).toBe(150)
+  })
+})
+
+describe('kod palety mięsa przyprawionego SP|', () => {
+  it('wyciąga id palety', () => {
+    expect(idPaletyMiesa('SP|0123456789abcdef0123')).toBe('0123456789abcdef0123')
+  })
+  it('znosi zły znak zamiast | i CapsLock skanera', () => {
+    expect(idPaletyMiesa('sp-0123456789ABCDEF0123')).toBe('0123456789abcdef0123')
+  })
+  it('inne kody to nie paleta mięsa', () => {
+    expect(idPaletyMiesa('PAL|z|1')).toBeNull()
+    expect(idPaletyMiesa('U|0123456789abcdef0123')).toBeNull()
+    expect(idPaletyMiesa('SP|123')).toBeNull()
+  })
+  it('jest kompletnym kodem do wysyłki bez Entera', () => {
+    expect(czyKompletnyKod('SP|0123456789abcdef0123')).toBe(true)
+  })
+})
+
+describe('zaczęty kod palety mięsa czeka na dokończenie', () => {
+  it('SP|0123 to początek kodu, nie nieznany kod', () => {
+    expect(czyZaczetyKod('SP|0123')).toBe(true)
   })
 })

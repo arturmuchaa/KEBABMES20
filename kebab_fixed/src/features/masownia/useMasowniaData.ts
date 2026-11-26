@@ -44,6 +44,8 @@ export interface Charge {
   started_at: string | null
   /** Numer palety wyrobu (własny ciąg od 1) — nadawany przy odbiorze. */
   out_pallet_no?: number | null
+  /** Kod QR palety mięsa przyprawionego (`SP|<id>`), po odbiorze. */
+  pallet_qr?: string | null
   loaded_at?: string | null
   meat: { pallet_id: string | null; lot_no: string; meat_stock_id: string | null; kg: number }[]
 }

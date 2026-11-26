@@ -40,6 +40,10 @@ export function czyKompletnyKodPalety(wartosc: string): boolean {
  *  żyje w backendzie (`unit_codes.parse_unit_qr`). */
 const SZTUKA = /^[uU][^0-9A-Za-z]?[0-9a-fA-F]{20}$/
 const KARTON = /^SCARTON[^0-9A-Za-z]?([0-9a-fA-F]{20})$/i
+/** Paleta mięsa przyprawionego z masowni (`SP|<20 hex>`, plan produkcji
+ *  26.11.2026) — kierownik skanuje ją przy wywozie z chłodni na halę.
+ *  Ta sama tolerancja co dla sztuki: dowolny znak albo brak zamiast `|`. */
+const PALETA_MIESA = /^SP[^0-9A-Za-z]?([0-9a-fA-F]{20})$/i
 
 /** Zdejmuje to, co skaner potrafi dokleić do kodu: prefiks symbologii AIM
  *  („]Q1" dla QR) i znaki sterujące (STX/ETX, Tab). Ta sama reguła żyje
@@ -47,6 +51,12 @@ const KARTON = /^SCARTON[^0-9A-Za-z]?([0-9a-fA-F]{20})$/i
 export function oczyscKod(wartosc: string): string {
   // eslint-disable-next-line no-control-regex
   return (wartosc ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().replace(/^\][A-Za-z][0-9A-Za-z]/, '').trim()
+}
+
+/** Id palety mięsa przyprawionego z kodu `SP|…`; null, gdy to inny kod. */
+export function idPaletyMiesa(wartosc: string): string | null {
+  const m = PALETA_MIESA.exec(oczyscKod(wartosc))
+  return m ? m[1].toLowerCase() : null
 }
 
 export function czyKompletnyKodSztuki(wartosc: string): boolean {
@@ -114,6 +124,7 @@ export function czyKompletnyKod(wartosc: string): boolean {
   // krótkie id, więc ucięte „SCARTON|ac82" leciałoby jako gotowy kod.
   return czyKompletnyKodPalety(wartosc) || czyKompletnyKodSztuki(wartosc)
     || KARTON.test(oczyscKod(wartosc)) || luznaKartkaPalety(wartosc) !== null
+    || idPaletyMiesa(wartosc) !== null
 }
 
 /** Początek znanego kodu, który jeszcze nie jest kompletny.
@@ -123,7 +134,7 @@ export function czyKompletnyKod(wartosc: string): boolean {
  *  ciszy — skaner, który zatnie się w połowie długiego kodu (Bluetooth, adres
  *  z kartki palety), rozcinał go na dwa „nieznane kody". Kod, który WYGLĄDA
  *  na zaczęty, dostaje więcej czasu na dokończenie. */
-const POCZATEK_KODU = /^(?:u[^0-9a-z]?[0-9a-f]|scarton|pal[^0-9a-z]|https?[^0-9a-z]|h(?:t(?:t(?:p)?)?)?$|s(?:c(?:a(?:r(?:t(?:o(?:n)?)?)?)?)?)?$|p(?:a(?:l)?)?$)/i
+const POCZATEK_KODU = /^(?:u[^0-9a-z]?[0-9a-f]|sp[^0-9a-z]?[0-9a-f]|scarton|pal[^0-9a-z]|https?[^0-9a-z]|h(?:t(?:t(?:p)?)?)?$|s(?:c(?:a(?:r(?:t(?:o(?:n)?)?)?)?)?)?$|p(?:a(?:l)?)?$)/i
 
 export function czyZaczetyKod(wartosc: string): boolean {
   const s = oczyscKod(wartosc)

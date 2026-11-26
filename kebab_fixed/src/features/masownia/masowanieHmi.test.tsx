@@ -723,6 +723,17 @@ describe('etykieta po odbiorze z masownicy', () => {
     fireEvent.click(screen.getByRole('button', { name: /Zatwierdź|Zapisz/ }))
   }
 
+  it('etykieta po odbiorze niesie kod QR i numer palety z odpowiedzi serwera', async () => {
+    const { masowniaApi } = await import('@/lib/api')
+    ;(masowniaApi.finish as any).mockResolvedValueOnce({
+      out_pallet_no: 41, pallet_id: '0123456789abcdef0123', pallet_qr: 'SP|0123456789abcdef0123' })
+    await odbierz('745')
+    await waitFor(() => expect(zebra.sendZpl).toHaveBeenCalled())
+    const zpl = (zebra.sendZpl as any).mock.calls[0][1] as string
+    expect(zpl).toContain('^FDQA,SP|0123456789abcdef0123^FS')
+    expect(zpl).toContain('41')
+  })
+
   it('drukuje etykietę z numerem partii i składem palet', async () => {
     await odbierz('745')
     await waitFor(() => expect(zebra.sendZpl).toHaveBeenCalled())
@@ -801,6 +812,14 @@ describe('dziś wymieszane — historia i dodruk', () => {
     await otworz()
     expect(screen.getByText(/PAL\/18\/09\/26\/3 · PAL\/18\/09\/26\/4/)).toBeInTheDocument()
     expect(screen.getByText('744 kg')).toBeInTheDocument()
+  })
+
+  it('dodruk niesie ten sam kod QR palety', async () => {
+    stan.dzisiaj[1].pallet_qr = 'SP|aaaaaaaaaaaaaaaaaaaa'
+    await otworz()
+    fireEvent.click(screen.getAllByRole('button', { name: /Drukuj etykietę/i })[1])
+    await waitFor(() => expect(zebra.sendZpl).toHaveBeenCalled())
+    expect((zebra.sendZpl as any).mock.calls[0][1]).toContain('SP|aaaaaaaaaaaaaaaaaaaa')
   })
 
   it('dodrukowuje etykietę tego samego wsadu', async () => {
