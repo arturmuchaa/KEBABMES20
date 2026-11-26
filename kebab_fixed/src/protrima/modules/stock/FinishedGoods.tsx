@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link2, MoveRight, Truck, PackagePlus, QrCode, ClipboardCheck, Search, ChevronDown, ChevronRight, X, Maximize2, Minimize2, ExternalLink, PanelRight, PanelBottom, Rows3, Lock, Snowflake, Layers, ArrowUp, ArrowDown, FileText, Package, PenLine } from 'lucide-react'
+import { Link2, MoveRight, Truck, PackagePlus, QrCode, ClipboardCheck, Search, ChevronDown, ChevronRight, X, Maximize2, Minimize2, ExternalLink, PanelRight, PanelBottom, Rows3, Lock, Snowflake, Layers, ArrowUp, ArrowDown, FileText, Package, PenLine, Plus } from 'lucide-react'
 import { useApp, Menu, useMenu, CommandBar, wierszMenu, type Cmd } from '../../shell/context'
 import { useOrders } from '../../data/store'
 import { computeMetrics, fmtDate, kg, num, relDay, isClosed, lineMissing, type Order } from '../../data/model'
@@ -18,6 +18,7 @@ import { KartonyMagazynowe } from './kartony/KartonyMagazynowe'
 import { NowyKartonDialog, type StartKartonu } from './kartony/NowyKartonDialog'
 import { KartkaKartonuDialog } from './kartony/KartkaKartonuDialog'
 import { nrKartonu, skladKartonu } from './kartony/model'
+import { DodajWyrobDialog } from './dodaj/DodajWyrobDialog'
 import { LokalizacjaPartii, SzukajSztuki, SzukajSztukiDialog, partieSztuk } from './LokalizacjaPartii'
 
 type View = 'all' | 'free' | 'allocated' | 'pallet' | 'blocked' | 'short'
@@ -81,6 +82,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const [sel, setSel] = useState<string | null>(null)
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [popraw, setPopraw] = useState<string | null>(null)
+  const [dodaj, setDodaj] = useState(false)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [tab, setTab] = useState<Tab>('details')
   const [maxed, setMaxed] = useState(false)
@@ -161,6 +163,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
   const doWz = (ids: string[]) => app.issueWzFromStock(ids.flatMap(id => { const r = rows.find(x => x.p.id === id); return r ? [{ id, qty: r.p.qty }] : [] }))
   const zaznaczone = flat.filter(r => checked.has(r.p.id)).map(r => r.p.id)
   const cmds = useMemo<Cmd[]>(() => [
+    { id: 'dodaj', group: 1, label: 'Dodaj wyrób', icon: <Plus size={17} />, kbd: 'Ctrl+N', primary: true, tip: 'Wpisz wyrób z produkcji — z zamówień albo ręcznie, z kilkoma partiami', run: () => setDodaj(true) },
     { id: 'alloc', group: 2, label: 'Kto czeka na ten wyrób', icon: <Link2 size={17} />, disabled: !sp, run: () => setTab('alloc') },
     { id: 'issue', group: 3, label: 'Wydaj', icon: <Truck size={17} />, disabled: !sp && !zaznaczone.length, menu: [
       { label: zaznaczone.length ? `Wystaw WZ z zaznaczonych (${zaznaczone.length})` : 'Wystaw WZ z tej pozycji', icon: <FileText size={15} />, disabled: !zaznaczone.length && !sp, onSelect: () => doWz(zaznaczone.length ? zaznaczone : sp ? [sp.id] : []) },
@@ -193,6 +196,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
     const key = (e: KeyboardEvent) => {
       if (document.querySelector('.dialog-wrap, .overlay')) return
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); searchRef.current?.focus() }
+      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') { e.preventDefault(); setDodaj(true) }
       else if (e.altKey && !e.ctrlKey && /^[1-5]$/.test(e.key) && sel) { e.preventDefault(); setTab(TABS[Number(e.key) - 1].key) }
       else if (e.key === 'Escape') { if (checked.size) setChecked(new Set()); else if (sel) setSel(null) }
     }
@@ -365,6 +369,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
       {weightMenu.anchor && <Menu anchor={weightMenu.anchor} onClose={weightMenu.close} items={[{ header: 'Gramatura' }, ...weightOpts.map(w => ({ label: `${w} kg`, checked: weights.includes(w), onSelect: () => setWeights(a => a.includes(w) ? a.filter(x => x !== w) : [...a, w]) }))]} />}
       {packMenu.anchor && <Menu anchor={packMenu.anchor} onClose={packMenu.close} items={[{ header: 'Opakowanie' }, ...packOpts.map(t => ({ label: t || '(bez opakowania)', checked: packs.includes(t), onSelect: () => setPacks(a => a.includes(t) ? a.filter(x => x !== t) : [...a, t]) }))]} />}
       {okresMenu.anchor && <Menu anchor={okresMenu.anchor} onClose={okresMenu.close} items={[{ header: 'Data produkcji' }, ...(Object.keys(OKRES) as Array<Exclude<Okres, ''>>).map(k => ({ label: OKRES[k], checked: okres === k, onSelect: () => setOkres(k) }))]} />}
+      {dodaj && <DodajWyrobDialog onClose={() => setDodaj(false)} />}
       {popraw && (() => { const r = rows.find(x => x.p.id === popraw); return r ? <PoprawWyrobDialog p={r.p} onClose={() => setPopraw(null)} /> : null })()}
       {stanOpen && <StanDlaKlientaDialog stock={stock} start={stanStart || klient} onClose={() => { setStanOpen(false); setStanStart('') }} />}
       {ctxMenu && (() => {
