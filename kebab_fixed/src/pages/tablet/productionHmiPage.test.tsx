@@ -43,6 +43,8 @@ const stan = vi.hoisted(() => ({
   przerwy: [] as any[],
 }))
 const wolania = vi.hoisted(() => ({
+  wywozy: [] as any[],
+  wywozBlad: "" as string,
   postep: [] as any[],
   odczyty: [] as string[],
   finish: [] as any[],
@@ -171,6 +173,17 @@ vi.mock('@/lib/api', () => ({
   productionRatesApi: {
     current: () => Promise.resolve({ seed: 120, global: 120, plannedBreakMinutes: 30, byRecipe: {} }),
   },
+  seasonedPalletsApi: {
+    take: (code: string, workerName?: string) => {
+      wolania.wywozy.push({ code, workerName })
+      return wolania.wywozBlad
+        ? Promise.reject(Object.assign(new Error(wolania.wywozBlad), { status: 409 }))
+        : Promise.resolve({ ok: true, palletNo: 41, batchNo: '724', recipeName: 'KIRMIZI', planId: 'p1',
+                            lines: [{ lineId: 'l2', label: '10 × 40 kg KIRMIZI' }] })
+    },
+    list: () => Promise.resolve([]),
+    return: () => Promise.resolve({ ok: true, closed: true, remainder: null }),
+  },
   finishedUnitsApi: {
     // Skan NIE rusza qtyDone — tak jak backend: `done` to liczba SKANÓW pozycji.
     // Pozycję wskazuje ETYKIETA (kod sztuki), nie ekran: `sztukaPozycji`.
@@ -287,6 +300,7 @@ beforeEach(() => {
   wolania.wstrzymajPrzerwy = false; wolania.puscPrzerwy = []
   wolania.skanyWLocie = 0; wolania.maxSkanowWLocie = 0
   wolania.wyloguj = vi.fn()
+  wolania.wywozy = []; wolania.wywozBlad = ''
 })
 afterEach(() => { cleanup(); vi.useRealTimers() })
 
@@ -1686,5 +1700,44 @@ describe('ProductionHmiPage — skan: okna, zmiana kontekstu, nieaktualny plan, 
     expect(lista).toBeLessThanOrEqual(3)
     expect(postep).toBeLessThanOrEqual(3)
     expect(lista + postep).toBeLessThanOrEqual(6)
+  })
+})
+
+
+describe('ProductionHmiPage — wywóz palety mięsa na halę (plan produkcji 26.11)', () => {
+  const PALETA = 'SP|0123456789abcdef0123'
+  const czekajNaPlan = async () => { await screen.findByText('WROCŁAW'); await skanerGotowy() }
+
+  it('skan kodu palety idzie do wywozu, nie do kolejki sztuk', async () => {
+    ekran()
+    await czekajNaPlan()
+    skanuj(PALETA)
+    await waitFor(() => expect(wolania.wywozy).toHaveLength(1))
+    expect(wolania.wywozy[0].code).toBe(PALETA)
+    expect(wolania.wywozy[0].workerName).toBe('MARCIN NOWAK')
+    expect(wolania.skany).toHaveLength(0)
+    expect((await screen.findByTestId('wywoz-palety')).textContent).toMatch(/10 × 40 kg KIRMIZI/)
+  })
+
+  it('blokada z serwera zostaje na ekranie', async () => {
+    wolania.wywozBlad = 'Paleta 41 (partia 725) nie jest w planie na dziś — zmiana tylko przez biuro'
+    ekran()
+    await czekajNaPlan()
+    skanuj(PALETA)
+    const baner = await screen.findByTestId('wywoz-palety')
+    expect(baner.getAttribute('role')).toBe('alert')
+    expect(baner.textContent).toMatch(/nie jest w planie na dziś/)
+  })
+
+  it('przycisk „Zwrot końcówki” tylko w planie z blokadą palet', async () => {
+    ekran()
+    await czekajNaPlan()
+    expect(screen.queryByRole('button', { name: /Zwrot końcówki/ })).toBeNull()
+    cleanup()
+    stan.plany[0].palletGate = true
+    ekran()
+    await czekajNaPlan()
+    fireEvent.click(screen.getByRole('button', { name: /Zwrot końcówki/ }))
+    expect(await screen.findByTestId('okno-zwrotu')).toBeTruthy()
   })
 })

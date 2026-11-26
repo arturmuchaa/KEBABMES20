@@ -26,7 +26,7 @@ import { useApi } from '@/hooks/useApi'
 import { useLiveRefresh } from '@/hooks/useLiveRefresh'
 import { useAuth } from '@/features/auth/AuthContext'
 import {
-  dayMaterialsApi, finishedUnitsApi, packagingApi, productionPlansApi, productionRatesApi, usersApi, wrappingApi,
+  dayMaterialsApi, finishedUnitsApi, packagingApi, productionPlansApi, productionRatesApi, seasonedPalletsApi, usersApi, wrappingApi,
   type ScanProducedResult,
 } from '@/lib/api'
 import { getProductionDate } from '@/features/deboning/utils'
@@ -54,6 +54,10 @@ import { WrappingModal } from '@/features/production-hmi/components/WrappingModa
 import { PackagingPicker } from '@/features/production-hmi/components/PackagingPicker'
 import { MovePiecesModal } from '@/features/production-hmi/components/MovePiecesModal'
 import { PasekSkanera } from '@/features/production-hmi/components/PasekSkanera'
+import { WywozPalety, type WynikWywozu } from '@/features/production-hmi/components/WywozPalety'
+import { ZwrotKoncowki } from '@/features/production-hmi/components/ZwrotKoncowki'
+import { idPaletyMiesa } from '@/features/scan/skanKodu'
+import { beepErr, beepOk } from '@/features/pwa/beep'
 import { useKolejkaSkanow, type RekordSkanu } from '@/features/production-hmi/useKolejkaSkanow'
 import { utworzHarmonogramOdswiezania, type Harmonogram } from '@/features/production-hmi/harmonogramOdswiezania'
 import { useSkanGlobalny } from '@/features/scan/useSkanGlobalny'
@@ -767,8 +771,25 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   const planIdRef = useRef<string>(plan?.id ?? '')
   planIdRef.current = plan?.id ?? ''
 
+  // Wywóz palety mięsa na halę (plan produkcji, 26.11.2026): kod SP| nie jest
+  // sztuką — idzie osobną drogą, z wynikiem, który zostaje na ekranie.
+  const [wynikWywozu, setWynikWywozu] = useState<WynikWywozu | null>(null)
+  const [zwrotOtwarty, setZwrotOtwarty] = useState(false)
+  const kierownik = user?.name ?? ''
+  const wywiezPalete = useCallback(async (kod: string) => {
+    try {
+      const r = await seasonedPalletsApi.take(kod.trim(), kierownik)
+      setWynikWywozu({ ok: true, palletNo: r.palletNo, batchNo: r.batchNo, recipeName: r.recipeName, lines: r.lines ?? [] })
+      beepOk()
+    } catch (e: any) {
+      setWynikWywozu({ ok: false, komunikat: e?.message ?? 'Nie udało się sprawdzić palety' })
+      beepErr()
+    }
+  }, [kierownik])
+
   const { przyjmij: doKolejki, odrzuc: odrzucSkan } = kolejka
   const przyjmijSkan = useCallback((kod: string) => {
+    if (idPaletyMiesa(kod)) { void wywiezPalete(kod); return }
     const powod = zapisWToku.current ? 'zapis sztuk w toku' : powodRef.current
     const planId = planIdRef.current
     if (powod !== null || !planId) {
@@ -777,7 +798,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
     }
     // Plan z CHWILI ODCZYTU — zamrożony w rekordzie kolejki.
     doKolejki(kod, planId)
-  }, [doKolejki, odrzucSkan])
+  }, [doKolejki, odrzucSkan, wywiezPalete])
   const nieczytelny = useCallback((komunikat: string, fragment: string) => {
     odrzucSkan(fragment, 'Nieczytelny skan — zeskanuj jeszcze raz', komunikat)
   }, [odrzucSkan])
@@ -872,6 +893,17 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
         {/* Skany w kolejce blokują przerwę, zamknięcie dnia i wylogowanie:
             przyjętych kodów nie wolno zgubić ani zostawić za `tabletFinish`.
             `disabled` dla oka, `skanyCzekajaTeraz()` synchronicznie. */}
+        {plan?.palletGate && (
+          <button type="button" onClick={() => setZwrotOtwarty(true)}
+            className="h-9 px-4 text-[13px] font-bold flex-shrink-0"
+            style={{ border: '1px solid var(--line)', color: 'var(--ink)', borderRadius: 8, background: 'var(--panel)' }}>
+            Zwrot końcówki
+          </button>
+        )}
+        {zwrotOtwarty && plan?.id && (
+          <ZwrotKoncowki planId={plan.id} onZamknij={() => setZwrotOtwarty(false)}
+            onZwrocono={() => { setZwrotOtwarty(false); beepOk() }} />
+        )}
         <button type="button" onClick={() => { if (!skanyCzekajaTeraz()) void zacznijPrzerwe() }}
           disabled={wPrzerwie || skanyCzekaja} className="h-9 px-4 text-[13px] font-bold flex-shrink-0"
           style={{ border: '1px solid var(--ambLine)', color: 'var(--amb)', borderRadius: 8,
@@ -900,6 +932,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
         <PasekSkanera wstrzymany={powodWstrzymania} stan={kolejka.stan} alarm={alarmKolejki}
           lpOstatniego={ostatniaLiniaSkanu ? lpPozycji(ostatniaLiniaSkanu) : 0}
           pole={poleSkanu} handlers={pole} onPrzeczytane={kolejka.wyczyscBledy} />
+        <WywozPalety wynik={wynikWywozu} onZamknij={() => setWynikWywozu(null)} />
 
         {/* Plan i panel ZAWSZE razem: lista nie znika po wybraniu pozycji.
             Skan zaznacza swoją pozycję osobnym znacznikiem, nie `selectedId`. */}

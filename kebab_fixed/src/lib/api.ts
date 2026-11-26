@@ -3962,6 +3962,8 @@ function mapPlan(raw: any): any {
     notes:              raw.notes,
     createdAt:          raw.created_at  ?? raw.createdAt  ?? '',
     tabletFinishedAt:   raw.tablet_finished_at  ?? raw.tabletFinishedAt  ?? null,
+    /** Blokada palet: hala bierze tylko palety z planu (skan SP|). */
+    palletGate:         Boolean(raw.pallet_gate ?? raw.palletGate ?? false),
     officeConfirmedAt:  raw.office_confirmed_at ?? raw.officeConfirmedAt ?? null,
     // Wpisy z tabletu czekające na potwierdzenie biura (office-confirm tworzy z nich wyrób gotowy).
     tabletPendingEntries: mapTabletEntries(raw.tablet_pending_entries ?? raw.tabletPendingEntries),
@@ -4073,6 +4075,29 @@ export const productionPlansApi = {
     post<any>(`/production-plans/${planId}/tablet-reopen`, {}),
   officeConfirm: (planId: string) =>
     post<any>(`/production-plans/${planId}/office-confirm`, {}),
+  /** Bilans partii planu (palety → wyroby → końcówki → strata). */
+  balance: (planId: string) =>
+    get<{ data: any[] } | any[]>(`/production-plans/${planId}/balance`)
+      .then((r: any) => (Array.isArray(r) ? r : r?.data ?? [])),
+  /** Blokada palet w planie — tylko w szkicu. */
+  setPalletGate: (planId: string, enabled: boolean) =>
+    patch<any>(`/production-plans/${planId}/pallet-gate`, { enabled }),
+}
+
+// ─── Palety mięsa przyprawionego (wywóz na halę, zwrot końcówki) ───
+export const seasonedPalletsApi = {
+  list: (status?: string, planId?: string) => {
+    const q = new URLSearchParams()
+    if (status) q.set('status', status)
+    if (planId) q.set('plan_id', planId)
+    const qs = q.toString()
+    return get<any>(`/seasoned-pallets${qs ? `?${qs}` : ''}`)
+      .then((r: any) => (Array.isArray(r) ? r : r?.data ?? []))
+  },
+  take: (code: string, workerName?: string) =>
+    post<any>('/seasoned-pallets/take', { code, workerName: workerName ?? '' }),
+  return: (code: string, kg: number) =>
+    post<any>('/seasoned-pallets/return', { code, kg }),
 }
 
 // ─── Tempo produkcji (prognoza zakończenia) ──────────────────
