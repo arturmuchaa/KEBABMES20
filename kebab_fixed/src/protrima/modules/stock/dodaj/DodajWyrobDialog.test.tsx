@@ -7,7 +7,7 @@ import type { Line, Order } from '../../../data/model'
 
 const api = vi.hoisted(() => ({
   fg: { createBulk: vi.fn() },
-  sm: { list: vi.fn() },
+  sm: { list: vi.fn(), all: vi.fn() },
   rec: { list: vi.fn() },
   typy: { list: vi.fn() },
   pack: { list: vi.fn() },
@@ -52,7 +52,10 @@ afterEach(cleanup)
 beforeEach(() => {
   vi.clearAllMocks()
   api.fg.createBulk.mockResolvedValue([])
-  api.sm.list.mockResolvedValue([{ id: 's1', batchNo: '111', recipeName: 'KIRMIZI', kgAvailable: 300 }, { id: 's2', batchNo: '112', recipeName: 'KIRMIZI', kgAvailable: 500 }])
+  const wsady = [{ id: 's1', batchNo: '111', recipeId: 'r-kir', recipeName: 'KIRMIZI', kgAvailable: 300 }, { id: 's2', batchNo: '112', recipeId: 'r-kir', recipeName: 'KIRMIZI', kgAvailable: 500 },
+    { id: 's0', batchNo: '099', recipeId: 'r-kir', recipeName: 'KIRMIZI', kgAvailable: 0 }]
+  api.sm.list.mockResolvedValue(wsady.filter(w => w.kgAvailable > 0))
+  api.sm.all.mockResolvedValue(wsady)
   api.rec.list.mockResolvedValue([{ id: 'r-kir', name: 'KIRMIZI', productTypeId: 't-udo' }])
   api.typy.list.mockResolvedValue([{ id: 't-udo', name: 'KEBAB UDO 100%' }])
   api.pack.list.mockResolvedValue([{ id: 'pk-65', name: 'METAL 65CM' }])
@@ -82,7 +85,7 @@ describe('Dodaj wyrób — partie i zapis', () => {
 
   it('80 szt z partii 111 i 112 w jednym zapisie', async () => {
     const onClose = mount()
-    await waitFor(() => expect(api.sm.list).toHaveBeenCalled())
+    await waitFor(() => expect(api.sm.all).toHaveBeenCalled())
     zaznacz41()
     fireEvent.change(screen.getByLabelText('Partia 1, 41/11 KIRMIZI'), { target: { value: '111' } })
     const szt1 = screen.getByLabelText('Sztuk 1, 41/11 KIRMIZI')
@@ -118,11 +121,47 @@ describe('Dodaj wyrób — partie i zapis', () => {
 
   it('podgląd numeru i znacznik masowni', async () => {
     mount()
-    await waitFor(() => expect(api.sm.list).toHaveBeenCalled())
+    await waitFor(() => expect(api.sm.all).toHaveBeenCalled())
     zaznacz41()
     fireEvent.change(screen.getByLabelText('Partia 1, 41/11 KIRMIZI'), { target: { value: '111' } })
     await waitFor(() => expect(screen.getByText(/→ \d{6} 111/)).toBeTruthy())
     expect(screen.getByText(/masownia ✓/)).toBeTruthy()
+  })
+
+  it('wsad zarezerwowany w planie (brak w liście dostępnych) nadal rozpoznany jako masownia', async () => {
+    api.sm.list.mockResolvedValue([])
+    mount()
+    await waitFor(() => expect(api.sm.all).toHaveBeenCalled())
+    zaznacz41()
+    fireEvent.change(screen.getByLabelText('Partia 1, 41/11 KIRMIZI'), { target: { value: '111' } })
+    await waitFor(() => expect(screen.getByText(/masownia ✓/)).toBeTruthy())
+  })
+
+  it('wsad zużyty do zera nie jest rozpoznany jako masownia', async () => {
+    mount()
+    await waitFor(() => expect(api.sm.all).toHaveBeenCalled())
+    zaznacz41()
+    fireEvent.change(screen.getByLabelText('Partia 1, 41/11 KIRMIZI'), { target: { value: '099' } })
+    await waitFor(() => expect(screen.getByText(/bez masowni/)).toBeTruthy())
+  })
+
+  it('Enter na pełnej pozycji nie dodaje pustej partii — fokus idzie do zapisu', () => {
+    mount()
+    zaznacz41()
+    fireEvent.change(screen.getByLabelText('Partia 1, 41/11 KIRMIZI'), { target: { value: '111' } })
+    fireEvent.keyDown(screen.getByLabelText('Sztuk 1, 41/11 KIRMIZI'), { key: 'Enter' })
+    expect(screen.queryByLabelText('Partia 2, 41/11 KIRMIZI')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /^Zapisz/ }))
+  })
+
+  it('zerwane połączenie — nie obiecujemy, że nic nie zapisano', async () => {
+    api.fg.createBulk.mockRejectedValue(new TypeError('Failed to fetch'))
+    mount()
+    zaznacz41()
+    fireEvent.change(screen.getByLabelText('Partia 1, 41/11 KIRMIZI'), { target: { value: '111' } })
+    fireEvent.click(screen.getByRole('button', { name: /^Zapisz/ }))
+    expect(await screen.findByText(/nie wiadomo, czy zapisano/i)).toBeTruthy()
+    expect(screen.queryByText(/Nic nie zostało dodane/)).toBeNull()
   })
 
   it('pusty numer partii blokuje zapis i pokazuje błąd przy polu', async () => {
@@ -134,7 +173,7 @@ describe('Dodaj wyrób — partie i zapis', () => {
   })
 
   it('błąd serwera zostawia okno i koszyk', async () => {
-    api.fg.createBulk.mockRejectedValue(new Error('Brak tulei'))
+    api.fg.createBulk.mockRejectedValue(Object.assign(new Error('Brak tulei'), { status: 400 }))
     const onClose = mount()
     zaznacz41()
     fireEvent.change(screen.getByLabelText('Partia 1, 41/11 KIRMIZI'), { target: { value: '111' } })

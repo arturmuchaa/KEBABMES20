@@ -73,18 +73,26 @@ describe('partie pozycji', () => {
   })
 })
 
+const W = (batchNo: string, recipeId = 'r-kir') => ({ batchNo, recipeId })
+
 describe('rozpoznajPartie', () => {
-  it('wsad masowni', () => {
-    expect(rozpoznajPartie('111', '2026-11-23', ['111', '112'])).toEqual({ naWyrobie: '231126 111', masownia: true, nrMasowni: '111' })
+  it('wsad masowni tej samej receptury', () => {
+    expect(rozpoznajPartie('111', '2026-11-23', [W('111'), W('112')], 'r-kir')).toEqual({ naWyrobie: '231126 111', masownia: true, nrMasowni: '111' })
   })
   it('numer z datą nie dostaje drugiej daty, nadal rozpoznany jako masownia', () => {
-    expect(rozpoznajPartie('231126 111', '2026-11-23', ['111'])).toEqual({ naWyrobie: '231126 111', masownia: true, nrMasowni: '111' })
+    expect(rozpoznajPartie('231126 111', '2026-11-23', [W('111')], 'r-kir')).toEqual({ naWyrobie: '231126 111', masownia: true, nrMasowni: '111' })
   })
   it('numer spoza masowni dostaje datę produkcji', () => {
-    expect(rozpoznajPartie('PP13', '2026-11-23', [])).toEqual({ naWyrobie: '231126 PP13', masownia: false })
+    expect(rozpoznajPartie('PP13', '2026-11-23', [], 'r-kir')).toEqual({ naWyrobie: '231126 PP13', masownia: false })
   })
   it('pusty wpis', () => {
-    expect(rozpoznajPartie('  ', '2026-11-23', ['111']).naWyrobie).toBe('—')
+    expect(rozpoznajPartie('  ', '2026-11-23', [W('111')], 'r-kir').naWyrobie).toBe('—')
+  })
+  it('wsad o tym numerze tylko w innej recepturze — nie zdejmujemy mięsa, ostrzegamy', () => {
+    expect(rozpoznajPartie('111', '2026-11-23', [W('111', 'r-yap')], 'r-kir')).toEqual({ naWyrobie: '231126 111', masownia: false, innaReceptura: true })
+  })
+  it('kilka wsadów tej receptury o tym samym numerze (różne dni) — rozpoznany, ale oznaczony', () => {
+    expect(rozpoznajPartie('111', '2026-11-23', [W('111'), W('111')], 'r-kir')).toEqual({ naWyrobie: '231126 111', masownia: true, nrMasowni: '111', kilka: true })
   })
 })
 
@@ -109,7 +117,7 @@ describe('bledyKoszyka', () => {
 
 describe('payloadKoszyka', () => {
   it('80 szt rozbite na 111 (30) i 112 (50) — dwa wpisy z masowni', () => {
-    const items = payloadKoszyka([zPartiami(yal41(), ['111', '30'], ['112', '50'])], '2026-11-23', ['111', '112'])
+    const items = payloadKoszyka([zPartiami(yal41(), ['111', '30'], ['112', '50'])], '2026-11-23', [W('111'), W('112')])
     expect(items).toHaveLength(2)
     expect(items[0]).toMatchObject({
       qty: 30, kgPerUnit: 10, producedDate: '2026-11-23', clientOrderNo: '41/11', recipeId: 'r-kir',
@@ -119,13 +127,25 @@ describe('payloadKoszyka', () => {
     expect(items[1]).toMatchObject({ qty: 50, seasonedBatchNos: ['112'], consumeSeasoned: true, batchNo: '' })
   })
   it('partia spoza masowni — numer z datą, bez zdejmowania mięsa', () => {
-    const [it0] = payloadKoszyka([zPartiami(yal41(), ['PP13', '80'])], '2026-11-23', ['111'])
+    const [it0] = payloadKoszyka([zPartiami(yal41(), ['PP13', '80'])], '2026-11-23', [W('111')])
     expect(it0).toMatchObject({ batchNo: '231126 PP13', seasonedBatchNos: [], consumeSeasoned: false })
+  })
+  it('wsad z innej receptury — numer z datą, bez zdejmowania mięsa', () => {
+    const [it0] = payloadKoszyka([zPartiami(yal41(), ['111', '80'])], '2026-11-23', [W('111', 'r-yap')])
+    expect(it0).toMatchObject({ batchNo: '231126 111', seasonedBatchNos: [], consumeSeasoned: false })
   })
   it('liczby z przecinkiem i pozycja ręczna bez numeru zamówienia', () => {
     const reczna: PozycjaKoszyka = { ...zPartiami(yal41(), ['5', '12']), key: 'r-1', zrodlo: 'reczna', orderNo: '', kgPerUnit: 12.5 }
     const [it0] = payloadKoszyka([reczna], '2026-11-23', [])
     expect(it0).toMatchObject({ clientOrderNo: '', qty: 12, kgPerUnit: 12.5 })
+  })
+})
+
+describe('pelnaPozycja', () => {
+  it('suma partii ≥ brak → pozycja pełna (Enter nie dodaje pustej partii)', async () => {
+    const { pelnaPozycja } = await import('./model')
+    expect(pelnaPozycja(zPartiami(yal41(), ['111', '80']))).toBe(true)
+    expect(pelnaPozycja(zPartiami(yal41(), ['111', '30']))).toBe(false)
   })
 })
 

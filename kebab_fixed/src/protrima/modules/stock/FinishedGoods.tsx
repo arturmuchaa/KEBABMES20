@@ -41,7 +41,7 @@ interface Row { p: StockPos; order?: Order; cands: number }
  * tabela z grupami i sumami, dolny panel z zakładkami. Przydział działa na
  * wspólnym stanie — pokrycie zamówienia zmienia się od razu.
  */
-export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: number; select?: string }; active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void }) {
+export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: number; select?: string; dodaj?: boolean }; active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void }) {
   const app = useApp()
   const { stock, orders, loading, stamp, error } = useOrders()
 
@@ -93,6 +93,7 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
 
   useEffect(() => {
     if (!cmd.n) return
+    if (cmd.dodaj) { setDodaj(true); return }
     const o = orders.find(x => x.id === cmd.select)
     if (o) { setView('allocated'); setQ(o.no); setRecipes([]); const first = stock.find(p => p.orderId === o.id); setSel(first?.id ?? null); setTab('alloc') }
   }, [cmd]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -196,7 +197,6 @@ export function FinishedGoods({ cmd, active, setCtx, setCmds }: { cmd: { n: numb
     const key = (e: KeyboardEvent) => {
       if (document.querySelector('.dialog-wrap, .overlay')) return
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') { e.preventDefault(); searchRef.current?.focus() }
-      else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') { e.preventDefault(); setDodaj(true) }
       else if (e.altKey && !e.ctrlKey && /^[1-5]$/.test(e.key) && sel) { e.preventDefault(); setTab(TABS[Number(e.key) - 1].key) }
       else if (e.key === 'Escape') { if (checked.size) setChecked(new Set()); else if (sel) setSel(null) }
     }

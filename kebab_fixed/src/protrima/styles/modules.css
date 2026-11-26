@@ -1381,3 +1381,5 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .dw-err-row td { padding-top: 0; }
 .dw-plus { margin-top: 4px; }
 .dw .mono { font-family: var(--font-code); font-size: var(--fs-id); }
+.dw-tag.warn { background: var(--warn-tint); color: var(--warn-ink); }
+.dw-razem small { font-size: var(--fs-xs); }

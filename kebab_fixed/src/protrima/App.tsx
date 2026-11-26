@@ -136,7 +136,7 @@ function Shell() {
   ])
   const [active, setActive] = useState('pulpit')
   const [ordersCmd, setOrdersCmd] = useState<OrdersCmd>({ n: 0 })
-  const [stockCmd, setStockCmd] = useState<{ n: number; select?: string }>({ n: 0 })
+  const [stockCmd, setStockCmd] = useState<{ n: number; select?: string; dodaj?: boolean }>({ n: 0 })
   const [recCmd, setRecCmd] = useState<{ n: number; select?: string; zawieszki?: boolean }>({ n: 0 })
   const [ctx, setCtx] = useState<Record<string, React.ReactNode>>({})
   const [cmdMap, setCmdMap] = useState<Record<string, Cmd[]>>({})
@@ -228,6 +228,11 @@ function Shell() {
     openModule('magazyn-wg')
     setStockCmd({ n: Date.now(), select })
   }, [openModule])
+  /** Okno „Dodaj wyrób gotowy” z dowolnego miejsca (Ctrl+K). */
+  const dodajWyrob = useCallback(() => {
+    openModule('magazyn-wg')
+    setStockCmd({ n: Date.now(), dodaj: true })
+  }, [openModule])
 
   // ─── Powiadomienia ──────────────────────────────────────────────────────
   const [toasts, setToasts] = useState<Toast[]>([])
@@ -270,7 +275,7 @@ function Shell() {
       const inField = /INPUT|TEXTAREA|SELECT/.test((e.target as HTMLElement)?.tagName ?? '')
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette(p => !p) }
       else if (mod && e.key.toLowerCase() === 'b') { e.preventDefault(); toggleNav() }
-      else if (mod && e.key.toLowerCase() === 'n' && !e.shiftKey) { e.preventDefault(); if (/^(przyjecia|new-rec:|edit-rec:)/.test(active)) newReception(); else if (active === 'receptury' || active === 'plan-masowania') runCmd('new'); else newOrder() }
+      else if (mod && e.key.toLowerCase() === 'n' && !e.shiftKey) { e.preventDefault(); if (/^(przyjecia|new-rec:|edit-rec:)/.test(active)) newReception(); else if (active === 'receptury' || active === 'plan-masowania') runCmd('new'); else if (active === 'magazyn-wg') runCmd('dodaj'); else newOrder() }
       else if (mod && e.key.toLowerCase() === 'w') { e.preventDefault(); closeTab(active) }
       else if (mod && e.key.toLowerCase() === 'p') { e.preventDefault(); const pc = modCmds.find(c => c.id === 'print'); const first = pc?.menu?.find(m => m.onSelect && !m.disabled); if (first?.onSelect) first.onSelect(); else if (!runCmd('print')) demo('Drukowanie') }
       else if (mod && e.key.toLowerCase() === 'd' && !inField) { e.preventDefault(); runCmd('duplicate') }
@@ -465,7 +470,7 @@ function Shell() {
       <TooltipLayer />
       <Toasts items={toasts} dismiss={id => setToasts(ts => ts.filter(t => t.id !== id))} />
       {palette && <CommandPalette orders={orders} stock={stock} modulDostepny={k => dostepnyDla(k, rola)} onClose={() => setPalette(false)} openOrder={openOrder} openModule={openModule}
-        newOrder={newOrder} newReception={newReception} gotoStock={gotoStock} gotoOrders={gotoOrders} toggleTheme={toggleTheme} toggleNav={toggleNav} showShortcuts={() => setShortcuts(true)} />}
+        newOrder={newOrder} newReception={newReception} dodajWyrob={dodajWyrob} gotoStock={gotoStock} gotoOrders={gotoOrders} toggleTheme={toggleTheme} toggleNav={toggleNav} showShortcuts={() => setShortcuts(true)} />}
       {cmrId && <CmrDialog orderId={cmrId} orderNo={orders.find(o => o.id === cmrId)?.no ?? ''} onClose={() => setCmrId(null)} />}
       {kompIds && <ListaKompletacjiDialog orderIds={kompIds} onClose={() => setKompIds(null)} />}
       {kartki && <KartkiPaletDialog orderId={kartki.orderId} palletNos={kartki.nos} onClose={() => setKartki(null)} />}
@@ -509,7 +514,7 @@ function ShortcutsDialog({ onClose }: { onClose: () => void }) {
     ['Ctrl+1 … 9', 'Przejdź do okna (karty)'],
     ['Ctrl+W', 'Zamknij okno (Pulpit zostaje)'],
     ['Ctrl+B', 'Zwiń / rozwiń nawigację'],
-    ['Ctrl+N', 'Nowe zamówienie (w Przyjęciach — nowe przyjęcie)'],
+    ['Ctrl+N', 'Nowe zamówienie (w Przyjęciach — nowe przyjęcie, w Wyrobie gotowym — dodaj wyrób)'],
     ['Ctrl+F', 'Szukaj na liście'],
     ['Ctrl+P', 'Drukuj'],
     ['↑ ↓  Home  End', 'Wybór wiersza na liście'],

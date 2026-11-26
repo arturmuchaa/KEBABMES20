@@ -17,7 +17,7 @@ const wyrob = (o: Partial<StockPos>): StockPos => ({
   cartons: [], status: 'stock', movements: [], seasonedBatches: [], producedBy: [], ...o,
 } as StockPos)
 
-const fn = () => ({ onClose: vi.fn(), openOrder: vi.fn(), openModule: vi.fn(), newOrder: vi.fn(), newReception: vi.fn(), gotoStock: vi.fn(), gotoOrders: vi.fn(), toggleTheme: vi.fn(), toggleNav: vi.fn(), showShortcuts: vi.fn() })
+const fn = () => ({ onClose: vi.fn(), openOrder: vi.fn(), openModule: vi.fn(), newOrder: vi.fn(), newReception: vi.fn(), gotoStock: vi.fn(), gotoOrders: vi.fn(), toggleTheme: vi.fn(), toggleNav: vi.fn(), showShortcuts: vi.fn(), dodajWyrob: vi.fn() })
 const mount = (p: { orders?: ReturnType<typeof zam>[]; stock?: StockPos[] } = {}) => {
   const f = fn()
   render(<CommandPalette orders={p.orders ?? []} stock={p.stock ?? []} {...f} />)
@@ -28,6 +28,12 @@ const wyniki = () => screen.queryAllByRole('option')
 afterEach(cleanup)
 
 describe('paleta poleceń (Ctrl+K)', () => {
+  it('polecenie „Dodaj wyrób gotowy” otwiera okno dodawania wyrobu', () => {
+    const f = mount()
+    szukaj('dodaj wyrób')
+    fireEvent.click(screen.getByRole('option', { name: /Dodaj wyrób gotowy/ }))
+    expect(f.dodajWyrob).toHaveBeenCalled()
+  })
   it('numer partii wyrobu gotowego znajduje wiersz magazynu i otwiera go w Wyrobie gotowym', () => {
     // Przegląd (UX-10): pole obiecywało „wyrobu, partii”, a dla „669” mówiło „Nic nie znaleziono”.
     const f = mount({ stock: [wyrob({}), wyrob({ id: 'fg2', batch: '271026 657', recipe: 'KIRMIZI' })] })

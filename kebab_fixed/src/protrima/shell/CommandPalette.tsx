@@ -42,9 +42,9 @@ function Podswietl({ t, words }: { t: string; words: string[] }) {
 
 const ZAMKNIETYCH = 3
 
-export function CommandPalette({ orders, stock, modulDostepny = () => true, onClose, openOrder, openModule, newOrder, newReception, gotoStock, gotoOrders, toggleTheme, toggleNav, showShortcuts }: {
+export function CommandPalette({ orders, stock, modulDostepny = () => true, onClose, openOrder, openModule, newOrder, newReception, dodajWyrob, gotoStock, gotoOrders, toggleTheme, toggleNav, showShortcuts }: {
   orders: Order[]; stock: StockPos[]; modulDostepny?: (key: string) => boolean; onClose: () => void; openOrder: (id: string) => void; openModule: (k: string) => void
-  newOrder: () => void; newReception: () => void; gotoStock: (id: string) => void; gotoOrders: (cmd: Omit<OrdersCmd, 'n'>) => void
+  newOrder: () => void; newReception: () => void; dodajWyrob?: () => void; gotoStock: (id: string) => void; gotoOrders: (cmd: Omit<OrdersCmd, 'n'>) => void
   toggleTheme: () => void; toggleNav: () => void; showShortcuts: () => void
 }) {
   const [q, setQ] = useState('')
@@ -55,6 +55,7 @@ export function CommandPalette({ orders, stock, modulDostepny = () => true, onCl
   const all = useMemo<Cmd[]>(() => [
     { id: 'a-new', group: 'Polecenia', icon: <Plus size={16} />, label: 'Nowe zamówienie', hint: 'Ctrl+N', run: newOrder, text: 'nowe zamowienie dodaj utworz' },
     { id: 'a-rec', group: 'Polecenia', icon: <PackagePlus size={16} />, label: 'Nowe przyjęcie surowca', run: newReception, text: 'nowe przyjecie surowca dostawa auto cwiartka' },
+    ...(dodajWyrob && modulDostepny('magazyn-wg') ? [{ id: 'a-wyrob', group: 'Polecenia', icon: <PackagePlus size={16} />, label: 'Dodaj wyrób gotowy', run: dodajWyrob, text: 'dodaj wyrob gotowy produkcja partia wpisz recznie' }] : []),
     { id: 'a-theme', group: 'Polecenia', icon: <Moon size={16} />, label: 'Przełącz motyw jasny / grafitowy', run: toggleTheme, text: 'motyw ciemny jasny grafitowy theme' },
     { id: 'a-nav', group: 'Polecenia', icon: <PanelLeft size={16} />, label: 'Zwiń / rozwiń nawigację', hint: 'Ctrl+B', run: toggleNav, text: 'nawigacja menu zwin rozwin' },
     { id: 'a-keys', group: 'Polecenia', icon: <Keyboard size={16} />, label: 'Skróty klawiszowe', hint: 'F1', run: showShortcuts, text: 'skroty klawiatura pomoc' },
@@ -88,7 +89,7 @@ export function CommandPalette({ orders, stock, modulDostepny = () => true, onCl
       run: () => { openModule('dokumenty'); setTimeout(() => window.dispatchEvent(new CustomEvent(ZDARZENIE_ZAKLADKI, { detail: r })), 0) },
       text: norm(`dokumenty ${r} ${r === 'wz' ? 'wydanie zewnetrzne wm' : r === 'hdi' ? 'handlowy dokument identyfikacyjny' : 'list przewozowy'}`),
     })) : []),
-  ], [orders, stock, modulDostepny, openOrder, openModule, newOrder, newReception, gotoStock, toggleTheme, toggleNav, showShortcuts])
+  ], [orders, stock, modulDostepny, openOrder, openModule, newOrder, newReception, dodajWyrob, gotoStock, toggleTheme, toggleNav, showShortcuts])
 
   const words = useMemo(() => norm(q.trim()).split(/\s+/).filter(Boolean), [q])
   const results = useMemo<Cmd[]>(() => {

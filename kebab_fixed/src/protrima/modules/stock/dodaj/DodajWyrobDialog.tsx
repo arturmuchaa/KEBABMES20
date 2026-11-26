@@ -6,11 +6,11 @@ import { fmtDate, kg, lineMissing, num as fmtNum } from '../../../data/model'
 import { FlagIcon } from '../../../ui/Glyphs'
 import { Wybor } from '../../../ui/Wybor'
 import { useApi } from '@/hooks/useApi'
-import { clientsApi, finishedGoodsApi, packagingApi, productTypesApi, recipesApi, seasonedMeatApi } from '@/lib/api'
+import { clientsApi, errStatus, finishedGoodsApi, packagingApi, productTypesApi, recipesApi, seasonedMeatApi } from '@/lib/api'
 import { liczba } from '@/features/finished-goods/manualGoods'
 import {
-  bledyKoszyka, dataLokalna as dzisiaj, dodajPartie, drzewoZamowien, nowyKlucz, payloadKoszyka, pozycjaZLinii, rozpoznajPartie,
-  statusPozycji, sumaPartii, sumyKoszyka, type PozycjaKoszyka,
+  bledyKoszyka, dataLokalna as dzisiaj, dodajPartie, drzewoZamowien, nowyKlucz, payloadKoszyka, pelnaPozycja, pozycjaZLinii, rozpoznajPartie,
+  statusPozycji, sumaPartii, sumyKoszyka, type PozycjaKoszyka, type WsadMasowni,
 } from './model'
 
 const kgTxt = (n: number) => String(n).replace('.', ',')
@@ -28,13 +28,16 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
   const app = useApp()
   const { orders, refresh } = useOrders()
 
-  const wsadyRes = useApi(() => seasonedMeatApi.list())
+  // Wszystkie wsady, nie tylko „wolne”: wsad zarezerwowany w planie to normalny stan po planowaniu,
+  // a mięso i tak trzeba zdjąć. Liczy się tylko to, co fizycznie jeszcze leży (kgAvailable > 0).
+  const wsadyRes = useApi(() => seasonedMeatApi.all())
   const recRes = useApi(() => recipesApi.list())
   const typRes = useApi(() => productTypesApi.list())
   const packRes = useApi(() => packagingApi.list())
   const kliRes = useApi(() => clientsApi.list())
-  const wsady = useMemo(() => ((wsadyRes.data ?? []) as Array<{ batchNo: string; recipeName?: string; kgAvailable?: number }>).filter(w => w.batchNo), [wsadyRes.data])
-  const nrWsadow = useMemo(() => wsady.map(w => w.batchNo), [wsady])
+  const wsady = useMemo(() => ((wsadyRes.data ?? []) as Array<WsadMasowni & { recipeName?: string; kgAvailable?: number }>)
+    .filter(w => w.batchNo && Number(w.kgAvailable ?? 0) > 0), [wsadyRes.data])
+  const nrWsadow = wsady
   const kartoteki = useMemo(() => ({
     recipes: ((recRes.data ?? []) as Array<{ id: string; name: string; productTypeId?: string; active?: boolean }>).filter(r => r.active !== false),
     types: ((typRes.data ?? []) as Array<{ id: string; name: string; active?: boolean }>).filter(t => t.active !== false),
@@ -68,7 +71,7 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
   useLayoutEffect(() => {
     if (!fokus) return
     const el = document.getElementById(fokus) as HTMLInputElement | null
-    el?.focus(); el?.select()
+    el?.focus(); if (el instanceof HTMLInputElement) el.select()
     setFokus(null)
   }, [fokus])
   const skocz = (id: string) => requestAnimationFrame(() => { const el = document.getElementById(id) as HTMLInputElement | null; el?.focus(); el?.select() })
@@ -153,7 +156,10 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
       app.toast({ kind: 'ok', title: 'Dodano wyrób gotowy', detail: `${fmtNum(sumy.sztuki)} szt. · ${kg(sumy.kg)} · ${sumy.partie} ${sumy.partie === 1 ? 'partia' : sumy.partie < 5 ? 'partie' : 'partii'} · produkcja ${fmtDate(new Date(data))}` })
       onClose()
     } catch (e) {
-      setBlad(e instanceof Error ? e.message : 'Nie udało się zapisać wyrobu')
+      const msg = e instanceof Error ? e.message : 'Nie udało się zapisać wyrobu'
+      // Bez odpowiedzi serwera (zerwane połączenie, limit czasu) nie wiadomo, czy transakcja przeszła —
+      // obietnica „nic nie dodano” skończyłaby się podwójnym stanem po ponownym zapisie.
+      setBlad(errStatus(e) > 0 ? `serwer:${msg}` : `siec:${msg}`)
     } finally { lock.current = false; setSaving(false) }
   }
 
@@ -170,7 +176,7 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
           ? <>Do zapisu: <b>{sumy.partie} {sumy.partie === 1 ? 'partia' : sumy.partie < 5 ? 'partie' : 'partii'}</b> · <b>{fmtNum(sumy.sztuki)} szt.</b> · <b>{kg(sumy.kg)}</b></>
           : 'Nic jeszcze nie wybrano'}<span className="hint hide-m"> <span className="kbd">Ctrl+Enter</span> zapisz</span></span>
         <button className="btn" onClick={zamknij}>Anuluj</button>
-        <button className="btn primary" disabled={saving} onClick={() => void zapisz()}><PackagePlus size={15} />{saving ? 'Zapisywanie…' : 'Zapisz wyrób'}</button>
+        <button id="dw-zapisz" className="btn primary" disabled={saving} onClick={() => void zapisz()}><PackagePlus size={15} />{saving ? 'Zapisywanie…' : 'Zapisz wyrób'}</button>
       </>}>
       <div className="dw" onKeyDown={klawisze}>
         <div className="dw-top">
@@ -180,7 +186,9 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
           <span className="sub">Z daty powstaje numer partii na wyrobie, np. partia <b>111</b> z {fmtDate(new Date(data || dzisiaj()))} → <b className="mono">{rozpoznajPartie('111', data, []).naWyrobie}</b>.</span>
           {bledy.data && <span className="crit-ink dw-err">{bledy.data}</span>}
         </div>
-        {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Nie zapisano — serwer odmówił:</b> {blad}. Nic nie zostało dodane, popraw i zapisz ponownie.</div></div>}
+        {blad && (blad.startsWith('serwer:')
+          ? <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Nie zapisano — serwer odmówił:</b> {blad.slice(7)}. Nic nie zostało dodane, popraw i zapisz ponownie.</div></div>
+          : <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Połączenie przerwane — nie wiadomo, czy zapisano.</b> Zamknij okno i sprawdź listę wyrobu, zanim zapiszesz ponownie ({blad.slice(5)}).</div></div>)}
         {wsadyRes.error && <div className="note warn"><FlagIcon level="warn" size={15} /><div>Nie udało się pobrać wsadów z masowni — numery partii trafią na wyrób bez zdejmowania mięsa.</div></div>}
 
         <div className="dw-grid">
@@ -293,8 +301,10 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
                       <span className="dw-meta">{p.zrodlo === 'zamowienie' ? <span className="mono">{p.orderNo}</span> : 'bez zamówienia'}</span>
                       <span className="dw-poz-w">{p.recipeName} · {p.productTypeName} · {kgTxt(p.kgPerUnit)} kg{p.packagingName ? ` · ${p.packagingName}` : ''}</span>
                     </div>
-                    <span className={`dw-razem ${st}`} title={st === 'ok' ? 'Suma partii zgadza się z brakiem' : st === 'mniej' ? 'Mniej niż brakuje — reszta zostanie do zrobienia' : 'Więcej niż brakuje — nadwyżka stanie jako wolny wyrób'}>
+                    <span className={`dw-razem ${st}`}>
                       razem <b>{fmtNum(suma)}</b> / {fmtNum(p.cel)} szt.{st === 'ok' ? ' ✓' : ''}
+                      {p.zrodlo === 'zamowienie' && st === 'mniej' && <small> · {fmtNum(p.cel - suma)} zostanie do zrobienia</small>}
+                      {p.zrodlo === 'zamowienie' && st === 'wiecej' && <small> · +{fmtNum(suma - p.cel)} ponad brak, też do tego zamówienia</small>}
                     </span>
                     <button className="btn ghost icon sm" aria-label={`Usuń z zapisu: ${opis}`} onClick={() => usunPozycje(p.key)}><Trash2 size={15} /></button>
                   </div>
@@ -302,7 +312,7 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
                     <colgroup><col className="c-nr" /><col className="c-qty" /><col /><col className="c-kg" /><col className="c-x" /></colgroup>
                     <thead><tr><th>Partia</th><th className="num">Sztuk</th><th>Na wyrobie</th><th className="num">Masa</th><th /></tr></thead>
                     <tbody>{p.partie.map((w, i) => {
-                      const r = rozpoznajPartie(w.nr, data, nrWsadow)
+                      const r = rozpoznajPartie(w.nr, data, nrWsadow, p.recipeId)
                       const eNr = bledy[`${p.key}:${w.key}:nr`], eQty = bledy[`${p.key}:${w.key}:qty`]
                       const ostatni = i === p.partie.length - 1
                       const q = Math.round(liczba(w.qty))
@@ -316,10 +326,14 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
                             aria-label={`Sztuk ${i + 1}, ${opis}`} aria-invalid={!!eQty || undefined}
                             onFocus={e => e.target.select()}
                             onChange={e => zmienPartie(p.key, w.key, { qty: e.target.value })}
-                            onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey) { e.preventDefault(); if (ostatni) nowaPartia(p.key); else skocz(idPola(p, p.partie[i + 1].key, 'nr')) } }} /><span className="sub">szt.</span></span></td>
+                            onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey) { e.preventDefault(); if (!ostatni) skocz(idPola(p, p.partie[i + 1].key, 'nr'))
+                              else if (!pelnaPozycja(p)) nowaPartia(p.key)
+                              else { const nast = koszyk[koszyk.findIndex(x => x.key === p.key) + 1]; setFokus(nast ? idPola(nast, nast.partie[0].key, 'nr') : 'dw-zapisz') } } }} /><span className="sub">szt.</span></span></td>
                           <td className="dw-podglad">
                             {w.nr.trim()
-                              ? <><span className="mono">→ {r.naWyrobie}</span> <span className={`dw-tag${r.masownia ? ' ok' : ''}`}>{r.masownia ? 'masownia ✓' : 'bez masowni'}</span></>
+                              ? <><span className="mono">→ {r.naWyrobie}</span> <span className={`dw-tag${r.masownia ? ' ok' : r.innaReceptura ? ' warn' : ''}`}
+                                title={r.kilka ? 'W masowni jest kilka wsadów tej receptury o tym numerze (różne dni)' : r.innaReceptura ? 'Wsad o tym numerze jest w masowni, ale z innej receptury — mięso nie zostanie zdjęte' : undefined}>
+                                {r.masownia ? (r.kilka ? 'masownia ✓ · kilka dni' : 'masownia ✓') : r.innaReceptura ? 'inna receptura w masowni' : 'bez masowni'}</span></>
                               : <span className="faint">wpisz numer partii</span>}
                           </td>
                           <td className="num dw-kg">{q > 0 ? kg(q * p.kgPerUnit) : <span className="faint">—</span>}</td>
@@ -336,7 +350,7 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
           </section>
         </div>
         <datalist id="dw-wsady">
-          {wsady.map(w => <option key={w.batchNo} value={w.batchNo}>{[w.recipeName, w.kgAvailable != null ? `${kgTxt(Math.round(w.kgAvailable))} kg w masowni` : ''].filter(Boolean).join(' · ')}</option>)}
+          {wsady.map((w, i) => <option key={`${w.batchNo}-${w.recipeId ?? ''}-${i}`} value={w.batchNo}>{[w.recipeName, w.kgAvailable != null ? `${kgTxt(Math.round(w.kgAvailable))} kg w masowni` : ''].filter(Boolean).join(' · ')}</option>)}
         </datalist>
       </div>
     </Dialog>

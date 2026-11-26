@@ -109,22 +109,42 @@ export function statusPozycji(p: PozycjaKoszyka): 'ok' | 'mniej' | 'wiecej' {
   return s === p.cel ? 'ok' : s < p.cel ? 'mniej' : 'wiecej'
 }
 
-export interface Rozpoznana { naWyrobie: string; masownia: boolean; nrMasowni?: string }
+export interface WsadMasowni { batchNo: string; recipeId?: string }
+
+export interface Rozpoznana {
+  naWyrobie: string
+  masownia: boolean
+  nrMasowni?: string
+  /** Wsad o tym numerze jest w masowni, ale z INNEJ receptury — mięsa nie zdejmujemy. */
+  innaReceptura?: true
+  /** Kilka wsadów tej receptury o tym numerze (różne dni) — serwer zdejmie z jednego z nich. */
+  kilka?: true
+}
 
 const Z_DATA = /^\d{6}\s+/
 
-export function rozpoznajPartie(nr: string, data: string, wsadyMasowni: string[]): Rozpoznana {
+/**
+ * Co stanie na wyrobie i czy zdejmujemy mięso z masowni. Wsad musi pasować
+ * numerem I recepturą pozycji: ten sam surowiec przyprawiony na dwie receptury
+ * daje dwa wsady o jednym numerze, a KIRMIZI nie może zjeść mięsa YAPRAK.
+ */
+export function rozpoznajPartie(nr: string, data: string, wsady: WsadMasowni[], recipeId = ''): Rozpoznana {
   const wpis = String(nr ?? '').trim()
   if (!wpis) return { naWyrobie: '—', masownia: false }
   const goly = wpis.replace(Z_DATA, '')
-  const wsad = wsadyMasowni.find(w => String(w).trim().toLowerCase() === goly.toLowerCase())
-  if (wsad != null) {
+  const ten = wsady.filter(w => String(w.batchNo).trim().toLowerCase() === goly.toLowerCase())
+  const tejReceptury = ten.filter(w => !recipeId || !w.recipeId || w.recipeId === recipeId)
+  if (tejReceptury.length) {
     const d = ddmmrr(data)
-    const n = String(wsad).trim()
-    return { naWyrobie: d ? `${d} ${n}` : n, masownia: true, nrMasowni: n }
+    const n = String(tejReceptury[0].batchNo).trim()
+    return { naWyrobie: d ? `${d} ${n}` : n, masownia: true, nrMasowni: n, ...(tejReceptury.length > 1 ? { kilka: true as const } : {}) }
   }
-  return { naWyrobie: normalizeManualBatchNo(wpis, data), masownia: false }
+  const naWyrobie = normalizeManualBatchNo(wpis, data)
+  return ten.length ? { naWyrobie, masownia: false, innaReceptura: true } : { naWyrobie, masownia: false }
 }
+
+/** Suma partii pokrywa brak — Enter nie dokłada wtedy pustego wiersza. */
+export const pelnaPozycja = (p: PozycjaKoszyka): boolean => sumaPartii(p) >= p.cel
 
 export function bledyKoszyka(k: PozycjaKoszyka[], data: string): Record<string, string> {
   const b: Record<string, string> = {}
@@ -139,9 +159,9 @@ export function bledyKoszyka(k: PozycjaKoszyka[], data: string): Record<string, 
   return b
 }
 
-export function payloadKoszyka(k: PozycjaKoszyka[], data: string, wsadyMasowni: string[]): FinishedGoodBulkItem[] {
+export function payloadKoszyka(k: PozycjaKoszyka[], data: string, wsady: WsadMasowni[]): FinishedGoodBulkItem[] {
   return k.flatMap(p => p.partie.map(w => {
-    const r = rozpoznajPartie(w.nr, data, wsadyMasowni)
+    const r = rozpoznajPartie(w.nr, data, wsady, p.recipeId)
     return {
       qty: Math.round(liczba(w.qty)), kgPerUnit: p.kgPerUnit, producedDate: data,
       recipeId: p.recipeId, recipeName: p.recipeName,
