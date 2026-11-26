@@ -1316,3 +1316,67 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 /* Znacznik wydruku kartki na karcie palety (rejestr wydruków, 19.11.2026). */
 .pal .pprint { padding: 0 12px 6px; font-size: var(--fs-xs); color: var(--ink-3); }
 .pal .pprint.warn-ink { color: var(--warn-ink); font-weight: 600; }
+
+/* Wyrób gotowy: Dodaj wyrób — drzewo zamówień + partie */
+.dw { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+.dw-top { display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+.dw-data { display: flex; flex-direction: column; gap: 5px; }
+.dw-data .field { width: 170px; font-variant-numeric: tabular-nums; }
+.dw-top .sub, .dw-forma .sub { color: var(--ink-3); font-size: var(--fs-sm); line-height: 1.4; }
+.dw-err { font-size: var(--fs-sm); }
+.dw-grid { display: grid; grid-template-columns: minmax(300px, 5fr) minmax(0, 7fr); gap: 16px; min-height: 0; height: min(62vh, 640px); }
+.dw-tree, .dw-koszyk { display: flex; flex-direction: column; min-height: 0; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.dw-koszyk { overflow: auto; padding: 12px; gap: 12px; background: var(--surface-alt); }
+.dw-search { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); color: var(--ink-3); }
+.dw-search .field { flex: 1; min-width: 0; }
+.dw-tree-list { flex: 1; overflow: auto; }
+.dw-klient + .dw-klient { border-top: 1px solid var(--line-soft); }
+.dw-k-h, .dw-z-h { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; color: var(--ink-1); }
+.dw-k-h { position: sticky; top: 0; z-index: 1; padding: 9px 12px; background: var(--surface); }
+.dw-k-h:hover, .dw-z-h:hover { background: var(--row-hover); }
+.dw-z-h { padding: 6px 12px 6px 30px; font-size: var(--fs-sm); color: var(--ink-2); }
+.dw-meta { color: var(--ink-3); font-size: var(--fs-sm); font-weight: 400; }
+.dw-left { margin-left: auto; color: var(--ink-3); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dw-badge { padding: 0 7px; border-radius: 999px; background: var(--accent-tint); color: var(--accent-ink); font-size: var(--fs-xs); font-weight: 600; }
+.dw-linia { display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 52px; cursor: pointer; }
+.dw-linia:hover { background: var(--row-hover); }
+.dw-linia.on { background: var(--accent-tint); }
+.dw-linia.done .dw-l-txt { color: var(--ink-3); }
+.dw-l-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dw-l-brak { color: var(--warn-ink); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dw-l-brak.ok { color: var(--ok-ink); }
+.dw-reczny-btn { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); color: var(--ink-2); font-weight: 500; }
+.dw-reczny-btn:hover, .dw-reczny-btn.on { color: var(--accent-ink); background: var(--accent-tint); }
+.dw-empty { padding: 18px 14px; color: var(--ink-3); font-size: var(--fs-sm); }
+.dw-empty.big { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; max-width: 320px; }
+.dw-empty.big b { color: var(--ink-2); font-size: var(--fs-md); }
+.dw-empty.big svg { color: var(--ink-4); }
+.dw-forma { margin: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
+.dw-forma legend { padding: 0 6px; font-weight: 600; }
+.dw-forma-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 14px; }
+.dw-forma-grid > label { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.dw-forma-f { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
+.dw-unit { display: inline-flex; align-items: center; gap: 6px; }
+.dw-unit .sub { color: var(--ink-3); font-size: var(--fs-sm); }
+.dw-poz { padding: 10px 12px; border-radius: var(--r-md); background: var(--surface); box-shadow: var(--e1); }
+.dw-poz-h { display: flex; align-items: flex-start; gap: 12px; }
+.dw-poz-t { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.dw-poz-w { flex-basis: 100%; color: var(--ink-2); font-size: var(--fs-sm); }
+.dw-razem { padding: 2px 9px; border-radius: var(--r-xs); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; background: var(--surface-sunk); color: var(--ink-2); }
+.dw-razem.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok-ink); }
+.dw-razem.mniej, .dw-razem.wiecej { background: var(--warn-tint); color: var(--warn-ink); }
+.dw-partie { width: 100%; margin-top: 8px; border-collapse: collapse; }
+.dw-partie th { padding: 2px 6px; text-align: left; color: var(--ink-3); font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.dw-partie th.num { text-align: right; }
+.dw-partie td { padding: 3px 6px; vertical-align: middle; }
+.dw-partie td:last-child { width: 32px; }
+.dw-nr { width: 150px; }
+.dw-qty { width: 76px; text-align: right; }
+.dw-podglad { color: var(--ink-2); font-size: var(--fs-sm); white-space: nowrap; }
+.dw-podglad .mono { font-family: var(--font-code); }
+.dw-tag { margin-left: 6px; padding: 0 7px; border-radius: 999px; background: var(--surface-sunk); color: var(--ink-3); font-size: var(--fs-xs); }
+.dw-tag.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok-ink); }
+.dw-kg { margin-left: 10px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.dw-err-row td { padding-top: 0; }
+.dw-plus { margin-top: 4px; }
+.dw .mono { font-family: var(--font-code); font-size: var(--fs-id); }
