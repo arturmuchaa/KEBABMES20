@@ -420,6 +420,19 @@ def scan_produced(
                 f"Ta sztuka jest z pozycji {gdzie}" if gdzie
                 else "Ta sztuka jest z innej pozycji planu",
             )
+        # Plan z blokadą palet: sztuka tylko z partii, której paleta
+        # wyjechała na halę (plan produkcji, 26.11.2026). Przed zmianą
+        # statusu — odbita sztuka zostaje do ponownego skanu.
+        if unit.get("status") == "planned" and unit.get("plan_line_id"):
+            bramka = cx_query_one(
+                conn,
+                "SELECT l.plan_id, p.pallet_gate FROM production_plan_lines l "
+                "JOIN production_plans p ON p.id = l.plan_id WHERE l.id=%s",
+                (unit["plan_line_id"],),
+            ) or {}
+            if bramka.get("pallet_gate"):
+                from app.services.seasoned_pallets_service import assert_unit_batch_on_hall
+                assert_unit_batch_on_hall(conn, unit, bramka["plan_id"])
         try:
             new_status = next_produced_status(unit["status"])
         except ValueError as exc:

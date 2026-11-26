@@ -214,3 +214,38 @@ def pallet_out(r: Dict[str, Any]) -> Dict[str, Any]:
         "returnedAt": r["returned_at"].isoformat() if r.get("returned_at") else None,
         "kgReturned": float(r["kg_returned"]) if r.get("kg_returned") is not None else None,
     }
+
+
+# ── Sztuka tylko z partii wywiezionej na halę ────────────────────────────
+
+def assert_unit_batch_on_hall(conn, unit: Dict[str, Any], plan_id: str) -> None:
+    """Odbija skan sztuki, której partia nie wyjechała na halę w planie `plan_id`.
+
+    Wołać tylko dla planów z `pallet_gate`. Sztuka PM (zaplanowana z końcówek)
+    wymaga wywiezienia WSZYSTKICH palet przypisanych do jej pozycji.
+    """
+    line_id = unit.get("plan_line_id")
+    batch = unit.get("batch_no") or ""
+    jawne = cx_query_all(
+        conn,
+        "SELECT sp.pallet_no, sp.batch_no, sp.taken_plan_id FROM plan_line_pallets lp "
+        "JOIN seasoned_pallets sp ON sp.id = lp.pallet_id WHERE lp.plan_line_id=%s",
+        (line_id,),
+    )
+    if batch.startswith("PM") and jawne:
+        brak = [j for j in jawne if j.get("taken_plan_id") != plan_id]
+        if brak:
+            raise HTTPException(
+                409,
+                f"Partia {batch} nie wyjechała na halę — najpierw zeskanuj końcówki: "
+                + ", ".join(f"{j['batch_no']} (paleta {j['pallet_no']})" for j in brak),
+            )
+        return
+    wywieziona = cx_query_one(
+        conn,
+        "SELECT 1 FROM seasoned_pallets WHERE batch_no=%s AND taken_plan_id=%s LIMIT 1",
+        (batch, plan_id),
+    )
+    if not wywieziona:
+        raise HTTPException(
+            409, f"Partia {batch} nie wyjechała na halę — najpierw zeskanuj jej paletę")
