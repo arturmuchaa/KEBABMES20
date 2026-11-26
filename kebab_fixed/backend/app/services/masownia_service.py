@@ -19,7 +19,7 @@ from app.models.masownia import (
     ChargeCreate, ChargeFinish, SpiceCartCreate, SpiceWeighDto,
 )
 from app.models.mixing import FinishMixingLotAlloc, FinishMixingSessionDto
-from app.services import mixing_service
+from app.services import mixing_service, seasoned_pallets_service
 from app.utils.batch_numbers import combined_batch_no
 from app.utils.ids import cuid, next_seq, now_iso
 
@@ -708,10 +708,23 @@ def finish_charge(charge_id: str, dto: ChargeFinish) -> Dict[str, Any]:
         (session_id, float(dto.kg_output), charge_id),
     )
 
+    # Paleta mięsa przyprawionego (QR SP|id) — od niej zaczyna się droga na
+    # halę. Błąd tutaj NIE cofa odbioru: mięso jest już zaksięgowane, a paletę
+    # dołoży backfill stanu chłodni przy następnym starcie.
+    paleta: Dict[str, Any] = {}
+    try:
+        with transaction() as conn:
+            paleta = seasoned_pallets_service.create_from_charge(
+                conn, dict(zamkniety), float(dto.kg_output)) or {}
+    except Exception:
+        logger.exception("masownia.pallet_create_failed", extra={"charge_id": charge_id})
+
     logger.info("masownia.charge.finished", extra={
         "machine": charge["machine_id"], "kg_output": dto.kg_output,
     })
     out = dict(zamkniety)
+    out["pallet_id"] = paleta.get("id")
+    out["pallet_qr"] = seasoned_pallets_service.qr_of(paleta["id"]) if paleta.get("id") else None
     out["kg_meat"] = float(out.get("kg_meat") or 0)
     out["water_l"] = float(out.get("water_l") or 0)
     out["kg_output"] = float(dto.kg_output)

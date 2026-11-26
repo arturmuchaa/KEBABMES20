@@ -2122,6 +2122,51 @@ _DDL: list[str] = [
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
         PRIMARY KEY (order_id, pallet_no)
     )""",
+    # ── Palety mięsa przyprawionego (plan produkcji, etap 1, 26.11.2026) ──
+    # Paleta po masowaniu = partia na hali. Kierownik skanuje jej QR (SP|id)
+    # przy wywozie z chłodni; końcówka wraca zważona jako nowa paleta
+    # (is_remainder, parent_id). Spec: docs/superpowers/specs/
+    # 2026-11-26-plan-produkcji-partie-design.md
+    """CREATE TABLE IF NOT EXISTS seasoned_pallets (
+        id               TEXT PRIMARY KEY,
+        pallet_no        INTEGER NOT NULL,
+        charge_id        TEXT,
+        seasoned_meat_id TEXT,
+        batch_no         TEXT NOT NULL,
+        recipe_id        TEXT DEFAULT '',
+        recipe_name      TEXT DEFAULT '',
+        kg_weighed       NUMERIC(10,3) NOT NULL,
+        status           TEXT NOT NULL DEFAULT 'in_cold',
+        parent_id        TEXT,
+        is_remainder     BOOLEAN NOT NULL DEFAULT false,
+        label_printed_at TIMESTAMPTZ,
+        taken_at         TIMESTAMPTZ,
+        taken_by         TEXT DEFAULT '',
+        taken_plan_id    TEXT,
+        returned_at      TIMESTAMPTZ,
+        kg_returned      NUMERIC(10,3),
+        created_at       TIMESTAMPTZ DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_seasoned_pallets_status ON seasoned_pallets(status)",
+    "CREATE INDEX IF NOT EXISTS idx_seasoned_pallets_batch ON seasoned_pallets(batch_no)",
+    "CREATE INDEX IF NOT EXISTS idx_seasoned_pallets_plan ON seasoned_pallets(taken_plan_id) WHERE taken_plan_id IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_seasoned_pallets_charge ON seasoned_pallets(charge_id) WHERE charge_id IS NOT NULL",
+    """CREATE TABLE IF NOT EXISTS plan_line_pallets (
+        plan_line_id TEXT NOT NULL,
+        pallet_id    TEXT NOT NULL,
+        PRIMARY KEY (plan_line_id, pallet_id)
+    )""",
+    "ALTER TABLE production_plans ADD COLUMN IF NOT EXISTS pallet_gate BOOLEAN NOT NULL DEFAULT false",
+    """CREATE TABLE IF NOT EXISTS plan_batch_balance (
+        plan_id     TEXT NOT NULL,
+        batch_no    TEXT NOT NULL,
+        kg_in       NUMERIC(10,3) NOT NULL DEFAULT 0,
+        kg_goods    NUMERIC(10,3) NOT NULL DEFAULT 0,
+        kg_returned NUMERIC(10,3) NOT NULL DEFAULT 0,
+        kg_loss     NUMERIC(10,3) NOT NULL DEFAULT 0,
+        created_at  TIMESTAMPTZ DEFAULT now(),
+        PRIMARY KEY (plan_id, batch_no)
+    )""",
 ]
 
 
