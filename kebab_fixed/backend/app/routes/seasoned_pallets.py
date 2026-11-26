@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter
 
 from app.db import query_all
-from app.models.seasoned_pallets import TakeDto
+from app.models.seasoned_pallets import ReturnDto, TakeDto
 from app.services import seasoned_pallets_service as svc
 
 router = APIRouter(prefix="/api/seasoned-pallets", tags=["seasoned-pallets"])
@@ -28,3 +28,9 @@ def list_pallets(status: Optional[str] = None, plan_id: Optional[str] = None):
 def take(dto: TakeDto):
     """Skan kierownika przy wywozie palety z chłodni na halę (blokada spoza planu)."""
     return svc.take_pallet(dto.code, dto.worker_name)
+
+
+@router.post("/return")
+def return_remainder(dto: ReturnDto):
+    """Zwrot końcówki: kg z wagi paletowej (0 = paleta zużyta do zera)."""
+    return svc.return_pallet(dto.code, dto.kg)

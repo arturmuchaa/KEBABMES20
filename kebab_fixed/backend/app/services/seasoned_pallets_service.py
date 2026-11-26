@@ -249,3 +249,65 @@ def assert_unit_batch_on_hall(conn, unit: Dict[str, Any], plan_id: str) -> None:
     if not wywieziona:
         raise HTTPException(
             409, f"Partia {batch} nie wyjechała na halę — najpierw zeskanuj jej paletę")
+
+
+# ── Zwrot końcówki ───────────────────────────────────────────────────────
+
+def return_pallet(code_or_id: str, kg: float) -> Dict[str, Any]:
+    """Koniec palety na hali: kg z wagi paletowej (0 = zużyta do zera).
+
+    Paleta zawsze się zamyka. Końcówka > 0 kg to NOWA paleta tej samej partii
+    w chłodni, z własnym numerem i kodem QR (etykietę drukuje biuro).
+    """
+    pallet_id = parse_code(code_or_id) or (code_or_id or "").strip().lower()
+    kg = round(float(kg or 0), 3)
+    if kg < 0:
+        raise HTTPException(400, "Waga nie może być ujemna")
+    with transaction() as conn:
+        p = cx_query_one(
+            conn, "SELECT * FROM seasoned_pallets WHERE id=%s FOR UPDATE", (pallet_id,))
+        if not p:
+            raise HTTPException(404, "Nie znam tej palety")
+        nr = p.get("pallet_no")
+        if p["status"] != "on_hall":
+            raise HTTPException(409, f"Paleta {nr} nie jest na hali")
+        wyjechalo = round(float(p.get("kg_weighed") or 0), 3)
+        if kg > wyjechalo:
+            raise HTTPException(
+                409, f"Końcówka {_fmt_kg(kg)} kg to więcej niż wyjechało ({_fmt_kg(wyjechalo)} kg)")
+        cx_execute_returning(
+            conn,
+            "UPDATE seasoned_pallets SET status='closed', returned_at=now(), kg_returned=%s "
+            "WHERE id=%s RETURNING id",
+            (kg, p["id"]),
+        )
+        koncowka = None
+        if kg > 0:
+            nowy_nr = cx_execute_returning(
+                conn,
+                "INSERT INTO sequences (key, value) VALUES ('seasoned_pallet_seq', 1) "
+                "ON CONFLICT (key) DO UPDATE SET value = sequences.value + 1 RETURNING value",
+            )
+            koncowka = cx_execute_returning(
+                conn,
+                """
+                INSERT INTO seasoned_pallets
+                    (id, pallet_no, seasoned_meat_id, batch_no, recipe_id, recipe_name,
+                     kg_weighed, status, parent_id, is_remainder)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,'in_cold',%s,true)
+                RETURNING *
+                """,
+                (cuid(), int(nowy_nr["value"]), p.get("seasoned_meat_id"), p.get("batch_no") or "",
+                 p.get("recipe_id") or "", p.get("recipe_name") or "", kg, p["id"]),
+            )
+    return {
+        "ok": True,
+        "palletNo": nr,
+        "closed": True,
+        "remainder": None if not koncowka else {
+            "id": koncowka["id"],
+            "palletNo": koncowka["pallet_no"],
+            "qr": qr_of(koncowka["id"]),
+            "kg": float(koncowka["kg_weighed"]),
+        },
+    }
