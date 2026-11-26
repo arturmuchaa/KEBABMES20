@@ -4082,6 +4082,9 @@ export const productionPlansApi = {
   /** Blokada palet w planie — tylko w szkicu. */
   setPalletGate: (planId: string, enabled: boolean) =>
     patch<any>(`/production-plans/${planId}/pallet-gate`, { enabled }),
+  /** Powtórz bilans partii, gdy przy potwierdzeniu wrócił `balanceError`. */
+  settleBalance: (planId: string) =>
+    post<any>(`/production-plans/${planId}/settle-balance`, {}),
 }
 
 // ─── Palety mięsa przyprawionego (wywóz na halę, zwrot końcówki) ───
@@ -4094,8 +4097,9 @@ export const seasonedPalletsApi = {
     return get<any>(`/seasoned-pallets${qs ? `?${qs}` : ''}`)
       .then((r: any) => (Array.isArray(r) ? r : r?.data ?? []))
   },
-  take: (code: string, workerName?: string) =>
-    post<any>('/seasoned-pallets/take', { code, workerName: workerName ?? '' }),
+  /** `planId` — plan widoczny na tablecie; paleta musi należeć do niego. */
+  take: (code: string, workerName?: string, planId?: string) =>
+    post<any>('/seasoned-pallets/take', { code, workerName: workerName ?? '', planId: planId ?? null }),
   return: (code: string, kg: number) =>
     post<any>('/seasoned-pallets/return', { code, kg }),
 }

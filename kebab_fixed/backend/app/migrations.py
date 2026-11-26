@@ -2161,12 +2161,13 @@ _DDL: list[str] = [
     """CREATE TABLE IF NOT EXISTS plan_batch_balance (
         plan_id     TEXT NOT NULL,
         batch_no    TEXT NOT NULL,
+        recipe_id   TEXT NOT NULL DEFAULT '',
         kg_in       NUMERIC(10,3) NOT NULL DEFAULT 0,
         kg_goods    NUMERIC(10,3) NOT NULL DEFAULT 0,
         kg_returned NUMERIC(10,3) NOT NULL DEFAULT 0,
         kg_loss     NUMERIC(10,3) NOT NULL DEFAULT 0,
         created_at  TIMESTAMPTZ DEFAULT now(),
-        PRIMARY KEY (plan_id, batch_no)
+        PRIMARY KEY (plan_id, batch_no, recipe_id)
     )""",
 ]
 
@@ -2415,6 +2416,40 @@ def _backfill_seasoned_pallets() -> None:
                 """,
             )
             for r in rows:
+                kg = round(float(r["kg_available"]), 3)
+                # Partia nietknięta (stan = suma odbiorów z paleciaka): paleta
+                # na KAŻDY odbiór, z jego numerem — tak, jak stoją w chłodni.
+                # Partia napoczęta: jeden wpis na całą partię (których palet
+                # fizycznych ubyło, system nie wie); ponowny skan do tego
+                # samego planu przepuszcza kolejne palety fizyczne.
+                odbiory = cx_query_all(
+                    conn,
+                    """
+                    SELECT c.id, c.out_pallet_no, c.kg_output
+                    FROM mixing_charges c JOIN mixing_orders o ON o.id = c.order_id
+                    WHERE c.status='done' AND c.batch_no=%s AND COALESCE(o.recipe_id,'')=%s
+                      AND c.out_pallet_no IS NOT NULL AND COALESCE(c.kg_output,0) > 0
+                      AND NOT EXISTS (SELECT 1 FROM seasoned_pallets p WHERE p.charge_id = c.id)
+                    ORDER BY c.out_pallet_no
+                    """,
+                    (r["batch_no"] or "", r["recipe_id"] or ""),
+                )
+                suma = round(sum(float(o["kg_output"] or 0) for o in odbiory), 3)
+                if odbiory and abs(suma - kg) <= max(5.0, kg * 0.02):
+                    for o in odbiory:
+                        cx_execute(
+                            conn,
+                            """
+                            INSERT INTO seasoned_pallets
+                                (id, pallet_no, charge_id, seasoned_meat_id, batch_no, recipe_id,
+                                 recipe_name, kg_weighed, status)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'in_cold')
+                            """,
+                            (uuid.uuid4().hex[:20], int(o["out_pallet_no"]), o["id"], r["id"],
+                             r["batch_no"] or "", r["recipe_id"] or "", r["recipe_name"] or "",
+                             round(float(o["kg_output"]), 3)),
+                        )
+                    continue
                 nr = cx_execute_returning(
                     conn,
                     "INSERT INTO sequences (key, value) VALUES ('seasoned_pallet_seq', 1) "
@@ -2429,8 +2464,7 @@ def _backfill_seasoned_pallets() -> None:
                     VALUES (%s,%s,%s,%s,%s,%s,%s,'in_cold')
                     """,
                     (uuid.uuid4().hex[:20], int(nr["value"]), r["id"], r["batch_no"] or "",
-                     r["recipe_id"] or "", r["recipe_name"] or "",
-                     round(float(r["kg_available"]), 3)),
+                     r["recipe_id"] or "", r["recipe_name"] or "", kg),
                 )
             logger.info("migrations.seasoned_pallets_backfill", extra={"pallets": len(rows)})
     except Exception as exc:  # pragma: no cover

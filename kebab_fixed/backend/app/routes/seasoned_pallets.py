@@ -27,7 +27,7 @@ def list_pallets(status: Optional[str] = None, plan_id: Optional[str] = None):
 @router.post("/take")
 def take(dto: TakeDto):
     """Skan kierownika przy wywozie palety z chłodni na halę (blokada spoza planu)."""
-    return svc.take_pallet(dto.code, dto.worker_name)
+    return svc.take_pallet(dto.code, dto.worker_name, dto.plan_id)
 
 
 @router.post("/return")

@@ -25,6 +25,12 @@ describe('WywozPalety', () => {
     expect(zamknij).toHaveBeenCalled()
   })
 
+  it('ponowny skan tej samej palety: zielony, „już wywieziona”', () => {
+    render(<WywozPalety wynik={{ ok: true, again: true, palletNo: 41, batchNo: '724',
+      lines: [{ lineId: 'l1', label: '20 × 40 kg KIRMIZI' }] }} onZamknij={() => {}} />)
+    expect(screen.getByRole('status')).toHaveTextContent('już wywieziona')
+  })
+
   it('bez wyniku nic nie pokazuje', () => {
     const { container } = render(<WywozPalety wynik={null} onZamknij={() => {}} />)
     expect(container).toBeEmptyDOMElement()

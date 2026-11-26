@@ -152,3 +152,9 @@ def plan_balance(plan_id: str):
 def set_pallet_gate(plan_id: str, body: PalletGateBody):
     """Włącz/wyłącz blokadę palet (skan wywozu na halę) — tylko w szkicu planu."""
     return svc.set_pallet_gate(plan_id, body.enabled)
+
+
+@router.post("/{plan_id}/settle-balance")
+def settle_balance(plan_id: str):
+    """Powtórz bilans partii planu, gdy przy potwierdzeniu się nie udał."""
+    return {"data": svc.settle_balance(plan_id)}

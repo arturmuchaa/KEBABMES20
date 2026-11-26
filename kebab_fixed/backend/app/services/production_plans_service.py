@@ -1195,6 +1195,27 @@ def update_plan_status(plan_id: str, status: str) -> Dict[str, bool]:
     return {"ok": True}
 
 
+def settle_balance(plan_id: str) -> list:
+    """Bilans partii planu z blokadą palet — po potwierdzeniu biura, raz.
+
+    Wołany z office_confirm, a ręcznie (POST /settle-balance), gdy bilans
+    przy potwierdzeniu się nie udał (np. rezerwacje innych planów)."""
+    from app.services import seasoned_pallets_service as palety
+    with transaction() as conn:
+        plan = cx_query_one(
+            conn, "SELECT id, plan_no, pallet_gate, status FROM production_plans WHERE id=%s FOR UPDATE",
+            (plan_id,))
+        if not plan:
+            raise HTTPException(404, "Plan nie znaleziony")
+        if not plan.get("pallet_gate"):
+            raise HTTPException(409, "Plan nie ma kontroli palet — nie ma bilansu palet")
+        if plan.get("status") != "done":
+            raise HTTPException(409, "Bilans robi się po potwierdzeniu planu przez biuro")
+        if cx_query_one(conn, "SELECT 1 FROM plan_batch_balance WHERE plan_id=%s LIMIT 1", (plan_id,)):
+            raise HTTPException(409, "Bilans tego planu już jest")
+        return palety.settle_plan_balance(conn, plan_id, plan.get("plan_no") or "")
+
+
 def set_pallet_gate(plan_id: str, enabled: bool) -> Dict[str, Any]:
     """Blokada palet w planie (plan produkcji, 26.11.2026) — tylko w szkicu:
     włączenie jej w trakcie produkcji zatrzymałoby skan sztuk z palet, których
@@ -1585,7 +1606,7 @@ def office_confirm(plan_id: str) -> Dict[str, Any]:
     if plan.get("pallet_gate"):
         from app.services import seasoned_pallets_service as palety
         with transaction() as conn:
-            palety.assert_plan_ready_to_confirm(conn, plan_id)
+            palety.assert_plan_ready_to_confirm(conn, plan_id, entries)
 
     dto = FinishDayDto(plan_id=plan_id, entries=entries)
     result = finish_day(dto)
@@ -1604,9 +1625,14 @@ def office_confirm(plan_id: str) -> Dict[str, Any]:
             (plan_id,),
         )
     if plan.get("pallet_gate"):
-        from app.services import seasoned_pallets_service as palety
-        with transaction() as conn:
-            result["balance"] = palety.settle_plan_balance(conn, plan_id, plan.get("plan_no") or "")
+        # Plan jest już potwierdzony (finish_day zatwierdził wyroby). Błąd
+        # bilansu nie może go „odpotwierdzić" — wraca do biura jako
+        # `balanceError`, a bilans da się powtórzyć: POST /settle-balance.
+        try:
+            result["balance"] = settle_balance(plan_id)
+        except HTTPException as exc:
+            logger.warning("plan.balance_failed", extra={"plan_id": plan_id, "error": str(exc.detail)})
+            result["balanceError"] = str(exc.detail)
 
     logger.info(
         "plan.office_confirmed",

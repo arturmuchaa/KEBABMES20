@@ -110,11 +110,19 @@ def test_ten_sam_numer_partii_innej_receptury_blokuje():
         sp.take_pallet(kod(beyaz))
 
 
-def test_drugi_skan_tej_samej_palety():
+def test_drugi_skan_tej_samej_palety_do_tego_planu_ok():
+    """Dubel skanera albo druga paleta fizyczna jednego wpisu — nie blokada."""
     sm = partia(); p = paleta(sm); linia(plan(), sm)
-    sp.take_pallet(kod(p))
+    assert sp.take_pallet(kod(p))["again"] is False
+    assert sp.take_pallet(kod(p))["again"] is True
+
+
+def test_skan_palety_wywiezionej_do_innego_planu_blokuje():
+    sm = partia(); p = paleta(sm); p1, p2 = plan(), plan()
+    linia(p1, sm); linia(p2, sm)
+    sp.take_pallet(kod(p), plan_id=p1)
     with pytest.raises(HTTPException) as e:
-        sp.take_pallet(kod(p))
+        sp.take_pallet(kod(p), plan_id=p2)
     assert e.value.status_code == 409 and "już wyjechała" in e.value.detail
 
 
@@ -169,14 +177,18 @@ def test_rownolegly_skan_przechodzi_raz():
 
     def skan():
         try:
-            sp.take_pallet(kod(p)); wyniki.append("ok")
+            wyniki.append("again" if sp.take_pallet(kod(p))["again"] else "ok")
         except HTTPException as e:
             wyniki.append(e.status_code)
 
     watki = [threading.Thread(target=skan) for _ in range(4)]
     for w in watki: w.start()
     for w in watki: w.join()
-    assert wyniki.count("ok") == 1 and wyniki.count(409) == 3
+    # Dokładnie jeden skan wywozi; reszta to wyścig (409) albo ponowny skan
+    # już wywiezionej palety do tego samego planu.
+    assert wyniki.count("ok") == 1
+    assert all(w in ("ok", "again", 409) for w in wyniki)
+    assert query_one("SELECT status FROM seasoned_pallets WHERE id=%s", (p,))["status"] == "on_hall"
 
 
 def test_trasa_take_i_lista():

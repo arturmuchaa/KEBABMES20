@@ -402,6 +402,14 @@ def list_charges_today() -> List[Dict[str, Any]]:
         # Paleta mięsa przyprawionego tego wsadu — dodruk etykiety niesie
         # ten sam kod QR (SP|id), który skanuje kierownik na hali.
         paleta = query_one("SELECT id FROM seasoned_pallets WHERE charge_id=%s", (r["id"],))
+        if not paleta and row.get("out_pallet_no") and row["kg_output"] > 0:
+            # Odbiór, przy którym paleta się nie założyła — dokładamy ją tu
+            # (idempotentnie po charge_id), żeby dodruk dał etykietę z QR.
+            try:
+                with transaction() as conn:
+                    paleta = seasoned_pallets_service.create_from_charge(conn, dict(r), row["kg_output"])
+            except Exception:
+                logger.exception("masownia.pallet_recreate_failed", extra={"charge_id": r["id"]})
         row["pallet_id"] = (paleta or {}).get("id")
         row["pallet_qr"] = seasoned_pallets_service.qr_of(paleta["id"]) if paleta else None
         row["meat"] = query_all(
@@ -715,7 +723,7 @@ def finish_charge(charge_id: str, dto: ChargeFinish) -> Dict[str, Any]:
 
     # Paleta mięsa przyprawionego (QR SP|id) — od niej zaczyna się droga na
     # halę. Błąd tutaj NIE cofa odbioru: mięso jest już zaksięgowane, a paletę
-    # dołoży backfill stanu chłodni przy następnym starcie.
+    # dołoży lista dzisiejszych wsadów (`list_charges_today`, dodruk etykiety).
     paleta: Dict[str, Any] = {}
     try:
         with transaction() as conn:

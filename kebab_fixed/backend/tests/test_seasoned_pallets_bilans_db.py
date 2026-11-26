@@ -79,10 +79,8 @@ def test_zwrot_zero_zamyka_partie():
 def test_rezerwacja_innego_planu_czytelny_blad():
     sm, _, pl = _dzien()
     execute("UPDATE seasoned_meat SET kg_reserved=100 WHERE id=%s", (sm,))
-    with pytest.raises(HTTPException) as e:
-        pps.office_confirm(pl)
-    assert e.value.status_code == 409
-    assert "724" in e.value.detail and "zarezerwowane" in e.value.detail
+    out = pps.office_confirm(pl)
+    assert "724" in out["balanceError"] and "zarezerwowane" in out["balanceError"]
 
 
 def test_blokade_wlacza_sie_tylko_w_szkicu():

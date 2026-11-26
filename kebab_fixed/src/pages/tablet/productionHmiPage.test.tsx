@@ -174,8 +174,8 @@ vi.mock('@/lib/api', () => ({
     current: () => Promise.resolve({ seed: 120, global: 120, plannedBreakMinutes: 30, byRecipe: {} }),
   },
   seasonedPalletsApi: {
-    take: (code: string, workerName?: string) => {
-      wolania.wywozy.push({ code, workerName })
+    take: (code: string, workerName?: string, planId?: string) => {
+      wolania.wywozy.push({ code, workerName, planId })
       return wolania.wywozBlad
         ? Promise.reject(Object.assign(new Error(wolania.wywozBlad), { status: 409 }))
         : Promise.resolve({ ok: true, palletNo: 41, batchNo: '724', recipeName: 'KIRMIZI', planId: 'p1',
@@ -1715,6 +1715,7 @@ describe('ProductionHmiPage — wywóz palety mięsa na halę (plan produkcji 26
     await waitFor(() => expect(wolania.wywozy).toHaveLength(1))
     expect(wolania.wywozy[0].code).toBe(PALETA)
     expect(wolania.wywozy[0].workerName).toBe('MARCIN NOWAK')
+    expect(wolania.wywozy[0].planId).toBe('p1')
     expect(wolania.skany).toHaveLength(0)
     expect((await screen.findByTestId('wywoz-palety')).textContent).toMatch(/10 × 40 kg KIRMIZI/)
   })

@@ -778,8 +778,8 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
   const kierownik = user?.name ?? ''
   const wywiezPalete = useCallback(async (kod: string) => {
     try {
-      const r = await seasonedPalletsApi.take(kod.trim(), kierownik)
-      setWynikWywozu({ ok: true, palletNo: r.palletNo, batchNo: r.batchNo, recipeName: r.recipeName, lines: r.lines ?? [] })
+      const r = await seasonedPalletsApi.take(kod.trim(), kierownik, planIdRef.current || undefined)
+      setWynikWywozu({ ok: true, again: Boolean(r.again), palletNo: r.palletNo, batchNo: r.batchNo, recipeName: r.recipeName, lines: r.lines ?? [] })
       beepOk()
     } catch (e: any) {
       setWynikWywozu({ ok: false, komunikat: e?.message ?? 'Nie udało się sprawdzić palety' })

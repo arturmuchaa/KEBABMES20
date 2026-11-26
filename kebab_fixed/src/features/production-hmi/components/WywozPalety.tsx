@@ -8,7 +8,7 @@
  * (patrzy na wózek, nie na monitor).
  */
 export type WynikWywozu =
-  | { ok: true; palletNo: number | string; batchNo: string; recipeName?: string; lines: { lineId: string; label: string }[] }
+  | { ok: true; again?: boolean; palletNo: number | string; batchNo: string; recipeName?: string; lines: { lineId: string; label: string }[] }
   | { ok: false; komunikat: string }
 
 export function WywozPalety({ wynik, onZamknij }: { wynik: WynikWywozu | null; onZamknij: () => void }) {
@@ -28,7 +28,7 @@ export function WywozPalety({ wynik, onZamknij }: { wynik: WynikWywozu | null; o
         {wynik.ok ? (
           <>
             <div className="text-[19px] font-extrabold">
-              Paleta {wynik.palletNo} · partia <span className="hmi-v10-mono">{wynik.batchNo}</span> — można brać na halę
+              Paleta {wynik.palletNo} · partia <span className="hmi-v10-mono">{wynik.batchNo}</span> — {wynik.again ? 'już wywieziona do tego planu' : 'można brać na halę'}
             </div>
             <div className="text-[15px] font-bold mt-0.5">
               {wynik.lines.map(l => l.label).join('  ·  ')}

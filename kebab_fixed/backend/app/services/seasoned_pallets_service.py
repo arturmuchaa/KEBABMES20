@@ -72,8 +72,15 @@ def parse_code(code: str) -> str | None:
     return m.group(1).lower() if m else None
 
 
-def today_local() -> str:
-    return datetime.now(ZoneInfo("Europe/Warsaw")).date().isoformat()
+def production_day(now: datetime | None = None) -> str:
+    """Dzień produkcyjny jak na tabletach (`getProductionDate`): przed 04:00
+    liczy się jeszcze poprzedni dzień — zmiana po północy pracuje na
+    wczorajszym planie."""
+    from datetime import timedelta
+    teraz = (now or datetime.now(ZoneInfo("Europe/Warsaw"))).astimezone(ZoneInfo("Europe/Warsaw"))
+    if teraz.hour < 4:
+        teraz = teraz - timedelta(days=1)
+    return teraz.date().isoformat()
 
 
 def _fmt_kg(v: Any) -> str:
@@ -130,9 +137,16 @@ def _hhmm(ts: Any) -> str:
     return ts.astimezone(ZoneInfo("Europe/Warsaw")).strftime("%H:%M")
 
 
-def take_pallet(code: str, worker_name: str = "") -> Dict[str, Any]:
-    """Skan kierownika przy wywozie palety z chłodni na halę."""
+def take_pallet(code: str, worker_name: str = "", plan_id: str | None = None) -> Dict[str, Any]:
+    """Skan kierownika przy wywozie palety z chłodni na halę.
+
+    `plan_id` — plan widoczny na tablecie; wtedy paleta musi należeć do TEGO
+    planu (dwa plany na jeden dzień nie przejmują sobie palet). Bez niego —
+    pierwszy pasujący plan dnia. Plan zamknięty przez tablet lub biuro nie
+    przyjmuje już palet.
+    """
     pallet_id = parse_code(code)
+    again = False
     with transaction() as conn:
         p = cx_query_one(
             conn, "SELECT * FROM seasoned_pallets WHERE id=%s", (pallet_id,)) if pallet_id else None
@@ -141,18 +155,29 @@ def take_pallet(code: str, worker_name: str = "") -> Dict[str, Any]:
         nr = p.get("pallet_no")
         if p["status"] == "closed":
             raise HTTPException(409, f"Paleta {nr} jest już zużyta")
-        if p["status"] == "on_hall":
-            raise HTTPException(409, f"Paleta {nr} już wyjechała na halę ({_hhmm(p.get('taken_at'))})")
 
-        plany = cx_query_all(
-            conn,
-            "SELECT id, plan_no FROM production_plans "
-            "WHERE status='active' AND pallet_gate AND plan_date=%s ORDER BY plan_no",
-            (today_local(),),
-        )
+        sql = ("SELECT id, plan_no FROM production_plans "
+               "WHERE status='active' AND pallet_gate AND plan_date=%s "
+               "AND tablet_finished_at IS NULL AND office_confirmed_at IS NULL")
+        args: list[Any] = [production_day()]
+        if plan_id:
+            sql += " AND id=%s"
+            args.append(plan_id)
+        plany = cx_query_all(conn, sql + " ORDER BY plan_no", tuple(args))
+
+        if p["status"] == "on_hall":
+            # Ponowny skan tej samej palety do tego samego planu (dubel
+            # skanera, druga paleta fizyczna partii z jednego wpisu) — OK.
+            if p.get("taken_plan_id") in {pl["id"] for pl in plany}:
+                again = True
+            else:
+                raise HTTPException(409, f"Paleta {nr} już wyjechała na halę ({_hhmm(p.get('taken_at'))})")
+
         trafione: list[Dict[str, Any]] = []
         plan_trafiony: Dict[str, Any] | None = None
         for pl in plany:
+            if again and pl["id"] != p.get("taken_plan_id"):
+                continue
             linie = cx_query_all(
                 conn,
                 "SELECT * FROM production_plan_lines WHERE plan_id=%s ORDER BY position, id",
@@ -163,22 +188,29 @@ def take_pallet(code: str, worker_name: str = "") -> Dict[str, Any]:
                 plan_trafiony, trafione = pl, pasujace
                 break
         if not plan_trafiony:
+            if not plany:
+                raise HTTPException(
+                    409,
+                    f"Paleta {nr} (partia {p.get('batch_no')}): dzisiejszy plan nie ma kontroli palet "
+                    "albo dzień jest już zamknięty — zapytaj biuro",
+                )
             raise HTTPException(
                 409,
                 f"Paleta {nr} (partia {p.get('batch_no')}) nie jest w planie na dziś "
                 "— zmiana tylko przez biuro",
             )
 
-        zmieniona = cx_execute_returning(
-            conn,
-            "UPDATE seasoned_pallets SET status='on_hall', taken_at=now(), taken_by=%s, "
-            "taken_plan_id=%s WHERE id=%s AND status='in_cold' RETURNING *",
-            (worker_name or "", plan_trafiony["id"], p["id"]),
-        )
-        if not zmieniona:
-            teraz = cx_query_one(conn, "SELECT taken_at FROM seasoned_pallets WHERE id=%s", (p["id"],))
-            raise HTTPException(
-                409, f"Paleta {nr} już wyjechała na halę ({_hhmm((teraz or {}).get('taken_at'))})")
+        if not again:
+            zmieniona = cx_execute_returning(
+                conn,
+                "UPDATE seasoned_pallets SET status='on_hall', taken_at=now(), taken_by=%s, "
+                "taken_plan_id=%s WHERE id=%s AND status='in_cold' RETURNING *",
+                (worker_name or "", plan_trafiony["id"], p["id"]),
+            )
+            if not zmieniona:
+                teraz = cx_query_one(conn, "SELECT taken_at FROM seasoned_pallets WHERE id=%s", (p["id"],))
+                raise HTTPException(
+                    409, f"Paleta {nr} już wyjechała na halę ({_hhmm((teraz or {}).get('taken_at'))})")
 
     return {
         "ok": True,
@@ -190,6 +222,7 @@ def take_pallet(code: str, worker_name: str = "") -> Dict[str, Any]:
         "planId": plan_trafiony["id"],
         "planNo": plan_trafiony.get("plan_no") or "",
         "lines": [{"lineId": ln["id"], "label": line_label(ln)} for ln in trafione],
+        "again": again,
     }
 
 
@@ -241,10 +274,14 @@ def assert_unit_batch_on_hall(conn, unit: Dict[str, Any], plan_id: str) -> None:
                 + ", ".join(f"{j['batch_no']} (paleta {j['pallet_no']})" for j in brak),
             )
         return
+    # Partia ORAZ receptura: ta sama partia surowca w dwóch recepturach
+    # daje ten sam numer, a wywieziona paleta KIRMIZI nie wpuszcza BEYAZ.
     wywieziona = cx_query_one(
         conn,
-        "SELECT 1 FROM seasoned_pallets WHERE batch_no=%s AND taken_plan_id=%s LIMIT 1",
-        (batch, plan_id),
+        "SELECT 1 FROM seasoned_pallets sp JOIN production_plan_lines l ON l.id=%s "
+        "WHERE sp.batch_no=%s AND sp.taken_plan_id=%s "
+        "AND COALESCE(sp.recipe_id,'') = COALESCE(l.recipe_id,'') LIMIT 1",
+        (line_id, batch, plan_id),
     )
     if not wywieziona:
         raise HTTPException(
@@ -320,94 +357,122 @@ def _palety_planu(conn, plan_id: str) -> list[Dict[str, Any]]:
         conn, "SELECT * FROM seasoned_pallets WHERE taken_plan_id=%s ORDER BY pallet_no", (plan_id,))
 
 
-def assert_plan_ready_to_confirm(conn, plan_id: str) -> None:
-    """Przed potwierdzeniem biura (plan z `pallet_gate`):
-
-    * każda wywieziona paleta ma zwrot końcówki (także 0 kg),
-    * po bilansie żadna partia nie zejdzie poniżej rezerwacji INNYCH planów.
-    """
-    from app.services.production_plans_service import _allocation_kg_per_batch
-
-    palety = _palety_planu(conn, plan_id)
-    na_hali = [p for p in palety if p["status"] == "on_hall"]
+def _hala_zamknieta(conn, plan_id: str) -> None:
+    na_hali = [p for p in _palety_planu(conn, plan_id) if p["status"] == "on_hall"]
     if na_hali:
         nr = ", ".join(str(p["pallet_no"]) for p in na_hali)
         raise HTTPException(
             409, f"Paleta {nr} nie ma zwrotu końcówki — zważ ją albo wpisz 0")
 
-    wlasne: Dict[str, float] = {}
-    for ln in cx_query_all(
-            conn, "SELECT batch_allocation FROM production_plan_lines WHERE plan_id=%s", (plan_id,)):
-        for bid, kg in _allocation_kg_per_batch(_alokacja(ln)).items():
-            wlasne[bid] = wlasne.get(bid, 0.0) + kg
-    for sm_id in {p["seasoned_meat_id"] for p in palety if p.get("seasoned_meat_id")}:
-        row = cx_query_one(
-            conn, "SELECT batch_no, kg_reserved FROM seasoned_meat WHERE id=%s", (sm_id,)) or {}
-        target = _kg_w_chlodni(conn, sm_id)
-        cudze = round(float(row.get("kg_reserved") or 0) - wlasne.get(sm_id, 0.0), 3)
-        if cudze > target + 0.001:
+
+def assert_plan_ready_to_confirm(conn, plan_id: str, entries: list | None = None) -> None:
+    """Przed potwierdzeniem biura (plan z `pallet_gate`):
+
+    * każda wywieziona paleta ma zwrot końcówki (także 0 kg),
+    * hala nie wpisała więcej sztuk, niż zeskanowano — sztuka bez skanu nie
+      ma partii potwierdzonej paletą (spec §7).
+    """
+    _hala_zamknieta(conn, plan_id)
+    wpisane: Dict[str, int] = {}
+    for e in entries or []:
+        lid = getattr(e, "plan_line_id", None) or (e.get("planLineId") if isinstance(e, dict) else None)
+        qty = getattr(e, "qty", None) if not isinstance(e, dict) else e.get("qty")
+        if lid:
+            wpisane[lid] = wpisane.get(lid, 0) + int(qty or 0)
+    for lid, ile in wpisane.items():
+        r = cx_query_one(
+            conn,
+            "SELECT count(*) FILTER (WHERE u.status <> 'planned') AS n, l.qty, l.kg_per_unit, l.recipe_name "
+            "FROM production_plan_lines l LEFT JOIN finished_units u ON u.plan_line_id = l.id "
+            "WHERE l.id=%s GROUP BY l.id",
+            (lid,),
+        ) or {}
+        zeskanowane = int(r.get("n") or 0)
+        if ile > zeskanowane:
             raise HTTPException(
                 409,
-                f"Partia {row.get('batch_no')}: po bilansie zostaje {_fmt_kg(target)} kg, "
-                f"a inne plany mają zarezerwowane {_fmt_kg(cudze)} kg — popraw tamte plany",
+                f"Pozycja {line_label(r)}: wpisano {ile} szt., zeskanowano {zeskanowane} "
+                "— zeskanuj brakujące sztuki albo popraw wpis hali",
             )
-
-
-def _kg_w_chlodni(conn, seasoned_meat_id: str) -> float:
-    r = cx_query_one(
-        conn,
-        "SELECT COALESCE(SUM(kg_weighed), 0) AS kg FROM seasoned_pallets "
-        "WHERE seasoned_meat_id=%s AND status='in_cold'",
-        (seasoned_meat_id,),
-    )
-    return round(float((r or {}).get("kg") or 0), 3)
 
 
 def settle_plan_balance(conn, plan_id: str, plan_no: str) -> list[Dict[str, Any]]:
     """Bilans partii planu: weszło (palety) − na wyroby − końcówki = strata.
 
-    Stan partii ustawia się na sumę jej palet w chłodni (końcówki + palety
-    nietknięte), a różnica idzie ruchem magazynowym `reconcile`.
+    Korekta stanu jest WZGLĘDNA i dotyczy tylko palet tego planu: finish_day
+    zdjął z partii zużycie teoretyczne (ruchy OUT źródła `plan`), a palety
+    mówią, ile zeszło naprawdę (zważone − końcówki). Różnica idzie ruchem
+    `reconcile`. Zużycie innych planów i palety w chłodni lub na hali w innym
+    planie zostają nietknięte.
     """
     from app.services.seasoned_meat_service import _reconcile_row
 
+    _hala_zamknieta(conn, plan_id)
     palety = _palety_planu(conn, plan_id)
-    po_partii: Dict[str, list] = {}
+    grupy: Dict[tuple, list] = {}
     for p in palety:
-        po_partii.setdefault(p.get("batch_no") or "", []).append(p)
+        grupy.setdefault(
+            (p.get("seasoned_meat_id") or "", p.get("batch_no") or "", p.get("recipe_id") or ""), []
+        ).append(p)
 
     wynik = []
-    for batch, lista in po_partii.items():
+    for (sm_id, batch, recipe_id), lista in grupy.items():
         kg_in = round(sum(float(p.get("kg_weighed") or 0) for p in lista), 3)
         kg_ret = round(sum(float(p.get("kg_returned") or 0) for p in lista), 3)
         goods = cx_query_one(
             conn,
             "SELECT COALESCE(SUM(u.weight_kg), 0) AS kg FROM finished_units u "
             "JOIN production_plan_lines l ON l.id = u.plan_line_id "
-            "WHERE l.plan_id=%s AND u.batch_no=%s AND u.status <> 'planned'",
-            (plan_id, batch),
+            "WHERE l.plan_id=%s AND u.batch_no=%s AND COALESCE(l.recipe_id,'')=%s "
+            "AND u.status <> 'planned'",
+            (plan_id, batch, recipe_id),
         )
         kg_goods = round(float((goods or {}).get("kg") or 0), 3)
         kg_loss = round(kg_in - kg_goods - kg_ret, 3)
         cx_execute_returning(
             conn,
             """
-            INSERT INTO plan_batch_balance (plan_id, batch_no, kg_in, kg_goods, kg_returned, kg_loss)
-            VALUES (%s,%s,%s,%s,%s,%s)
-            ON CONFLICT (plan_id, batch_no) DO UPDATE SET
+            INSERT INTO plan_batch_balance
+                (plan_id, batch_no, recipe_id, kg_in, kg_goods, kg_returned, kg_loss)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (plan_id, batch_no, recipe_id) DO UPDATE SET
                 kg_in=EXCLUDED.kg_in, kg_goods=EXCLUDED.kg_goods,
                 kg_returned=EXCLUDED.kg_returned, kg_loss=EXCLUDED.kg_loss
             RETURNING plan_id
             """,
-            (plan_id, batch, kg_in, kg_goods, kg_ret, kg_loss),
+            (plan_id, batch, recipe_id, kg_in, kg_goods, kg_ret, kg_loss),
         )
-        for sm_id in {p["seasoned_meat_id"] for p in lista if p.get("seasoned_meat_id")}:
-            row = cx_query_one(conn, "SELECT * FROM seasoned_meat WHERE id=%s FOR UPDATE", (sm_id,))
-            if not row:
-                continue
-            target = _kg_w_chlodni(conn, sm_id)
-            _reconcile_row(conn, row, target, reason=f"Bilans planu {plan_no}", close=target <= 0)
-        wynik.append({"batchNo": batch, "kgIn": kg_in, "kgGoods": kg_goods,
+        row = cx_query_one(
+            conn, "SELECT * FROM seasoned_meat WHERE id=%s FOR UPDATE", (sm_id,)) if sm_id else None
+        if row:
+            ksiegowane = cx_query_one(
+                conn,
+                "SELECT COALESCE(-SUM(qty), 0) AS kg FROM stock_movements "
+                "WHERE batch_id=%s AND source_type='plan' AND source_id=%s AND movement_type='OUT'",
+                (sm_id, plan_id),
+            )
+            zdjete = round(float((ksiegowane or {}).get("kg") or 0), 3)
+            naprawde = round(kg_in - kg_ret, 3)
+            target = round(float(row.get("kg_available") or 0) + zdjete - naprawde, 3)
+            if target < 0:
+                target = 0.0
+            reserved = round(float(row.get("kg_reserved") or 0), 3)
+            if target + 0.001 < reserved:
+                raise HTTPException(
+                    409,
+                    f"Partia {batch}: po bilansie zostaje {_fmt_kg(target)} kg, a inne plany mają "
+                    f"zarezerwowane {_fmt_kg(reserved)} kg — popraw tamte plany i powtórz bilans",
+                )
+            otwarte = cx_query_one(
+                conn,
+                "SELECT 1 FROM seasoned_pallets WHERE seasoned_meat_id=%s "
+                "AND status IN ('in_cold','on_hall') LIMIT 1",
+                (sm_id,),
+            )
+            zamknij = target <= 0.001 and not otwarte
+            if (row.get("status") or "") != "closed":
+                _reconcile_row(conn, row, target, reason=f"Bilans planu {plan_no}", close=zamknij)
+        wynik.append({"batchNo": batch, "recipeId": recipe_id, "kgIn": kg_in, "kgGoods": kg_goods,
                       "kgReturned": kg_ret, "kgLoss": kg_loss})
     return wynik
 
@@ -415,8 +480,9 @@ def settle_plan_balance(conn, plan_id: str, plan_no: str) -> list[Dict[str, Any]
 def plan_balance(plan_id: str) -> list[Dict[str, Any]]:
     from app.db import query_all
     return [
-        {"batchNo": r["batch_no"], "kgIn": float(r["kg_in"]), "kgGoods": float(r["kg_goods"]),
+        {"batchNo": r["batch_no"], "recipeId": r.get("recipe_id") or "",
+         "kgIn": float(r["kg_in"]), "kgGoods": float(r["kg_goods"]),
          "kgReturned": float(r["kg_returned"]), "kgLoss": float(r["kg_loss"])}
         for r in query_all(
-            "SELECT * FROM plan_batch_balance WHERE plan_id=%s ORDER BY batch_no", (plan_id,))
+            "SELECT * FROM plan_batch_balance WHERE plan_id=%s ORDER BY batch_no, recipe_id", (plan_id,))
     ]
