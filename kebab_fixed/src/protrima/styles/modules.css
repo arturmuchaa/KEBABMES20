@@ -1365,18 +1365,19 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .dw-razem { padding: 2px 9px; border-radius: var(--r-xs); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; background: var(--surface-sunk); color: var(--ink-2); }
 .dw-razem.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok-ink); }
 .dw-razem.mniej, .dw-razem.wiecej { background: var(--warn-tint); color: var(--warn-ink); }
-.dw-partie { width: 100%; margin-top: 8px; border-collapse: collapse; }
+.dw-partie { width: 100%; margin-top: 8px; border-collapse: collapse; table-layout: fixed; }
+.dw-partie col.c-nr { width: 116px; } .dw-partie col.c-qty { width: 104px; } .dw-partie col.c-kg { width: 76px; } .dw-partie col.c-x { width: 36px; }
 .dw-partie th { padding: 2px 6px; text-align: left; color: var(--ink-3); font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
 .dw-partie th.num { text-align: right; }
 .dw-partie td { padding: 3px 6px; vertical-align: middle; }
-.dw-partie td:last-child { width: 32px; }
-.dw-nr { width: 150px; }
-.dw-qty { width: 76px; text-align: right; }
-.dw-podglad { color: var(--ink-2); font-size: var(--fs-sm); white-space: nowrap; }
+.dw-nr { width: 100%; }
+.dw-qty { width: 70px; text-align: right; }
+.dw-podglad { color: var(--ink-2); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dw-podglad .mono { font-family: var(--font-code); }
 .dw-tag { margin-left: 6px; padding: 0 7px; border-radius: 999px; background: var(--surface-sunk); color: var(--ink-3); font-size: var(--fs-xs); }
 .dw-tag.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok-ink); }
-.dw-kg { margin-left: 10px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.dw-kg { color: var(--ink-3); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dw-l-kg { font-variant-numeric: tabular-nums; }
 .dw-err-row td { padding-top: 0; }
 .dw-plus { margin-top: 4px; }
 .dw .mono { font-family: var(--font-code); font-size: var(--fs-id); }

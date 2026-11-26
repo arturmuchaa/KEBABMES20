@@ -101,6 +101,21 @@ describe('Dodaj wyrób — partie i zapis', () => {
     expect(toast).toHaveBeenCalled()
   })
 
+  it('Enter w sztukach od razu przenosi fokus do nowej partii (szybkie pisanie nie trafia do starego pola)', () => {
+    mount()
+    zaznacz41()
+    const szt1 = screen.getByLabelText('Sztuk 1, 41/11 KIRMIZI')
+    fireEvent.change(szt1, { target: { value: '30' } })
+    fireEvent.keyDown(szt1, { key: 'Enter' })
+    expect(document.activeElement).toBe(screen.getByLabelText('Partia 2, 41/11 KIRMIZI'))
+  })
+
+  it('zaznaczenie pozycji od razu stawia fokus w numerze partii', () => {
+    mount()
+    zaznacz41()
+    expect(document.activeElement).toBe(screen.getByLabelText('Partia 1, 41/11 KIRMIZI'))
+  })
+
   it('podgląd numeru i znacznik masowni', async () => {
     mount()
     await waitFor(() => expect(api.sm.list).toHaveBeenCalled())

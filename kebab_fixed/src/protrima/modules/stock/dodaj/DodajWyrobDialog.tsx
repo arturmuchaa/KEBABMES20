@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { ChevronDown, ChevronRight, PackagePlus, PenLine, Plus, Search, Trash2, X } from 'lucide-react'
 import { Dialog, useApp } from '../../../shell/context'
 import { useOrders } from '../../../data/store'
@@ -62,6 +62,15 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
   const bledy = tried ? bledyKoszyka(koszyk, data) : {}
   const sumy = sumyKoszyka(koszyk)
 
+  // Fokus na świeżo dodanym polu — zaraz po wyrenderowaniu, nie w następnej klatce:
+  // biuro pisze szybko i znaki wpisane po Enter trafiały jeszcze do starego pola.
+  const [fokus, setFokus] = useState<string | null>(null)
+  useLayoutEffect(() => {
+    if (!fokus) return
+    const el = document.getElementById(fokus) as HTMLInputElement | null
+    el?.focus(); el?.select()
+    setFokus(null)
+  }, [fokus])
   const skocz = (id: string) => requestAnimationFrame(() => { const el = document.getElementById(id) as HTMLInputElement | null; el?.focus(); el?.select() })
   const idPola = (p: PozycjaKoszyka, wKey: string, pole: 'nr' | 'qty') => `dw-${pole}-${p.key}-${wKey}`
 
@@ -75,7 +84,7 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
     if (!o || !l) return
     const p = pozycjaZLinii(o, l)
     setKoszyk(k => [...k, p])
-    skocz(idPola(p, p.partie[0].key, 'nr'))
+    setFokus(idPola(p, p.partie[0].key, 'nr'))
   }
 
   const zmienPartie = (key: string, wKey: string, patch: { nr?: string; qty?: string }) =>
@@ -85,7 +94,7 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
     if (!p) return
     const n = dodajPartie(p)
     setKoszyk(k => k.map(x => (x.key === key ? n : x)))
-    skocz(idPola(n, n.partie[n.partie.length - 1].key, 'nr'))
+    setFokus(idPola(n, n.partie[n.partie.length - 1].key, 'nr'))
   }
   const usunPartie = (key: string, wKey: string) => setKoszyk(k => k.flatMap(p => {
     if (p.key !== key) return [p]
@@ -125,7 +134,7 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
     }
     setKoszyk(x => [...x, p])
     setForma(f => ({ ...PUSTA_RECZNA, productTypeId: f.productTypeId, packagingId: f.packagingId, clientId: f.clientId }))
-    skocz(idPola(p, p.partie[0].key, 'nr'))
+    setFokus(idPola(p, p.partie[0].key, 'nr'))
   }
 
   const zamknij = () => {
@@ -213,7 +222,7 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
                               <label key={l.id} className={`dw-linia${on ? ' on' : ''}${brak ? '' : ' done'}`}>
                                 <input type="checkbox" className="cbx" checked={on} onChange={() => przelaczLinie(z.orderId, l.id)}
                                   aria-label={`${l.recipe} · ${l.product} · ${kgTxt(l.kgPerUnit)} kg${l.packaging ? ` · ${l.packaging}` : ''}`} />
-                                <span className="dw-l-txt"><b>{l.recipe}</b> <span className="dw-meta">{l.product} · {kgTxt(l.kgPerUnit)} kg{l.packaging ? ` · ${l.packaging}` : ''}</span></span>
+                                <span className="dw-l-txt"><b>{l.recipe}</b> <b className="dw-l-kg">{kgTxt(l.kgPerUnit)} kg</b> <span className="dw-meta">{l.product}{l.packaging ? ` · ${l.packaging}` : ''}</span></span>
                                 <span className={`dw-l-brak${brak ? '' : ' ok'}`}>{brak ? `brakuje ${fmtNum(brak)} szt.` : 'pokryte'}</span>
                               </label>
                             )
@@ -290,7 +299,8 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
                     <button className="btn ghost icon sm" aria-label={`Usuń z zapisu: ${opis}`} onClick={() => usunPozycje(p.key)}><Trash2 size={15} /></button>
                   </div>
                   <table className="dw-partie">
-                    <thead><tr><th>Partia</th><th className="num">Sztuk</th><th>Na wyrobie</th><th /></tr></thead>
+                    <colgroup><col className="c-nr" /><col className="c-qty" /><col /><col className="c-kg" /><col className="c-x" /></colgroup>
+                    <thead><tr><th>Partia</th><th className="num">Sztuk</th><th>Na wyrobie</th><th className="num">Masa</th><th /></tr></thead>
                     <tbody>{p.partie.map((w, i) => {
                       const r = rozpoznajPartie(w.nr, data, nrWsadow)
                       const eNr = bledy[`${p.key}:${w.key}:nr`], eQty = bledy[`${p.key}:${w.key}:qty`]
@@ -311,11 +321,11 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
                             {w.nr.trim()
                               ? <><span className="mono">→ {r.naWyrobie}</span> <span className={`dw-tag${r.masownia ? ' ok' : ''}`}>{r.masownia ? 'masownia ✓' : 'bez masowni'}</span></>
                               : <span className="faint">wpisz numer partii</span>}
-                            {q > 0 && <span className="dw-kg">{kg(q * p.kgPerUnit)}</span>}
                           </td>
+                          <td className="num dw-kg">{q > 0 ? kg(q * p.kgPerUnit) : <span className="faint">—</span>}</td>
                           <td><button className="btn ghost icon sm" aria-label={`Usuń partię ${i + 1}, ${opis}`} onClick={() => usunPartie(p.key, w.key)}><X size={14} /></button></td>
                         </tr>,
-                        (eNr || eQty) && <tr key={`${w.key}-e`} className="dw-err-row"><td colSpan={4}><span className="crit-ink dw-err">{[eNr, eQty].filter(Boolean).join(' · ')}</span></td></tr>,
+                        (eNr || eQty) && <tr key={`${w.key}-e`} className="dw-err-row"><td colSpan={5}><span className="crit-ink dw-err">{[eNr, eQty].filter(Boolean).join(' · ')}</span></td></tr>,
                       ]
                     })}</tbody>
                   </table>
