@@ -113,6 +113,15 @@ describe('Dodaj wyrób — partie i zapis', () => {
     expect(document.activeElement).toBe(screen.getByLabelText('Partia 2, 41/11 KIRMIZI'))
   })
 
+  it('Enter w numerze partii od razu przenosi fokus do sztuk', () => {
+    mount()
+    zaznacz41()
+    const nr = screen.getByLabelText('Partia 1, 41/11 KIRMIZI')
+    fireEvent.change(nr, { target: { value: '111' } })
+    fireEvent.keyDown(nr, { key: 'Enter' })
+    expect(document.activeElement).toBe(screen.getByLabelText('Sztuk 1, 41/11 KIRMIZI'))
+  })
+
   it('zaznaczenie pozycji od razu stawia fokus w numerze partii', () => {
     mount()
     zaznacz41()
@@ -145,13 +154,14 @@ describe('Dodaj wyrób — partie i zapis', () => {
     await waitFor(() => expect(screen.getByText(/bez masowni/)).toBeTruthy())
   })
 
-  it('Enter na pełnej pozycji nie dodaje pustej partii — fokus idzie do zapisu', () => {
+  it('Enter na pełnej pozycji nie dodaje pustej partii i NIE zapisuje — fokus wraca do szukania pozycji', () => {
     mount()
     zaznacz41()
     fireEvent.change(screen.getByLabelText('Partia 1, 41/11 KIRMIZI'), { target: { value: '111' } })
     fireEvent.keyDown(screen.getByLabelText('Sztuk 1, 41/11 KIRMIZI'), { key: 'Enter' })
     expect(screen.queryByLabelText('Partia 2, 41/11 KIRMIZI')).toBeNull()
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: /^Zapisz/ }))
+    expect(document.activeElement).toBe(screen.getByLabelText('Szukaj w zamówieniach'))
+    expect(api.fg.createBulk).not.toHaveBeenCalled()
   })
 
   it('zerwane połączenie — nie obiecujemy, że nic nie zapisano', async () => {

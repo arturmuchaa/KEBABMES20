@@ -1372,9 +1372,10 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .dw-partie td { padding: 3px 6px; vertical-align: middle; }
 .dw-nr { width: 100%; }
 .dw-qty { width: 70px; text-align: right; }
-.dw-podglad { color: var(--ink-2); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dw-podglad { color: var(--ink-2); font-size: var(--fs-sm); line-height: 1.25; }
+.dw-podglad > .mono { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dw-podglad .mono { font-family: var(--font-code); }
-.dw-tag { margin-left: 6px; padding: 0 7px; border-radius: 999px; background: var(--surface-sunk); color: var(--ink-3); font-size: var(--fs-xs); }
+.dw-tag { display: inline-block; margin-top: 2px; padding: 0 7px; border-radius: 999px; background: var(--surface-sunk); color: var(--ink-3); font-size: var(--fs-xs); }
 .dw-tag.ok { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok-ink); }
 .dw-kg { color: var(--ink-3); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dw-l-kg { font-variant-numeric: tabular-nums; }

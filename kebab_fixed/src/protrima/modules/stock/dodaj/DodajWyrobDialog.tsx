@@ -74,7 +74,8 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
     el?.focus(); if (el instanceof HTMLInputElement) el.select()
     setFokus(null)
   }, [fokus])
-  const skocz = (id: string) => requestAnimationFrame(() => { const el = document.getElementById(id) as HTMLInputElement | null; el?.focus(); el?.select() })
+  // Pole już istnieje — fokus od razu, w tym samym zdarzeniu (bez klatki opóźnienia na szybkie pisanie).
+  const skocz = (id: string) => { const el = document.getElementById(id) as HTMLInputElement | null; el?.focus(); el?.select?.() }
   const idPola = (p: PozycjaKoszyka, wKey: string, pole: 'nr' | 'qty') => `dw-${pole}-${p.key}-${wKey}`
 
   const przelaczKlienta = (id: string) => setRozwinieci(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
@@ -176,7 +177,7 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
           ? <>Do zapisu: <b>{sumy.partie} {sumy.partie === 1 ? 'partia' : sumy.partie < 5 ? 'partie' : 'partii'}</b> · <b>{fmtNum(sumy.sztuki)} szt.</b> · <b>{kg(sumy.kg)}</b></>
           : 'Nic jeszcze nie wybrano'}<span className="hint hide-m"> <span className="kbd">Ctrl+Enter</span> zapisz</span></span>
         <button className="btn" onClick={zamknij}>Anuluj</button>
-        <button id="dw-zapisz" className="btn primary" disabled={saving} onClick={() => void zapisz()}><PackagePlus size={15} />{saving ? 'Zapisywanie…' : 'Zapisz wyrób'}</button>
+        <button className="btn primary" disabled={saving} onClick={() => void zapisz()}><PackagePlus size={15} />{saving ? 'Zapisywanie…' : 'Zapisz wyrób'}</button>
       </>}>
       <div className="dw" onKeyDown={klawisze}>
         <div className="dw-top">
@@ -196,7 +197,7 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
           <section className="dw-tree" aria-label="Zamówienia">
             <div className="dw-search">
               <Search size={15} aria-hidden />
-              <input className="field" placeholder="Klient, zamówienie, receptura…" value={q} onChange={e => setQ(e.target.value)} aria-label="Szukaj w zamówieniach" data-autofocus autoFocus />
+              <input id="dw-szukaj" className="field" placeholder="Klient, zamówienie, receptura…" value={q} onChange={e => setQ(e.target.value)} aria-label="Szukaj w zamówieniach" data-autofocus autoFocus />
               {q && <button className="btn ghost icon sm" aria-label="Wyczyść szukanie" onClick={() => setQ('')}><X size={14} /></button>}
             </div>
             <div className="dw-tree-list">
@@ -328,7 +329,7 @@ export function DodajWyrobDialog({ onClose }: { onClose: () => void }) {
                             onChange={e => zmienPartie(p.key, w.key, { qty: e.target.value })}
                             onKeyDown={e => { if (e.key === 'Enter' && !e.ctrlKey) { e.preventDefault(); if (!ostatni) skocz(idPola(p, p.partie[i + 1].key, 'nr'))
                               else if (!pelnaPozycja(p)) nowaPartia(p.key)
-                              else { const nast = koszyk[koszyk.findIndex(x => x.key === p.key) + 1]; setFokus(nast ? idPola(nast, nast.partie[0].key, 'nr') : 'dw-zapisz') } } }} /><span className="sub">szt.</span></span></td>
+                              else { const nast = koszyk[koszyk.findIndex(x => x.key === p.key) + 1]; setFokus(nast ? idPola(nast, nast.partie[0].key, 'nr') : 'dw-szukaj') } } }} /><span className="sub">szt.</span></span></td>
                           <td className="dw-podglad">
                             {w.nr.trim()
                               ? <><span className="mono">→ {r.naWyrobie}</span> <span className={`dw-tag${r.masownia ? ' ok' : r.innaReceptura ? ' warn' : ''}`}
