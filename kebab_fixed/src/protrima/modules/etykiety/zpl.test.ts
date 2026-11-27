@@ -63,3 +63,20 @@ describe('raster PDF → tło Zebry', () => {
     expect(Array.from(progujDoBitow(rgba, 4, 1))).toEqual([1, 0, 0, 1])
   })
 })
+
+describe('tło w pamięci drukarki (seria)', () => {
+  it('tło wysyłane raz jako ~DG, etykieta przywołuje je ^XG', async () => {
+    const { tloDoPamieci } = await import('./zpl')
+    const sz = d([])
+    const { zpl, nazwa } = tloDoPamieci(sz)
+    expect(zpl).toBe(`~DGR:${nazwa}.GRF,2,1,FF00`)
+    expect(nazwa).toMatch(/^K[0-9A-Z]{1,7}$/)
+    const etykieta = zplSzablonu(sz, PRZYKLAD, { tloZPamieci: nazwa })
+    expect(etykieta).toContain(`^FO0,0^XGR:${nazwa}.GRF,1,1^FS`)
+    expect(etykieta).not.toContain('^GFA')
+  })
+  it('różne tła — różne nazwy', async () => {
+    const { tloDoPamieci } = await import('./zpl')
+    expect(tloDoPamieci(d([])).nazwa).not.toBe(tloDoPamieci(d([], { backgroundZpl: '^GFA,2,2,1,00FF' })).nazwa)
+  })
+})

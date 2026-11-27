@@ -6,7 +6,7 @@ import { finishedUnitsApi, labelDesignsApi, type DesignsForPlan, type LabelDesig
 import { ROLKA_ETYKIET, drukujEtykiety, opisBledu } from '../../drukarka/drukarka'
 import { drukuj } from '@/lib/print'
 import { etykietaSztukiZpl, numerKebaba } from './etykiety'
-import { profilRolki, zplSzablonu } from '../etykiety/zpl'
+import { profilRolki, tloDoPamieci, zplSzablonu } from '../etykiety/zpl'
 
 const KLUCZ_HALAL = (designId: string) => `protrima.etykiety.halal.${designId}`
 const czytajHalal = (id: string) => { try { return localStorage.getItem(KLUCZ_HALAL(id)) ?? '' } catch { return '' } }
@@ -98,7 +98,9 @@ export function OknoEtykiet({ planId, planNo, przedruk, wyrzuc, pozycje, onClose
           const pdfBase64 = await zbudujPdfA4(d, grupa, { orgCode, razem })
           await drukuj({ rodzaj: 'etykiety', tytul: `Etykiety ${planNo} — ${d.name}`, pdfBase64, strict: true })
         } else if (d?.printMode === 'zebra') {
-          await drukujEtykiety(grupa.map(s => zplSzablonu(d, s, { orgCode, razem: razem[s.planLineId] })), profilRolki(d), { onStatus: setStatus })
+          // Tło raz do pamięci drukarki, etykiety je przywołują — seria 200 sztuk nie wysyła 200 × 240 KB grafiki.
+          const tlo = tloDoPamieci(d)
+          await drukujEtykiety([tlo.zpl, ...grupa.map(s => zplSzablonu(d, s, { orgCode, razem: razem[s.planLineId], tloZPamieci: tlo.nazwa }))], profilRolki(d), { onStatus: setStatus })
         } else {
           await drukujEtykiety(grupa.map(s => etykietaSztukiZpl({ ...s, razem: razem[s.planLineId] ?? 1 })), ROLKA_ETYKIET, { onStatus: setStatus })
         }

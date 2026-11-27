@@ -40,7 +40,21 @@ function blok(f: LabelField, wartosc: string, dpi: number): string {
   return `^FO${x},${y}${font}${fb}^FD${esc(wartosc)}^FS`
 }
 
-export function zplSzablonu(d: LabelDesign, u: UnitForLabel, opts: { orgCode?: string; razem?: number }): string {
+/**
+ * Tło do pamięci drukarki raz na serię (`~DG`), żeby ~240 KB grafiki 100 × 150
+ * nie szło z każdą etykietą — etykieta przywołuje je `^XG`. Nazwa z hasha tła
+ * (8 znaków, R: = pamięć RAM drukarki, znika po wyłączeniu).
+ */
+export function tloDoPamieci(d: LabelDesign): { zpl: string; nazwa: string } {
+  const m = /^\^GFA,(\d+),(\d+),(\d+),([0-9A-Fa-f]+)$/.exec(d.backgroundZpl ?? '')
+  if (!m) throw new Error('Szablon Zebry nie ma tła do druku — wczytaj plik etykiety ponownie')
+  let h = 2166136261
+  for (let i = 0; i < m[4].length; i++) { h ^= m[4].charCodeAt(i); h = Math.imul(h, 16777619) >>> 0 }
+  const nazwa = `K${h.toString(36).toUpperCase().slice(0, 7)}`
+  return { zpl: `~DGR:${nazwa}.GRF,${m[1]},${m[3]},${m[4]}`, nazwa }
+}
+
+export function zplSzablonu(d: LabelDesign, u: UnitForLabel, opts: { orgCode?: string; razem?: number; tloZPamieci?: string }): string {
   const dpi = d.dpi || 203
   const s = rozmiarStrony(d)
   const w = wartosciPol(u, opts)
@@ -51,7 +65,7 @@ export function zplSzablonu(d: LabelDesign, u: UnitForLabel, opts: { orgCode?: s
     .filter(Boolean)
   return [
     '^XA', '^CI28', `^PW${dots(s.w, dpi)}`, `^LL${dots(s.h, dpi)}`, '^LH0,0', '^LT0', '^MNY', '^MTD', '^LS0',
-    d.backgroundZpl ? `^FO0,0${d.backgroundZpl}^FS` : '',
+    opts.tloZPamieci ? `^FO0,0^XGR:${opts.tloZPamieci}.GRF,1,1^FS` : d.backgroundZpl ? `^FO0,0${d.backgroundZpl}^FS` : '',
     ...pola,
     '^XZ',
   ].filter(Boolean).join('\n')

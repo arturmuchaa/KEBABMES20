@@ -77,7 +77,10 @@ describe('Etykiety sztuk według szablonów', () => {
     mount()
     fireEvent.click(await screen.findByRole('button', { name: /Drukuj niewydrukowane \(2\)/ }))
     await waitFor(() => expect(units.markLabelsPrinted).toHaveBeenCalledTimes(2))
-    expect(druk.drukujEtykiety.mock.calls[0][0][0]).toContain('^GFA,2,2,1,FF00')
+    const seria = druk.drukujEtykiety.mock.calls[0][0] as string[]
+    expect(seria[0]).toMatch(/^~DGR:K\w+\.GRF,2,1,FF00$/)
+    expect(seria[1]).toContain('^XGR:')
+    expect(seria).toHaveLength(2)
     expect(print.drukuj).toHaveBeenCalledTimes(1)
     expect(units.markLabelsPrinted.mock.calls.map(c => c[0])).toEqual([['u1'], ['u2']])
   })

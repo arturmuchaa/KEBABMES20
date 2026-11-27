@@ -9,7 +9,7 @@ import { useStudioHistory } from '@/features/labels/useStudioHistory'
 import { drukujEtykiety, opisBledu } from '../../drukarka/drukarka'
 import { drukuj } from '@/lib/print'
 import { KROK_MM, PRZYKLAD, przesun } from './model'
-import { profilRolki, zplSzablonu } from './zpl'
+import { profilRolki, tloDoPamieci, zplSzablonu } from './zpl'
 import { ListaSzablonow } from './ListaSzablonow'
 import { Plotno } from './Plotno'
 import { PanelPola, type Zakladka } from './PanelPola'
@@ -120,7 +120,8 @@ export function EtykietyModule({ active, setCtx, setCmds }: { active: boolean; s
     try {
       const sztuka = { ...PRZYKLAD, clientName: klienci.find(k => k.id === projekt.clientId)?.label ?? PRZYKLAD.clientName }
       if (projekt.printMode === 'zebra') {
-        await drukujEtykiety([zplSzablonu(projekt, sztuka, { razem: 29, orgCode: 'HAL-0000' })], profilRolki(projekt))
+        const tlo = tloDoPamieci(projekt)
+        await drukujEtykiety([tlo.zpl, zplSzablonu(projekt, sztuka, { razem: 29, orgCode: 'HAL-0000', tloZPamieci: tlo.nazwa })], profilRolki(projekt))
       } else {
         const { zbudujPdfA4 } = await import('./pdfA4')
         const pdfBase64 = await zbudujPdfA4(projekt, projekt.labelsPerSheet === 2 ? [sztuka, { ...sztuka, id: 'przyklad2', qrSeq: 4 }] : [sztuka],
