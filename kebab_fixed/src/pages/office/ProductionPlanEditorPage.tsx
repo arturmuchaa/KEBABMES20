@@ -20,6 +20,11 @@ import { PlanEditor } from '@/features/production-plan/PlanEditor'
 
 const LIST_PATH = '/office/planowanie-produkcji'
 
+/** Od wdrożenia Planu produkcji w PROTRIMA (spec 2026-11-26, §7 i §9) stary
+ *  edytor nie tworzy planów i nie zmienia planów z kontrolą palet — inaczej
+ *  stary MES i PROTRIMA rozjechałyby się na tym samym planie. */
+export const KOMUNIKAT_PROTRIMA = 'Plany produkcji układa się teraz w PROTRIMA (Plan produkcji) — tam są palety z chłodni, etykiety i bilans.'
+
 export function ProductionPlanEditorPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -37,6 +42,8 @@ export function ProductionPlanEditorPage() {
     return plan.id
   }
 
+  if (!id) return <TylkoWProtrima onBack={back} />
+
   // Edycja: czekamy aż lista się wczyta, żeby mieć initialPlan.
   if (id && loading) {
     return <div className="p-6 text-sm text-muted-foreground">Wczytuję plan…</div>
@@ -51,6 +58,8 @@ export function ProductionPlanEditorPage() {
       </div>
     )
   }
+
+  if (editPlan?.palletGate) return <TylkoWProtrima onBack={back} plan={editPlan} />
 
   return (
     // Bez ograniczenia szerokości: przy pomniejszeniu widoku (50–70%) okno
@@ -78,6 +87,21 @@ export function ProductionPlanEditorPage() {
         existingPlans={plans ?? []}
         onOpenExisting={pid => navigate(`${LIST_PATH}/${pid}/edytuj`)}
       />
+    </div>
+  )
+}
+
+function TylkoWProtrima({ onBack, plan }: { onBack: () => void; plan?: { planNo: string; lines?: Array<{ id: string; qty: number; kgPerUnit: number; recipeName?: string; productTypeName?: string }> } }) {
+  return (
+    <div className="p-6 space-y-3">
+      <button onClick={onBack} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeft size={15} /> Plany produkcji
+      </button>
+      {plan && <h1 className="text-lg font-bold text-ink">Plan {plan.planNo} — podgląd</h1>}
+      <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">{KOMUNIKAT_PROTRIMA}</div>
+      {plan && <ul className="text-sm space-y-1">{(plan.lines ?? []).map(l => (
+        <li key={l.id}>{`${l.qty} × ${l.kgPerUnit} kg ${l.recipeName || l.productTypeName || ''}`.trim()}</li>
+      ))}</ul>}
     </div>
   )
 }

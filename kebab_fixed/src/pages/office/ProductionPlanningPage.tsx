@@ -48,6 +48,7 @@ import { allocatePlanMeat, batchIdsFromAllocation } from '@/features/production-
 import { buildOfficeFinishEntries, officeFinishSummary } from '@/features/production-plan/officeFinish'
 import { splitRemainder, changedAssignments } from '@/features/production-plan/remainderSplit'
 import type { ProductionPlan, ProductionPlanLine, CreatePlanLineDto, ClientOrder } from '@/lib/mockApi'
+import { KOMUNIKAT_PROTRIMA } from './ProductionPlanEditorPage'
 
 interface PlanLineForm {
   id?:              string   // id istniejącej pozycji (edycja) — puste dla nowej
@@ -590,7 +591,8 @@ export function ProductionPlanningPage() {
           ))}
         </div>
         <div className="flex items-start">
-          <Button onClick={()=>navigate('/office/planowanie-produkcji/nowy')} className="gap-1.5"><Plus size={14}/>Nowy plan</Button>
+          {/* Od wdrożenia Planu produkcji w PROTRIMA nowe plany powstają tylko tam (spec 2026-11-26 §9). */}
+          <Button disabled title={KOMUNIKAT_PROTRIMA} className="gap-1.5"><Plus size={14}/>Nowy plan — w PROTRIMA</Button>
         </div>
       </div>
 
