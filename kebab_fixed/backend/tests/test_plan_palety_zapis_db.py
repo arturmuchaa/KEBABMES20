@@ -171,3 +171,12 @@ def test_edycja_aktywnego_planu_zostawia_palete_wywieziona_do_niego():
             (plan["id"], p1))
     svc.update_plan(plan["id"], plan_dto(pozycja([p1], qty=12, id=l1["id"])))
     assert przypisane(l1["id"]) == {p1}
+
+
+def test_palety_pozycji_niosa_rodzaj_miesa_i_termin():
+    """Karta produkcji i edytor liczą sztuki kebaba mix per składnik z palet pozycji."""
+    p_udo, p_filet = _mix()
+    plan = svc.create_plan(plan_dto(pozycja([p_udo, p_filet], qty=20, productTypeId="mix7030")))
+    pal = svc.get_plan(plan["id"])["lines"][0]["pallets"]
+    assert [p["materialTypeId"] for p in pal] == ["udo", "filet"]
+    assert pal[0]["expiryDate"] == "2026-12-05"

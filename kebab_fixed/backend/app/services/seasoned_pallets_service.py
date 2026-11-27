@@ -766,10 +766,15 @@ def line_pallets(conn, plan_line_ids: list[str]) -> Dict[str, list[Dict[str, Any
     """Palety pozycji (w kolejności zapisu) dla odczytu planu."""
     if not plan_line_ids:
         return {}
+    # Ten sam kształt co lista palet (termin, rodzaj mięsa, końcówka z…) —
+    # karta produkcji i edytor kebaba mix liczą sztuki per składnik.
     rows = cx_query_all(
         conn,
-        "SELECT lp.plan_line_id, sp.* FROM plan_line_pallets lp "
+        "SELECT lp.plan_line_id, sp.*, sm.expiry_date, sm.material_type_id, sm.material_name, "
+        "par.pallet_no AS parent_pallet_no FROM plan_line_pallets lp "
         "JOIN seasoned_pallets sp ON sp.id = lp.pallet_id "
+        "LEFT JOIN seasoned_meat sm ON sm.id = sp.seasoned_meat_id "
+        "LEFT JOIN seasoned_pallets par ON par.id = sp.parent_id "
         "WHERE lp.plan_line_id = ANY(%s) ORDER BY lp.plan_line_id, lp.position, sp.pallet_no",
         (plan_line_ids,),
     )
