@@ -1414,3 +1414,6 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .pp-pad { padding: 8px 2px; }
 .pp-etykiety section { margin-top: 10px; }
 .pp-etykiety h4 { margin: 0 0 4px; font-size: var(--fs-sm); color: var(--ink-2); text-transform: none; }
+.pp-bilans td .sub { display: block; }
+.pp-straty { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.pp-straty .pp-max td { background: var(--warn-tint); font-weight: 600; }

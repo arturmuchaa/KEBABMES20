@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, ClipboardList, FileText, ListChecks, Plus, RefreshCw, Save, Send, ShoppingCart, Boxes, Tags, Wand2, X } from 'lucide-react'
+import { Calculator, ChevronLeft, ChevronRight, ClipboardList, FileText, TrendingDown, ListChecks, Plus, RefreshCw, Save, Send, ShoppingCart, Boxes, Tags, Wand2, X } from 'lucide-react'
 import { useApp, CommandBar, type Cmd } from '../../shell/context'
 import { FlagIcon } from '../../ui/Glyphs'
 import { Pusto } from '../../ui/Pusto'
@@ -13,6 +13,7 @@ import { PanelPalet } from './PanelPalet'
 import { OknoEtykiet } from './OknoEtykiet'
 import { KoncowkiDoOznaczenia } from './KoncowkiDoOznaczenia'
 import { KartaProdukcjiDialog, type PlanKarty } from './KartaProdukcji'
+import { BilansPlanu, StratyOkno } from './Bilans'
 import {
   ETYKIETA_STANU, bledyPozycji, doDto, podpowiedzPalet, prognozaKoncowki, stanPlanu, sumaKoncowek, sztukZPalety,
   type Paleta, type Pozycja, type Skladnik,
@@ -28,8 +29,8 @@ interface PlanSerwera {
   lines: Array<Record<string, any> & { pallets: Paleta[] }>
 }
 
-type Zakladka = 'palety' | 'oznaczenie' | 'zamowienia' | 'plany'
-type Okno = { rodzaj: 'etykiety'; przedruk?: string[] } | { rodzaj: 'karta' } | null
+type Zakladka = 'palety' | 'oznaczenie' | 'zamowienia' | 'plany' | 'bilans'
+type Okno = { rodzaj: 'etykiety'; przedruk?: string[] } | { rodzaj: 'karta' } | { rodzaj: 'straty' } | null
 
 function zPlanu(plan: PlanSerwera | null): Pozycja[] {
   return (plan?.lines ?? []).map(l => {
@@ -270,6 +271,7 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
       tip: !plan || plan.status === 'draft' ? 'etykiety drukuje się po wysłaniu planu do produkcji' : undefined, run: () => setOkno({ rodzaj: 'etykiety' }) },
     { id: 'print', group: 3, label: 'Karta dla kierownika', icon: <FileText size={17} />, kbd: 'Ctrl+P', disabled: !plan || zmieniony,
       tip: !plan ? 'najpierw zapisz plan' : zmieniony ? 'najpierw zapisz zmiany — drukuje się zapisany plan' : 'Pozycje z paletami w kolejności i miejscem na wagę końcówek', run: () => setOkno({ rodzaj: 'karta' }) },
+    { id: 'straty', group: 4, label: 'Straty mięsa', icon: <TrendingDown size={17} />, tip: 'Straty z bilansu palet za zakres dat — dni i receptury', run: () => setOkno({ rodzaj: 'straty' }) },
     { id: 'reload', group: 4, label: 'Odśwież', icon: <RefreshCw size={17} />, opt: true, run: () => void wczytaj(dzien, planId) },
   ], [tylkoPodglad, zmieniony, zapisuje, pierwszyBlad, bledy, zapisz, dodajPusta, pozycje, wczytaj, dzien, planId, plan, wysyla, wyslij]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (active) setCmds(cmds) }, [active, cmds, setCmds])
@@ -380,10 +382,13 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
               {palety.some(p => p.status === 'in_cold' && !p.labelPrintedAt) && <span className="badge warn">{palety.filter(p => p.status === 'in_cold' && !p.labelPrintedAt).length}</span>}</button>
             <button role="tab" className="dock-tab" aria-selected={zakladka === 'zamowienia'} onClick={() => setZakladka('zamowienia')}><ShoppingCart size={14} />Z zamówień</button>
             <button role="tab" className="dock-tab" aria-selected={zakladka === 'plany'} onClick={() => setZakladka('plany')}><ListChecks size={14} />Plany</button>
+            {plan?.status === 'done' && <button role="tab" className="dock-tab" aria-selected={zakladka === 'bilans'} onClick={() => setZakladka('bilans')}><Calculator size={14} />Bilans
+              {stan === 'do-bilansu' && <span className="badge warn">!</span>}</button>}
           </div>
           <div className="pm-panel-body" role="tabpanel">
             {zakladka === 'palety' && <PanelPalet palety={palety} wybrana={wybrana} sklad={wybrana ? sklad(wybrana) : []} nazwyPlanow={nazwyPlanow} biezacyPlanId={planId}
               tylkoPodglad={tylkoPodglad} onPrzelacz={przelacz} onPodpowiedz={() => podpowiedz(wybrana)} onZKoncowek={zKoncowek} />}
+            {zakladka === 'bilans' && plan?.status === 'done' && <BilansPlanu key={plan.id} planId={plan.id} />}
             {zakladka === 'oznaczenie' && <KoncowkiDoOznaczenia palety={palety} onWydrukowano={() => void wczytaj(dzien, planId)} />}
             {zakladka === 'zamowienia' && <div className="pp-zam">
               {!doWciagniecia.length && <Pusto ikona={<ShoppingCart size={20} />} tytul="Nic do wciągnięcia">Potwierdzone zamówienia są już w planie albo zrobione.</Pusto>}
@@ -409,6 +414,7 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
           </div>
         </aside>
       </div>
+      {okno?.rodzaj === 'straty' && <StratyOkno onClose={() => setOkno(null)} />}
       {okno?.rodzaj === 'karta' && plan && <KartaProdukcjiDialog plan={{
         id: plan.id, planNo: plan.planNo, planDate: plan.planDate,
         lines: plan.lines.map(l => ({
