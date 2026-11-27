@@ -23,12 +23,20 @@ class PlanLineCreate(BaseModel):
     client_order_no: str = Field("", alias="clientOrderNo")
     client_order_line_id: str = Field("", alias="clientOrderLineId")
     client_name: str = Field("", alias="clientName")
+    # Plan produkcji z PROTRIMA (26.11.2026): konkretne palety z chłodni,
+    # w kolejności użycia. Partie pozycji wynikają z palet.
+    pallet_ids: List[str] = Field(default_factory=list, alias="palletIds")
+    # Pozycja „z końcówek” — kilka zważonych końcówek w jednej sztuce (PM).
+    from_remainders: bool = Field(False, alias="fromRemainders")
 
 
 class ProductionPlanCreate(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
     plan_date: str = Field("", alias="planDate")
     notes: str = ""
+    # Blokada palet (wywóz ze skanem). Ustawiana przy tworzeniu; edycja planu
+    # jej nie zmienia (PATCH /pallet-gate w szkicu).
+    pallet_gate: bool = Field(False, alias="palletGate")
     lines: List[PlanLineCreate] = Field(default_factory=list)
 
 

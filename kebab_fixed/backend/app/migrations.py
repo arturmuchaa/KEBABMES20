@@ -2158,6 +2158,9 @@ _DDL: list[str] = [
         PRIMARY KEY (plan_line_id, pallet_id)
     )""",
     "ALTER TABLE production_plans ADD COLUMN IF NOT EXISTS pallet_gate BOOLEAN NOT NULL DEFAULT false",
+    # Plan B: kolejność palet w pozycji (biuro układa, z której palety najpierw).
+    "ALTER TABLE plan_line_pallets ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0",
+    "CREATE INDEX IF NOT EXISTS idx_plan_line_pallets_pallet ON plan_line_pallets(pallet_id)",
     """CREATE TABLE IF NOT EXISTS plan_batch_balance (
         plan_id     TEXT NOT NULL,
         batch_no    TEXT NOT NULL,

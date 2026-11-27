@@ -763,7 +763,17 @@ def get_plan(plan_id: str) -> Dict:
         "ORDER BY position, id",
         (plan_id,),
     )
+    _attach_pallets(plan["lines"])
     return plan
+
+
+def _attach_pallets(lines: List[Dict]) -> None:
+    """Palety pozycji (plan z PROTRIMA) — `line["pallets"]`, w kolejności."""
+    from app.services import seasoned_pallets_service as palety
+    with transaction() as conn:
+        by_line = palety.line_pallets(conn, [ln["id"] for ln in lines])
+    for ln in lines:
+        ln["pallets"] = by_line.get(ln["id"], [])
 
 
 def list_plans() -> List[Dict]:
@@ -773,7 +783,42 @@ def list_plans() -> List[Dict]:
             "SELECT * FROM production_plan_lines WHERE plan_id = %s "
             "ORDER BY position, id", (p["id"],)
         )
+    _attach_pallets([ln for p in plans for ln in p["lines"]])
     return plans
+
+
+def _prepare_line_pallets(conn, numbered_lines, gate: bool, plan_id: str | None = None) -> None:
+    """Palety pozycji planu z PROTRIMA — przed blokadą partii i alokacją.
+
+    `numbered_lines` = [(nr pozycji w formularzu, PlanLineCreate)]. Plan
+    z blokadą palet nie bierze mięsa bez palety; kebab z kilku rodzajów
+    mięsa potrzebuje palety każdego rodzaju."""
+    from app.services import seasoned_pallets_service as palety
+    for n, line in numbered_lines:
+        if not line.recipe_name:
+            line.recipe_name = _resolve_line_names(conn, line)[0]
+        nazwa = line.recipe_name or line.product_type_name or "pozycja"
+        if not line.pallet_ids:
+            if gate:
+                raise HTTPException(
+                    400,
+                    f"Pozycja {n} ({nazwa}): wybierz palety — plan z kontrolą palet "
+                    "nie bierze mięsa bez palety",
+                )
+            continue
+        rows = palety.resolve_line_pallets(conn, line, plan_id=plan_id)
+        comps = _line_components(conn, line)
+        if comps:
+            maty = {r.get("material_type_id") or "" for r in rows}
+            udzialy = "/".join(f"{float(c.get('pct') or 0):g}" for c in comps)
+            for c in comps:
+                if (c.get("materialTypeId") or "") not in maty:
+                    mat = c.get("materialName") or c.get("name") or c.get("materialTypeId") or "?"
+                    raise HTTPException(
+                        400,
+                        f"Pozycja {n} ({nazwa}): brak palety z mięsem {mat} — kebab {udzialy} "
+                        "potrzebuje palet każdego rodzaju",
+                    )
 
 
 def _insert_line(
@@ -789,7 +834,8 @@ def _insert_line(
     all_batch_nos: list[str],
     allocation: dict,
     position: int = 0,
-) -> None:
+) -> str:
+    line_id = str(getattr(line, "id", "") or "") or cuid()
     cx_execute(
         conn,
         """
@@ -805,7 +851,7 @@ def _insert_line(
         (
             # Zachowaj id pozycji z DTO (edycja planu — dopasowanie i qty_done);
             # brak = nowa pozycja → nowy cuid.
-            str(getattr(line, "id", "") or "") or cuid(),
+            line_id,
             plan_id,
             position,
             line.qty,
@@ -829,6 +875,10 @@ def _insert_line(
             "assigned" if primary_batch_id else "pending",
         ),
     )
+    if getattr(line, "pallet_ids", None):
+        from app.services import seasoned_pallets_service as palety
+        palety.write_line_pallets(conn, line_id, list(line.pallet_ids))
+    return line_id
 
 
 def _resolve_line_names(conn, line: PlanLineCreate) -> tuple[str, str, str]:
@@ -867,6 +917,7 @@ def create_plan(dto: ProductionPlanCreate) -> Dict:
     total_units = sum(l.qty for l in valid_lines)
 
     with transaction() as conn:
+        _prepare_line_pallets(conn, list(enumerate(valid_lines, start=1)), bool(dto.pallet_gate))
         # Lock every seasoned_meat row required by the plan up-front,
         # in deterministic order, to avoid deadlocks between concurrent
         # plan creates.
@@ -891,8 +942,8 @@ def create_plan(dto: ProductionPlanCreate) -> Dict:
             """
             INSERT INTO production_plans
                 (id, plan_no, plan_date, total_kg, total_units,
-                 status, notes, created_at)
-            VALUES (%s,%s,%s,%s,%s,'draft',%s,%s)
+                 status, notes, created_at, pallet_gate)
+            VALUES (%s,%s,%s,%s,%s,'draft',%s,%s,%s)
             RETURNING *
             """,
             (
@@ -903,6 +954,7 @@ def create_plan(dto: ProductionPlanCreate) -> Dict:
                 total_units,
                 dto.notes or None,
                 now_iso(),
+                bool(dto.pallet_gate),
             ),
         )
         assert plan is not None
@@ -995,6 +1047,12 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
         # (payload) + zamrożone (z bazy — payload zamrożonych jest ignorowany).
         editable_lines = [l for l in valid_lines if str(l.id or "") not in produced_ids]
         frozen_rows = [r for r in old_lines if r["id"] in produced_ids]
+        _prepare_line_pallets(
+            conn,
+            [(i, l) for i, l in enumerate(valid_lines, start=1) if str(l.id or "") not in produced_ids],
+            bool(plan.get("pallet_gate")),
+            plan_id=plan_id,
+        )
         total_kg = round(
             sum(l.qty * l.kg_per_unit for l in editable_lines)
             + sum(float(r.get("total_kg") or 0) for r in frozen_rows),
@@ -1006,6 +1064,12 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
         )
 
         _restore_reservations(conn, plan_id, skip_line_ids=produced_ids)
+        cx_execute(
+            conn,
+            "DELETE FROM plan_line_pallets WHERE plan_line_id IN ("
+            "SELECT id FROM production_plan_lines WHERE plan_id=%s AND COALESCE(qty_done,0)=0)",
+            (plan_id,),
+        )
         cx_execute(
             conn,
             "DELETE FROM production_plan_lines WHERE plan_id=%s AND COALESCE(qty_done,0)=0",

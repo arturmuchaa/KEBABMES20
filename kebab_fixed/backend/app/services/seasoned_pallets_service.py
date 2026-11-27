@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from app.db import cx_execute_returning, cx_query_one
+from app.db import cx_execute, cx_execute_returning, cx_query_one
 from app.utils.ids import cuid
 
 QR_PREFIX = "SP|"
@@ -486,3 +486,76 @@ def plan_balance(plan_id: str) -> list[Dict[str, Any]]:
         for r in query_all(
             "SELECT * FROM plan_batch_balance WHERE plan_id=%s ORDER BY batch_no, recipe_id", (plan_id,))
     ]
+
+
+# ── Palety przy pozycjach planu (PROTRIMA, plan B) ───────────────────────
+
+def resolve_line_pallets(conn, line, plan_id: str | None = None) -> list[Dict[str, Any]]:
+    """Palety pozycji planu (`line.pallet_ids`) w kolejności wyboru, zablokowane.
+
+    Sprawdza, że każda leży w chłodni i ma recepturę pozycji. Ustawia
+    `line.seasoned_batch_ids` na partie palet (bez powtórzeń, w kolejności),
+    żeby alokacja planu brała mięso dokładnie z tych palet.
+    """
+    wynik: list[Dict[str, Any]] = []
+    for pid in line.pallet_ids:
+        p = cx_query_one(
+            conn,
+            "SELECT sp.*, sm.material_type_id FROM seasoned_pallets sp "
+            "LEFT JOIN seasoned_meat sm ON sm.id = sp.seasoned_meat_id "
+            "WHERE sp.id=%s FOR UPDATE OF sp",
+            (pid,),
+        )
+        if not p:
+            raise HTTPException(404, "Nie znam palety wybranej w planie — odśwież listę palet")
+        nr = p.get("pallet_no")
+        if p["status"] == "closed":
+            raise HTTPException(409, f"Paleta {nr} jest już zużyta — odśwież listę palet")
+        # Edycja planu w trakcie dnia: paleta wywieziona do TEGO planu zostaje.
+        if p["status"] == "on_hall" and not (plan_id and p.get("taken_plan_id") == plan_id):
+            raise HTTPException(
+                409, f"Paleta {nr} już wyjechała na halę ({_hhmm(p.get('taken_at'))}) — odśwież listę palet")
+        if (p.get("recipe_id") or "") != (line.recipe_id or ""):
+            raise HTTPException(
+                400,
+                f"Paleta {nr} (partia {p.get('batch_no')}) to {p.get('recipe_name') or 'inna receptura'}, "
+                f"a pozycja to {line.recipe_name or line.recipe_id}",
+            )
+        wynik.append(p)
+    ids: list[str] = []
+    for p in wynik:
+        sm = p.get("seasoned_meat_id")
+        if sm and sm not in ids:
+            ids.append(sm)
+    if wynik:
+        line.seasoned_batch_ids = ids
+        line.seasoned_batch_id = ids[0] if ids else ""
+    return wynik
+
+
+def write_line_pallets(conn, plan_line_id: str, pallet_ids: list[str]) -> None:
+    cx_execute(conn, "DELETE FROM plan_line_pallets WHERE plan_line_id=%s", (plan_line_id,))
+    for pos, pid in enumerate(dict.fromkeys(pallet_ids), start=1):
+        cx_execute(
+            conn,
+            "INSERT INTO plan_line_pallets (plan_line_id, pallet_id, position) VALUES (%s,%s,%s)",
+            (plan_line_id, pid, pos),
+        )
+
+
+def line_pallets(conn, plan_line_ids: list[str]) -> Dict[str, list[Dict[str, Any]]]:
+    """Palety pozycji (w kolejności zapisu) dla odczytu planu."""
+    if not plan_line_ids:
+        return {}
+    rows = cx_query_all(
+        conn,
+        "SELECT lp.plan_line_id, sp.* FROM plan_line_pallets lp "
+        "JOIN seasoned_pallets sp ON sp.id = lp.pallet_id "
+        "WHERE lp.plan_line_id = ANY(%s) ORDER BY lp.plan_line_id, lp.position, sp.pallet_no",
+        (plan_line_ids,),
+    )
+    out: Dict[str, list[Dict[str, Any]]] = {}
+    for r in rows:
+        lista = out.setdefault(r["plan_line_id"], [])
+        lista.append({**pallet_out(r), "position": len(lista) + 1})
+    return out
