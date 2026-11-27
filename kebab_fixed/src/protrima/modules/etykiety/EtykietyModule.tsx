@@ -187,7 +187,7 @@ export function EtykietyModule({ active, setCtx, setCmds }: { active: boolean; s
   return (
     <>
       <CommandBar title="Etykiety" count={projekt ? (projekt.name || 'nowy szablon') : `${lista.length} szablonów`} cmds={cmds} showKbd={false} />
-      <div className="et-uklad">
+      <div className={`et-uklad${projekt ? '' : ' bez-panelu'}`}>
         <ListaSzablonow lista={lista} wybranyId={projekt?.id ?? null} szukaj={szukaj} onSzukaj={setSzukaj} onWybierz={id => void otworz(id)} onNowy={() => setNowy(true)} />
         <section className="et-srodek" aria-label="Etykieta">
           {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div>{blad}</div></div>}

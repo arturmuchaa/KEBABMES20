@@ -1,12 +1,22 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Maximize, Minus, Plus } from 'lucide-react'
 import type { LabelDesign, LabelField } from '@/lib/api'
+import { UNIT_QR_OPTIONS } from '@/features/labels/unitQr'
 import { KROK_MM, PRZYKLAD, RODZAJE_POL, polePlotna, poZaEtykieta, prostokat, rozmiarStrony, wartosciPol } from './model'
 
 const PT_MM = 25.4 / 72
 const PRZYKLADOWE = wartosciPol(PRZYKLAD, { razem: 29, orgCode: 'HAL-0000' })
 const snap = (mm: number) => Math.round(mm / KROK_MM) * KROK_MM
 const RODZINA: Record<string, string> = { arial: 'Arial, "Liberation Sans", sans-serif', times: '"Times New Roman", Times, serif', courier: '"Courier New", Courier, monospace' }
+
+/** Punkt obrotu tekstu tak, żeby obrócony blok zaczynał się w lewym-górnym rogu pola
+ *  (jak `^FO` z `^A0R/I/B` w ZPL): 90° — wokół (h/2, h/2), 180° — środek, 270° — (W/2, W/2). */
+function punktObrotu(obrot: number, h: number, dl: number): string {
+  if (obrot === 90) return `${h / 2}px ${h / 2}px`
+  if (obrot === 270) return `${dl / 2}px ${dl / 2}px`
+  if (obrot === 180) return `${dl / 2}px ${h / 2}px`
+  return 'center'
+}
 
 export function tekstPola(f: LabelField): string {
   return f.kind === 'static_text' ? (f.text ?? '') : PRZYKLADOWE[f.kind]
@@ -30,13 +40,19 @@ export function Plotno({ projekt, sel, onSel, onZmien, onPrzeciaganie }: {
   const [dopasowanie, setDopasowanie] = useState(3)
   const [zoom, setZoom] = useState<number | null>(null)
   const px = zoom ?? dopasowanie
+  const [qrSrc, setQrSrc] = useState('')
+  useEffect(() => {
+    let zywy = true
+    import('qrcode').then(m => m.default.toDataURL(PRZYKLAD.qrCode, UNIT_QR_OPTIONS)).then(u => { if (zywy) setQrSrc(u) }).catch(() => {})
+    return () => { zywy = false }
+  }, [])
 
   // Dopasuj do okna: cała strona widoczna.
   useLayoutEffect(() => {
     const el = ramka.current
     if (!el) return
     const licz = () => {
-      const w = el.clientWidth - 48, h = el.clientHeight - 48
+      const w = el.clientWidth - 96, h = el.clientHeight - 96
       if (w > 0 && h > 0) setDopasowanie(Math.max(1, Math.min(w / strona.w, h / strona.h)))
     }
     licz()
@@ -107,14 +123,14 @@ export function Plotno({ projekt, sel, onSel, onZmien, onPrzeciaganie }: {
                   aria-label={`Pole ${nazwa}${slot ? ' (etykieta 2)' : ''}`} aria-pressed={zaznaczone}
                   style={{ left: f.xMm * px, top: f.yMm * px, width: r.w * px, height: r.h * px }}
                   onPointerDown={e => ciagnij(e, baza, slot)} onClick={e => { e.stopPropagation(); onSel({ id: f.id, slot }) }}>
-                  {f.kind === 'qr' ? <span className="et-qr" aria-hidden="true" />
+                  {f.kind === 'qr' ? (qrSrc ? <img className="et-qr-img" src={qrSrc} alt="" draggable={false} /> : <span className="et-qr" aria-hidden="true" />)
                     : f.kind === 'box' ? null
                       : <span className="et-tekst" style={{
                         fontSize: (f.sizePt ?? 10) * PT_MM * px, fontWeight: f.bold ? 700 : 400, fontFamily: RODZINA[f.font ?? 'arial'],
                         textAlign: f.align === 'C' ? 'center' : f.align === 'R' ? 'right' : 'left',
                         transform: obrot ? `rotate(${obrot}deg)` : undefined,
-                        transformOrigin: obrot === 90 ? `${((f.sizePt ?? 10) * PT_MM * px) / 2}px ${((f.sizePt ?? 10) * PT_MM * px) / 2}px` : 'center',
-                        width: obrot === 90 || obrot === 270 ? r.h * px : undefined,
+                        transformOrigin: punktObrotu(obrot, (f.sizePt ?? 10) * PT_MM * px, (obrot === 90 || obrot === 270 ? r.h : r.w) * px),
+                        width: obrot === 90 || obrot === 270 ? r.h * px : obrot === 180 ? r.w * px : undefined,
                       }}>{tekst || nazwa}</span>}
                 </button>
               )

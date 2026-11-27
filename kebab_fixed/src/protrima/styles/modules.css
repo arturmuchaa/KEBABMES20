@@ -1478,6 +1478,7 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 
 /* ─── Projektor etykiet (27.11.2026) ─────────────────────────────────── */
 .et-uklad { flex: 1; min-height: 0; display: grid; grid-template-columns: 270px minmax(0, 1fr) 330px; }
+.et-uklad.bez-panelu { grid-template-columns: 270px minmax(0, 1fr); }
 .et-lista { min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--line); background: var(--surface); }
 .et-lista-g { display: flex; gap: 6px; align-items: center; padding: 10px; border-bottom: 1px solid var(--line-soft, var(--line)); }
 .et-szukaj { flex: 1; display: flex; align-items: center; gap: 6px; color: var(--ink-3); min-width: 0; }
@@ -1515,6 +1516,7 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .et-pole.slot2 { opacity: .55; }
 .et-pole.slot2.wlasne { opacity: .8; border-color: rgba(161, 98, 7, .8); }
 .et-pole.poza { border-color: #dc2626; background: rgba(220, 38, 38, .08); }
+.et-qr-img { width: 100%; height: 100%; display: block; pointer-events: none; image-rendering: pixelated; }
 .et-pole.k-box { background: rgba(255, 255, 255, .85); }
 .et-tekst { white-space: nowrap; line-height: 1; display: block; color: #111; pointer-events: none; }
 .et-qr { width: 100%; height: 100%; pointer-events: none; background:
@@ -1544,7 +1546,7 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .et-plik { display: flex; align-items: center; justify-content: center; min-height: 64px; padding: 12px; border: 1.5px dashed var(--line-strong, var(--line)); border-radius: var(--r-md); cursor: pointer; color: var(--ink-2); position: relative; text-align: center; }
 .et-plik:hover { border-color: var(--accent); color: var(--accent); }
 .et-plik input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
-@media (max-width: 1440px) { .et-uklad { grid-template-columns: 230px minmax(0, 1fr) 300px; } }
+@media (max-width: 1440px) { .et-uklad { grid-template-columns: 230px minmax(0, 1fr) 300px; } .et-uklad.bez-panelu { grid-template-columns: 230px minmax(0, 1fr); } }
 .pp-halal { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; margin: 8px 0; }
 .pp-etykiety h4 .tag { margin-left: 8px; vertical-align: 1px; }
 .pp-brak-szablonu { margin: 0 0 6px; color: var(--warn-ink); font-size: var(--fs-sm); }
