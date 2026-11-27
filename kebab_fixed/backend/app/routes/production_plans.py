@@ -1,7 +1,7 @@
 """Production plans endpoints."""
 from typing import List, Any, Dict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from app.models.production import ProductionPlanCreate
@@ -35,6 +35,13 @@ def list_plans():
 @router.post("")
 def create_plan(dto: ProductionPlanCreate):
     return svc.create_plan(dto)
+
+
+@router.get("/balance-range")
+def balance_range(date_from: str = Query("", alias="from"), date_to: str = Query("", alias="to")):
+    """Straty mięsa za zakres dat planów (bilans palet): partie, dni, receptury."""
+    from app.services import seasoned_pallets_service as palety
+    return palety.balance_range(date_from, date_to)
 
 
 # Musi stać PO trasach statycznych (""), żeby nie przechwyciło ich {plan_id}.

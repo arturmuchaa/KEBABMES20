@@ -601,15 +601,110 @@ def settle_plan_balance(conn, plan_id: str, plan_no: str) -> list[Dict[str, Any]
     return wynik
 
 
+def _pct(loss: float, kg_in: float) -> float:
+    return round(loss / kg_in * 100, 1) if kg_in > 0 else 0.0
+
+
+_BILANS_SQL = """
+    SELECT b.*, p.plan_no, p.plan_date, COALESCE(r.name, '') AS recipe_name,
+           (SELECT SUM(sp.kg_theory) FROM seasoned_pallets sp
+             WHERE sp.taken_plan_id = b.plan_id AND sp.batch_no = b.batch_no
+               AND COALESCE(sp.recipe_id, '') = b.recipe_id AND NOT sp.is_remainder) AS kg_theory
+    FROM plan_batch_balance b
+    JOIN production_plans p ON p.id = b.plan_id
+    LEFT JOIN recipes r ON r.id = b.recipe_id
+"""
+
+
+def _wiersz_bilansu(r: Dict[str, Any]) -> Dict[str, Any]:
+    kg_in, kg_loss = float(r["kg_in"]), float(r["kg_loss"])
+    return {
+        "planId": r["plan_id"], "planNo": r.get("plan_no") or "",
+        "planDate": str(r.get("plan_date") or "")[:10],
+        "batchNo": r["batch_no"], "recipeId": r.get("recipe_id") or "",
+        "recipeName": r.get("recipe_name") or "",
+        "kgTheory": float(r["kg_theory"]) if r.get("kg_theory") is not None else None,
+        "kgIn": kg_in, "kgGoods": float(r["kg_goods"]),
+        "kgReturned": float(r["kg_returned"]), "kgLoss": kg_loss, "lossPct": _pct(kg_loss, kg_in),
+    }
+
+
 def plan_balance(plan_id: str) -> list[Dict[str, Any]]:
     from app.db import query_all
     return [
-        {"batchNo": r["batch_no"], "recipeId": r.get("recipe_id") or "",
-         "kgIn": float(r["kg_in"]), "kgGoods": float(r["kg_goods"]),
-         "kgReturned": float(r["kg_returned"]), "kgLoss": float(r["kg_loss"])}
-        for r in query_all(
-            "SELECT * FROM plan_batch_balance WHERE plan_id=%s ORDER BY batch_no, recipe_id", (plan_id,))
+        _wiersz_bilansu(r)
+        for r in query_all(f"{_BILANS_SQL} WHERE b.plan_id=%s ORDER BY b.batch_no, b.recipe_id", (plan_id,))
     ]
+
+
+def balance_range(date_from: str, date_to: str) -> Dict[str, Any]:
+    """Straty mięsa za zakres dat planów: wiersze partii, dni i receptury."""
+    from datetime import date as _date
+    from app.db import query_all
+    try:
+        od, do = _date.fromisoformat(date_from), _date.fromisoformat(date_to)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Zła data — podaj od i do w formacie RRRR-MM-DD")
+    if od > do:
+        raise HTTPException(400, "Data od jest po dacie do")
+    rows = [
+        _wiersz_bilansu(r)
+        for r in query_all(
+            f"{_BILANS_SQL} WHERE p.plan_date::date BETWEEN %s AND %s "
+            "ORDER BY p.plan_date, p.plan_no, b.batch_no",
+            (od.isoformat(), do.isoformat()),
+        )
+    ]
+
+    def zsumuj(klucz):
+        grupy: Dict[Any, Dict[str, Any]] = {}
+        for w in rows:
+            g = grupy.setdefault(klucz(w), {"kgIn": 0.0, "kgLoss": 0.0, "_w": w})
+            g["kgIn"] += w["kgIn"]
+            g["kgLoss"] += w["kgLoss"]
+        return grupy
+
+    dni = [
+        {"date": d, "kgIn": round(g["kgIn"], 3), "kgLoss": round(g["kgLoss"], 3),
+         "lossPct": _pct(g["kgLoss"], g["kgIn"])}
+        for d, g in sorted(zsumuj(lambda w: w["planDate"]).items())
+    ]
+    receptury = [
+        {"recipeId": rid, "recipeName": g["_w"]["recipeName"], "kgIn": round(g["kgIn"], 3),
+         "kgLoss": round(g["kgLoss"], 3), "lossPct": _pct(g["kgLoss"], g["kgIn"])}
+        for rid, g in zsumuj(lambda w: w["recipeId"]).items()
+    ]
+    receptury.sort(key=lambda r: -r["kgIn"])
+    return {"rows": rows, "days": dni, "recipes": receptury}
+
+
+def plans_summary(plan_ids: list[str]) -> Dict[str, Dict[str, Any]]:
+    """Stan etykiet i palet planów jednym przebiegiem (lista planów w PROTRIMA)."""
+    from app.db import query_all
+    out: Dict[str, Dict[str, Any]] = {
+        pid: {"units": 0, "labelsPrinted": 0, "pallets": 0, "palletsTaken": 0,
+              "palletsReturned": 0, "balanceReady": False}
+        for pid in plan_ids
+    }
+    if not plan_ids:
+        return out
+    for r in query_all(
+        "SELECT l.plan_id, count(u.id) AS n, count(u.label_printed_at) AS druk "
+        "FROM finished_units u JOIN production_plan_lines l ON l.id = u.plan_line_id "
+        "WHERE l.plan_id = ANY(%s) GROUP BY l.plan_id", (plan_ids,)):
+        out[r["plan_id"]].update(units=int(r["n"]), labelsPrinted=int(r["druk"]))
+    for r in query_all(
+        "SELECT l.plan_id, count(DISTINCT lp.pallet_id) AS n, "
+        "count(DISTINCT lp.pallet_id) FILTER (WHERE sp.taken_plan_id = l.plan_id) AS wyw, "
+        "count(DISTINCT lp.pallet_id) FILTER (WHERE sp.taken_plan_id = l.plan_id "
+        "  AND sp.returned_at IS NOT NULL) AS zwr "
+        "FROM plan_line_pallets lp JOIN production_plan_lines l ON l.id = lp.plan_line_id "
+        "JOIN seasoned_pallets sp ON sp.id = lp.pallet_id "
+        "WHERE l.plan_id = ANY(%s) GROUP BY l.plan_id", (plan_ids,)):
+        out[r["plan_id"]].update(pallets=int(r["n"]), palletsTaken=int(r["wyw"]), palletsReturned=int(r["zwr"]))
+    for r in query_all("SELECT DISTINCT plan_id FROM plan_batch_balance WHERE plan_id = ANY(%s)", (plan_ids,)):
+        out[r["plan_id"]]["balanceReady"] = True
+    return out
 
 
 # ── Palety przy pozycjach planu (PROTRIMA, plan B) ───────────────────────

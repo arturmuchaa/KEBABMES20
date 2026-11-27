@@ -786,6 +786,10 @@ def list_plans() -> List[Dict]:
             "ORDER BY position, id", (p["id"],)
         )
     _attach_pallets([ln for p in plans for ln in p["lines"]])
+    from app.services import seasoned_pallets_service as palety
+    summary = palety.plans_summary([p["id"] for p in plans])
+    for p in plans:
+        p["summary"] = summary[p["id"]]
     return plans
 
 
