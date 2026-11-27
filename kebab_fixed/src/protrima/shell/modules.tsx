@@ -23,7 +23,7 @@ export const AREAS: AreaDef[] = [
     { key: 'rozrachunki', label: 'Rozrachunki', icon: Wallet, info: ['Salda odbiorców z WZ i faktur', 'Wpłaty rozliczane od najstarszych', 'Wydruk salda dla klienta'] },
   ] },
   { key: 'planowanie', label: 'Planowanie', icon: CalendarRange, modules: [
-    { key: 'plan-produkcji', label: 'Plan produkcji', icon: ClipboardList, info: ['Plan z importem pozycji zamówień', 'Rezerwacja mięsa przyprawionego z wielu partii', 'Zalecenia produkcyjne'] },
+    { key: 'plan-produkcji', label: 'Plan produkcji', icon: ClipboardList, info: ['Plan dnia z palet w chłodni — końcówki i najdłużej leżące najpierw', 'Kebab mix z palet każdego składnika, pozycje z końcówek (PM)', 'Etykiety sztuk i końcówek, karta dla kierownika, bilans strat'] },
     { key: 'plan-masowania', label: 'Plan masowania', icon: Layers, info: ['Kolejka dnia dla masowni z partiami mięsa (FEFO)', 'Potrzeby z zamówień i braki przypraw', 'Potwierdzanie wykonania, wydruk dla operatora'] },
     { key: 'receptury', label: 'Receptury', icon: BookOpen, info: ['Skład na 100 kg mięsa, udziały i stan przypraw', 'Kalkulator na dowolną ilość mięsa', 'Gdzie użyta, kopia, wycofanie'] },
     { key: 'katalog', label: 'Katalog wyrobów', icon: Tags, info: ['Rodzaj × receptura × gramatura × opakowanie', 'Szablony etykiet i drukarki Zebra'] },
@@ -64,7 +64,7 @@ export const AREAS: AreaDef[] = [
 export const PINNED = ['zamowienia', 'plan-produkcji', 'magazyn-wg', 'wysylki']
 
 /** Moduły z własnym ekranem w PROTRIMA. Pozostałe działają na razie w starym MES (zaślepka z drogowskazem). */
-export const W_PROTRIMA = new Set(['pulpit', 'zamowienia', 'przyjecia', 'magazyn-wg', 'rozbior', 'rozrachunki', 'receptury', 'plan-masowania', 'dokumenty'])
+export const W_PROTRIMA = new Set(['pulpit', 'zamowienia', 'przyjecia', 'magazyn-wg', 'rozbior', 'rozrachunki', 'receptury', 'plan-masowania', 'plan-produkcji', 'dokumenty'])
 export const wProtrima = (key: string) => W_PROTRIMA.has(key)
 
 /** Czy konto o tej roli widzi i otwiera moduł. Serwer i tak pilnuje uprawnień — tu chodzi o to,

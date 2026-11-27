@@ -1384,3 +1384,31 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .dw .mono { font-family: var(--font-code); font-size: var(--fs-id); }
 .dw-tag.warn { background: var(--warn-tint); color: var(--warn-ink); }
 .dw-razem small { font-size: var(--fs-xs); }
+
+/* ─── Plan produkcji (palety z chłodni) ─────────────────────────────── */
+.pp-tbl td { vertical-align: top; }
+.pp-tbl .field.num { width: 72px; }
+.pp-pod { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
+.pp-palety { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.pp-chip-x { border: 0; background: transparent; padding: 0 0 0 2px; color: var(--ink-3); cursor: pointer; line-height: 1; }
+.pp-chip-x:hover { color: var(--crit); }
+.pp-panel { display: flex; flex-direction: column; gap: 6px; padding: 10px; }
+.pp-panel-akcje { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.pp-grupa h4 { margin: 8px 0 4px; font-size: var(--fs-sm); color: var(--ink-2); text-transform: none; }
+.pp-pal { display: flex; gap: 8px; align-items: flex-start; }
+.pp-pal .cbx { margin-top: 10px; }
+.pp-pal-b { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 6px 8px; border-radius: var(--r-sm);
+  border: 1px solid var(--line); background: var(--surface); color: inherit; font: inherit; cursor: pointer; }
+.pp-pal-b:hover:not(:disabled) { border-color: var(--accent); }
+.pp-pal-b:disabled { cursor: default; }
+.pp-pal.sel .pp-pal-b { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-tint, var(--surface-sunk)); }
+.pp-pal-b .l1, .pp-pal-b .l2 { display: flex; gap: 6px; align-items: baseline; font-size: var(--fs-sm); }
+.pp-pal-b .l3 { display: flex; flex-wrap: wrap; gap: 4px; }
+.pp-pal-b .grow, .pp-zam-l .grow, .pp-plan .grow { flex: 1; }
+.pp-zam, .pp-plany { display: flex; flex-direction: column; gap: 6px; padding: 10px; }
+.pp-zam-l, .pp-plan { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 7px 9px; border-radius: var(--r-sm);
+  border: 1px solid var(--line); background: var(--surface); color: inherit; font: inherit; cursor: pointer; }
+.pp-zam-l:hover:not(:disabled), .pp-plan:hover { border-color: var(--accent); }
+.pp-plan.sel { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.pp-zam-l .l1, .pp-zam-l .l2, .pp-plan .l1, .pp-plan .l2 { display: flex; gap: 6px; align-items: baseline; font-size: var(--fs-sm); }
+.pp-pad { padding: 8px 2px; }
