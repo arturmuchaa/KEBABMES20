@@ -12,7 +12,7 @@ const pkg = vi.hoisted(() => ({ list: vi.fn() }))
 const orders = vi.hoisted(() => ({ list: vi.fn(), productionProgress: vi.fn() }))
 const units = vi.hoisted(() => ({ generateFromPlanLine: vi.fn(), forPlan: vi.fn(), markLabelsPrinted: vi.fn() }))
 const druk = vi.hoisted(() => ({ drukujEtykiety: vi.fn(), opisBledu: vi.fn(async (e: unknown) => (e instanceof Error ? e.message : String(e))) }))
-vi.mock('../../drukarka/drukarka', () => ({ ...druk, ROLKA_ETYKIET: '80x100' }))
+vi.mock('../../drukarka/drukarka', () => ({ ...druk, ROLKA_ETYKIET: '100x150' }))
 vi.mock('@/lib/api', async (orig) => ({
   ...(await orig() as object), productionPlansApi: plans, seasonedPalletsApi: pallets, recipesApi: rec, productTypesApi: pt,
   packagingApi: pkg, clientOrdersApi: orders, finishedUnitsApi: units,
@@ -170,7 +170,7 @@ describe('Plan produkcji — ekran', () => {
     const [zpl, rolka] = druk.drukujEtykiety.mock.calls[0]
     expect(zpl).toHaveLength(2)
     expect(zpl[1]).toContain('2/2')
-    expect(rolka).toBe('80x100')
+    expect(rolka).toBe('100x150')
   })
 
   it('błąd drukarki nie oznacza żadnej sztuki', async () => {

@@ -66,7 +66,7 @@ export function OknoEtykiet({ planId, planNo, przedruk, wyrzuc, pozycje, onClose
   return (
     <Dialog wide title={`Etykiety sztuk — ${planNo}`} icon={<Tags size={20} color="var(--accent)" />} onClose={onClose}
       footer={<>
-        <span className="left muted">{status || (sztuki ? `wydrukowane ${(sztuki.length - doDruku.length)} z ${sztuki.length}` : '')} · rolka 80 × 100 mm</span>
+        <span className="left muted">{status || (sztuki ? `wydrukowane ${(sztuki.length - doDruku.length)} z ${sztuki.length}` : '')} · rolka 100 × 150 mm</span>
         <button className="btn" onClick={onClose}>Zamknij</button>
         <button className="btn primary" data-autofocus disabled={!doDruku.length || drukuje} onClick={() => void drukuj(doDruku)}>
           <Printer size={15} />{drukuje ? 'Drukuję…' : `Drukuj niewydrukowane (${doDruku.length})`}</button>
