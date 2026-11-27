@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, ClipboardList, ListChecks, Plus, RefreshCw, Save, Send, ShoppingCart, Boxes, Tags, Wand2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ClipboardList, FileText, ListChecks, Plus, RefreshCw, Save, Send, ShoppingCart, Boxes, Tags, Wand2, X } from 'lucide-react'
 import { useApp, CommandBar, type Cmd } from '../../shell/context'
 import { FlagIcon } from '../../ui/Glyphs'
 import { Pusto } from '../../ui/Pusto'
@@ -12,6 +12,7 @@ import { dataPl, dzisIso, nazwaDnia, przesunDzien } from '../plan-masowania/mode
 import { PanelPalet } from './PanelPalet'
 import { OknoEtykiet } from './OknoEtykiet'
 import { KoncowkiDoOznaczenia } from './KoncowkiDoOznaczenia'
+import { KartaProdukcjiDialog, type PlanKarty } from './KartaProdukcji'
 import {
   ETYKIETA_STANU, bledyPozycji, doDto, podpowiedzPalet, prognozaKoncowki, stanPlanu, sumaKoncowek, sztukZPalety,
   type Paleta, type Pozycja, type Skladnik,
@@ -28,7 +29,7 @@ interface PlanSerwera {
 }
 
 type Zakladka = 'palety' | 'oznaczenie' | 'zamowienia' | 'plany'
-type Okno = { rodzaj: 'etykiety'; przedruk?: string[] } | null
+type Okno = { rodzaj: 'etykiety'; przedruk?: string[] } | { rodzaj: 'karta' } | null
 
 function zPlanu(plan: PlanSerwera | null): Pozycja[] {
   return (plan?.lines ?? []).map(l => {
@@ -267,6 +268,8 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
       tip: !plan ? 'najpierw zapisz plan' : zmieniony ? 'najpierw zapisz zmiany' : plan.status !== 'draft' ? 'plan jest już w produkcji' : 'Rezerwuje mięso i tworzy sztuki z QR — potem druk etykiet', run: () => void wyslij() },
     { id: 'labels', group: 3, label: 'Etykiety sztuk', icon: <Tags size={17} />, disabled: !plan || plan.status === 'draft',
       tip: !plan || plan.status === 'draft' ? 'etykiety drukuje się po wysłaniu planu do produkcji' : undefined, run: () => setOkno({ rodzaj: 'etykiety' }) },
+    { id: 'print', group: 3, label: 'Karta dla kierownika', icon: <FileText size={17} />, kbd: 'Ctrl+P', disabled: !plan || zmieniony,
+      tip: !plan ? 'najpierw zapisz plan' : zmieniony ? 'najpierw zapisz zmiany — drukuje się zapisany plan' : 'Pozycje z paletami w kolejności i miejscem na wagę końcówek', run: () => setOkno({ rodzaj: 'karta' }) },
     { id: 'reload', group: 4, label: 'Odśwież', icon: <RefreshCw size={17} />, opt: true, run: () => void wczytaj(dzien, planId) },
   ], [tylkoPodglad, zmieniony, zapisuje, pierwszyBlad, bledy, zapisz, dodajPusta, pozycje, wczytaj, dzien, planId, plan, wysyla, wyslij]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (active) setCmds(cmds) }, [active, cmds, setCmds])
@@ -406,6 +409,14 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
           </div>
         </aside>
       </div>
+      {okno?.rodzaj === 'karta' && plan && <KartaProdukcjiDialog plan={{
+        id: plan.id, planNo: plan.planNo, planDate: plan.planDate,
+        lines: plan.lines.map(l => ({
+          id: l.id, position: l.position, qty: Number(l.qty) || 0, kgPerUnit: Number(l.kgPerUnit) || 0,
+          recipeName: l.recipeName || nazwaRec(l.recipeId), productTypeName: l.productTypeName, packagingName: l.packagingName, clientName: l.clientName,
+          pallets: l.pallets ?? [], sklad: sklad({ klucz: l.id, qty: 0, kgPerUnit: 0, recipeId: l.recipeId ?? '', productTypeId: l.productTypeId ?? '', palety: [], zKoncowek: false }),
+        })),
+      } as PlanKarty} onClose={() => setOkno(null)} />}
       {okno?.rodzaj === 'etykiety' && plan && <OknoEtykiet planId={plan.id} planNo={plan.planNo} przedruk={okno.przedruk} onClose={() => { setOkno(null); void wczytaj(dzien, plan.id) }} />}
     </>
   )

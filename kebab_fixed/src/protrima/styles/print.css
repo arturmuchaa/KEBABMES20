@@ -132,3 +132,11 @@
 .kp-tresc { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px 12px; margin-bottom: 8px; border-bottom: 1px solid var(--line-soft); }
 .kp-seg { flex-wrap: wrap; }
 .kp-seg button { white-space: nowrap; }
+
+/* ─── Karta produkcji (plan produkcji, kierownik) ─────────────────────── */
+.pp-karta-poz { margin-top: 12px; break-inside: avoid; }
+.pp-karta-poz h3 { margin: 0 0 4px; font-size: 11pt; }
+.pp-karta-poz h3 small { display: block; font-weight: 400; font-size: 8.5pt; color: #555; }
+.pp-karta-pal { margin: 0; padding-left: 18px; }
+.pp-karta-pal li { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; border-bottom: 1px dotted #bbb; font-size: 9.5pt; }
+.pp-karta-waga { color: #333; white-space: nowrap; }
