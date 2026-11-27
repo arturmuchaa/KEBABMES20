@@ -1079,7 +1079,8 @@ def update_order(order_id: str, dto: ClientOrderCreate) -> Dict:
 
 
 def aggregate_order_progress(
-    order_lines: List[Dict[str, Any]], plan_lines: List[Dict[str, Any]]
+    order_lines: List[Dict[str, Any]], plan_lines: List[Dict[str, Any]],
+    covered: Dict[str, int] | None = None,
 ) -> List[Dict[str, Any]]:
     """Dla każdej linii zamówienia liczy:
       qty_done    — faktycznie wyprodukowane szt (qty_done linii) z planów 'done'
@@ -1087,8 +1088,14 @@ def aggregate_order_progress(
       qty_reported — szt wpisane na tablecie we WSZYSTKICH planach poza
                      'cancelled' (także aktywnych) — tyle wejdzie na WZ/HDI
                      z zamówienia, które nie patrzą na status planu
+      qty_covered — „Pokrycie” zamówienia: wyrób na magazynie + wydany klientowi
       qty_total   — ilość zamówiona
-      qty_remaining — qty_total - qty_done - qty_pending (jeśli > 0)
+      qty_remaining — ile jeszcze zaplanować:
+          qty_total − max(pokrycie, zrobione w planach) − niezrobione z planów
+          w toku. Pokrycie łapie też sztuki spoza planów (Dodaj wyrób, zapas
+          klienta — właściciel 27.11.2026: „5 zrobione wcześniej → 25 × 30”);
+          max zamiast sumy, bo sztuka z planu po zrobieniu leży na magazynie
+          i liczy się w obu.
 
     Plany 'cancelled' nie liczą się wcale; plany 'done' liczą się tylko
     w wysokości realnej produkcji (qty_done), nie ilości zaplanowanej —
@@ -1100,29 +1107,35 @@ def aggregate_order_progress(
         lid = pl.get("client_order_line_id")
         if not lid:
             continue
-        a = agg.setdefault(lid, {"qty_done": 0, "qty_pending": 0, "qty_reported": 0})
+        a = agg.setdefault(lid, {"qty_done": 0, "qty_pending": 0, "qty_reported": 0,
+                                 "zrobione": 0, "w_toku": 0})
         status = pl.get("plan_status")
+        qty, done = int(pl.get("qty") or 0), int(pl.get("qty_done") or 0)
         if status == "done":
-            a["qty_done"] += int(pl.get("qty_done") or 0)
+            a["qty_done"] += done
+            a["zrobione"] += done
         elif status in ("draft", "active"):
-            a["qty_pending"] += int(pl.get("qty") or 0)
+            a["qty_pending"] += qty
+            a["zrobione"] += done
+            a["w_toku"] += max(0, qty - done)
         if status != "cancelled":
-            a["qty_reported"] += int(pl.get("qty_done") or 0)
+            a["qty_reported"] += done
 
     result_lines = []
     for line in order_lines:
         a = agg.get(line["id"], {})
         qty_total = int(line["qty"] or 0)
-        qty_done = int(a.get("qty_done") or 0)
-        qty_pending = int(a.get("qty_pending") or 0)
-        qty_remaining = max(0, qty_total - qty_done - qty_pending)
+        pokrycie = int((covered or {}).get(line["id"]) or 0)
+        zrobione = max(pokrycie, int(a.get("zrobione") or 0))
+        qty_remaining = max(0, qty_total - zrobione - int(a.get("w_toku") or 0))
         result_lines.append(
             {
                 "line_id": line["id"],
                 "qty_total": qty_total,
-                "qty_done": qty_done,
-                "qty_pending": qty_pending,
+                "qty_done": int(a.get("qty_done") or 0),
+                "qty_pending": int(a.get("qty_pending") or 0),
                 "qty_reported": int(a.get("qty_reported") or 0),
+                "qty_covered": pokrycie,
                 "qty_remaining": qty_remaining,
             }
         )
@@ -1237,5 +1250,8 @@ def production_progress(order_id: str) -> Dict[str, Any]:
         """,
         (order_id,),
     )
-    result_lines = aggregate_order_progress(lines, plan_lines)
+    moje = _pokrycie_zamowien().get(order_id, {})
+    covered = {lid: int(v.get("stan") or 0) + int(v.get("wydane") or 0) for lid, v in moje.items()}
+    result_lines = aggregate_order_progress(lines, plan_lines, covered)
     return {"order_id": order_id, "order_no": order["order_no"], "lines": result_lines}
+

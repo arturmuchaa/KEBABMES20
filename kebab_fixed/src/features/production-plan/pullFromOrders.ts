@@ -43,6 +43,8 @@ export interface PullableLine {
   kgPerUnit:      number
   /** Ile sztuk zostało do wyprodukowania. */
   qtyRemaining:   number
+  /** Ile zamówiono (reszta mniejsza = część zrobiona, w planie albo na magazynie). */
+  qtyOrdered:     number
   /** Kilogramy RESZTY, nie całego zamówienia. */
   kg:             number
 }
@@ -69,6 +71,7 @@ export function pullableLines(
         packagingId:   l.packagingId ?? '',
         kgPerUnit:     Number(l.kgPerUnit ?? 0),
         qtyRemaining:  zostalo,
+        qtyOrdered:    Number(l.qty ?? 0),
         kg:            Math.round(zostalo * Number(l.kgPerUnit ?? 0) * 10) / 10,
       })
     }

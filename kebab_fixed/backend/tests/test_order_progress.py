@@ -19,8 +19,8 @@ def test_cancelled_plan_does_not_count_as_done():
         {"client_order_line_id": "L2", "qty": 30, "qty_done": 0, "plan_status": "cancelled"},
     ]
     r = _by_line(aggregate_order_progress(ORDER_LINES, plan_lines))
-    assert r["L1"] == {"line_id": "L1", "qty_total": 20, "qty_done": 0, "qty_pending": 0, "qty_reported": 0, "qty_remaining": 20}
-    assert r["L2"] == {"line_id": "L2", "qty_total": 30, "qty_done": 0, "qty_pending": 0, "qty_reported": 0, "qty_remaining": 30}
+    assert r["L1"] == {"line_id": "L1", "qty_total": 20, "qty_done": 0, "qty_pending": 0, "qty_reported": 0, "qty_covered": 0, "qty_remaining": 20}
+    assert r["L2"] == {"line_id": "L2", "qty_total": 30, "qty_done": 0, "qty_pending": 0, "qty_reported": 0, "qty_covered": 0, "qty_remaining": 30}
 
 
 def test_cancelled_plan_with_tablet_progress_does_not_count():
@@ -75,7 +75,7 @@ def test_mixed_done_cancelled_and_active():
         {"client_order_line_id": "L1", "qty": 6, "qty_done": 0, "plan_status": "active"},
     ]
     r = _by_line(aggregate_order_progress(ORDER_LINES, plan_lines))
-    assert r["L1"] == {"line_id": "L1", "qty_total": 20, "qty_done": 8, "qty_pending": 6, "qty_reported": 8, "qty_remaining": 6}
+    assert r["L1"] == {"line_id": "L1", "qty_total": 20, "qty_done": 8, "qty_pending": 6, "qty_reported": 8, "qty_covered": 0, "qty_remaining": 6}
 
 
 def test_lines_without_plans_fully_remaining():

@@ -421,7 +421,8 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
                       <table className="tbl pp-zz-t"><tbody>
                         {z.linie.map(l => (
                           <tr key={l.lineId} className="row">
-                            <td className="num tnum"><b>{l.qtyRemaining} × {fmt(l.kgPerUnit)} kg</b></td>
+                            <td className="num tnum"><b>{l.qtyRemaining} × {fmt(l.kgPerUnit)} kg</b>
+                              {l.qtyOrdered > l.qtyRemaining && <span className="sub" data-tip="Reszta zamówienia jest już na magazynie, wydana albo w innym planie"> z {l.qtyOrdered}</span>}</td>
                             <td className="pp-txt" title={nazwaRec(l.recipeId)}>{nazwaRec(l.recipeId)}</td>
                             <td className="pp-txt muted" title={nazwaRodz(l.productTypeId)}>{nazwaRodz(l.productTypeId)}</td>
                             <td className="num tnum">{fmt(l.kg)} kg</td>

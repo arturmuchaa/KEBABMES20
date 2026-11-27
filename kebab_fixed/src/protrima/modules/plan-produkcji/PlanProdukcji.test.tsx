@@ -260,4 +260,12 @@ describe('Plan produkcji — ekran', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Panel na dole' }))
     expect(setPanel).toHaveBeenCalledWith('dol')
   })
+
+  it('zamówienie częściowo zrobione: panel pokazuje resztę i „z N” zamówionych', async () => {
+    orders.productionProgress.mockResolvedValue({ lines: [{ lineId: 'zl1', qtyRemaining: 9 }] })
+    mount()
+    fireEvent.click(await screen.findByRole('tab', { name: /Z zamówień/ }))
+    const btn = await screen.findByRole('button', { name: /YALCIN.*9 × 40 kg/ })
+    expect(btn.closest('tr')?.textContent).toMatch(/z 14/)
+  })
 })

@@ -126,7 +126,7 @@ describe('zapis i stan planu', () => {
 describe('zamówienia do wciągnięcia — pogrupowane klient → zamówienie', () => {
   const l = (clientName: string, orderNo: string, lineId: string, qty: number, kg = 40) => ({
     orderId: `o-${orderNo}`, orderNo, clientId: `c-${clientName}`, clientName, lineId, productTypeId: 'udo', recipeId: 'kir',
-    packagingId: '', kgPerUnit: kg, qtyRemaining: qty, kg: qty * kg,
+    packagingId: '', kgPerUnit: kg, qtyRemaining: qty, qtyOrdered: qty, kg: qty * kg,
   })
   it('klienci alfabetycznie, zamówienia po numerze, pozycje w kolejności zamówienia; sumy kg i sztuk', () => {
     const g = grupujZamowienia([l('YALCIN', 'YAL/Z/2', 'a', 10), l('TRUVA', 'TRU/Z/1', 'b', 20), l('YALCIN', 'YAL/Z/1', 'c', 14), l('YALCIN', 'YAL/Z/2', 'd', 5, 30)])

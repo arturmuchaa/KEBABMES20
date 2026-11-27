@@ -83,7 +83,7 @@ import { groupPullableByClient, type PullableLine } from './pullFromOrders'
 const poz = (over: Partial<PullableLine> = {}): PullableLine => ({
   orderId: 'o1', orderNo: 'ZAM/1', clientId: 'c1', clientName: 'Bulli',
   lineId: 'l1', productTypeId: 'pt1', recipeId: 'r1', packagingId: 't1',
-  kgPerUnit: 35, qtyRemaining: 12, kg: 420, ...over,
+  kgPerUnit: 35, qtyRemaining: 12, qtyOrdered: 12, kg: 420, ...over,
 })
 
 describe('groupPullableByClient', () => {
