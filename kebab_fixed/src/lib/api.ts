@@ -4032,6 +4032,62 @@ export interface UnitForLabel {
   batchNo: string; recipeName: string; productTypeName: string; packagingName: string
   clientName: string; weightKg: number; producedDate: string; status: string
   labelPrintedAt: string | null
+  /** Projektor etykiet: dobór szablonu i termin (data produkcji + dni z receptury). */
+  clientId?: string; productTypeId?: string; recipeId?: string; shelfLifeDays?: number
+}
+
+// ─── Projektor etykiet kebabów (PROTRIMA, 27.11.2026) ─────────────────────
+export type LabelFieldKind =
+  | 'weight' | 'batch' | 'prod_date' | 'freeze_date' | 'best_before' | 'org_code' | 'qr'
+  | 'client' | 'recipe' | 'product_type' | 'unit_no' | 'static_text' | 'box'
+export type LabelFont = 'arial' | 'times' | 'courier'
+/** Pole etykiety; wymiary w mm (lewy-górny róg), tekst w pt. */
+export interface LabelField {
+  id: string; kind: LabelFieldKind; xMm: number; yMm: number
+  wMm?: number; hMm?: number; font?: LabelFont; sizePt?: number; bold?: boolean
+  align?: 'L' | 'C' | 'R'; rotation?: 0 | 90 | 180 | 270; text?: string; qrMm?: number
+  fill?: 'none' | 'white'; thickMm?: number
+}
+export interface LabelDesignSummary {
+  id: string; name: string; clientId: string; productTypeId: string; recipeId: string
+  clientName: string; productTypeName: string; recipeName: string; printMode: 'a4' | 'zebra'; active: boolean
+  widthMm: number; heightMm: number; labelsPerSheet: number; sourceName: string; updatedAt: string | null; updatedBy: string
+}
+export interface LabelDesign {
+  id?: string; name: string; clientId: string; productTypeId: string; recipeId: string
+  printMode: 'a4' | 'zebra'
+  backgroundPdf?: string; backgroundPng?: string; backgroundZpl?: string
+  widthMm: number; heightMm: number; dpi: number; sourceName?: string
+  labelsPerSheet: 1 | 2; slotOffset: { dxMm: number; dyMm: number }
+  calibration: { dxMm: number; dyMm: number; scale: number }
+  fields: LabelField[]; slot2Fields: Record<string, LabelField>
+  clientName?: string; updatedAt?: string | null; updatedBy?: string
+}
+export interface PrnImport {
+  language: 'epl' | 'zpl'; widthDots: number; heightDots: number; widthMm: number; heightMm: number
+  backgroundPng: string; backgroundZpl: string; warnings: string[]
+}
+export type DesignsForPlan = Record<string, { designId: string; name: string; printMode: 'a4' | 'zebra' } | null>
+
+export const labelDesignsApi = {
+  list: () => get<{ data: LabelDesignSummary[] }>('/label-designs').then(r => r.data ?? []),
+  get: (id: string) => get<LabelDesign>(`/label-designs/${encodeURIComponent(id)}`),
+  save: (d: LabelDesign) => put<{ id: string; revision: number }>('/label-designs', d),
+  remove: (id: string) => del<{ ok: boolean }>(`/label-designs/${encodeURIComponent(id)}`),
+  forPlan: (planId: string) => get<DesignsForPlan>(`/label-designs/for-plan/${encodeURIComponent(planId)}`),
+  importPrn: async (file: File, rolka?: { widthMm: number; heightMm: number }): Promise<PrnImport> => {
+    if (!file.size || file.size > 4 * 1024 * 1024) throw new Error('Plik jest pusty albo większy niż 4 MB')
+    const body = new FormData()
+    body.append('file', file)
+    const q = rolka ? `?roll_width_mm=${rolka.widthMm}&roll_height_mm=${rolka.heightMm}` : ''
+    const token = tokenStore.get()
+    const res = await fetch(`${BASE}/label-designs/import-prn${q}`, { method: 'POST', body, headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ detail: res.statusText }))
+      throw new Error(typeof error.detail === 'string' ? error.detail : `Nie udało się wczytać pliku (HTTP ${res.status})`)
+    }
+    return res.json()
+  },
 }
 
 // ─── Operatorzy stanowiska (bez tokenu — kiosk pyta przed zalogowaniem) ───
