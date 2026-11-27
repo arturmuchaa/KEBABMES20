@@ -64,13 +64,13 @@ function CustomerOrderPrint() {
           </dl>
         </section>
         <table className="order-document-table">
-          <thead><tr><th scope="col">Lp.</th><th scope="col">Produkt / receptura</th><th scope="col">Waga sztuki</th><th scope="col">Ilość sztuk</th><th scope="col">Łączna masa</th></tr></thead>
+          <thead><tr><th scope="col">Lp.</th><th scope="col">Produkt / receptura</th><th scope="col">Ilość sztuk</th><th scope="col">Waga sztuki</th><th scope="col">Łączna masa</th></tr></thead>
           <tbody>{order.lines.map((line, index) => <tr key={line.id} data-testid={`customer-line-${line.id}`}>
             <td>{index + 1}</td><td><strong>{line.recipeName || line.productTypeName || 'Produkt'}</strong>
               <small>{line.productTypeName && line.recipeName && <span>{line.productTypeName}</span>}
                 {line.productTypeName && line.recipeName && line.packagingName && ' · '}
                 {line.packagingName && <span>{line.packagingName}</span>}</small>
-            </td><td>{kgText(line.kgPerUnit)}</td><td>{kgNumber.format(line.qty)}</td><td><strong>{kgText(Math.round(line.qty * line.kgPerUnit * 1000) / 1000)}</strong></td>
+            </td><td>{kgNumber.format(line.qty)}</td><td>× {kgText(line.kgPerUnit)}</td><td><strong>{kgText(Math.round(line.qty * line.kgPerUnit * 1000) / 1000)}</strong></td>
           </tr>)}</tbody>
         </table>
         <section className="order-document-total" data-testid="customer-totals"><div><span>Łączna liczba sztuk</span><strong>{kgNumber.format(units)}</strong></div><div><span>Łączna masa zamówienia</span><strong>{kgText(mass)}</strong></div></section>

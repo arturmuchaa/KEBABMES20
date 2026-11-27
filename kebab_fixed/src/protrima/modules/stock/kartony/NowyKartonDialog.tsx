@@ -120,11 +120,11 @@ export function NowyKartonDialog({ start, wolne, onClose, onUtworzony }: {
       <div className="box"><table className="tbl editor-tbl">
         <thead><tr>
           <th style={{ width: '24%' }}>Rodzaj</th><th style={{ width: '26%' }}>Receptura</th><th style={{ width: '18%' }}>Tuleja</th>
-          <th className="num" style={{ width: 118 }}>Waga sztuki</th><th className="num" style={{ width: 112 }}>Sztuk</th><th className="num">Masa</th><th style={{ width: 44 }} />
+          <th className="num" style={{ width: 112 }}>Sztuk</th><th className="num" style={{ width: 118 }}>Waga sztuki</th><th className="num">Masa</th><th style={{ width: 44 }} />
         </tr></thead>
         <tbody>{f.pozycje.map((p, i) => {
           const rec = s.recipes.filter(r => !p.productTypeId || !r.productTypeId || r.productTypeId === p.productTypeId).map(r => ({ id: r.id, label: r.name }))
-          const errs = [errors[`p${i}`], errors[`r${i}`], errors[`k${i}`], errors[`q${i}`]].filter(Boolean)
+          const errs = [errors[`p${i}`], errors[`r${i}`], errors[`q${i}`], errors[`k${i}`]].filter(Boolean)
           return [
             <tr key={`w${i}`} className="row editing">
               <td><Wybor id={`nk-p-${i}`} label={`Rodzaj, pozycja ${i + 1}`} items={rodzaje} value={p.productTypeId} invalid={!!errors[`p${i}`]} disabled={!ready} placeholder="Rodzaj…"
@@ -132,11 +132,11 @@ export function NowyKartonDialog({ start, wolne, onClose, onUtworzony }: {
               <td><Wybor id={`nk-r-${i}`} label={`Receptura, pozycja ${i + 1}`} items={rec} value={p.recipeId} invalid={!!errors[`r${i}`]} disabled={!ready} placeholder="Receptura…"
                 pusto={p.productTypeId ? 'Brak receptur dla tego rodzaju' : 'Najpierw wybierz rodzaj'} onChange={v => setPoz(i, { recipeId: v })} onDalej={() => skocz(i, 't')} /></td>
               <td><Wybor id={`nk-t-${i}`} label={`Tuleja, pozycja ${i + 1}`} items={tuleje} value={p.packagingId} noneLabel="(bez tulei)" disabled={!ready}
-                onChange={v => setPoz(i, { packagingId: v })} onDalej={() => skocz(i, 'k')} /></td>
-              <td className="num"><input id={`nk-k-${i}`} className={`field num w-num${errors[`k${i}`] ? ' invalid' : ''}`} inputMode="decimal" placeholder="0" value={p.kgPerUnit} aria-label={`Waga sztuki kg, pozycja ${i + 1}`}
-                onChange={e => setPoz(i, { kgPerUnit: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); skocz(i, 'q') } }} /> <span className="sub">kg</span></td>
+                onChange={v => setPoz(i, { packagingId: v })} onDalej={() => skocz(i, 'q')} /></td>
               <td className="num"><input id={`nk-q-${i}`} className={`field num w-num${errors[`q${i}`] ? ' invalid' : ''}`} inputMode="numeric" placeholder="0" value={p.qty} aria-label={`Sztuk, pozycja ${i + 1}`}
-                onChange={e => setPoz(i, { qty: e.target.value })} /> <span className="sub">szt.</span></td>
+                onChange={e => setPoz(i, { qty: e.target.value })} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); skocz(i, 'k') } }} /> <span className="sub">szt.</span></td>
+              <td className="num"><input id={`nk-k-${i}`} className={`field num w-num${errors[`k${i}`] ? ' invalid' : ''}`} inputMode="decimal" placeholder="0" value={p.kgPerUnit} aria-label={`Waga sztuki kg, pozycja ${i + 1}`}
+                onChange={e => setPoz(i, { kgPerUnit: e.target.value })} /> <span className="sub">kg</span></td>
               <td className="num">{num(p.qty) > 0 && num(p.kgPerUnit) > 0 ? kg(num(p.qty) * num(p.kgPerUnit)) : <span className="faint">—</span>}</td>
               <td><button className="btn ghost icon sm" style={{ width: 28 }} onClick={() => usunPoz(i)} aria-label={`Usuń pozycję ${i + 1}`}><Trash2 size={15} /></button></td>
             </tr>,

@@ -129,7 +129,7 @@ export function PalletsTab({ order }: { order: Order }) {
               <Boxes size={28} color="var(--ink-3)" />
               <div className="es-text">
                 <div className="strong">Palety nie są rozpisane</div>
-                <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>{num(m.unassignedQty)} szt. ({kg(m.orderedKg)}) czeka na przypisanie. Rozpis automatyczny układa pełne palety wg standardu sztuk (np. 40 kg × 20), resztki łączy po recepturze — przed zapisem zobaczysz podgląd.</div>
+                <div className="muted" style={{ fontSize: 'var(--fs-sm)' }}>{num(m.unassignedQty)} szt. ({kg(m.orderedKg)}) czeka na przypisanie. Rozpis automatyczny układa pełne palety wg standardu sztuk (np. 20 × 40 kg), resztki łączy po recepturze — przed zapisem zobaczysz podgląd.</div>
               </div>
               <button className="btn" disabled={busy} onClick={() => setDlg({ t: 'new' })} data-tip={STALE_NUMERY}><Plus size={15} />Nowa paleta</button>
               <button className="btn primary" disabled={busy} onClick={() => setDlg({ t: 'auto' })}><Wand2 size={15} />Rozpisz automatycznie</button>
@@ -309,11 +309,11 @@ export function RozpisDialog({ order, wolne, busy, blad, onClose, onSave, lineOf
             const war = WARIANTY_SZTUK[w]
             return (
               <label key={w} className="chip" style={{ gap: 6, cursor: 'default' }}>
-                <b>{num(w)} kg ×</b>
                 {war
                   ? <select className="field" style={{ height: 26, width: 'auto', padding: '0 4px' }} value={sztuk[String(w)]} onChange={e => setSztuk(x => ({ ...x, [String(w)]: e.target.value }))} aria-label={`Sztuk na paletę, ${w} kg`}>
                       {war.map(n => <option key={n} value={n}>{n} ({num(n * w)} kg)</option>)}</select>
-                  : <input className="field num" style={{ height: 26, width: 56 }} inputMode="numeric" value={sztuk[String(w)] ?? ''} onChange={e => setSztuk(x => ({ ...x, [String(w)]: e.target.value }))} aria-label={`Sztuk na paletę, ${w} kg`} />}
+                  : <input className="field num" style={{ height: 26, width: 56 }} inputMode="numeric" autoComplete="off" value={sztuk[String(w)] ?? ''} onChange={e => setSztuk(x => ({ ...x, [String(w)]: e.target.value }))} aria-label={`Sztuk na paletę, ${w} kg`} />}
+                <b>× {num(w)} kg</b>
                 {!war && <span className="muted" data-tip={STANDARD_SZTUK[w] ? 'Standard biura' : 'Waga spoza standardu — ok. 900 kg na paletę'}>{num((Number(sztuk[String(w)]) || 0) * w)} kg</span>}
                 {war && <span className="muted" data-tip={order.pallets.some(p => p.items.length === 1 && order.lines.find(l => l.id === p.items[0].lineId)?.kgPerUnit === w) ? 'Wykryte z palet już rozpisanych w tym zamówieniu' : 'Wykryte z ilości w zamówieniu (wariant bez reszty)'}>auto</span>}
               </label>
@@ -336,7 +336,7 @@ export function RozpisDialog({ order, wolne, busy, blad, onClose, onSave, lineOf
             const pelna = p.items.length === 1 && p.szt === sztukNaPalete(lineOf(p.items[0].lineId)?.kgPerUnit ?? 0, nadpisz)
             return (
               <tr key={i} className="row"><td className="strong">{i + 1}.</td>
-                <td style={{ whiteSpace: 'normal' }}>{p.items.map(it => { const l = lineOf(it.lineId); return <div key={it.lineId}><Rodzaj p={l?.product} /><b>{l?.recipe ?? ''} {l?.kgPerUnit ?? ''} kg</b> × {it.qty}{l?.packaging ? <span className="sub" style={{ display: 'inline', marginLeft: 6 }}>{l.packaging}</span> : null}</div> })}</td>
+                <td style={{ whiteSpace: 'normal' }}>{p.items.map(it => { const l = lineOf(it.lineId); return <div key={it.lineId}><Rodzaj p={l?.product} /><b>{it.qty} × {l?.kgPerUnit ?? ''} kg {l?.recipe ?? ''}</b>{l?.packaging ? <span className="sub" style={{ display: 'inline', marginLeft: 6 }}>{l.packaging}</span> : null}</div> })}</td>
                 <td className="num">{p.szt}</td><td className="num">{kg(p.kg)}</td>
                 <td>{pelna ? <span className="tag ok">pełna</span> : p.mieszana ? <span className="tag warn">mieszana</span> : <span className="tag outline">z resztek</span>}</td></tr>
             )

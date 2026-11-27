@@ -26,8 +26,8 @@ export function LinesTab({ order }: { order: Order }) {
       <div className="box">
         <table className="tbl">
           <thead><tr>
-            <th className="num sd" style={{ width: 44 }}>Lp.</th><th>Wyrób</th><th>Receptura</th><th className="num">Gramatura</th><th className="hide-s sd">Opakowanie</th>
-            <th className="num">Ilość</th><th className="num">Masa</th><th className="hide-m">Plan</th><th className="sd">Uwagi</th>
+            <th className="num sd" style={{ width: 44 }}>Lp.</th><th>Wyrób</th><th>Receptura</th><th className="num">Ilość</th><th className="num">Gramatura</th><th className="hide-s sd">Opakowanie</th>
+            <th className="num">Masa</th><th className="hide-m">Plan</th><th className="sd">Uwagi</th>
           </tr></thead>
           <tbody>
             {order.lines.map((l, i) => (
@@ -36,9 +36,9 @@ export function LinesTab({ order }: { order: Order }) {
                 {/* Panel z boku chowa kolumny .sd — opakowanie i uwaga idą wtedy pod wyrób (.so). */}
                 <td>{l.product}<span className="sub so">{l.packaging}</span>{l.note && <span className="sub so uwaga">Uwagi: {l.note}</span>}</td>
                 <td className="strong">{l.recipe}{l.usluga && <span className="tag info" style={{ marginLeft: 8 }} data-tip="Towar usługobiorcy: osobne HDI „usługa”, bez naszej WZ i faktury">usługa</span>}</td>
-                <td className="num">{l.kgPerUnit} kg</td>
-                <td className="hide-s sd">{l.packaging}</td>
                 <td className="num"><b>{num(l.qty)}</b><span className="sub">szt.</span></td>
+                <td className="num">× {l.kgPerUnit} kg</td>
+                <td className="hide-s sd">{l.packaging}</td>
                 <td className="num">{kg(l.qty * l.kgPerUnit)}</td>
                 <td className="hide-m muted">{l.planNo ?? '—'}</td>
                 <td className="ell muted sd" style={{ maxWidth: 260 }} title={l.note}>{l.note ?? ''}</td>
