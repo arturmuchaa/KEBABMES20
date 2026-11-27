@@ -164,3 +164,25 @@ def resolve_design(client_id: str, product_type_id: str = "", recipe_id: str = "
 
 def _snake(k: str) -> str:
     return "".join("_" + c.lower() if c.isupper() else c for c in k)
+
+
+def designs_for_plan(plan_id: str) -> Dict[str, Optional[Dict[str, Any]]]:
+    """Szablon dla każdej pozycji planu: {line_id: {designId, name, printMode} | None}.
+
+    Klient pozycji z zamówienia, a pozycja bez zamówienia — po nazwie
+    (wyświetlanej albo pełnej) klienta wpisanej przy pozycji."""
+    linie = query_all(
+        """
+        SELECT l.id, l.product_type_id, l.recipe_id,
+               COALESCE(NULLIF(o.client_id, ''), (
+                   SELECT c.id FROM clients c
+                   WHERE c.display_name = l.client_name OR c.name = l.client_name
+                   ORDER BY (c.display_name = l.client_name) DESC LIMIT 1), '') AS client_id
+        FROM production_plan_lines l LEFT JOIN client_orders o ON o.id = l.client_order_id
+        WHERE l.plan_id = %s ORDER BY l.position, l.id
+        """, (plan_id,))
+    wynik: Dict[str, Optional[Dict[str, Any]]] = {}
+    for l in linie:
+        d = resolve_design(l["client_id"] or "", l.get("product_type_id") or "", l.get("recipe_id") or "")
+        wynik[l["id"]] = {"designId": d["id"], "name": d["name"], "printMode": d["printMode"]} if d else None
+    return wynik

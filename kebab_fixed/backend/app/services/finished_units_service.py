@@ -325,8 +325,15 @@ def units_for_plan(plan_id: str) -> List[Dict[str, Any]]:
     rows = query_all(
         """
         SELECT u.*, l.position AS line_position, l.recipe_name, l.product_type_name,
-               l.packaging_name
+               l.packaging_name, l.product_type_id AS line_product_type_id, l.recipe_id AS line_recipe_id,
+               COALESCE(r.shelf_life_days, 0) AS shelf_life_days,
+               COALESCE(NULLIF(o.client_id, ''), (
+                   SELECT c.id FROM clients c
+                   WHERE c.display_name = l.client_name OR c.name = l.client_name
+                   ORDER BY (c.display_name = l.client_name) DESC LIMIT 1), '') AS line_client_id
         FROM finished_units u JOIN production_plan_lines l ON l.id = u.plan_line_id
+        LEFT JOIN client_orders o ON o.id = l.client_order_id
+        LEFT JOIN recipes r ON r.id = COALESCE(NULLIF(u.recipe_id, ''), l.recipe_id)
         WHERE l.plan_id = %s
         ORDER BY l.position, l.id, u.qr_seq
         """,
@@ -342,6 +349,11 @@ def units_for_plan(plan_id: str) -> List[Dict[str, Any]]:
             "clientName": r.get("client_name") or "", "weightKg": float(r.get("weight_kg") or 0),
             "producedDate": r.get("produced_date") or "", "status": r["status"],
             "labelPrintedAt": r["label_printed_at"].isoformat() if r.get("label_printed_at") else None,
+            # Projektor etykiet: dobór szablonu i termin (data produkcji + dni z receptury).
+            "clientId": r.get("line_client_id") or "",
+            "productTypeId": r.get("product_type_id") or r.get("line_product_type_id") or "",
+            "recipeId": r.get("recipe_id") or r.get("line_recipe_id") or "",
+            "shelfLifeDays": int(r.get("shelf_life_days") or 0),
         }
         for r in rows
     ]

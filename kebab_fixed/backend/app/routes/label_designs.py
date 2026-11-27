@@ -43,6 +43,11 @@ def save_design(dto: LabelDesignSave, request: Request):
     return svc.save_design(dto.model_dump(), _operator(request))
 
 
+@router.get("/for-plan/{plan_id}")
+def designs_for_plan(plan_id: str):
+    return svc.designs_for_plan(plan_id)
+
+
 @router.get("/{design_id}")
 def get_design(design_id: str):
     return svc.get_design(design_id)
