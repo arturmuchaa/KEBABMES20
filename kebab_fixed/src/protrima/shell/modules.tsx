@@ -24,6 +24,7 @@ export const AREAS: AreaDef[] = [
   ] },
   { key: 'planowanie', label: 'Planowanie', icon: CalendarRange, modules: [
     { key: 'plan-produkcji', label: 'Plan produkcji', icon: ClipboardList, info: ['Plan dnia z palet w chłodni — końcówki i najdłużej leżące najpierw', 'Kebab mix z palet każdego składnika, pozycje z końcówek (PM)', 'Etykiety sztuk i końcówek, karta dla kierownika, bilans strat'] },
+    { key: 'etykiety', label: 'Etykiety', icon: Tags, info: ['Szablony etykiet kebabów: A4 z PDF i Zebra z ZebraDesigner', 'Pola przeciągane myszą: waga, partia, daty, QR', 'Przypisanie do klienta, rodzaju i receptury'] },
     { key: 'plan-masowania', label: 'Plan masowania', icon: Layers, info: ['Kolejka dnia dla masowni z partiami mięsa (FEFO)', 'Potrzeby z zamówień i braki przypraw', 'Potwierdzanie wykonania, wydruk dla operatora'] },
     { key: 'receptury', label: 'Receptury', icon: BookOpen, info: ['Skład na 100 kg mięsa, udziały i stan przypraw', 'Kalkulator na dowolną ilość mięsa', 'Gdzie użyta, kopia, wycofanie'] },
     { key: 'katalog', label: 'Katalog wyrobów', icon: Tags, info: ['Rodzaj × receptura × gramatura × opakowanie', 'Szablony etykiet i drukarki Zebra'] },
@@ -64,7 +65,7 @@ export const AREAS: AreaDef[] = [
 export const PINNED = ['zamowienia', 'plan-produkcji', 'magazyn-wg', 'wysylki']
 
 /** Moduły z własnym ekranem w PROTRIMA. Pozostałe działają na razie w starym MES (zaślepka z drogowskazem). */
-export const W_PROTRIMA = new Set(['pulpit', 'zamowienia', 'przyjecia', 'magazyn-wg', 'rozbior', 'rozrachunki', 'receptury', 'plan-masowania', 'plan-produkcji', 'dokumenty'])
+export const W_PROTRIMA = new Set(['pulpit', 'zamowienia', 'przyjecia', 'magazyn-wg', 'rozbior', 'rozrachunki', 'receptury', 'plan-masowania', 'plan-produkcji', 'etykiety', 'dokumenty'])
 export const wProtrima = (key: string) => W_PROTRIMA.has(key)
 
 /** Czy konto o tej roli widzi i otwiera moduł. Serwer i tak pilnuje uprawnień — tu chodzi o to,
@@ -96,7 +97,7 @@ export const areaOf = (key: string) => AREAS.find(a => a.modules.some(m => m.key
  */
 export const NAV_SECTIONS: Array<{ label: string; keys: string[] }> = [
   { label: 'Sprzedaż', keys: ['zamowienia', 'kontrahenci', 'wysylki', 'dokumenty', 'rozrachunki'] },
-  { label: 'Produkcja', keys: ['plan-produkcji', 'plan-masowania', 'rozbior', 'masowanie', 'realizacja', 'receptury'] },
+  { label: 'Produkcja', keys: ['plan-produkcji', 'plan-masowania', 'rozbior', 'masowanie', 'realizacja', 'receptury', 'etykiety'] },
   { label: 'Magazyn', keys: ['przyjecia', 'surowce', 'magazyn-wg', 'palety'] },
   { label: 'Jakość i analiza', keys: ['sledzenie', 'haccp', 'raporty'] },
 ]
