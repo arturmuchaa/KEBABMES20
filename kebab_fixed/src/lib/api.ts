@@ -2919,9 +2919,18 @@ export interface ScanProducedResult {
 }
 
 export const finishedUnitsApi = {
+  /** `reprint` — sztuki, którym po zmianie planu zmieniła się partia, a miały
+   *  wydruk (etykieta do wyrzucenia); `added`/`removed` — dopasowanie do ilości. */
   generateFromPlanLine: (planLineId: string) =>
-    post<{ planLineId: string; created: number; existing: number }>(
+    post<{ planLineId: string; created: number; existing: number; resynced?: number;
+           reprint?: string[]; added?: number; removed?: number }>(
       '/finished-units/from-plan-line', { plan_line_id: planLineId }),
+  /** Sztuki planu do druku etykiet, w kolejności pozycji i palet. */
+  forPlan: (planId: string) =>
+    get<UnitForLabel[]>(`/finished-units/for-plan?plan_id=${encodeURIComponent(planId)}`),
+  /** Oznacz wydruk etykiet (tylko sztuki jeszcze niewyprodukowane). */
+  markLabelsPrinted: (ids: string[]) =>
+    post<{ marked: number }>('/finished-units/label-printed', { ids }),
   /** `planLineId` — pozycja wybrana na HMI produkcji. Sztuka z innej pozycji
    *  odbija się z 409 i nazwą tej właściwej. Skanowanie mobilne pozycji nie
    *  zna i zostawia pole puste (zachowanie jak dotąd).
@@ -3937,6 +3946,8 @@ function mapPlanLine(raw: any) {
     workerEntries:     Array.isArray(raw.worker_entries ?? raw.workerEntries)
                         ? (raw.worker_entries ?? raw.workerEntries) : [],
     progressUpdatedAt: raw.progress_updated_at ?? raw.progressUpdatedAt ?? null,
+    /** Palety pozycji (plan z PROTRIMA), w kolejności użycia. */
+    pallets:           Array.isArray(raw.pallets) ? raw.pallets as SeasonedPallet[] : [],
   }
 }
 
@@ -3968,7 +3979,57 @@ function mapPlan(raw: any): any {
     // Wpisy z tabletu czekające na potwierdzenie biura (office-confirm tworzy z nich wyrób gotowy).
     tabletPendingEntries: mapTabletEntries(raw.tablet_pending_entries ?? raw.tabletPendingEntries),
     lines:              (raw.lines ?? []).map(mapPlanLine),
+    /** Stan etykiet i palet planu (lista planów w PROTRIMA). */
+    summary:            raw.summary ? mapPlanSummary(raw.summary) : null,
   }
+}
+
+export interface PlanSummary {
+  units: number; labelsPrinted: number; pallets: number; palletsTaken: number
+  palletsReturned: number; balanceReady: boolean
+}
+
+function mapPlanSummary(r: any): PlanSummary {
+  return {
+    units: Number(r.units ?? 0), labelsPrinted: Number(r.labelsPrinted ?? 0),
+    pallets: Number(r.pallets ?? 0), palletsTaken: Number(r.palletsTaken ?? 0),
+    palletsReturned: Number(r.palletsReturned ?? 0), balanceReady: Boolean(r.balanceReady),
+  }
+}
+
+/** Paleta mięsa przyprawionego (`pallet_out` serwera). */
+export interface SeasonedPallet {
+  id: string; qr: string; palletNo: number | null; batchNo: string
+  recipeId: string; recipeName: string; seasonedMeatId: string | null
+  kgWeighed: number; status: 'in_cold' | 'on_hall' | 'closed'
+  isRemainder: boolean; parentId: string | null; parentPalletNo?: number | null
+  labelPrintedAt: string | null; takenAt: string | null; takenBy: string
+  takenPlanId: string | null; returnedAt: string | null; kgReturned: number | null
+  mixedAt?: string | null; kgTheory?: number | null; expiryDate?: string | null
+  materialTypeId?: string; materialName?: string; planIds?: string[]
+  /** Tylko w pozycji planu: miejsce palety w kolejności (1…). */
+  position?: number
+}
+
+/** Wiersz bilansu partii (plan albo zakres dat). */
+export interface BalanceRow {
+  planId: string; planNo: string; planDate: string; batchNo: string
+  recipeId: string; recipeName: string; kgTheory: number | null
+  kgIn: number; kgGoods: number; kgReturned: number; kgLoss: number; lossPct: number
+}
+
+export interface BalanceRange {
+  rows: BalanceRow[]
+  days: Array<{ date: string; kgIn: number; kgLoss: number; lossPct: number }>
+  recipes: Array<{ recipeId: string; recipeName: string; kgIn: number; kgLoss: number; lossPct: number }>
+}
+
+/** Sztuka planu do druku etykiety (GET /finished-units/for-plan). */
+export interface UnitForLabel {
+  id: string; qrCode: string; qrSeq: number; planLineId: string; linePosition: number
+  batchNo: string; recipeName: string; productTypeName: string; packagingName: string
+  clientName: string; weightKg: number; producedDate: string; status: string
+  labelPrintedAt: string | null
 }
 
 // ─── Operatorzy stanowiska (bez tokenu — kiosk pyta przed zalogowaniem) ───
@@ -4085,6 +4146,9 @@ export const productionPlansApi = {
   /** Powtórz bilans partii, gdy przy potwierdzeniu wrócił `balanceError`. */
   settleBalance: (planId: string) =>
     post<any>(`/production-plans/${planId}/settle-balance`, {}),
+  /** Straty mięsa za zakres dat planów (partie, dni, receptury). */
+  balanceRange: (from: string, to: string) =>
+    get<BalanceRange>(`/production-plans/balance-range?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
 }
 
 // ─── Palety mięsa przyprawionego (wywóz na halę, zwrot końcówki) ───
@@ -4102,6 +4166,9 @@ export const seasonedPalletsApi = {
     post<any>('/seasoned-pallets/take', { code, workerName: workerName ?? '', planId: planId ?? null }),
   return: (code: string, kg: number) =>
     post<any>('/seasoned-pallets/return', { code, kg }),
+  /** Biuro wydrukowało etykiety palet/końcówek z QR. */
+  markLabelsPrinted: (ids: string[]) =>
+    post<{ marked: number }>('/seasoned-pallets/label-printed', { ids }),
 }
 
 // ─── Tempo produkcji (prognoza zakończenia) ──────────────────

@@ -2468,10 +2468,16 @@ export interface CreatePlanLineDto {
   seasonedBatchId?:  string          // główna/pierwsza partia
   seasonedBatchIds?: string[]        // wszystkie partie (multi)
   clientOrderId?: string; clientOrderNo?: string; clientOrderLineId?: string; clientName?: string
+  /** Plan produkcji z PROTRIMA: palety z chłodni w kolejności użycia. */
+  palletIds?: string[]
+  /** Pozycja z końcówek kilku partii — sztuki PM. */
+  fromRemainders?: boolean
 }
 
 export interface CreateProductionPlanDto {
   planDate: string; lines: CreatePlanLineDto[]; notes?: string
+  /** Blokada palet (wywóz ze skanem) — plan z PROTRIMA ma ją zawsze. */
+  palletGate?: boolean
 }
 
 let productionPlans   = load<ProductionPlan>('kebab_mes_production_plans', [])
