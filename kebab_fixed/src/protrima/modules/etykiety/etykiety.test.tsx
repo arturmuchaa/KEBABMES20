@@ -137,4 +137,16 @@ describe('Projektor etykiet', () => {
     await waitFor(() => expect(designs.save).toHaveBeenCalled())
     expect(designs.save.mock.calls[0][0].fields[0]).toMatchObject({ sizePt: 48, rotation: 90 })
   })
+
+  it('niezapisane zmiany: inny szablon dopiero po drugim kliknięciu, pierwsze ostrzega', async () => {
+    const p = await otworzZebre()
+    fireEvent.click(p)
+    fireEvent.keyDown(window, { key: 'ArrowRight' })
+    designs.get.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: /ZAGROS · A4/ }))
+    expect(await screen.findByText(/niezapisane zmiany w „YALCIN · Zebra”/)).toBeTruthy()
+    expect(designs.get).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: /ZAGROS · A4/ }))
+    await waitFor(() => expect(designs.get).toHaveBeenCalledWith('a1'))
+  })
 })

@@ -40,6 +40,8 @@ export function EtykietyModule({ active, setCtx, setCmds }: { active: boolean; s
   const [zajety, setZajety] = useState(false)
   const [przeciaga, setPrzeciaga] = useState(false)
   const [szukaj, setSzukaj] = useState('')
+  /** Pierwsze kliknięcie innego szablonu / „Nowy” przy niezapisanych zmianach tylko ostrzega; drugie porzuca. */
+  const [porzuc, setPorzuc] = useState<string | null>(null)
 
   const klienciRes = useApi(() => clientsApi.list())
   const rodzajeRes = useApi(() => productTypesApi.list())
@@ -65,8 +67,16 @@ export function EtykietyModule({ active, setCtx, setCmds }: { active: boolean; s
     s => ustaw({ fields: s.fields as LabelField[], slot2Fields: s.slot2Fields as Record<string, LabelField> }),
     projekt?.id ?? (projekt ? 'nowy' : 'brak'), przeciaga)
 
+  const czyPorzucic = (cel: string): boolean => {
+    if (!zmieniony || porzuc === cel) { setPorzuc(null); return true }
+    setPorzuc(cel)
+    setBlad(`Masz niezapisane zmiany w „${projekt?.name || 'nowym szablonie'}” — zapisz je (Ctrl+S) albo kliknij jeszcze raz, żeby je porzucić`)
+    return false
+  }
+
   const otworz = async (id: string) => {
-    if (zmieniony && projekt?.id === id) return
+    if (projekt?.id === id) return
+    if (!czyPorzucic(id)) return
     setBlad(null)
     try {
       const d = await labelDesignsApi.get(id)
@@ -173,13 +183,13 @@ export function EtykietyModule({ active, setCtx, setCmds }: { active: boolean; s
   }, [active, zapisz, historia, projekt, sel, zmienPole, usunPole])
 
   const cmds = useMemo<Cmd[]>(() => [
-    { id: 'new', label: 'Nowy szablon', icon: <FilePlus2 size={17} />, kbd: 'Ctrl+N', group: 1, run: () => setNowy(true) },
+    { id: 'new', label: 'Nowy szablon', icon: <FilePlus2 size={17} />, kbd: 'Ctrl+N', group: 1, run: () => { if (czyPorzucic('nowy')) setNowy(true) } },
     { id: 'save', label: zajety ? 'Zapisuję…' : zmieniony ? 'Zapisz' : 'Zapisany', icon: <Save size={17} />, kbd: 'Ctrl+S', group: 1, primary: zmieniony,
       disabled: !projekt || zajety, run: () => { void zapisz() } },
     { id: 'test', label: 'Próbny druk', icon: <Printer size={17} />, group: 2, disabled: !projekt || zajety,
       tip: 'Etykieta z przykładowymi danymi — A4 przez okno druku, Zebra prosto na drukarkę', run: () => { void probnyDruk() } },
     { id: 'delete', label: 'Usuń szablon', icon: <Trash2 size={17} />, group: 3, disabled: !projekt, opt: true, run: () => { void usunSzablon() } },
-  ], [zajety, zmieniony, projekt, zapisz, probnyDruk, usunSzablon])
+  ], [zajety, zmieniony, projekt, zapisz, probnyDruk, usunSzablon, porzuc]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (active) setCmds(cmds) }, [active, cmds, setCmds])
   useEffect(() => { if (active) setCtx(<span>{lista.length} szablonów</span>) }, [active, lista.length, setCtx])
 
@@ -189,14 +199,14 @@ export function EtykietyModule({ active, setCtx, setCmds }: { active: boolean; s
     <>
       <CommandBar title="Etykiety" count={projekt ? (projekt.name || 'nowy szablon') : `${lista.length} szablonów`} cmds={cmds} showKbd={false} />
       <div className={`et-uklad${projekt ? '' : ' bez-panelu'}`}>
-        <ListaSzablonow lista={lista} wybranyId={projekt?.id ?? null} szukaj={szukaj} onSzukaj={setSzukaj} onWybierz={id => void otworz(id)} onNowy={() => setNowy(true)} />
+        <ListaSzablonow lista={lista} wybranyId={projekt?.id ?? null} szukaj={szukaj} onSzukaj={setSzukaj} onWybierz={id => void otworz(id)} onNowy={() => { if (czyPorzucic('nowy')) setNowy(true) }} />
         <section className="et-srodek" aria-label="Etykieta">
           {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div>{blad}</div></div>}
           {zmieniony && <div className="et-pasek"><span className="tag warn">niezapisane zmiany</span><span className="muted">Ctrl+S — zapisz · Ctrl+Z — cofnij</span></div>}
           {projekt
             ? <Plotno projekt={projekt} sel={sel} onSel={setSel} onZmien={zmienPole} onPrzeciaganie={setPrzeciaga} />
             : <Pusto ikona={<Tags size={22} />} tytul="Wybierz szablon albo załóż nowy"
-                akcja={<button className="btn primary" onClick={() => setNowy(true)}><FilePlus2 size={15} />Nowy szablon</button>}>
+                akcja={<button className="btn primary" onClick={() => { if (czyPorzucic('nowy')) setNowy(true) }}><FilePlus2 size={15} />Nowy szablon</button>}>
                 Szablon to Twoja etykieta z PDF albo z ZebraDesigner. Na niej ustawiasz pola, które system wypełni przy druku: wagę, partię, daty i kod QR.
               </Pusto>}
         </section>
