@@ -16,7 +16,7 @@ vi.mock('@/lib/zebraProfiles', async (orig) => ({
   ...(await orig() as object),
   loadedZebraMedia: () => prof.media, zebraCalibrationPending: () => prof.pending, selectedZebraUid: () => prof.uid, selectZebra: vi.fn(),
 }))
-import { drukarka, drukujZawieszki, przyjmijSkok, przygotuj, stanDrukarki, zmienRolke } from './drukarka'
+import { ROLKA_ETYKIET, drukarka, drukujEtykiety, drukujZawieszki, przyjmijSkok, przygotuj, stanDrukarki, zmienRolke } from './drukarka'
 import { DEFAULT_CALIBRATION, loadCalibration, saveCalibration } from '@/features/raw-batches/tagPrinterCalibration'
 
 const dev = { uid: 'usb1', name: 'ZDesigner GC420t', send: vi.fn(), sendThenRead: vi.fn() }
@@ -113,5 +113,29 @@ describe('stan drukarki (bez drukowania)', () => {
     z.discoverZebraDevices.mockRejectedValue(new Error('Nie udało się wczytać klienta BrowserPrint'))
     z.probeBrowserPrint.mockResolvedValue({ ok: false, reason: 'Uruchom Zebra BrowserPrint na tym komputerze.' })
     expect(await stanDrukarki()).toMatchObject({ nazwa: null, powod: 'Nie udało się wczytać klienta BrowserPrint Uruchom Zebra BrowserPrint na tym komputerze.' })
+  })
+})
+
+describe('druk serii etykiet z planu produkcji (rolka 100 × 150)', () => {
+  it('inna rolka w drukarce → drukarka mierzy 100 × 150, nastawa zawieszek bez zmian; ciągiem jedno zadanie', async () => {
+    saveCalibration({ ...DEFAULT_CALIBRATION, labelLengthMm: 101.6 })
+    await drukujEtykiety(['^XA A^XZ', '^XA B^XZ', '^XA C^XZ'], ROLKA_ETYKIET)
+    expect(z.calibrateZebra).toHaveBeenCalledWith(dev, '100x150', undefined)
+    const [, jobs] = z.sendZplJobs.mock.calls[0]
+    expect(jobs).toEqual(['^XA A^XZ\n^XA B^XZ\n^XA C^XZ'])
+    expect(loadCalibration().labelLengthMm).toBe(101.6)
+  })
+  it('tryb „po jednej”: zadanie na etykietę', async () => {
+    localStorage.setItem('protrima.zawieszki.seria', 'pojedynczo')
+    prof.media = '100x150'
+    z.readZebraStatus.mockResolvedValue({ raw: '', status: status({ labelLengthMm: 150.4 }) })
+    await drukujEtykiety(['A', 'B', 'C'], ROLKA_ETYKIET)
+    const [, jobs, opts] = z.sendZplJobs.mock.calls[0]
+    expect(jobs).toEqual(['A', 'B', 'C'])
+    expect(opts.delayMs).toBeGreaterThan(0)
+  })
+  it('błąd drukarki odrzuca obietnicę — wołający nie oznacza wydruku', async () => {
+    z.sendZplJobs.mockRejectedValue(new Error('Drukarka: brak papieru'))
+    await expect(drukujEtykiety(['A'], ROLKA_ETYKIET)).rejects.toThrow(/brak papieru/)
   })
 })

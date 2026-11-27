@@ -80,14 +80,33 @@ export function przyjmijSkok(mm: number | null, cal: TagPrinterCalibration = loa
 export async function drukujZawieszki(tags: readonly ReceptionTagInput[], p: Postep = {}): Promise<void> {
   const dev = await drukarka()
   const cal = przyjmijSkok(await przygotuj(dev, ROLKA_ZAWIESZEK, p))
-  const zadania = receptionTagsPrintJobs(tags, cal)
+  await wyslijSerie(dev, receptionTagsPrintJobs(tags, cal), cal.labelLengthMm, p)
+}
+
+/** Rolka etykiet z Planu produkcji (sztuki, palety, końcówki) — 100 × 150 mm (właściciel 27.11.2026). */
+export const ROLKA_ETYKIET: ZebraProfileId = '100x150'
+
+/**
+ * Seria gotowych etykiet ZPL na podanej rolce — ta sama ścieżka co zawieszki:
+ * inna rolka niż ostatnio → drukarka sama mierzy nową; tryb ciągiem/po jednej
+ * jak przy zawieszkach. Nastawa stanowiska zawieszek się nie zmienia.
+ * Błąd odrzuca obietnicę — wołający nie oznacza wtedy wydruku.
+ */
+export async function drukujEtykiety(zpl: readonly string[], profil: ZebraProfileId, p: Postep = {}): Promise<void> {
+  if (!zpl.length) return
+  const dev = await drukarka()
+  const skok = await przygotuj(dev, profil, p)
+  await wyslijSerie(dev, [...zpl], skok ?? ZEBRA_PROFILES[profil].height, p)
+}
+
+async function wyslijSerie(dev: ZebraDevice, zadania: string[], skokMm: number, p: Postep): Promise<void> {
   if (trybSerii() === 'ciagiem') {
-    p.onStatus?.(`Drukuję ciągiem: ${tags.length} szt.…`)
+    p.onStatus?.(`Drukuję ciągiem: ${zadania.length} szt.…`)
     await sendZplJobs(dev, [zadania.join('\n')], { onStatus: p.onStatus })
-    p.onProgress?.(tags.length, tags.length)
+    p.onProgress?.(zadania.length, zadania.length)
     return
   }
-  await sendZplJobs(dev, zadania, { delayMs: tagPrintDelayMs(cal.labelLengthMm), onProgress: p.onProgress, onStatus: p.onStatus })
+  await sendZplJobs(dev, zadania, { delayMs: tagPrintDelayMs(skokMm), onProgress: p.onProgress, onStatus: p.onStatus })
 }
 
 export type TrybSerii = 'ciagiem' | 'pojedynczo'
