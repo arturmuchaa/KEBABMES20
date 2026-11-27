@@ -30,11 +30,14 @@ import { AuthProvider, useAuth } from '@/features/auth/AuthContext'
 import { BASE } from '@/lib/api'
 import { DeboningHmiV10Page } from '@/pages/tablet/DeboningHmiV10Page'
 import { useServiceHold, ServiceMenuModal } from '@/features/deboning/ServiceMenu'
+import { wylaczPodpowiedziPrzegladarki } from '@/lib/bezPodpowiedzi'
 
 declare const __ROZBIOR_V11_VERSION__: string
 const BUILD_LABEL = `HMI v11 prowadzony · ${__ROZBIOR_V11_VERSION__}`
 
 installGlobalErrorLogger()
+// Bez podpowiedzi przeglądarki w polach (właściciel 27.11.2026: zapamiętane sztuki wklepywały się same).
+wylaczPodpowiedziPrzegladarki()
 
 // Kiosk NIGDY nie używa service workera — SW pełnego MES (pakowanie offline)
 // raz zarejestrowany w tym WebView przechwytywał start kiosku i serwował

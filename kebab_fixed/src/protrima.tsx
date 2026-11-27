@@ -29,8 +29,11 @@ import './protrima/styles/print.css'
 import { ErrorBoundary, installGlobalErrorLogger } from '@/components/ErrorBoundary'
 import { AuthProvider } from '@/features/auth/AuthContext'
 import { ProtrimaRoot } from './protrima/Root'
+import { wylaczPodpowiedziPrzegladarki } from '@/lib/bezPodpowiedzi'
 
 installGlobalErrorLogger()
+// Bez podpowiedzi przeglądarki w polach (właściciel 27.11.2026: zapamiętane sztuki wklepywały się same).
+wylaczPodpowiedziPrzegladarki()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

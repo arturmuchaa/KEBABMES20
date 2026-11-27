@@ -22,8 +22,11 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { Toaster } from '@/components/ui/sonner'
 import { ErrorBoundary, installGlobalErrorLogger } from '@/components/ErrorBoundary'
 import { AuthProvider } from '@/features/auth/AuthContext'
+import { wylaczPodpowiedziPrzegladarki } from '@/lib/bezPodpowiedzi'
 
 installGlobalErrorLogger()
+// Bez podpowiedzi przeglądarki w polach (właściciel 27.11.2026: zapamiętane sztuki wklepywały się same).
+wylaczPodpowiedziPrzegladarki()
 
 // Service worker — offline shell TYLKO dla /mobile/pakowanie (pakowanie na
 // hali bez internetu). Rejestracja musi być zawężona do tej ścieżki (scope) —

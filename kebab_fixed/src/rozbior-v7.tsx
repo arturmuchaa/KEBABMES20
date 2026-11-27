@@ -13,8 +13,11 @@ import './index.css'
 import { ErrorBoundary, installGlobalErrorLogger } from '@/components/ErrorBoundary'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { DeboningHmiV7Page } from '@/pages/tablet/DeboningHmiV7Page'
+import { wylaczPodpowiedziPrzegladarki } from '@/lib/bezPodpowiedzi'
 
 installGlobalErrorLogger()
+// Bez podpowiedzi przeglądarki w polach (właściciel 27.11.2026: zapamiętane sztuki wklepywały się same).
+wylaczPodpowiedziPrzegladarki()
 
 // Blokady operatorskie: brak menu kontekstowego, brak F5/F11/F12/Alt+F4
 function KioskGuards() {

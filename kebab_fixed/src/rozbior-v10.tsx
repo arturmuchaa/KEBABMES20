@@ -19,11 +19,14 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { AuthProvider } from '@/features/auth/AuthContext'
 import { DeboningHmiV10Page } from '@/pages/tablet/DeboningHmiV10Page'
 import { KioskGuards, SplashGate, dropServiceWorker } from '@/features/kiosk/KioskFrame'
+import { wylaczPodpowiedziPrzegladarki } from '@/lib/bezPodpowiedzi'
 
 // Wstrzykiwane przez Vite z pliku conf tego kiosku (vite.config.ts).
 declare const __ROZBIOR_V10_VERSION__: string
 
 installGlobalErrorLogger()
+// Bez podpowiedzi przeglądarki w polach (właściciel 27.11.2026: zapamiętane sztuki wklepywały się same).
+wylaczPodpowiedziPrzegladarki()
 dropServiceWorker()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

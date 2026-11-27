@@ -15,8 +15,11 @@ import { Toaster } from '@/components/ui/sonner'
 import { ErrorBoundary, installGlobalErrorLogger } from '@/components/ErrorBoundary'
 import { TabletLayout } from '@/layouts/TabletLayout'
 import { RozbiorRoute } from '@/pages/tablet/RozbiorRoute'
+import { wylaczPodpowiedziPrzegladarki } from '@/lib/bezPodpowiedzi'
 
 installGlobalErrorLogger()
+// Bez podpowiedzi przeglądarki w polach (właściciel 27.11.2026: zapamiętane sztuki wklepywały się same).
+wylaczPodpowiedziPrzegladarki()
 
 // Blokady operatorskie: brak menu prawego klawisza, brak odświeżania/F11/F12.
 function KioskGuards() {
