@@ -73,7 +73,9 @@ export function NowySzablon({ onClose, onGotowy }: { onClose: () => void; onGoto
           <span>{plik ? plik.name : rodzaj === 'zebra-prn' ? 'Wybierz plik .prn z ZebraDesigner' : 'Wybierz plik PDF z etykietą'}</span>
           <input type="file" accept={akceptuje} aria-label="Plik etykiety" onChange={e => { setPlik(e.target.files?.[0] ?? null); setBlad(null) }} />
         </label>
-        {rodzaj === 'zebra-prn' && <p className="muted">Usuń w ZebraDesigner wagę, partię i daty — wstawi je system. Tekst eksportuj jako grafikę.</p>}
+        {rodzaj === 'zebra-prn' && <p className="muted">Usuń w ZebraDesigner wagę, partię i daty — wstawi je system. Przyjmowane są pliki EPL i ZPL (także skompresowane, nowszy ZebraDesigner); tekst eksportuj jako grafikę.</p>}
+        {rodzaj === 'zebra-pdf' && <p className="muted">PDF z ZebraDesigner: Drukuj → drukarka „Microsoft Print to PDF”, rozmiar papieru jak etykieta.</p>}
+        {rodzaj === 'a4-pdf' && <p className="muted">Etykieta w Wordzie albo Excelu? Plik → Zapisz jako → PDF i wgraj ten PDF.</p>}
         {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Nie wczytano:</b> {blad}</div></div>}
       </div>
     </Dialog>

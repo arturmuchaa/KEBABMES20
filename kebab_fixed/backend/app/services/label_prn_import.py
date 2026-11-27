@@ -7,7 +7,9 @@ EPL2 — tak eksportuje ZebraDesigner: przed `N` stoją ustawienia drukarki
 (`I8,A,001`, `Q…`, `q…`, `rN`, `S3`, `D12`, `ZT`, `JF`, `OD`, `R…`, `f…`),
 które stary MES odrzucał. Rysujemy `GW` (grafika binarna, bit 0 = czarny) i
 `LO/LE/LW` (kreski), koniec na `P`. Szerokość z `q`, wysokość z `Q`.
-ZPL — `^XA ^PW ^LL ^FO ^GFA ^GB ^FS ^XZ`, grafika ASCII hex bez kompresji.
+ZPL — `^XA ^PW ^LL ^FO ^GFA ^GB ^FS ^XZ` oraz `~DG` + `^XG` (grafika w pamięci
+drukarki); dane szesnastkowo, z kompresją Zebry albo `:Z64:`/`:B64:` (nowszy
+ZebraDesigner i inne programy).
 Tekst i kody kreskowe (`A`, `B`, `b`, `^A`, `^B`) odrzucamy z podpowiedzią:
 ZebraDesigner musi wyeksportować je jako grafikę.
 """
@@ -142,17 +144,70 @@ def _epl(src: bytes, dpi: int) -> Dict[str, Any]:
     return _wynik(img, "epl", dpi, [])
 
 
+def dane_grafiki(dane: str, bpr: int, total: int) -> bytes:
+    """Dane `^GFA` / `~DG` → surowe bajty. Obsługuje zapis szesnastkowy, kompresję
+    Zebry (G–Y = 1–19 powtórzeń, g–z = 20–400, `,` reszta wiersza zerami, `!`
+    jedynkami, `:` powtórz poprzedni wiersz) oraz `:Z64:` (base64 + zlib) i `:B64:`."""
+    dane = re.sub(r"\s", "", dane)
+    if dane.startswith((":Z64:", ":B64:")):
+        import zlib
+        tresc = dane[5:].split(":", 1)[0]
+        try:
+            raw = base64.b64decode(tresc + "=" * (-len(tresc) % 4))
+            return zlib.decompress(raw) if dane.startswith(":Z64:") else raw
+        except Exception as exc:
+            raise PrnImportError("Nie udało się rozpakować grafiki Z64/B64 — plik uszkodzony") from exc
+    if bpr <= 0:
+        raise PrnImportError("Nieprawidłowa szerokość wiersza grafiki")
+    szer = bpr * 2
+    wiersze: List[str] = []
+    cur = ""
+    licz = 0
+
+    def zamknij(wypelnienie: str) -> None:
+        nonlocal cur
+        wiersze.append((cur + wypelnienie * szer)[:szer])
+        cur = ""
+
+    for ch in dane:
+        if "G" <= ch <= "Y":
+            licz += ord(ch) - ord("G") + 1
+        elif "g" <= ch <= "z":
+            licz += (ord(ch) - ord("g") + 1) * 20
+        elif ch in "0123456789ABCDEFabcdef":
+            cur += ch.upper() * (licz or 1)
+            licz = 0
+            while len(cur) >= szer:
+                wiersze.append(cur[:szer]); cur = cur[szer:]
+        elif ch == ",":
+            zamknij("0")
+        elif ch == "!":
+            zamknij("F")
+        elif ch == ":":
+            if cur:
+                zamknij("0")
+            wiersze.append(wiersze[-1] if wiersze else "0" * szer)
+        else:
+            raise PrnImportError(f"Nieznany znak w danych grafiki: „{ch}”")
+    if cur:
+        zamknij("0")
+    out = bytes.fromhex("".join(wiersze))
+    return out[:total] if total and len(out) >= total else out
+
+
 def _zpl(src: bytes, dpi: int) -> Dict[str, Any]:
     tekst = src.decode("latin-1")
     szer = wys = 0
     fo = (0, 0)
     elementy: List[tuple] = []
+    pamiec: Dict[str, tuple] = {}
     for kom in re.split(r"(?=[\^~])", tekst):
         kom = kom.strip()
         if not kom:
             continue
         k, arg = kom[:3], kom[3:]
-        if k in ("^XA", "^XZ", "^FS", "^CI", "^LH", "^LS", "^LT", "^MN", "^MT", "^PR", "^MD", "^PO", "^PQ", "^PM", "^JM", "^LR", "^FX"):
+        if k in ("^XA", "^XZ", "^FS", "^CI", "^LH", "^LS", "^LT", "^MN", "^MT", "^PR", "^MD", "^PO", "^PQ", "^PM", "^JM", "^LR",
+                 "^FX", "~TA", "~JS", "~SD", "^SZ", "~JA", "^JU", "^MM", "^PF", "^ID", "~JC", "~JD", "~JE", "^MU", "^FN", "^PA", "^XB"):
             continue
         if k == "^PW":
             szer = int(arg.split(",")[0])
@@ -162,14 +217,30 @@ def _zpl(src: bytes, dpi: int) -> Dict[str, Any]:
             a = arg.split(",")
             fo = (int(a[0] or 0), int(a[1] or 0) if len(a) > 1 else 0)
         elif k == "^GF":
-            m = re.fullmatch(r"A,(\d+),(\d+),(\d+),([0-9A-Fa-f\s]+)", arg.strip())
+            if not arg.startswith("A,"):
+                raise PrnImportError("Grafika ZPL w zapisie binarnym (^GFB/^GFC) — eksportuj ze zgodnością ASCII albo wgraj PDF")
+            a = arg[2:].split(",", 3)
+            if len(a) < 4:
+                raise PrnImportError("Nieprawidłowa grafika ^GFA")
+            total, bpr = int(a[0]), int(a[2])
+            elementy.append(("gf", fo, bpr, dane_grafiki(a[3], bpr, total), 1, 1))
+        elif k == "~DG":
+            m = re.match(r"(?:[A-Z]:)?([^,]+?)(?:\.GRF)?,(\d+),(\d+),(.*)$", arg, re.S | re.I)
             if not m:
-                raise PrnImportError("Grafika ZPL musi być ^GFA w zapisie szesnastkowym bez kompresji. " + _PODPOWIEDZ)
-            elementy.append(("gf", fo, int(m.group(3)), re.sub(r"\s", "", m.group(4))))
+                raise PrnImportError("Nieprawidłowa grafika ~DG")
+            total, bpr = int(m.group(2)), int(m.group(3))
+            pamiec[m.group(1).upper()] = (bpr, dane_grafiki(m.group(4), bpr, total))
+        elif k == "^XG":
+            m = re.match(r"(?:[A-Z]:)?([^,]+?)(?:\.GRF)?(?:,(\d+))?(?:,(\d+))?$", arg.strip(), re.I)
+            nazwa = (m.group(1) if m else arg).upper()
+            if nazwa not in pamiec:
+                raise PrnImportError(f"Plik przywołuje grafikę {nazwa}.GRF, której w nim nie ma — eksportuj ją razem z etykietą")
+            bpr, dane = pamiec[nazwa]
+            elementy.append(("gf", fo, bpr, dane, int((m and m.group(2)) or 1), int((m and m.group(3)) or 1)))
         elif k == "^GB":
             a = (arg.split(",") + ["", "", "", "B"])[:4]
             elementy.append(("gb", fo, int(a[0] or 1), int(a[1] or 1), int(a[2] or 1), (a[3] or "B").upper()))
-        elif k[:2] in ("^A", "^B", "^F"):
+        elif k[:2] in ("^A", "^B") or k == "^FD":
             raise PrnImportError(f"Plik zawiera tekst albo kod („{kom[:24]}”), a nie samą grafikę. {_PODPOWIEDZ}")
         else:
             raise PrnImportError(f"Nieznana instrukcja ZPL: „{kom[:24]}”. {_PODPOWIEDZ}")
@@ -179,17 +250,18 @@ def _zpl(src: bytes, dpi: int) -> Dict[str, Any]:
     rys = ImageDraw.Draw(img)
     for el in elementy:
         if el[0] == "gf":
-            (x0, y0), wb, hexy = el[1], el[2], el[3]
-            dane = bytes.fromhex(hexy)
+            (x0, y0), wb, dane, mx, my = el[1], el[2], el[3], max(1, el[4]), max(1, el[5])
             for i, bajt in enumerate(dane):
                 if not bajt:
                     continue
                 r, b = divmod(i, wb)
                 for bit in range(8):
                     if (bajt >> (7 - bit)) & 1:
-                        X, Y = x0 + b * 8 + bit, y0 + r
-                        if X < szer and Y < wys:
-                            px[X, Y] = 0
+                        X0, Y0 = x0 + (b * 8 + bit) * mx, y0 + r * my
+                        for dy in range(my):
+                            for dx in range(mx):
+                                if X0 + dx < szer and Y0 + dy < wys:
+                                    px[X0 + dx, Y0 + dy] = 0
         else:
             (x0, y0), w, h, t, kolor = el[1], el[2], el[3], el[4], el[5]
             fill = 1 if kolor == "W" else 0

@@ -102,3 +102,57 @@ def test_przyciecie_przy_krawedzi_dopelnia_bialym():
     gw = _gw(0, 700, 2, 50, b"\x00" * 2 * 50)
     img = _obraz(import_prn(_epl(gw), roll_mm=(100, 150)))
     assert img.getpixel((0, 0)) == 255 and img.getpixel((0, 1198)) == 255
+
+
+# ── Nowsze eksporty ZebraDesigner / inne programy (27.11.2026) ────────────
+
+def _zpl_z64(raw: bytes, bpr: int) -> bytes:
+    import zlib
+    b64 = base64.b64encode(zlib.compress(raw)).decode()
+    return f"^XA^PW{bpr * 8}^LL{len(raw) // bpr}^FO0,0^GFA,{len(raw)},{len(raw)},{bpr},:Z64:{b64}:ABCD^FS^XZ".encode()
+
+
+def test_zpl_z64_skompresowana_grafika():
+    img = _obraz(import_prn(_zpl_z64(bytes([0xFF, 0x00, 0x0F, 0xF0]), 2)))
+    assert img.getpixel((0, 0)) == 0 and img.getpixel((8, 0)) == 255
+    assert img.getpixel((4, 1)) == 0 and img.getpixel((0, 1)) == 255
+
+
+def test_zpl_b64_grafika():
+    b64 = base64.b64encode(bytes([0x80, 0x01])).decode()
+    img = _obraz(import_prn(f"^XA^PW16^LL1^FO0,0^GFA,2,2,2,:B64:{b64}:0000^FS^XZ".encode()))
+    assert img.getpixel((0, 0)) == 0 and img.getpixel((15, 0)) == 0 and img.getpixel((7, 0)) == 255
+
+
+def test_zpl_kompresja_zebry_acs():
+    # I = 3 powtórzenia: "IF," → FFF + reszta wiersza zerami = FFF0; ":" powtarza wiersz; "!" wypełnia jedynkami.
+    img = _obraz(import_prn(b"^XA^PW16^LL3^FO0,0^GFA,6,6,2,IF,:!^FS^XZ"))
+    assert img.getpixel((11, 0)) == 0 and img.getpixel((12, 0)) == 255
+    assert img.getpixel((11, 1)) == 0 and img.getpixel((12, 1)) == 255
+    assert img.getpixel((15, 2)) == 0
+
+
+def test_zpl_licznik_powtorzen_malymi_literami():
+    # g = 20 powtórzeń, H = 2 → 22 × "F" = 11 bajtów 0xFF w wierszu 11 bajtów.
+    img = _obraz(import_prn(b"^XA^PW88^LL1^FO0,0^GFA,11,11,11,gHF^FS^XZ"))
+    assert img.getpixel((0, 0)) == 0 and img.getpixel((87, 0)) == 0
+
+
+def test_grafika_z_pamieci_drukarki_dg_xg():
+    src = b"~DGR:LOGO.GRF,4,2,FF00F0F0\r\n^XA^PW32^LL4^FO16,1^XGR:LOGO.GRF,1,1^FS^XZ"
+    img = _obraz(import_prn(src))
+    assert img.getpixel((16, 1)) == 0 and img.getpixel((24, 1)) == 255
+    assert img.getpixel((16, 2)) == 0 and img.getpixel((20, 2)) == 255
+    assert img.getpixel((0, 1)) == 255
+
+
+def test_xg_powiekszenie():
+    src = b"~DGR:A.GRF,1,1,80^XA^PW8^LL2^FO0,0^XGR:A.GRF,2,2^FS^XZ"
+    img = _obraz(import_prn(src))
+    assert img.getpixel((0, 0)) == 0 and img.getpixel((1, 1)) == 0 and img.getpixel((2, 0)) == 255
+
+
+def test_xg_nieznanej_grafiki_odrzucone():
+    with pytest.raises(PrnImportError) as e:
+        import_prn(b"^XA^PW8^LL2^FO0,0^XGR:BRAK.GRF,1,1^FS^XZ")
+    assert "BRAK.GRF" in str(e.value)
