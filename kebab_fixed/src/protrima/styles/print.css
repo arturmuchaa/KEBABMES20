@@ -84,10 +84,19 @@
 .doc-komp .dk-wydane td { color: #888; }
 .doc-komp .dk-wyd { font-size: 7pt; font-weight: 700; letter-spacing: .08em; }
 .doc-komp .dk-box { display: inline-block; width: 4.5mm; height: 4.5mm; border: 1.3px solid #000; vertical-align: middle; }
-.doc-komp .dk-pals { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.doc-komp .dk-pal-card { border: 1px solid #aaa; border-radius: 3px; padding: 5px 7px; font-size: 8.5pt; break-inside: avoid; }
-.doc-komp .dk-pal-h { display: flex; justify-content: space-between; margin-bottom: 2px; }
-.doc-komp .dk-pal-l { display: flex; justify-content: space-between; gap: 8px; }
+
+/* ─── Rozpis palet (lista kompletacji, zamówienie, osobny dokument) ──────
+   Właściciel 27.11.2026: rozpis zawsze na JEDNEJ stronie — blok nigdy się
+   nie łamie; gdy nie mieści się pod pozycjami, idzie cały na następną
+   stronę (`dk-page`, liczone w RozpisPalet.tsx). Trzy kolumny kart, żeby
+   nawet duże zamówienie (YALCIN, 21 palet) weszło na jedną kartkę A4. */
+.dk-rozpis { display: block; margin-top: 14px; break-inside: avoid; page-break-inside: avoid; }
+.dk-rozpis h3 { margin: 0 0 6px; font-size: 10pt; }
+.dk-rozpis .dk-pals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.dk-rozpis .dk-pal-card { border: 1px solid #aaa; border-radius: 3px; padding: 4px 6px; font-size: 8pt; line-height: 1.3; break-inside: avoid; }
+.dk-rozpis .dk-pal-h { display: flex; justify-content: space-between; gap: 6px; margin-bottom: 2px; }
+.dk-rozpis .dk-pal-l { display: flex; justify-content: space-between; gap: 6px; }
+.dk-rozpis .dk-mut { color: #666; }
 
 .doc-preview .dk-page { border-top: 2px dashed #bbb; margin-top: 18mm; padding-top: 10mm; }
 @media print { .print-sheet .dk-page { break-before: page; border: 0; margin: 0; padding: 0; } }

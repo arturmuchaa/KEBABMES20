@@ -7,7 +7,8 @@ import { zapiszPdf } from '@/lib/druk/zapis'
 import { zBase64 } from '@/lib/druk/base64'
 import { useApi } from '@/hooks/useApi'
 import { useAuth } from '@/features/auth/AuthContext'
-import { clientOrdersApi, clientsApi, settingsApi } from '@/lib/api'
+import { clientOrdersApi, clientsApi, orderPalletsApi, settingsApi, type OrderPallet } from '@/lib/api'
+import { RozpisPalet } from './RozpisPalet'
 import type { ClientOrder } from '@/lib/mockApi'
 import { logoDokumentu, type Firma } from '../../../zaklad/zaklad'
 
@@ -40,6 +41,11 @@ export function ZamowienieDrukDialog({ orderId, onClose }: { orderId: string; on
   const o = orderRes.data as ClientOrder | null
   const klient = (klienciRes.data ?? []).find(c => c.id === o?.clientId)
   const [uwagiPoz, setUwagiPoz] = useState(true)
+  // Lista palet dla klienta — na życzenie (właściciel 27.11.2026); pod pozycjami,
+  // gdy się mieści, inaczej cała na następnej stronie.
+  const [zPaletami, setZPaletami] = useState(false)
+  const paletyRes = useApi(() => orderPalletsApi.list(orderId), [orderId])
+  const palety = (paletyRes.data ?? []) as OrderPallet[]
   const [druk, setDruk] = useState<false | 'druk' | 'pdf'>(false)
   const app = useApp()
   const err = orderRes.error || firmaRes.error || klienciRes.error
@@ -57,12 +63,18 @@ export function ZamowienieDrukDialog({ orderId, onClose }: { orderId: string; on
     return () => { window.clearTimeout(t); document.title = prev }
   }, [druk, o]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const doc = gotowe ? <DokumentZamowienia o={o!} firma={firmaRes.data!} klient={klient} wystawil={user?.name} uwagiPoz={uwagiPoz} /> : null
+  const doc = gotowe ? <DokumentZamowienia o={o!} firma={firmaRes.data!} klient={klient} wystawil={user?.name} uwagiPoz={uwagiPoz}
+    palety={zPaletami && palety.length > 0 ? palety : undefined} /> : null
   return (
     <>
       <Dialog wide title={o ? `Zamówienie ${o.orderNo} — wydruk dla klienta` : 'Wydruk zamówienia'} icon={<Printer size={20} color="var(--accent)" />} onClose={onClose}
         footer={<>
-          <label className="left" style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><input type="checkbox" className="cbx" checked={uwagiPoz} onChange={e => setUwagiPoz(e.target.checked)} />Uwagi przy pozycjach</label>
+          <span className="left" style={{ display: 'inline-flex', gap: 16, alignItems: 'center' }}>
+            <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}><input type="checkbox" className="cbx" checked={uwagiPoz} onChange={e => setUwagiPoz(e.target.checked)} />Uwagi przy pozycjach</label>
+            <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}
+              data-tip={palety.length ? 'Pod pozycjami, gdy się mieści — inaczej cała lista na następnej stronie' : 'Zamówienie nie ma jeszcze rozpisanych palet'}>
+              <input type="checkbox" className="cbx" checked={zPaletami} disabled={!palety.length} onChange={e => setZPaletami(e.target.checked)} />Lista palet{palety.length ? ` (${palety.length})` : ''}</label>
+          </span>
           <button className="btn" onClick={onClose}>Zamknij</button>
           <button className="btn" disabled={!gotowe || !!druk} onClick={() => setDruk('pdf')} data-tip="Plik PDF od razu do folderu Pobrane"><FileDown size={15} />{druk === 'pdf' ? 'Zapisuję…' : 'Zapisz PDF'}</button>
           <button className="btn primary" disabled={!gotowe || !!druk} onClick={() => setDruk('druk')} data-autofocus><Printer size={15} />Drukuj</button>
@@ -87,7 +99,7 @@ export async function zapiszJakoPdf(o: ClientOrder, klient: string, app: Pick<Ap
   } catch (e) { app.toast({ kind: 'warn', title: 'Nie udało się zapisać PDF', detail: e instanceof Error ? e.message : String(e) }) }
 }
 
-export function DokumentZamowienia({ o, firma, klient, wystawil, uwagiPoz }: { o: ClientOrder; firma: Firma; klient?: Klient; wystawil?: string; uwagiPoz: boolean }) {
+export function DokumentZamowienia({ o, firma, klient, wystawil, uwagiPoz, palety }: { o: ClientOrder; firma: Firma; klient?: Klient; wystawil?: string; uwagiPoz: boolean; palety?: OrderPallet[] }) {
   const p = useMemo(() => pozycjeDokumentu(o), [o])
   const logo = logoDokumentu(firma)
   const dest = klient?.destName || klient?.destAddress
@@ -128,14 +140,14 @@ export function DokumentZamowienia({ o, firma, klient, wystawil, uwagiPoz }: { o
       </section>
 
       <table className="dz-tbl">
-        <thead><tr><th className="c-lp">Lp.</th><th>Produkt</th><th>Opakowanie</th><th className="r">Waga sztuki</th><th className="r">Ilość</th><th className="r">Masa</th></tr></thead>
+        <thead><tr><th className="c-lp">Lp.</th><th>Produkt</th><th>Opakowanie</th><th className="r">Ilość</th><th className="r">Waga sztuki</th><th className="r">Masa</th></tr></thead>
         <tbody>{p.rows.map(r => (
           <tr key={r.lp}>
             <td className="c-lp">{r.lp}</td>
             <td><b>{r.recipe}</b>{r.product && <small>{r.product}</small>}{uwagiPoz && r.notes && <small className="dz-note">{r.notes}</small>}</td>
             <td>{r.packaging || '—'}</td>
-            <td className="r">{nf(r.kgPerUnit)} kg</td>
             <td className="r"><b>{nf(r.qty)}</b> szt.</td>
+            <td className="r">× {nf(r.kgPerUnit)} kg</td>
             <td className="r">{nf(r.kg)} kg</td>
           </tr>
         ))}</tbody>
@@ -155,6 +167,7 @@ export function DokumentZamowienia({ o, firma, klient, wystawil, uwagiPoz }: { o
         <div className="dz-sign"><span> </span><small>potwierdzenie odbiorcy</small></div>
         <p>Dokument wygenerowany {new Date().toLocaleDateString('pl-PL')} · {firma.name ?? ''} · Zamówienie {o.orderNo}</p>
       </footer>
+      {palety && palety.length > 0 && <RozpisPalet o={o} pallets={palety} dlaKlienta />}
     </article>
   )
 }
