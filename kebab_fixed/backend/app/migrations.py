@@ -2168,6 +2168,44 @@ _DDL: list[str] = [
     # Paleta bez etykiety z QR (stan chłodni z dnia wdrożenia) — hala wywozi ją
     # z listy palet planu, bez skanu. Końcówka dziedziczy po rodzicu (27.11.2026).
     "ALTER TABLE seasoned_pallets ADD COLUMN IF NOT EXISTS no_label BOOLEAN NOT NULL DEFAULT false",
+    # ── Projektor etykiet kebabów w PROTRIMA (27.11.2026) — szablon A4 z PDF albo
+    #    Zebra z PRN/PDF; zawsze klienta, rodzaj/receptura '' = każdy. Spec:
+    #    docs/superpowers/specs/2026-11-27-projektor-etykiet-design.md
+    """CREATE TABLE IF NOT EXISTS label_designs (
+        id               TEXT PRIMARY KEY,
+        name             TEXT NOT NULL DEFAULT '',
+        client_id        TEXT NOT NULL,
+        product_type_id  TEXT NOT NULL DEFAULT '',
+        recipe_id        TEXT NOT NULL DEFAULT '',
+        print_mode       TEXT NOT NULL DEFAULT 'a4',
+        active           BOOLEAN NOT NULL DEFAULT true,
+        background_pdf   TEXT NOT NULL DEFAULT '',
+        background_png   TEXT NOT NULL DEFAULT '',
+        background_zpl   TEXT NOT NULL DEFAULT '',
+        width_mm         NUMERIC(8,2) NOT NULL DEFAULT 0,
+        height_mm        NUMERIC(8,2) NOT NULL DEFAULT 0,
+        dpi              INTEGER NOT NULL DEFAULT 203,
+        source_name      TEXT NOT NULL DEFAULT '',
+        labels_per_sheet INTEGER NOT NULL DEFAULT 1,
+        slot_offset      JSONB NOT NULL DEFAULT '{}',
+        calibration      JSONB NOT NULL DEFAULT '{}',
+        fields           JSONB NOT NULL DEFAULT '[]',
+        slot2_fields     JSONB NOT NULL DEFAULT '{}',
+        created_at       TIMESTAMPTZ DEFAULT now(),
+        updated_at       TIMESTAMPTZ DEFAULT now(),
+        updated_by       TEXT NOT NULL DEFAULT ''
+    )""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_label_designs_assignment ON label_designs(client_id, product_type_id, recipe_id) WHERE active",
+    """CREATE TABLE IF NOT EXISTS label_design_revisions (
+        id                TEXT PRIMARY KEY,
+        design_id         TEXT NOT NULL,
+        revision          INTEGER NOT NULL,
+        snapshot          JSONB NOT NULL,
+        background_sha256 TEXT NOT NULL DEFAULT '',
+        actor             TEXT NOT NULL DEFAULT '',
+        created_at        TIMESTAMPTZ DEFAULT now(),
+        UNIQUE (design_id, revision)
+    )""",
     """CREATE TABLE IF NOT EXISTS plan_batch_balance (
         plan_id     TEXT NOT NULL,
         batch_no    TEXT NOT NULL,

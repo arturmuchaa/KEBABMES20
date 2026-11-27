@@ -104,6 +104,7 @@ def create_app() -> FastAPI:
         rozliczenia,
         druk,
         biuro,
+        label_designs,
         suppliers,
         clients,
         client_groups,
@@ -246,6 +247,7 @@ def create_app() -> FastAPI:
         rozliczenia,
         druk,
         biuro,
+        label_designs,
     ):
         app.include_router(getattr(mod, "router", mod))
 
