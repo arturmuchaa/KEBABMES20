@@ -3,6 +3,7 @@
  * nałóż pola dynamiczne (wizualnie na obrazie podglądu) → złożony ZPL z [[KLUCZ]].
  * Zapis do label_templates (kind='zpl'); druk wsadowy ^PQ obsługuje backend.
  */
+import { EtykietyWProtrima } from '@/features/labels/EtykietyWProtrima'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Plus, Trash2, Printer, Save, QrCode, Type } from 'lucide-react'
@@ -127,6 +128,7 @@ export function ZebraLabelEditorPage() {
   return (
     <div className="min-h-screen bg-slate-50 p-4">
       <div className="mx-auto max-w-6xl space-y-3">
+        <EtykietyWProtrima />
         <div className="flex items-center justify-between">
           <Link to="/office" className="flex items-center gap-1.5 text-sm text-slate-700"><ArrowLeft size={14} /> Wróć</Link>
           <div className="text-sm font-bold uppercase tracking-wide text-slate-700">Edytor etykiety Zebra</div>

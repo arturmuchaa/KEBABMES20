@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { EtykietyWProtrima } from '@/features/labels/EtykietyWProtrima'
 import { useSearchParams, Link } from 'react-router-dom'
 import { ArrowLeft, Type, QrCode, Square, Save, Printer, Trash2, LayoutTemplate, ClipboardPaste, FileDown, Image as ImageIcon } from 'lucide-react'
 import { zebraDesignsApi, labelTemplatesApi, clientsApi, recipesApi, type ZebraDesign, type ZebraElement } from '@/lib/api'
@@ -252,6 +253,7 @@ export function ZebraDesignerPage() {
 
   return (
     <div className="min-h-screen bg-slate-100">
+      <div className="px-4 pt-3"><EtykietyWProtrima /></div>
       <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b bg-white px-4 py-2">
         <Link to="/office/szablony-etykiet" className="flex items-center gap-1 text-sm font-semibold text-slate-600"><ArrowLeft size={16} /> Wstecz</Link>
         <span className="mx-2 text-sm font-bold">Projektant Zebra</span>

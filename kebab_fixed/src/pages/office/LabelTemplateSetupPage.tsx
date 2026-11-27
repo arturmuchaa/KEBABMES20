@@ -7,6 +7,7 @@
  *   3. Kliknij pole → kliknij na podgląd → ustaw pozycję
  *   4. Zapisz szablon
  */
+import { EtykietyWProtrima } from '@/features/labels/EtykietyWProtrima'
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { toast } from 'sonner'
@@ -775,6 +776,7 @@ export function LabelTemplateSetupPage() {
 
   return (
     <div className="min-h-screen w-full bg-slate-50 animate-fade-in" onKeyDown={studioKeys}>
+      <div className="px-4 pt-3 lg:px-8"><EtykietyWProtrima /></div>
       {/* Pasek nawigacji — zawsze widoczny, łatwy powrót do dalszej pracy */}
       <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-2.5 backdrop-blur lg:px-8">
         <button
