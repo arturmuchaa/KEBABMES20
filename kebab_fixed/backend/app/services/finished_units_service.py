@@ -133,6 +133,37 @@ def backfill_unit_goods_links() -> Dict[str, int]:
     return {"linked": linked, "plan_lines_checked": len(plan_lines)}
 
 
+def _insert_unit(conn, line: Dict[str, Any], plan_date: str, qr_seq: int, batch_no: str) -> str:
+    uid = cuid()
+    cx_execute(
+        conn,
+        """
+        INSERT INTO finished_units
+            (id, qr_code, qr_seq, plan_line_id, order_id, client_name,
+             product_type_id, recipe_id, tuleja, weight_kg, batch_no,
+             produced_date, status, created_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'planned',%s)
+        """,
+        (
+            uid,
+            unit_qr(uid),
+            qr_seq,
+            line["id"],
+            line.get("client_order_id"),
+            line.get("client_name") or "",
+            line.get("product_type_id") or "",
+            line.get("recipe_id") or "",
+            # Linia planu trzyma tuleję w packaging_name (brak kolumny tuleja).
+            line.get("tuleja") or line.get("packaging_name") or "",
+            float(line.get("kg_per_unit") or 0),
+            batch_no,
+            plan_date or line.get("produced_date") or "",
+            now_iso(),
+        ),
+    )
+    return uid
+
+
 def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
     """Tworzy `qty` rekordów finished_units (status 'planned') dla linii planu.
 
@@ -167,7 +198,8 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
 
         existing = cx_query_all(
             conn,
-            "SELECT id, qr_seq, status, batch_no FROM finished_units WHERE plan_line_id=%s ORDER BY qr_seq",
+            "SELECT id, qr_seq, status, batch_no, label_printed_at FROM finished_units "
+            "WHERE plan_line_id=%s ORDER BY qr_seq",
             (plan_line_id,),
         )
         if existing:
@@ -175,14 +207,32 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
             # wyprodukowane/zeskanowane), zsynchronizuj numery partii z aktualnym
             # rozbiciem (batch_allocation) — naprawia wcześniejsze błędne etykiety,
             # gdzie wszystko szło na jedną partię. Wyprodukowanych NIE ruszamy.
+            # Plan produkcji (27.11.2026): zmiana partii po wydruku NIE idzie po
+            # cichu — sztuka traci znacznik wydruku i wraca jako „do przedruku”;
+            # liczba sztuk idzie za ilością pozycji (biuro zmieniło plan).
             resynced = 0
+            reprint: List[str] = []
+            added = removed = 0
             if all((u.get("status") == "planned") for u in existing):
+                qty_now = int(line.get("qty") or 0)
+                if qty_now > 0 and len(existing) > qty_now:
+                    usun = [u["id"] for u in existing[qty_now:]]
+                    cx_execute(conn, "DELETE FROM finished_units WHERE id = ANY(%s)", (usun,))
+                    removed = len(usun)
+                    existing = existing[:qty_now]
+                target = max(qty_now, len(existing))
                 seq = batch_sequence(
-                    len(existing),
+                    target,
                     allocation,
                     line.get("seasoned_batch_no"),
                     line.get("seasoned_batch_nos"),
                 )
+                nastepny = max([int(u.get("qr_seq") or 0) for u in existing] + [0])
+                for i in range(len(existing), target):
+                    nastepny += 1
+                    _insert_unit(conn, line, plan_date, nastepny,
+                                 seq[i] if i < len(seq) else (seq[-1] if seq else ""))
+                    added += 1
                 # Data produkcji = data planu (etykiety drukowane z wyprzedzeniem).
                 if plan_date:
                     cx_execute(
@@ -196,14 +246,17 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
                     idx = int(u.get("qr_seq") or 0) - 1
                     want = seq[idx] if 0 <= idx < len(seq) else (seq[-1] if seq else "")
                     if want and want != (u.get("batch_no") or ""):
-                        cx_execute(conn, "UPDATE finished_units SET batch_no=%s WHERE id=%s",
-                                   (want, u["id"]))
+                        cx_execute(conn, "UPDATE finished_units SET batch_no=%s, label_printed_at=NULL "
+                                   "WHERE id=%s", (want, u["id"]))
                         resynced += 1
+                        if u.get("label_printed_at"):
+                            reprint.append(u["id"])
                 if resynced:
                     logger.info("finished_units.batch_resynced",
                                 extra={"plan_line_id": plan_line_id, "resynced_count": resynced})
             return {"planLineId": plan_line_id, "created": 0,
-                    "existing": len(existing), "resynced": resynced}
+                    "existing": len(existing), "resynced": resynced,
+                    "reprint": reprint, "added": added, "removed": removed}
 
         qty = int(line.get("qty") or 0)
         if qty <= 0:
@@ -219,38 +272,54 @@ def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
         )
         created = 0
         for i in range(qty):
-            uid = cuid()
-            batch_no = seq[i] if i < len(seq) else (seq[-1] if seq else "")
-            cx_execute(
-                conn,
-                """
-                INSERT INTO finished_units
-                    (id, qr_code, qr_seq, plan_line_id, order_id, client_name,
-                     product_type_id, recipe_id, tuleja, weight_kg, batch_no,
-                     produced_date, status, created_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'planned',%s)
-                """,
-                (
-                    uid,
-                    unit_qr(uid),
-                    i + 1,
-                    plan_line_id,
-                    line.get("client_order_id"),
-                    line.get("client_name") or "",
-                    line.get("product_type_id") or "",
-                    line.get("recipe_id") or "",
-                    # Linia planu trzyma tuleję w packaging_name (brak kolumny tuleja).
-                    line.get("tuleja") or line.get("packaging_name") or "",
-                    float(line.get("kg_per_unit") or 0),
-                    batch_no,
-                    plan_date or line.get("produced_date") or "",
-                    now_iso(),
-                ),
-            )
+            _insert_unit(conn, line, plan_date, i + 1,
+                         seq[i] if i < len(seq) else (seq[-1] if seq else ""))
             created += 1
 
         logger.info("finished_units.generated", extra={"plan_line_id": plan_line_id, "created_count": created})
         return {"planLineId": plan_line_id, "created": created, "existing": 0}
+
+
+def units_for_plan(plan_id: str) -> List[Dict[str, Any]]:
+    """Sztuki całego planu do druku etykiet z PROTRIMA: pozycja po pozycji,
+    w kolejności sztuk (= kolejność palet z planu)."""
+    rows = query_all(
+        """
+        SELECT u.*, l.position AS line_position, l.recipe_name, l.product_type_name,
+               l.packaging_name
+        FROM finished_units u JOIN production_plan_lines l ON l.id = u.plan_line_id
+        WHERE l.plan_id = %s
+        ORDER BY l.position, l.id, u.qr_seq
+        """,
+        (plan_id,),
+    )
+    return [
+        {
+            "id": r["id"], "qrCode": r["qr_code"], "qrSeq": r.get("qr_seq"),
+            "planLineId": r["plan_line_id"], "linePosition": r.get("line_position"),
+            "batchNo": r.get("batch_no") or "", "recipeName": r.get("recipe_name") or "",
+            "productTypeName": r.get("product_type_name") or "",
+            "packagingName": r.get("packaging_name") or r.get("tuleja") or "",
+            "clientName": r.get("client_name") or "", "weightKg": float(r.get("weight_kg") or 0),
+            "producedDate": r.get("produced_date") or "", "status": r["status"],
+            "labelPrintedAt": r["label_printed_at"].isoformat() if r.get("label_printed_at") else None,
+        }
+        for r in rows
+    ]
+
+
+def mark_labels_printed(ids: List[str]) -> Dict[str, int]:
+    """Biuro wydrukowało etykiety sztuk. Tylko sztuki jeszcze niewyprodukowane."""
+    if not ids:
+        return {"marked": 0}
+    with transaction() as conn:
+        rows = cx_query_all(
+            conn,
+            "UPDATE finished_units SET label_printed_at=now() "
+            "WHERE id = ANY(%s) AND status='planned' RETURNING id",
+            (list(ids),),
+        )
+    return {"marked": len(rows)}
 
 
 def list_units_by_plan_line(plan_line_id: str) -> List[Dict[str, Any]]:

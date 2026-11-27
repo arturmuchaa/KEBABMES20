@@ -3,8 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter
 
-from app.db import query_all
-from app.models.seasoned_pallets import ReturnDto, TakeDto
+from app.models.seasoned_pallets import LabelsPrintedDto, ReturnDto, TakeDto
 from app.services import seasoned_pallets_service as svc
 
 router = APIRouter(prefix="/api/seasoned-pallets", tags=["seasoned-pallets"])
@@ -13,15 +12,13 @@ router = APIRouter(prefix="/api/seasoned-pallets", tags=["seasoned-pallets"])
 @router.get("")
 def list_pallets(status: Optional[str] = None, plan_id: Optional[str] = None):
     """Palety (chłodnia / hala / zamknięte), najnowsze pierwsze."""
-    warunki, args = [], []
-    if status:
-        warunki.append("status=%s"); args.append(status)
-    if plan_id:
-        warunki.append("taken_plan_id=%s"); args.append(plan_id)
-    where = ("WHERE " + " AND ".join(warunki)) if warunki else ""
-    rows = query_all(
-        f"SELECT * FROM seasoned_pallets {where} ORDER BY created_at DESC LIMIT 500", tuple(args))
-    return {"data": [svc.pallet_out(r) for r in rows]}
+    return {"data": svc.list_pallets(status, plan_id)}
+
+
+@router.post("/label-printed")
+def labels_printed(dto: LabelsPrintedDto):
+    """Biuro wydrukowało etykiety palet/końcówek z QR."""
+    return svc.mark_pallet_labels_printed(dto.ids)
 
 
 @router.post("/take")

@@ -19,6 +19,32 @@ def qr_of(pallet_id: str) -> str:
     return QR_PREFIX + pallet_id
 
 
+def kg_teoria(charge: Dict[str, Any]) -> float | None:
+    """Teoretyczna waga wsadu po masowaniu: mięso + woda + przyprawy.
+
+    Przyprawa liczy się wagą zważoną (`weighed`), a gdy jej brak — zadaną
+    (`qty`); jednostki kg/l → kg, g → kg/1000, inne pomijane."""
+    if charge is None:
+        return None
+    spices = charge.get("spices") or []
+    if isinstance(spices, str):
+        try:
+            spices = json.loads(spices)
+        except Exception:
+            spices = []
+    kg = float(charge.get("kg_meat") or 0) + float(charge.get("water_l") or 0)
+    for sp_ in spices if isinstance(spices, list) else []:
+        if not isinstance(sp_, dict):
+            continue
+        ile = float(sp_.get("weighed") or 0) or float(sp_.get("qty") or 0)
+        unit = str(sp_.get("unit") or "kg").strip().lower()
+        if unit in ("kg", "l"):
+            kg += ile
+        elif unit == "g":
+            kg += ile / 1000.0
+    return round(kg, 3) if kg > 0 else None
+
+
 def create_from_charge(conn, charge: Dict[str, Any], kg_output: float) -> Dict[str, Any]:
     """Paleta z odebranego wsadu. Idempotentna po `charge_id`."""
     istniejaca = cx_query_one(
@@ -40,13 +66,14 @@ def create_from_charge(conn, charge: Dict[str, Any], kg_output: float) -> Dict[s
         """
         INSERT INTO seasoned_pallets
             (id, pallet_no, charge_id, seasoned_meat_id, batch_no, recipe_id,
-             recipe_name, kg_weighed, status)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'in_cold')
+             recipe_name, kg_weighed, status, kg_theory, mixed_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'in_cold',%s,
+                COALESCE((SELECT finished_at FROM mixing_charges WHERE id=%s), now()))
         RETURNING *
         """,
         (cuid(), charge.get("out_pallet_no"), charge["id"], sm.get("id"),
          charge.get("batch_no") or "", recipe_id, zlecenie.get("recipe_name") or "",
-         round(float(kg_output), 3)),
+         round(float(kg_output), 3), kg_teoria(charge), charge["id"]),
     )
 
 
@@ -246,7 +273,62 @@ def pallet_out(r: Dict[str, Any]) -> Dict[str, Any]:
         "takenPlanId": r.get("taken_plan_id"),
         "returnedAt": r["returned_at"].isoformat() if r.get("returned_at") else None,
         "kgReturned": float(r["kg_returned"]) if r.get("kg_returned") is not None else None,
+        "mixedAt": _iso(r.get("mixed_at") or r.get("created_at")),
+        "kgTheory": float(r["kg_theory"]) if r.get("kg_theory") is not None else None,
+        "expiryDate": _iso(r.get("expiry_date")),
+        "materialTypeId": r.get("material_type_id") or "",
+        "materialName": r.get("material_name") or "",
+        "parentPalletNo": r.get("parent_pallet_no"),
+        "planIds": list(r.get("plan_ids") or []),
     }
+
+
+def _iso(v: Any) -> str | None:
+    if v is None:
+        return None
+    return v.isoformat() if hasattr(v, "isoformat") else str(v)
+
+
+_LISTA_SQL = """
+    SELECT sp.*, sm.expiry_date, sm.material_type_id, sm.material_name,
+           par.pallet_no AS parent_pallet_no,
+           COALESCE((
+               SELECT array_agg(DISTINCT l.plan_id) FROM plan_line_pallets lp
+               JOIN production_plan_lines l ON l.id = lp.plan_line_id
+               JOIN production_plans pp ON pp.id = l.plan_id
+               WHERE lp.pallet_id = sp.id AND pp.status IN ('draft', 'active')
+           ), '{}') AS plan_ids
+    FROM seasoned_pallets sp
+    LEFT JOIN seasoned_meat sm ON sm.id = sp.seasoned_meat_id
+    LEFT JOIN seasoned_pallets par ON par.id = sp.parent_id
+"""
+
+
+def list_pallets(status: str | None = None, plan_id: str | None = None) -> list[Dict[str, Any]]:
+    """Palety dla biura i tabletów: z terminem, rodzajem mięsa i planami, w których są."""
+    warunki, args = [], []
+    if status:
+        warunki.append("sp.status=%s"); args.append(status)
+    if plan_id:
+        warunki.append("sp.taken_plan_id=%s"); args.append(plan_id)
+    where = ("WHERE " + " AND ".join(warunki)) if warunki else ""
+    with transaction() as conn:
+        rows = cx_query_all(
+            conn, f"{_LISTA_SQL} {where} ORDER BY sp.created_at DESC LIMIT 500", tuple(args))
+    return [pallet_out(r) for r in rows]
+
+
+def mark_pallet_labels_printed(ids: list[str]) -> Dict[str, int]:
+    """Biuro wydrukowało etykiety palet/końcówek z QR."""
+    if not ids:
+        return {"marked": 0}
+    with transaction() as conn:
+        rows = cx_query_all(
+            conn,
+            "UPDATE seasoned_pallets SET label_printed_at=now() WHERE id = ANY(%s) RETURNING id",
+            (list(ids),),
+        )
+    return {"marked": len(rows)}
 
 
 # ── Sztuka tylko z partii wywiezionej na halę ────────────────────────────
@@ -259,6 +341,28 @@ def assert_unit_batch_on_hall(conn, unit: Dict[str, Any], plan_id: str) -> None:
     """
     line_id = unit.get("plan_line_id")
     batch = unit.get("batch_no") or ""
+    line = cx_query_one(
+        conn, "SELECT recipe_id, batch_allocation FROM production_plan_lines WHERE id=%s", (line_id,)) or {}
+    wpis = _alokacja(line).get(batch)
+    czesci = (wpis or {}).get("parts") if isinstance(wpis, dict) else None
+    if isinstance(czesci, dict) and czesci:
+        # Sztuka z kilku partii (PM z końcówek albo kebab mix „355/356”):
+        # każda partia musi mieć paletę wywiezioną do tego planu.
+        brak = [
+            b for b in czesci
+            if not cx_query_one(
+                conn,
+                "SELECT 1 FROM seasoned_pallets WHERE batch_no=%s AND taken_plan_id=%s "
+                "AND COALESCE(recipe_id,'') = %s LIMIT 1",
+                (b, plan_id, line.get("recipe_id") or ""),
+            )
+        ]
+        if brak:
+            raise HTTPException(
+                409,
+                f"Partia {batch} nie wyjechała cała na halę — brakuje palety partii {', '.join(brak)}",
+            )
+        return
     jawne = cx_query_all(
         conn,
         "SELECT sp.pallet_no, sp.batch_no, sp.taken_plan_id FROM plan_line_pallets lp "
@@ -330,12 +434,13 @@ def return_pallet(code_or_id: str, kg: float) -> Dict[str, Any]:
                 """
                 INSERT INTO seasoned_pallets
                     (id, pallet_no, seasoned_meat_id, batch_no, recipe_id, recipe_name,
-                     kg_weighed, status, parent_id, is_remainder)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,'in_cold',%s,true)
+                     kg_weighed, status, parent_id, is_remainder, mixed_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,'in_cold',%s,true,%s)
                 RETURNING *
                 """,
                 (cuid(), int(nowy_nr["value"]), p.get("seasoned_meat_id"), p.get("batch_no") or "",
-                 p.get("recipe_id") or "", p.get("recipe_name") or "", kg, p["id"]),
+                 p.get("recipe_id") or "", p.get("recipe_name") or "", kg, p["id"],
+                 p.get("mixed_at") or p.get("created_at")),
             )
     return {
         "ok": True,
@@ -396,6 +501,32 @@ def assert_plan_ready_to_confirm(conn, plan_id: str, entries: list | None = None
             )
 
 
+def _kg_wyrobow_wg_partii(conn, plan_id: str) -> Dict[tuple, float]:
+    """Kg wyrobów planu na (partia, receptura). Sztuka z kilku partii (PM,
+    kebab mix) dzieli swoją wagę na partie według kg części w alokacji."""
+    rows = cx_query_all(
+        conn,
+        "SELECT u.batch_no, u.weight_kg, COALESCE(l.recipe_id,'') AS recipe_id, l.id AS line_id, "
+        "l.batch_allocation FROM finished_units u JOIN production_plan_lines l ON l.id = u.plan_line_id "
+        "WHERE l.plan_id=%s AND u.status <> 'planned'",
+        (plan_id,),
+    )
+    out: Dict[tuple, float] = {}
+    for u in rows:
+        waga = float(u.get("weight_kg") or 0)
+        wpis = _alokacja(u).get(u.get("batch_no") or "")
+        czesci = wpis.get("parts") if isinstance(wpis, dict) else None
+        razem = sum(float((c or {}).get("kg") or 0) for c in (czesci or {}).values())
+        if isinstance(czesci, dict) and razem > 0:
+            for b, c in czesci.items():
+                klucz = (b, u["recipe_id"])
+                out[klucz] = out.get(klucz, 0.0) + waga * float((c or {}).get("kg") or 0) / razem
+        else:
+            klucz = (u.get("batch_no") or "", u["recipe_id"])
+            out[klucz] = out.get(klucz, 0.0) + waga
+    return out
+
+
 def settle_plan_balance(conn, plan_id: str, plan_no: str) -> list[Dict[str, Any]]:
     """Bilans partii planu: weszło (palety) − na wyroby − końcówki = strata.
 
@@ -415,19 +546,12 @@ def settle_plan_balance(conn, plan_id: str, plan_no: str) -> list[Dict[str, Any]
             (p.get("seasoned_meat_id") or "", p.get("batch_no") or "", p.get("recipe_id") or ""), []
         ).append(p)
 
+    wyroby = _kg_wyrobow_wg_partii(conn, plan_id)
     wynik = []
     for (sm_id, batch, recipe_id), lista in grupy.items():
         kg_in = round(sum(float(p.get("kg_weighed") or 0) for p in lista), 3)
         kg_ret = round(sum(float(p.get("kg_returned") or 0) for p in lista), 3)
-        goods = cx_query_one(
-            conn,
-            "SELECT COALESCE(SUM(u.weight_kg), 0) AS kg FROM finished_units u "
-            "JOIN production_plan_lines l ON l.id = u.plan_line_id "
-            "WHERE l.plan_id=%s AND u.batch_no=%s AND COALESCE(l.recipe_id,'')=%s "
-            "AND u.status <> 'planned'",
-            (plan_id, batch, recipe_id),
-        )
-        kg_goods = round(float((goods or {}).get("kg") or 0), 3)
+        kg_goods = round(wyroby.get((batch, recipe_id), 0.0), 3)
         kg_loss = round(kg_in - kg_goods - kg_ret, 3)
         cx_execute_returning(
             conn,

@@ -1,7 +1,7 @@
 """Endpointy finished_units — QR per sztuka."""
 from fastapi import APIRouter
 
-from app.models.finished_units import GenerateUnitsRequest, ScanProducedRequest
+from app.models.finished_units import GenerateUnitsRequest, LabelsPrintedDto, ScanProducedRequest
 from app.services import finished_units_service as svc
 
 router = APIRouter(prefix="/api/finished-units", tags=["finished-units"])
@@ -10,6 +10,17 @@ router = APIRouter(prefix="/api/finished-units", tags=["finished-units"])
 @router.get("")
 def list_by_plan_line(plan_line_id: str = ""):
     return svc.list_units_by_plan_line(plan_line_id)
+
+
+@router.get("/for-plan")
+def units_for_plan(plan_id: str = ""):
+    """Sztuki planu do druku etykiet (PROTRIMA), w kolejności pozycji i palet."""
+    return svc.units_for_plan(plan_id)
+
+
+@router.post("/label-printed")
+def labels_printed(dto: LabelsPrintedDto):
+    return svc.mark_labels_printed(dto.ids)
 
 
 @router.post("/from-plan-line")

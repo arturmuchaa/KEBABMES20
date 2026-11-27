@@ -1,7 +1,7 @@
 """DTO requestów dla finished_units (QR per sztuka)."""
-from typing import Optional
+from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class GenerateUnitsRequest(BaseModel):
@@ -19,3 +19,7 @@ class ScanProducedRequest(BaseModel):
     # musi być otwarty — inaczej odmowa bez żadnego zapisu. None = dotychczasowe
     # zachowanie (mobile, stare HMI).
     expected_plan_id: Optional[str] = None
+
+
+class LabelsPrintedDto(BaseModel):
+    ids: List[str] = Field(default_factory=list)

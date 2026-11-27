@@ -2161,6 +2161,10 @@ _DDL: list[str] = [
     # Plan B: kolejność palet w pozycji (biuro układa, z której palety najpierw).
     "ALTER TABLE plan_line_pallets ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0",
     "CREATE INDEX IF NOT EXISTS idx_plan_line_pallets_pallet ON plan_line_pallets(pallet_id)",
+    # Plan B: stan wydruku etykiet z PROTRIMA, teoria i czas masowania palety.
+    "ALTER TABLE finished_units ADD COLUMN IF NOT EXISTS label_printed_at TIMESTAMPTZ NULL",
+    "ALTER TABLE seasoned_pallets ADD COLUMN IF NOT EXISTS mixed_at TIMESTAMPTZ NULL",
+    "ALTER TABLE seasoned_pallets ADD COLUMN IF NOT EXISTS kg_theory NUMERIC(10,3) NULL",
     """CREATE TABLE IF NOT EXISTS plan_batch_balance (
         plan_id     TEXT NOT NULL,
         batch_no    TEXT NOT NULL,
@@ -2249,6 +2253,7 @@ def _run_migrations_locked() -> None:
     _rozl_poszerz_checki()
     _backfill_vehicle_loading_orders()
     _backfill_seasoned_pallets()
+    _backfill_pallet_mixed_at()
     logger.info("migrations.done")
 
 
@@ -2387,6 +2392,42 @@ def _strip_year_from_reception_no() -> None:
             logger.info("migrations.strip_year_from_reception_no.done", extra={"count": ile})
     except Exception as exc:
         logger.warning("migrations.strip_year_from_reception_no.failed", extra={"error": str(exc)})
+
+
+def _backfill_pallet_mixed_at() -> None:
+    """Czas masowania i teoria palet sprzed plan B. Idempotentne: tylko
+    palety bez `mixed_at`. Paleta z masownicy — z wsadu; końcówka — po
+    rodzicu; reszta (stan z wdrożenia) — chwila założenia wpisu."""
+    from app.services.seasoned_pallets_service import kg_teoria
+    try:
+        with transaction() as conn:
+            rows = cx_query_all(
+                conn,
+                "SELECT sp.id, mc.finished_at, mc.kg_meat, mc.water_l, mc.spices "
+                "FROM seasoned_pallets sp JOIN mixing_charges mc ON mc.id = sp.charge_id "
+                "WHERE sp.mixed_at IS NULL",
+            )
+            for r in rows:
+                cx_execute(
+                    conn,
+                    "UPDATE seasoned_pallets SET mixed_at=COALESCE(%s, created_at), "
+                    "kg_theory=COALESCE(kg_theory, %s) WHERE id=%s",
+                    (r.get("finished_at"), kg_teoria(r), r["id"]),
+                )
+            for _ in range(10):
+                n = cx_query_all(
+                    conn,
+                    "UPDATE seasoned_pallets c SET mixed_at = par.mixed_at FROM seasoned_pallets par "
+                    "WHERE c.parent_id = par.id AND c.mixed_at IS NULL AND par.mixed_at IS NOT NULL "
+                    "RETURNING c.id",
+                )
+                if not n:
+                    break
+            cx_execute(conn, "UPDATE seasoned_pallets SET mixed_at = created_at WHERE mixed_at IS NULL")
+        if rows:
+            logger.info("migrations.pallet_mixed_at_backfill", extra={"pallets": len(rows)})
+    except Exception as exc:  # pragma: no cover - log only
+        logger.warning("migrations.pallet_mixed_at_backfill_failed", extra={"error": str(exc)})
 
 
 def _backfill_seasoned_pallets() -> None:

@@ -182,8 +182,12 @@ def _consume_seasoned_for_entry(
                         continue
                     _add(alloc.get("batch_id"), batch_no, float(alloc.get("kg") or 0))
 
-    # Fallback: equal split when allocation missing
-    if not per_batch and seasoned_batch_nos:
+    # Fallback: equal split when allocation missing — NIE dla planów z blokadą
+    # palet (plan produkcji 26.11.2026): tam partia wynika z palet, a zgadywanie
+    # po równo zapisałoby zużycie, którego nikt nie potwierdził.
+    gated = bool(plan_id) and bool((cx_query_one(
+        conn, "SELECT pallet_gate FROM production_plans WHERE id=%s", (plan_id,)) or {}).get("pallet_gate"))
+    if not per_batch and seasoned_batch_nos and not gated:
         share = round(total_kg / max(1, len(seasoned_batch_nos)), 3)
         for bno in seasoned_batch_nos:
             sm = cx_query_one(

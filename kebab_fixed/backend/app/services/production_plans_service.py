@@ -592,6 +592,8 @@ def _check_plan_shortfalls(
         line_kg = round(line.qty * line.kg_per_unit, 3)
         if line_kg <= 0:
             continue
+        if _is_remainders_pm(line):
+            continue  # waga końcówek sprawdzona w _prepare_line_pallets / _remainders_allocation
         components = _line_components(conn, line)
         if components:
             _, allocation, _, _ = _compute_component_allocation(
@@ -787,13 +789,14 @@ def list_plans() -> List[Dict]:
     return plans
 
 
-def _prepare_line_pallets(conn, numbered_lines, gate: bool, plan_id: str | None = None) -> None:
+def _prepare_line_pallets(conn, numbered_lines, gate: bool, plan_id: str | None = None) -> Dict[int, list]:
     """Palety pozycji planu z PROTRIMA — przed blokadą partii i alokacją.
 
     `numbered_lines` = [(nr pozycji w formularzu, PlanLineCreate)]. Plan
     z blokadą palet nie bierze mięsa bez palety; kebab z kilku rodzajów
     mięsa potrzebuje palety każdego rodzaju."""
     from app.services import seasoned_pallets_service as palety
+    by_line: Dict[int, list] = {}
     for n, line in numbered_lines:
         if not line.recipe_name:
             line.recipe_name = _resolve_line_names(conn, line)[0]
@@ -807,6 +810,20 @@ def _prepare_line_pallets(conn, numbered_lines, gate: bool, plan_id: str | None 
                 )
             continue
         rows = palety.resolve_line_pallets(conn, line, plan_id=plan_id)
+        by_line[id(line)] = rows
+        if line.from_remainders:
+            suma = round(sum(float(r.get("kg_weighed") or 0) for r in rows), 3)
+            kg_pu = float(line.kg_per_unit or 0)
+            if line.qty * kg_pu > suma + SEASONED_SHORTFALL_TOL_KG:
+                pelne = int(suma // kg_pu) if kg_pu > 0 else 0
+                slowo = ("pełna sztuka" if pelne == 1 else
+                         "pełne sztuki" if 2 <= pelne % 10 <= 4 and not 12 <= pelne % 100 <= 14 else
+                         "pełnych sztuk")
+                raise HTTPException(
+                    400,
+                    f"Pozycja {n} ({nazwa}): końcówki ważą {palety._fmt_kg(suma)} kg — to {pelne} {slowo} "
+                    f"po {palety._fmt_kg(kg_pu)} kg, a pozycja ma {line.qty}",
+                )
         comps = _line_components(conn, line)
         if comps:
             maty = {r.get("material_type_id") or "" for r in rows}
@@ -819,6 +836,55 @@ def _prepare_line_pallets(conn, numbered_lines, gate: bool, plan_id: str | None 
                         f"Pozycja {n} ({nazwa}): brak palety z mięsem {mat} — kebab {udzialy} "
                         "potrzebuje palet każdego rodzaju",
                     )
+    return by_line
+
+
+def _is_remainders_pm(line: PlanLineCreate) -> bool:
+    """Pozycja z końcówek KILKU partii — sztuki PM. Z jednej partii: zwykła."""
+    return bool(line.from_remainders) and len(set(line.seasoned_batch_ids or [])) > 1
+
+
+def _remainders_allocation(
+    line: PlanLineCreate, pallets: list, locked: Dict[str, Dict]
+) -> tuple[list[str], dict, str | None, str]:
+    """Wszystkie sztuki pozycji z końcówek to jeden kubełek PM (MIXED_KEY,
+    numer nadaje aktywacja). Kg części brane po kolei z palet, do ich wagi
+    i wolnego stanu partii. Mutuje ``locked`` jak pozostałe alokacje."""
+    kg_pu = float(line.kg_per_unit or 0)
+    need = round(int(line.qty) * kg_pu, 3)
+    free = {
+        bid: max(0.0, float(row.get("kg_available") or 0) - float(row.get("kg_reserved") or 0))
+        for bid, row in locked.items()
+    }
+    parts: dict[str, dict] = {}
+    nos: list[str] = []
+    for p in pallets:
+        if need <= 1e-6:
+            break
+        bid = p.get("seasoned_meat_id")
+        take = min(need, float(p.get("kg_weighed") or 0), free.get(bid, 0.0))
+        if take <= 1e-6:
+            continue
+        free[bid] -= take
+        need = round(need - take, 3)
+        b_no = p.get("batch_no") or ""
+        part = parts.setdefault(b_no, {"kg": 0.0, "batch_id": bid})
+        part["kg"] = round(float(part["kg"]) + take, 3)
+        if b_no not in nos:
+            nos.append(b_no)
+    if need > SEASONED_SHORTFALL_TOL_KG:
+        raise HTTPException(
+            400,
+            f"Końcówki pozycji {line.recipe_name or line.recipe_id} mają w magazynie za mało mięsa "
+            f"— brakuje {need:.0f} kg (inne plany mogły je zarezerwować)",
+        )
+    allocation = {MIXED_KEY: {"pieces": int(line.qty), "kg": round(int(line.qty) * kg_pu, 3), "parts": parts}}
+    for bid, kg in _allocation_kg_per_batch(allocation).items():
+        row = locked.get(bid)
+        if row is not None:
+            row["kg_reserved"] = float(row.get("kg_reserved") or 0) + kg
+    first = next(iter(parts.values()), {})
+    return nos, allocation, first.get("batch_id"), (nos[0] if nos else "")
 
 
 def _insert_line(
@@ -917,7 +983,8 @@ def create_plan(dto: ProductionPlanCreate) -> Dict:
     total_units = sum(l.qty for l in valid_lines)
 
     with transaction() as conn:
-        _prepare_line_pallets(conn, list(enumerate(valid_lines, start=1)), bool(dto.pallet_gate))
+        pallets_by_line = _prepare_line_pallets(
+            conn, list(enumerate(valid_lines, start=1)), bool(dto.pallet_gate))
         # Lock every seasoned_meat row required by the plan up-front,
         # in deterministic order, to avoid deadlocks between concurrent
         # plan creates.
@@ -965,7 +1032,10 @@ def create_plan(dto: ProductionPlanCreate) -> Dict:
                 conn, line
             )
             comps = _line_components(conn, line)
-            if comps:
+            if _is_remainders_pm(line):
+                nos, allocation, primary_id, primary_no = _remainders_allocation(
+                    line, pallets_by_line.get(id(line), []), locked)
+            elif comps:
                 # Selected batches (or automatic FEFO) in component proportions.
                 nos, allocation, primary_id, primary_no = (
                     _compute_component_allocation(conn, line, comps, locked=locked)
@@ -1047,7 +1117,7 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
         # (payload) + zamrożone (z bazy — payload zamrożonych jest ignorowany).
         editable_lines = [l for l in valid_lines if str(l.id or "") not in produced_ids]
         frozen_rows = [r for r in old_lines if r["id"] in produced_ids]
-        _prepare_line_pallets(
+        pallets_by_line = _prepare_line_pallets(
             conn,
             [(i, l) for i, l in enumerate(valid_lines, start=1) if str(l.id or "") not in produced_ids],
             bool(plan.get("pallet_gate")),
@@ -1119,7 +1189,10 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
                 conn, line
             )
             comps = _line_components(conn, line)
-            if comps:
+            if _is_remainders_pm(line):
+                nos, allocation, primary_id, primary_no = _remainders_allocation(
+                    line, pallets_by_line.get(id(line), []), locked)
+            elif comps:
                 nos, allocation, primary_id, primary_no = (
                     _compute_component_allocation(conn, line, comps, locked=locked)
                 )
