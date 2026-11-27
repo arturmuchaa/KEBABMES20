@@ -2,7 +2,8 @@
  * Zwrot końcówki palety — kg z wagi paletowej w chłodni (plan produkcji, 26.11.2026).
  *
  * Końcówka zawsze wraca do chłodni i jest ważona; system zakłada z niej nową
- * paletę tej samej partii, a biuro drukuje jej etykietę. „Zużyta do zera"
+ * paletę tej samej partii. Nowej etykiety nie ma — na końcówce zostaje
+ * etykieta z masowni, a jej skan następnego dnia bierze końcówkę. „Zużyta do zera"
  * zamyka paletę bez końcówki. Bez zwrotu każdej wywiezionej palety biuro nie
  * potwierdzi planu — stąd lista palet, które są jeszcze na hali.
  */
@@ -62,7 +63,7 @@ export function ZwrotKoncowki({ planId, onZamknij, onZwrocono }: {
           <div>
             <h3 className="m-0 text-[22px] font-extrabold" style={{ letterSpacing: '-.01em' }}>Zwrot końcówki do chłodni</h3>
             <p className="m-0 mt-0.5 text-sm font-bold" style={{ color: 'var(--mut)' }}>
-              Zważ końcówkę na wadze paletowej i wpisz kg. Pustą paletę oznacz „Zużyta do zera”.
+              Zważ końcówkę na wadze paletowej i wpisz kg. Etykieta z masowni zostaje na końcówce. Pustą paletę oznacz „Zużyta do zera”.
             </p>
           </div>
           <button type="button" onClick={onZamknij} aria-label="Zamknij" className="ml-auto text-[20px]" style={{ color: 'var(--mut)' }}>✕</button>

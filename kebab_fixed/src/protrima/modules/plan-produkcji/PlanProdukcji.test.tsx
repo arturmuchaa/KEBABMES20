@@ -12,7 +12,7 @@ const pkg = vi.hoisted(() => ({ list: vi.fn() }))
 const orders = vi.hoisted(() => ({ list: vi.fn(), productionProgress: vi.fn() }))
 const units = vi.hoisted(() => ({ generateFromPlanLine: vi.fn(), forPlan: vi.fn(), markLabelsPrinted: vi.fn() }))
 const druk = vi.hoisted(() => ({ drukujEtykiety: vi.fn(), opisBledu: vi.fn(async (e: unknown) => (e instanceof Error ? e.message : String(e))) }))
-vi.mock('../../drukarka/drukarka', () => ({ ...druk, ROLKA_ETYKIET: '100x150' }))
+vi.mock('../../drukarka/drukarka', () => ({ ...druk, ROLKA_ETYKIET: '80x100' }))
 vi.mock('@/lib/api', async (orig) => ({
   ...(await orig() as object), productionPlansApi: plans, seasonedPalletsApi: pallets, recipesApi: rec, productTypesApi: pt,
   packagingApi: pkg, clientOrdersApi: orders, finishedUnitsApi: units,
@@ -79,7 +79,8 @@ describe('Plan produkcji — ekran', () => {
   it('klik w paletę przypina ją do zaznaczonej pozycji i liczy sztuki', async () => {
     await zZamowienia()
     fireEvent.click(await screen.findByRole('button', { name: /^Paleta 41/ }))
-    expect(await screen.findByText(/14 szt\. z palet/)).toBeTruthy()
+    const z = await screen.findByText('14 szt.')
+    expect(z.closest('td')?.getAttribute('data-tip')).toMatch(/Końcówka ~\d/)
   })
 
   it('zapis wysyła palletIds i palletGate', async () => {
@@ -109,7 +110,8 @@ describe('Plan produkcji — ekran', () => {
     fireEvent.click(within(panel).getByRole('button', { name: /Pozycja z końcówek/ }))
     const kg = await screen.findByLabelText('kg/szt, pozycja 1')
     fireEvent.change(kg, { target: { value: '40' } })
-    expect(await screen.findByText('55 kg → 1 szt.')).toBeTruthy()
+    const z = await screen.findByText('1 szt.')
+    expect(z.closest('td')?.getAttribute('data-tip')).toBe('55 kg końcówek')
   })
 
   it('pozycja mix grupuje palety po składnikach i podpowiada palety obu rodzajów', async () => {
@@ -168,7 +170,7 @@ describe('Plan produkcji — ekran', () => {
     const [zpl, rolka] = druk.drukujEtykiety.mock.calls[0]
     expect(zpl).toHaveLength(2)
     expect(zpl[1]).toContain('2/2')
-    expect(rolka).toBe('100x150')
+    expect(rolka).toBe('80x100')
   })
 
   it('błąd drukarki nie oznacza żadnej sztuki', async () => {
@@ -223,14 +225,39 @@ describe('Plan produkcji — ekran', () => {
     expect(units.generateFromPlanLine).toHaveBeenCalledTimes(1)
   })
 
-  it('końcówki bez etykiety drukują się i znikają z listy', async () => {
-    druk.drukujEtykiety.mockResolvedValue(undefined)
-    pallets.markLabelsPrinted.mockImplementation(async (ids: string[]) => { P = P.map(p => ids.includes(p.id as string) ? { ...p, labelPrintedAt: '2026-11-27T18:00:00Z' } : p); return { marked: ids.length } })
+  it('biuro nie drukuje etykiet mięsa — nie ma zakładki Do oznaczenia (drukuje HMI masowni)', async () => {
     mount()
-    fireEvent.click(await screen.findByRole('tab', { name: /Do oznaczenia/ }))
-    fireEvent.click(await screen.findByRole('button', { name: /Drukuj etykiety \(4\)/ }))
-    await waitFor(() => expect(pallets.markLabelsPrinted).toHaveBeenCalled())
-    expect(druk.drukujEtykiety.mock.calls[0][0][0]).toContain('SP|')
-    expect(await screen.findByText(/Wszystkie palety w chłodni mają etykiety/)).toBeTruthy()
+    await screen.findByRole('tab', { name: /Palety w chłodni/ })
+    expect(screen.queryByRole('tab', { name: /Do oznaczenia/ })).toBeNull()
+  })
+
+  it('zamówienia pogrupowane: klient → zamówienie, „Dodaj całe” wciąga wszystkie pozycje zamówienia', async () => {
+    orders.list.mockResolvedValue([
+      { id: 'z2', orderNo: 'YAL/Z/2', clientId: 'c1', clientName: 'YALCIN', status: 'confirmed',
+        lines: [{ id: 'a', qty: 10, kgPerUnit: 40, productTypeId: 'udo', recipeId: 'kir' }, { id: 'b', qty: 5, kgPerUnit: 30, productTypeId: 'udo', recipeId: 'kir' }] },
+      { id: 'z3', orderNo: 'TRU/Z/1', clientId: 'c2', clientName: 'TRUVA', status: 'confirmed',
+        lines: [{ id: 'c', qty: 20, kgPerUnit: 40, productTypeId: 'udo', recipeId: 'kir' }] },
+    ])
+    mount()
+    fireEvent.click(await screen.findByRole('tab', { name: /Z zamówień/ }))
+    const klienci = await screen.findAllByRole('heading', { level: 4 })
+    expect(klienci.map(h => h.textContent)).toEqual([expect.stringMatching(/^TRUVA/), expect.stringMatching(/^YALCIN/)])
+    fireEvent.click(screen.getByRole('button', { name: 'Dodaj całe zamówienie YAL/Z/2' }))
+    expect(screen.getAllByRole('row').filter(r => /YALCIN/.test(r.textContent ?? ''))).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: 'Dodaj całe zamówienie YAL/Z/2' })).toBeNull()
+  })
+
+  it('pozycja planu w jednym wierszu: osobne kolumny klient, receptura, rodzaj', async () => {
+    await zZamowienia()
+    for (const k of ['Klient', 'Receptura', 'Rodzaj', 'Sztuk', 'kg/szt', 'Tuleja', 'Palety', 'Z palet']) {
+      expect(screen.getByRole('columnheader', { name: k })).toBeTruthy()
+    }
+  })
+
+  it('panel palet i zamówień można przenieść na dół jak w Zamówieniach', async () => {
+    const setPanel = vi.fn()
+    render(<AppCtx.Provider value={{ ...app, panel: 'bok', setPanel } as unknown as AppApi}><PlanProdukcjiModule active setCtx={vi.fn()} setCmds={cmds} /></AppCtx.Provider>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Panel na dole' }))
+    expect(setPanel).toHaveBeenCalledWith('dol')
   })
 })

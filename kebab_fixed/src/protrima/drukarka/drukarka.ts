@@ -83,8 +83,8 @@ export async function drukujZawieszki(tags: readonly ReceptionTagInput[], p: Pos
   await wyslijSerie(dev, receptionTagsPrintJobs(tags, cal), cal.labelLengthMm, p)
 }
 
-/** Rolka etykiet z Planu produkcji (sztuki, palety, końcówki) — 100 × 150 mm (właściciel 27.11.2026). */
-export const ROLKA_ETYKIET: ZebraProfileId = '100x150'
+/** Rolka etykiet kebabów z Planu produkcji — 80 × 100 mm, ta sama co zawieszki przyjęcia (właściciel 27.11.2026). */
+export const ROLKA_ETYKIET: ZebraProfileId = '80x100'
 
 /**
  * Seria gotowych etykiet ZPL na podanej rolce — ta sama ścieżka co zawieszki:

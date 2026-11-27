@@ -56,6 +56,7 @@ import { MovePiecesModal } from '@/features/production-hmi/components/MovePieces
 import { PasekSkanera } from '@/features/production-hmi/components/PasekSkanera'
 import { WywozPalety, type WynikWywozu } from '@/features/production-hmi/components/WywozPalety'
 import { ZwrotKoncowki } from '@/features/production-hmi/components/ZwrotKoncowki'
+import { PaletyBezKodu } from '@/features/production-hmi/components/PaletyBezKodu'
 import { idPaletyMiesa } from '@/features/scan/skanKodu'
 import { beepErr, beepOk } from '@/features/pwa/beep'
 import { useKolejkaSkanow, type RekordSkanu } from '@/features/production-hmi/useKolejkaSkanow'
@@ -900,6 +901,7 @@ export function ProductionHmiPage({ buildLabel = `Produkcja · ${__PRODUKCJA_VER
             Zwrot końcówki
           </button>
         )}
+        {plan?.palletGate && plan.id && <PaletyBezKodu key={plan.id} planId={plan.id} onWywiez={wywiezPalete} />}
         {zwrotOtwarty && plan?.id && (
           <ZwrotKoncowki planId={plan.id} onZamknij={() => setZwrotOtwarty(false)}
             onZwrocono={() => { setZwrotOtwarty(false); beepOk() }} />

@@ -116,19 +116,19 @@ describe('stan drukarki (bez drukowania)', () => {
   })
 })
 
-describe('druk serii etykiet z planu produkcji (rolka 100 × 150)', () => {
-  it('inna rolka w drukarce → drukarka mierzy 100 × 150, nastawa zawieszek bez zmian; ciągiem jedno zadanie', async () => {
+describe('druk serii etykiet z planu produkcji (rolka 80 × 100, ta sama co zawieszki)', () => {
+  it('inna rolka w drukarce → drukarka mierzy 80 × 100, nastawa zawieszek bez zmian; ciągiem jedno zadanie', async () => {
     saveCalibration({ ...DEFAULT_CALIBRATION, labelLengthMm: 101.6 })
+    prof.media = '100x150'
     await drukujEtykiety(['^XA A^XZ', '^XA B^XZ', '^XA C^XZ'], ROLKA_ETYKIET)
-    expect(z.calibrateZebra).toHaveBeenCalledWith(dev, '100x150', undefined)
+    expect(z.calibrateZebra).toHaveBeenCalledWith(dev, '80x100', undefined)
     const [, jobs] = z.sendZplJobs.mock.calls[0]
     expect(jobs).toEqual(['^XA A^XZ\n^XA B^XZ\n^XA C^XZ'])
     expect(loadCalibration().labelLengthMm).toBe(101.6)
   })
   it('tryb „po jednej”: zadanie na etykietę', async () => {
     localStorage.setItem('protrima.zawieszki.seria', 'pojedynczo')
-    prof.media = '100x150'
-    z.readZebraStatus.mockResolvedValue({ raw: '', status: status({ labelLengthMm: 150.4 }) })
+    z.readZebraStatus.mockResolvedValue({ raw: '', status: status({ labelLengthMm: 101.6 }) })
     await drukujEtykiety(['A', 'B', 'C'], ROLKA_ETYKIET)
     const [, jobs, opts] = z.sendZplJobs.mock.calls[0]
     expect(jobs).toEqual(['A', 'B', 'C'])

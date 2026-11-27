@@ -8,6 +8,7 @@
  * „leży N h” od zważenia, a podpowiedź bierze najpierw palety leżące najdłużej.
  */
 import type { CreateProductionPlanDto, PlanSummary, SeasonedPallet } from '@/lib/api'
+import type { PullableLine } from '@/features/production-plan/pullFromOrders'
 
 export type Paleta = SeasonedPallet
 
@@ -174,4 +175,33 @@ export function stanPlanu(plan: { status: string; summary: PlanSummary | null })
   }
   if (plan.status === 'done' && s && s.pallets > 0 && !s.balanceReady) return 'do-bilansu'
   return 'zamkniety'
+}
+
+export interface ZamowienieDoPlanu { orderId: string; orderNo: string; szt: number; kg: number; linie: PullableLine[] }
+export interface KlientDoPlanu { clientName: string; szt: number; kg: number; zamowienia: ZamowienieDoPlanu[] }
+
+const okr = (n: number) => Math.round(n * 10) / 10
+
+/**
+ * Zamówienia do wciągnięcia w plan: klient → zamówienie → pozycje (właściciel
+ * 27.11: „pogrupowane klientami, zamówieniami, żeby było czytelne”). `q`
+ * filtruje po kliencie, numerze zamówienia albo nazwie receptury.
+ */
+export function grupujZamowienia(linie: PullableLine[], q = '', nazwaRec: (id: string) => string = () => ''): KlientDoPlanu[] {
+  const f = q.trim().toLocaleLowerCase('pl')
+  const pasuje = (l: PullableLine) => !f || [l.clientName, l.orderNo, nazwaRec(l.recipeId)].some(t => (t ?? '').toLocaleLowerCase('pl').includes(f))
+  const klienci = new Map<string, Map<string, ZamowienieDoPlanu>>()
+  for (const l of linie.filter(pasuje)) {
+    const zam = klienci.get(l.clientName) ?? new Map<string, ZamowienieDoPlanu>()
+    klienci.set(l.clientName, zam)
+    const z = zam.get(l.orderId) ?? { orderId: l.orderId, orderNo: l.orderNo, szt: 0, kg: 0, linie: [] }
+    zam.set(l.orderId, z)
+    z.linie.push(l); z.szt += l.qtyRemaining; z.kg = okr(z.kg + l.kg)
+  }
+  return [...klienci.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0], 'pl'))
+    .map(([clientName, zam]) => {
+      const zamowienia = [...zam.values()].sort((a, b) => a.orderNo.localeCompare(b.orderNo, 'pl', { numeric: true }))
+      return { clientName, zamowienia, szt: zamowienia.reduce((s, z) => s + z.szt, 0), kg: okr(zamowienia.reduce((s, z) => s + z.kg, 0)) }
+    })
 }

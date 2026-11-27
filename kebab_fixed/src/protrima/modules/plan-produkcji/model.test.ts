@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { SeasonedPallet } from '@/lib/api'
 import {
-  bledyPozycji, doDto, lezyGodzin, podpowiedzPalet, prognozaKoncowki, stanPlanu, sumaKoncowek, sztukZPalety,
+  bledyPozycji, doDto, grupujZamowienia, lezyGodzin, podpowiedzPalet, prognozaKoncowki, stanPlanu, sumaKoncowek, sztukZPalety,
   type Pozycja, type Skladnik,
 } from './model'
 
@@ -120,5 +120,27 @@ describe('zapis i stan planu', () => {
     expect(stanPlanu({ status: 'active', summary: sum({ palletsTaken: 1 }) })).toBe('w-produkcji')
     expect(stanPlanu({ status: 'done', summary: sum({ balanceReady: false }) })).toBe('do-bilansu')
     expect(stanPlanu({ status: 'done', summary: sum({ balanceReady: true }) })).toBe('zamkniety')
+  })
+})
+
+describe('zamówienia do wciągnięcia — pogrupowane klient → zamówienie', () => {
+  const l = (clientName: string, orderNo: string, lineId: string, qty: number, kg = 40) => ({
+    orderId: `o-${orderNo}`, orderNo, clientId: `c-${clientName}`, clientName, lineId, productTypeId: 'udo', recipeId: 'kir',
+    packagingId: '', kgPerUnit: kg, qtyRemaining: qty, kg: qty * kg,
+  })
+  it('klienci alfabetycznie, zamówienia po numerze, pozycje w kolejności zamówienia; sumy kg i sztuk', () => {
+    const g = grupujZamowienia([l('YALCIN', 'YAL/Z/2', 'a', 10), l('TRUVA', 'TRU/Z/1', 'b', 20), l('YALCIN', 'YAL/Z/1', 'c', 14), l('YALCIN', 'YAL/Z/2', 'd', 5, 30)])
+    expect(g.map(k => k.clientName)).toEqual(['TRUVA', 'YALCIN'])
+    expect(g[1].zamowienia.map(z => z.orderNo)).toEqual(['YAL/Z/1', 'YAL/Z/2'])
+    expect(g[1].zamowienia[1].linie.map(x => x.lineId)).toEqual(['a', 'd'])
+    expect(g[1].zamowienia[1]).toMatchObject({ szt: 15, kg: 550 })
+    expect(g[1]).toMatchObject({ szt: 29, kg: 1110 })
+  })
+  it('filtr po kliencie, numerze zamówienia albo nazwie receptury', () => {
+    const lista = [l('YALCIN', 'YAL/Z/1', 'a', 10), l('TRUVA', 'TRU/Z/1', 'b', 20)]
+    expect(grupujZamowienia(lista, 'tru').map(k => k.clientName)).toEqual(['TRUVA'])
+    expect(grupujZamowienia(lista, 'yal/z').map(k => k.clientName)).toEqual(['YALCIN'])
+    expect(grupujZamowienia(lista, 'kirm', () => 'KIRMIZI')).toHaveLength(2)
+    expect(grupujZamowienia(lista, 'beyaz', () => 'KIRMIZI')).toHaveLength(0)
   })
 })

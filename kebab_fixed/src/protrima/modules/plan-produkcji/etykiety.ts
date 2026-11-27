@@ -1,22 +1,22 @@
 /**
- * Etykiety z Planu produkcji — ZPL na rolkę 100 × 150 mm (decyzja właściciela
- * 27.11.2026), drukowane w biurze wieczorem przez `src/protrima/drukarka`.
+ * Etykieta kebaba z Planu produkcji — ZPL na rolkę 80 × 100 mm, tę samą co
+ * zawieszki przyjęcia (właściciel 27.11.2026), drukowana w biurze wieczorem
+ * przez `src/protrima/drukarka`: QR sztuki (`U|…`, skan na hali), numer kebaba
+ * `ddmmrr <partia>` (spec §3) jako największy napis, receptura, rodzaj,
+ * tuleja, waga, data planu, klient i numer sztuki w pozycji.
  *
- *  - etykieta SZTUKI: QR sztuki (`U|…`, skan na hali), numer kebaba
- *    `ddmmrr <partia>` (spec §3) jako największy napis, receptura, rodzaj,
- *    tuleja, waga, data planu, klient i numer sztuki w pozycji;
- *  - etykieta PALETY / KOŃCÓWKI: QR palety (`SP|…`, skan przy wywozie), numer
- *    palety, partia, receptura, kg z wagi i dzień masowania.
+ * Etykiet mięsa (palet) biuro NIE drukuje — robi to HMI masowni po zważeniu
+ * (`features/masownia/mixingLabelZpl.ts`), a końcówka zostaje ze starą.
  *
  * Stały, prosty wzór — pełny edytor etykiet to osobny projekt.
  */
 import { LABEL_DPI, fmtLabelDate, fmtLabelKg, mmToDots } from '@/features/deboning/byproductLabelZpl'
 import { ZEBRA_PROFILES } from '@/lib/zebraProfiles'
-import type { SeasonedPallet, UnitForLabel } from '@/lib/api'
+import type { UnitForLabel } from '@/lib/api'
 
-const W_MM = ZEBRA_PROFILES['100x150'].width
-const H_MM = ZEBRA_PROFILES['100x150'].height
-const M = 4
+const W_MM = ZEBRA_PROFILES['80x100'].width
+const H_MM = ZEBRA_PROFILES['80x100'].height
+const M = 3
 const POLE = W_MM - 2 * M
 
 export interface SztukaDoDruku extends UnitForLabel {
@@ -70,59 +70,28 @@ function ramka(body: string[], dpi: number): string {
   ].join('\n')
 }
 
-/** Dzień w Polsce z ISO serwera (UTC) — „26.11.2026”. */
-function dzienPl(iso?: string | null): string {
-  const t = Date.parse(iso ?? '')
-  if (Number.isNaN(t)) return ''
-  return fmtLabelDate(new Date(t).toLocaleDateString('sv-SE', { timeZone: 'Europe/Warsaw' }))
-}
-
 export function etykietaSztukiZpl(s: SztukaDoDruku, dpi = LABEL_DPI): string {
+  const numer = numerKebaba(s.producedDate, s.batchNo) || '—'
+  // Kebab mix ma partię „355/356” — dłuższy numer musi zmieścić się w 74 mm.
+  const fNumer = numer.length > 11 ? 8 : 10
   const body = [
-    text(M, 4, 3.6, 'PARTIA', dpi),
-    text(M, 8.5, 13, numerKebaba(s.producedDate, s.batchNo) || '—', dpi),
-    textRight(M, 4, POLE, 3.6, 'SZTUKA', dpi),
-    textRight(M, 8.5, POLE, 8, `${s.qrSeq}/${s.razem}`, dpi),
-    kreska(24, dpi),
-    text(M, 27, 3.6, 'RECEPTURA', dpi),
-    text(M, 31.5, 8, s.recipeName || '—', dpi),
-    text(M, 42, 5.5, [s.productTypeName, s.packagingName].filter(Boolean).join('  ·  '), dpi),
-    kreska(50, dpi),
-    text(M, 53, 3.6, 'WAGA', dpi),
-    text(M, 57.5, 14, `${fmtLabelKg(s.weightKg)} kg`, dpi),
-    text(M, 76, 3.6, 'DATA PRODUKCJI', dpi),
-    text(M, 80.5, 7, fmtLabelDate(s.producedDate), dpi),
-    qr(W_MM - M - 40, 52, s.qrCode, dpi),
-    kreska(96, dpi),
-    text(M, 99, 3.6, 'KLIENT', dpi),
-    text(M, 103.5, 7, s.clientName || '—', dpi),
-  ]
-  return ramka(body, dpi)
-}
-
-export function etykietaPaletyZpl(p: SeasonedPallet, dpi = LABEL_DPI): string {
-  const body = [
-    text(M, 4, 3.6, 'MIĘSO PRZYPRAWIONE', dpi),
-    text(M, 9, 11, `PALETA ${p.palletNo ?? '—'}`, dpi),
-    qr(W_MM - M - 40, 4, p.qr, dpi),
-  ]
-  if (p.isRemainder) body.push(text(M, 23, 5.5, `KOŃCÓWKA z palety ${p.parentPalletNo ?? '?'}`, dpi))
-  body.push(
-    kreska(48, dpi),
-    text(M, 51, 3.6, 'PARTIA', dpi),
-    text(M, 55.5, 16, p.batchNo || '—', dpi),
+    text(M, 3, 3, 'PARTIA', dpi),
+    text(M, 7, fNumer, numer, dpi),
+    kreska(19.5, dpi),
+    text(M, 22, 3, 'RECEPTURA', dpi),
+    text(M, 25.5, 7, s.recipeName || '—', dpi),
+    text(M, 34, 4.5, [s.productTypeName, s.packagingName].filter(Boolean).join('  ·  '), dpi),
+    kreska(41, dpi),
+    text(M, 43.5, 3, 'WAGA', dpi),
+    text(M, 47, 12, `${fmtLabelKg(s.weightKg)} kg`, dpi),
+    text(M, 62, 3, 'DATA PRODUKCJI', dpi),
+    text(M, 65.5, 6, fmtLabelDate(s.producedDate), dpi),
+    qr(W_MM - M - 24, 44, s.qrCode, dpi, 7),
     kreska(75, dpi),
-    text(M, 78, 3.6, 'RECEPTURA', dpi),
-    text(M, 82.5, 8, p.recipeName || '—', dpi),
-  )
-  if (p.materialName) body.push(text(M, 93, 5.5, p.materialName.toUpperCase(), dpi))
-  body.push(
-    kreska(101, dpi),
-    text(M, 104, 3.6, 'WAGA', dpi),
-    text(M, 108.5, 12, `${fmtLabelKg(p.kgWeighed)} kg`, dpi),
-    text(M, 126, 3.6, 'MASOWANIE', dpi),
-    text(M, 130.5, 7, dzienPl(p.mixedAt), dpi),
-  )
-  if (p.expiryDate) body.push(textRight(M, 126, POLE, 3.6, 'TERMIN', dpi), textRight(M, 130.5, POLE, 7, fmtLabelDate(p.expiryDate), dpi))
+    text(M, 77.5, 3, 'KLIENT', dpi),
+    text(M, 81, 6.5, s.clientName || '—', dpi),
+    textRight(M, 77.5, POLE, 3, 'SZTUKA', dpi),
+    textRight(M, 81, POLE, 6.5, `${s.qrSeq}/${s.razem}`, dpi),
+  ]
   return ramka(body, dpi)
 }

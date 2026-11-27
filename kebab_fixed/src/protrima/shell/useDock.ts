@@ -8,11 +8,11 @@ const zapisz = (k: string, v: number) => { try { window.localStorage.setItem(k, 
  * Lista + panel szczegółów: panel na dole albo z boku (Widok → Panel szczegółów).
  * `ratio` to część obszaru zajęta przez panel; osobno zapamiętana dla dołu i boku.
  */
-export function useDock(workRef: React.RefObject<HTMLDivElement>, key: string) {
+export function useDock(workRef: React.RefObject<HTMLDivElement>, key: string, domyslnie: { bok?: number; dol?: number } = {}) {
   const { panel } = useApp()
   const side = panel === 'bok'
   const k = `protrima.dock.${key}.${panel}`
-  const def = side ? 0.42 : 0.5
+  const def = side ? (domyslnie.bok ?? 0.42) : (domyslnie.dol ?? 0.5)
   const [ratios, setRatios] = useState<Record<string, number>>({})
   const ratio = ratios[k] ?? czytaj(k, def)
   const setRatio = useCallback((v: number) => setRatios(r => ({ ...r, [k]: v })), [k])

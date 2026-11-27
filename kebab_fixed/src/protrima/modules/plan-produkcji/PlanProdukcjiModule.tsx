@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Calculator, ChevronLeft, ChevronRight, ClipboardList, FileText, TrendingDown, ListChecks, Plus, RefreshCw, Save, Send, ShoppingCart, Boxes, Tags, Wand2, X } from 'lucide-react'
+import { Calculator, ChevronLeft, ChevronRight, ClipboardList, FileText, TrendingDown, ListChecks, PanelBottom, PanelRight, Plus, RefreshCw, Save, Search, Send, ShoppingCart, Boxes, Tags, Wand2, X } from 'lucide-react'
 import { useApp, CommandBar, type Cmd } from '../../shell/context'
+import { useDock } from '../../shell/useDock'
 import { FlagIcon } from '../../ui/Glyphs'
 import { Pusto } from '../../ui/Pusto'
 import { Wybor, type WyborItem } from '../../ui/Wybor'
@@ -11,14 +12,15 @@ import { pullableLines, type OrderLite, type ProgressByLine } from '@/features/p
 import { dataPl, dzisIso, nazwaDnia, przesunDzien } from '../plan-masowania/model'
 import { PanelPalet } from './PanelPalet'
 import { OknoEtykiet } from './OknoEtykiet'
-import { KoncowkiDoOznaczenia } from './KoncowkiDoOznaczenia'
 import { KartaProdukcjiDialog, type PlanKarty } from './KartaProdukcji'
 import { BilansPlanu, StratyOkno } from './Bilans'
 import {
-  ETYKIETA_STANU, bledyPozycji, doDto, podpowiedzPalet, prognozaKoncowki, stanPlanu, sumaKoncowek, sztukZPalety,
+  ETYKIETA_STANU, bledyPozycji, doDto, grupujZamowienia, podpowiedzPalet, prognozaKoncowki, stanPlanu, sumaKoncowek, sztukZPalety,
   type Paleta, type Pozycja, type Skladnik,
 } from './model'
 
+/** Ile palet widać w wierszu — reszta jako „+N” z podpowiedzią, żeby wiersz się nie zawijał. */
+const MAX_CHIPOW = 2
 const fmt = (n: number) => new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 1 }).format(n)
 const liczba = (s: string) => { const v = parseFloat(s.replace(',', '.')); return Number.isFinite(v) ? v : 0 }
 let licznik = 0
@@ -29,7 +31,7 @@ interface PlanSerwera {
   lines: Array<Record<string, any> & { pallets: Paleta[] }>
 }
 
-type Zakladka = 'palety' | 'oznaczenie' | 'zamowienia' | 'plany' | 'bilans'
+type Zakladka = 'palety' | 'zamowienia' | 'plany' | 'bilans'
 type Wyrzuc = Array<{ qrSeq: number; linePosition: number; batchNo: string }>
 type Okno = { rodzaj: 'etykiety'; przedruk?: string[]; wyrzuc?: Wyrzuc } | { rodzaj: 'karta' } | { rodzaj: 'straty' } | null
 
@@ -98,6 +100,9 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
   const [postep, setPostep] = useState<ProgressByLine>({})
   const [okno, setOkno] = useState<Okno>(null)
   const [wysyla, setWysyla] = useState(false)
+  const [szukajZam, setSzukajZam] = useState('')
+  const workRef = useRef<HTMLDivElement>(null)
+  const dock = useDock(workRef, 'plan-produkcji', { bok: 0.3, dol: 0.42 })
 
   const recepturyRes = useApi(() => recipesApi.list())
   const rodzajeRes = useApi(() => productTypesApi.list())
@@ -184,13 +189,14 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
     setSel(klucz)
     requestAnimationFrame(() => (document.getElementById(`pp-kg-${klucz}`) as HTMLInputElement | null)?.focus())
   }
-  const zZamowienia = (l: ReturnType<typeof pullableLines>[number]) => {
-    const klucz = nowyKlucz()
-    setPozycje(s => [...s, {
-      klucz, qty: l.qtyRemaining, kgPerUnit: l.kgPerUnit, recipeId: l.recipeId, productTypeId: l.productTypeId, packagingId: l.packagingId || undefined,
+  const zZamowienia = (...linie: ReturnType<typeof pullableLines>) => {
+    const nowe: Pozycja[] = linie.map(l => ({
+      klucz: nowyKlucz(), qty: l.qtyRemaining, kgPerUnit: l.kgPerUnit, recipeId: l.recipeId, productTypeId: l.productTypeId, packagingId: l.packagingId || undefined,
       klient: l.clientName, zamowienieId: l.orderId, zamowienieNo: l.orderNo, zamowienieLiniaId: l.lineId, palety: [], zKoncowek: false,
-    }])
-    setSel(klucz)
+    }))
+    if (!nowe.length) return
+    setPozycje(s => [...s, ...nowe])
+    setSel(nowe[0].klucz)
   }
 
   // Postęp zamówień (ile już zrobione) — przy otwarciu zakładki, jak w starym edytorze.
@@ -210,6 +216,8 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
     const juz = new Set(pozycje.map(p => p.zamowienieLiniaId).filter(Boolean))
     return pullableLines(zamowienia, postep).filter(l => !juz.has(l.lineId))
   }, [zamowienia, postep, pozycje])
+  const grupyZam = grupujZamowienia(doWciagniecia, szukajZam, id => receptury.find(r => r.id === id)?.name ?? '')
+  const nazwaRodz = (id: string) => rodzaje.find(r => r.id === id)?.name ?? ''
 
   const zapisz = useCallback(async (): Promise<boolean> => {
     if (zapisuje || tylkoPodglad) return false
@@ -309,37 +317,43 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
         </div>
       </div>
 
-      <div className="pm-uklad">
-        <div className="pm-lewa">
+      <div className={`workarea pp-work${dock.side ? ' side' : ''}`} ref={workRef}>
+        <div className="list-pane pm-lewa" style={dock.listStyle(true, false)}>
           {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Nie udało się pobrać planu:</b> {blad}</div></div>}
           {bladZapisu && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Plan nie został zapisany:</b> {bladZapisu}</div></div>}
           <div className="tbl-wrap pm-tbl-wrap">
             <table className="tbl pp-tbl" aria-label="Pozycje planu produkcji">
+              <colgroup>
+                <col style={{ width: 48 }} /><col className="pp-c-klient" /><col className="pp-c-rec" /><col className="pp-c-rodz" />
+                <col style={{ width: 80 }} /><col style={{ width: 104 }} /><col className="pp-c-tul" /><col className="pp-c-pal" /><col className="pp-c-z" /><col style={{ width: 40 }} />
+              </colgroup>
               <thead><tr>
-                <th style={{ width: 44 }}>Lp.</th><th>Receptura · rodzaj · klient</th><th className="num" style={{ width: 92 }}>Sztuk</th><th className="num" style={{ width: 100 }}>kg/szt</th>
-                <th style={{ width: 150 }}>Tuleja</th><th>Palety</th><th style={{ width: 40 }} />
+                <th>Lp.</th><th>Klient</th><th>Receptura</th><th>Rodzaj</th><th className="num">Sztuk</th><th className="num">kg/szt</th>
+                <th>Tuleja</th><th>Palety</th><th className="num">Z palet</th><th aria-label="Usuń" />
               </tr></thead>
               <tbody>
-                {wczytano && !pozycje.length && <tr><td colSpan={7}><Pusto ikona={<ClipboardList size={20} />} tytul={`Na ${dataPl(dzien)} nie ma jeszcze planu`}>
-                  Dodaj pozycje z zamówień (zakładka po prawej) albo z klawiatury (Ctrl+N), a potem palety z chłodni.</Pusto></td></tr>}
+                {wczytano && !pozycje.length && <tr><td colSpan={10}><Pusto ikona={<ClipboardList size={20} />} tytul={`Na ${dataPl(dzien)} nie ma jeszcze planu`}>
+                  Dodaj pozycje z zamówień (zakładka Zamówienia) albo z klawiatury (Ctrl+N), a potem palety z chłodni.</Pusto></td></tr>}
                 {pozycje.map((p, i) => {
                   const e = pokazBledy ? (bledy.get(p.klucz) ?? []) : []
                   const sk = sklad(p)
                   const pal = p.palety.map(id => mapaPalet.get(id)).filter((x): x is Paleta => !!x)
                   const stale = tylkoPodglad || !!p.zamrozona
+                  const zPalet = !pal.length || !(p.kgPerUnit > 0) ? null
+                    : p.zKoncowek ? { txt: `${sumaKoncowek(pal).sztuk(p.kgPerUnit)} szt.`, tip: `${fmt(sumaKoncowek(pal).kg)} kg końcówek` }
+                      : sk.length ? { txt: sk.map(s => `${s.nazwa} ${pal.filter(x => (x.materialTypeId ?? '') === s.materialTypeId).reduce((a, x) => a + sztukZPalety(x.kgWeighed, p.kgPerUnit * s.pct / 100), 0)}`).join(' · '), tip: 'Sztuk z palet każdego składnika' }
+                        : { txt: `${pal.reduce((a, x) => a + sztukZPalety(x.kgWeighed, p.kgPerUnit), 0)} szt.`, tip: `Końcówka ~${fmt(prognozaKoncowki(pal, p.qty, p.kgPerUnit))} kg` }
                   return (
-                    <tr key={p.klucz} className={`row${sel === p.klucz ? ' sel' : ''}`} aria-selected={sel === p.klucz} onClick={() => setSel(p.klucz)} onFocusCapture={() => setSel(p.klucz)}>
+                    <React.Fragment key={p.klucz}>
+                    <tr className={`row${sel === p.klucz ? ' sel' : ''}${e.length ? ' blad' : ''}`} aria-selected={sel === p.klucz} onClick={() => setSel(p.klucz)} onFocusCapture={() => setSel(p.klucz)}>
                       <td className="tnum"><b>{i + 1}</b></td>
-                      <td>
-                        {stale ? <b>{nazwaRec(p.recipeId) || '—'}</b>
-                          : <Wybor id={`pp-rec-${p.klucz}`} label={`Receptura, pozycja ${i + 1}`} items={recItems} value={p.recipeId} onChange={v => ustaw(p.klucz, { recipeId: v, palety: p.zKoncowek ? p.palety : [] })} placeholder="Receptura…" />}
-                        <div className="pp-pod">
-                          {stale ? <span className="muted">{rodzaje.find(r => r.id === p.productTypeId)?.name}</span>
-                            : <Wybor id={`pp-pt-${p.klucz}`} label={`Rodzaj, pozycja ${i + 1}`} items={ptItems} value={p.productTypeId} onChange={v => ustaw(p.klucz, { productTypeId: v })} placeholder="Rodzaj…" />}
-                          {p.klient && <span className="sub">{p.klient}{p.zamowienieNo ? ` · ${p.zamowienieNo}` : ''}</span>}
-                          {p.zKoncowek && <span className="tag warn" data-tip="Sztuki z kilku końcówek — numer PM nadaje się przy wysłaniu do produkcji">z końcówek (PM)</span>}
-                        </div>
+                      <td className="pp-klient" data-tip={p.zamowienieNo ? `zamówienie ${p.zamowienieNo}` : undefined}>
+                        {p.klient ? <><b>{p.klient}</b>{p.zamowienieNo && <span className="sub code"> {p.zamowienieNo}</span>}</> : <span className="muted">—</span>}
                       </td>
+                      <td>{stale ? <b className="pp-txt">{nazwaRec(p.recipeId) || '—'}</b>
+                        : <Wybor id={`pp-rec-${p.klucz}`} label={`Receptura, pozycja ${i + 1}`} items={recItems} value={p.recipeId} onChange={v => ustaw(p.klucz, { recipeId: v, palety: p.zKoncowek ? p.palety : [] })} placeholder="Receptura…" />}</td>
+                      <td>{stale ? <span className="pp-txt">{nazwaRodz(p.productTypeId) || '—'}</span>
+                        : <Wybor id={`pp-pt-${p.klucz}`} label={`Rodzaj, pozycja ${i + 1}`} items={ptItems} value={p.productTypeId} onChange={v => ustaw(p.klucz, { productTypeId: v })} placeholder="Rodzaj…" />}</td>
                       <td className="num">{stale ? <b>{p.qty}</b> : <input className="field num" inputMode="numeric" aria-label={`Sztuk, pozycja ${i + 1}`} value={p.qty || ''}
                         onChange={ev => ustaw(p.klucz, { qty: Math.max(0, Math.floor(liczba(ev.target.value))) })} onFocus={ev => ev.target.select()} />}</td>
                       <td className="num">{stale ? <>× {fmt(p.kgPerUnit)} kg</> : <span className="pm-kg"><input id={`pp-kg-${p.klucz}`} className="field num" inputMode="decimal" aria-label={`kg/szt, pozycja ${i + 1}`} value={p.kgPerUnit || ''}
@@ -347,54 +361,78 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
                           const kg = liczba(ev.target.value)
                           ustaw(p.klucz, p.zKoncowek ? { kgPerUnit: kg, qty: sumaKoncowek(pal).sztuk(kg) } : { kgPerUnit: kg })
                         }} onFocus={ev => ev.target.select()} /><span>kg</span></span>}</td>
-                      <td>{stale ? <span className="muted">{tuleje.find(t => t.id === p.packagingId)?.name ?? '—'}</span>
+                      <td>{stale ? <span className="pp-txt muted">{tuleje.find(t => t.id === p.packagingId)?.name ?? '—'}</span>
                         : <Wybor id={`pp-tul-${p.klucz}`} label={`Tuleja, pozycja ${i + 1}`} items={tulItems} value={p.packagingId ?? ''} noneLabel="(bez tulei)" onChange={v => ustaw(p.klucz, { packagingId: v || undefined })} />}</td>
                       <td>
                         <span className="pp-palety">
-                          {pal.map(x => <span key={x.id} className={`pm-chip${x.isRemainder ? ' inne' : ''}`} data-tip={`partia ${x.batchNo}${x.materialName ? ` · ${x.materialName}` : ''}`}>
+                          {p.zKoncowek && <span className="tag warn" data-tip="Sztuki z kilku końcówek — numer PM nadaje się przy wysłaniu do produkcji">PM</span>}
+                          {pal.slice(0, MAX_CHIPOW).map(x => <span key={x.id} className={`pm-chip${x.isRemainder ? ' inne' : ''}`} data-tip={`partia ${x.batchNo}${x.materialName ? ` · ${x.materialName}` : ''} · ${fmt(x.kgWeighed)} kg`}>
                             <b>P{x.palletNo}</b>{x.batchNo}{!stale && <button type="button" className="pp-chip-x" tabIndex={-1} aria-label={`Zdejmij paletę ${x.palletNo}`} onClick={ev => { ev.stopPropagation(); przelacz(x.id) }}><X size={11} /></button>}</span>)}
+                          {pal.length > MAX_CHIPOW && <span className="tag outline" data-tip={pal.slice(MAX_CHIPOW).map(x => `P${x.palletNo} · ${x.batchNo}`).join(', ')}>+{pal.length - MAX_CHIPOW}</span>}
                           {!pal.length && !stale && <button type="button" className="pm-dobierz" onClick={ev => { ev.stopPropagation(); setSel(p.klucz); setZakladka('palety') }}>dobierz palety</button>}
                         </span>
-                        {pal.length > 0 && p.kgPerUnit > 0 && <span className="sub tnum">{
-                          p.zKoncowek ? `${fmt(sumaKoncowek(pal).kg)} kg → ${sumaKoncowek(pal).sztuk(p.kgPerUnit)} szt.`
-                            : sk.length ? sk.map(s => `${s.nazwa}: ${pal.filter(x => (x.materialTypeId ?? '') === s.materialTypeId).reduce((a, x) => a + sztukZPalety(x.kgWeighed, p.kgPerUnit * s.pct / 100), 0)} szt.`).join(' · ')
-                              : `${pal.reduce((a, x) => a + sztukZPalety(x.kgWeighed, p.kgPerUnit), 0)} szt. z palet, końcówka ~${fmt(prognozaKoncowki(pal, p.qty, p.kgPerUnit))} kg`}</span>}
-                        {e.length > 0 && <span className="fld-err">{e.join(' · ')}</span>}
                       </td>
+                      <td className="num tnum pp-z" data-tip={zPalet?.tip}>{zPalet ? zPalet.txt : <span className="muted">—</span>}</td>
                       <td>{!stale && <button className="btn ghost icon sm danger" tabIndex={-1} aria-label={`Usuń pozycję ${i + 1}`} onClick={ev => { ev.stopPropagation(); setPozycje(s => s.filter(x => x.klucz !== p.klucz)) }}><X size={15} /></button>}</td>
                     </tr>
+                    {e.length > 0 && <tr className="pp-err-row"><td /><td colSpan={9}><span className="fld-err">{e.join(' · ')}</span></td></tr>}
+                    </React.Fragment>
                   )
                 })}
               </tbody>
-              {pozycje.length > 0 && <tfoot><tr><td /><td>Razem — {pozycje.length} poz.</td><td className="num">{fmt(razem.szt)}</td><td className="num">{fmt(razem.kg)} kg</td><td colSpan={3} /></tr></tfoot>}
+              {pozycje.length > 0 && <tfoot><tr><td /><td colSpan={3}>Razem — {pozycje.length} poz.</td><td className="num">{fmt(razem.szt)}</td><td className="num">{fmt(razem.kg)} kg</td><td colSpan={4} /></tr></tfoot>}
             </table>
           </div>
-          {!tylkoPodglad && <p className="pm-skroty muted">Zaznacz pozycję, potem klikaj palety po prawej · Ctrl+N — nowa pozycja · Ctrl+S — zapisz</p>}
+          {!tylkoPodglad && <p className="pm-skroty muted">Zaznacz pozycję, potem klikaj palety w panelu · Ctrl+N — nowa pozycja · Ctrl+S — zapisz</p>}
         </div>
 
-        <aside className="pm-panel" aria-label="Palety i zamówienia">
-          <div className="dock-tabs" role="tablist">
+        <div className={`splitter${dock.drag ? ' drag' : ''}`} role="separator" aria-orientation={dock.side ? 'vertical' : 'horizontal'} aria-label="Zmień rozmiar panelu"
+          onMouseDown={dock.startDrag} onDoubleClick={dock.reset} data-tip="Przeciągnij, aby zmienić rozmiar. Dwuklik — domyślnie." />
+        <aside className="dock pm-panel" aria-label="Palety i zamówienia">
+          <div className="dock-tabs pp-tabs" role="tablist">
             <button role="tab" className="dock-tab" aria-selected={zakladka === 'palety'} onClick={() => setZakladka('palety')} aria-label="Palety w chłodni"><Boxes size={14} />Palety</button>
-            <button role="tab" className="dock-tab" aria-selected={zakladka === 'oznaczenie'} onClick={() => setZakladka('oznaczenie')}><Tags size={14} />Do oznaczenia
-              {palety.some(p => p.status === 'in_cold' && !p.labelPrintedAt) && <span className="badge warn">{palety.filter(p => p.status === 'in_cold' && !p.labelPrintedAt).length}</span>}</button>
-            <button role="tab" className="dock-tab" aria-selected={zakladka === 'zamowienia'} onClick={() => setZakladka('zamowienia')} aria-label="Z zamówień"><ShoppingCart size={14} />Zamówienia</button>
+            <button role="tab" className="dock-tab" aria-selected={zakladka === 'zamowienia'} onClick={() => setZakladka('zamowienia')} aria-label="Z zamówień"><ShoppingCart size={14} />Zamówienia
+              {doWciagniecia.length > 0 && <span className="badge">{doWciagniecia.length}</span>}</button>
             <button role="tab" className="dock-tab" aria-selected={zakladka === 'plany'} onClick={() => setZakladka('plany')}><ListChecks size={14} />Plany</button>
             {plan?.status === 'done' && <button role="tab" className="dock-tab" aria-selected={zakladka === 'bilans'} onClick={() => setZakladka('bilans')}><Calculator size={14} />Bilans
               {stan === 'do-bilansu' && <span className="badge warn">!</span>}</button>}
+            <span className="grow" />
+            <button className="btn ghost icon sm pp-dock-btn" onClick={() => app.setPanel?.(app.panel === 'bok' ? 'dol' : 'bok')}
+              aria-label={app.panel === 'bok' ? 'Panel na dole' : 'Panel z boku'} data-tip={app.panel === 'bok' ? 'Przenieś panel na dół' : 'Przenieś panel na bok'}>
+              {app.panel === 'bok' ? <PanelBottom size={16} /> : <PanelRight size={16} />}</button>
           </div>
           <div className="pm-panel-body" role="tabpanel">
             {zakladka === 'palety' && <PanelPalet palety={palety} wybrana={wybrana} sklad={wybrana ? sklad(wybrana) : []} nazwyPlanow={nazwyPlanow} biezacyPlanId={planId}
               tylkoPodglad={tylkoPodglad} onPrzelacz={przelacz} onPodpowiedz={() => podpowiedz(wybrana)} onZKoncowek={zKoncowek} />}
             {zakladka === 'bilans' && plan?.status === 'done' && <BilansPlanu key={plan.id} planId={plan.id} />}
-            {zakladka === 'oznaczenie' && <KoncowkiDoOznaczenia palety={palety} onWydrukowano={() => void wczytaj(dzien, planId)} />}
             {zakladka === 'zamowienia' && <div className="pp-zam">
+              {doWciagniecia.length > 0 && <label className="pp-szukaj"><Search size={14} />
+                <input className="field" type="search" placeholder="Klient, zamówienie, receptura…" value={szukajZam} onChange={e => setSzukajZam(e.target.value)} aria-label="Szukaj w zamówieniach" /></label>}
               {!doWciagniecia.length && <Pusto ikona={<ShoppingCart size={20} />} tytul="Nic do wciągnięcia">Potwierdzone zamówienia są już w planie albo zrobione.</Pusto>}
-              {doWciagniecia.map(l => (
-                <button key={l.lineId} type="button" className="pp-zam-l" disabled={tylkoPodglad} onClick={() => zZamowienia(l)}
-                  aria-label={`${l.clientName} · ${l.orderNo} · ${l.qtyRemaining} × ${fmt(l.kgPerUnit)} kg ${nazwaRec(l.recipeId)}`}>
-                  <span className="l1"><b>{l.clientName}</b><span className="sub code">{l.orderNo}</span></span>
-                  <span className="l2"><b>{l.qtyRemaining} × {fmt(l.kgPerUnit)} kg</b> {nazwaRec(l.recipeId)}<span className="grow" />{fmt(l.kg)} kg</span>
-                </button>
+              {doWciagniecia.length > 0 && !grupyZam.length && <p className="muted pp-pad">Nic nie pasuje do „{szukajZam}”.</p>}
+              {grupyZam.map(k => (
+                <section key={k.clientName} className="pp-zk">
+                  <h4><span>{k.clientName}</span><span className="grow" /><span className="sub tnum">{k.szt} szt. · {fmt(k.kg)} kg</span></h4>
+                  {k.zamowienia.map(z => (
+                    <div key={z.orderId} className="pp-zz">
+                      <div className="pp-zz-h"><b className="code">{z.orderNo}</b><span className="sub tnum">{z.szt} szt. · {fmt(z.kg)} kg</span><span className="grow" />
+                        {z.linie.length > 1 && <button type="button" className="btn sm ghost" disabled={tylkoPodglad} onClick={() => zZamowienia(...z.linie)}
+                          aria-label={`Dodaj całe zamówienie ${z.orderNo}`}><Plus size={13} />Dodaj całe</button>}</div>
+                      <table className="tbl pp-zz-t"><tbody>
+                        {z.linie.map(l => (
+                          <tr key={l.lineId} className="row">
+                            <td className="num tnum"><b>{l.qtyRemaining} × {fmt(l.kgPerUnit)} kg</b></td>
+                            <td className="pp-txt" title={nazwaRec(l.recipeId)}>{nazwaRec(l.recipeId)}</td>
+                            <td className="pp-txt muted" title={nazwaRodz(l.productTypeId)}>{nazwaRodz(l.productTypeId)}</td>
+                            <td className="num tnum">{fmt(l.kg)} kg</td>
+                            <td className="r"><button type="button" className="btn sm" disabled={tylkoPodglad} onClick={() => zZamowienia(l)}
+                              aria-label={`${l.clientName} · ${l.orderNo} · ${l.qtyRemaining} × ${fmt(l.kgPerUnit)} kg ${nazwaRec(l.recipeId)}`}><Plus size={13} />Dodaj</button></td>
+                          </tr>
+                        ))}
+                      </tbody></table>
+                    </div>
+                  ))}
+                </section>
               ))}
             </div>}
             {zakladka === 'plany' && <div className="pp-plany">

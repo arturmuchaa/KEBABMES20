@@ -2165,6 +2165,9 @@ _DDL: list[str] = [
     "ALTER TABLE finished_units ADD COLUMN IF NOT EXISTS label_printed_at TIMESTAMPTZ NULL",
     "ALTER TABLE seasoned_pallets ADD COLUMN IF NOT EXISTS mixed_at TIMESTAMPTZ NULL",
     "ALTER TABLE seasoned_pallets ADD COLUMN IF NOT EXISTS kg_theory NUMERIC(10,3) NULL",
+    # Paleta bez etykiety z QR (stan chłodni z dnia wdrożenia) — hala wywozi ją
+    # z listy palet planu, bez skanu. Końcówka dziedziczy po rodzicu (27.11.2026).
+    "ALTER TABLE seasoned_pallets ADD COLUMN IF NOT EXISTS no_label BOOLEAN NOT NULL DEFAULT false",
     """CREATE TABLE IF NOT EXISTS plan_batch_balance (
         plan_id     TEXT NOT NULL,
         batch_no    TEXT NOT NULL,
@@ -2254,6 +2257,7 @@ def _run_migrations_locked() -> None:
     _backfill_vehicle_loading_orders()
     _backfill_seasoned_pallets()
     _backfill_pallet_mixed_at()
+    _mark_pallets_without_label()
     logger.info("migrations.done")
 
 
@@ -2428,6 +2432,36 @@ def _backfill_pallet_mixed_at() -> None:
             logger.info("migrations.pallet_mixed_at_backfill", extra={"pallets": len(rows)})
     except Exception as exc:  # pragma: no cover - log only
         logger.warning("migrations.pallet_mixed_at_backfill_failed", extra={"error": str(exc)})
+
+
+def _mark_pallets_without_label() -> None:
+    """JEDNORAZOWO: palety z backfillu (stan chłodni w dniu wdrożenia) nie mają
+    etykiety z QR — ich etykiety z masowni drukowano przed kodem QR. Backfill
+    wstawił je w jednej transakcji, więc mają wspólny, najwcześniejszy
+    `created_at`. Końcówki tych palet dziedziczą znacznik."""
+    try:
+        with transaction() as conn:
+            done = cx_execute_returning(
+                conn,
+                "INSERT INTO sequences (key, value) VALUES ('seasoned_pallets_no_label', 1) "
+                "ON CONFLICT (key) DO NOTHING RETURNING value",
+            )
+            if not done:
+                return
+            cx_execute(
+                conn,
+                "UPDATE seasoned_pallets SET no_label=true WHERE NOT is_remainder AND created_at = "
+                "(SELECT min(created_at) FROM seasoned_pallets WHERE NOT is_remainder)",
+            )
+            for _ in range(10):
+                if not cx_query_all(
+                    conn,
+                    "UPDATE seasoned_pallets c SET no_label=true FROM seasoned_pallets par "
+                    "WHERE c.parent_id = par.id AND par.no_label AND NOT c.no_label RETURNING c.id",
+                ):
+                    break
+    except Exception as exc:  # pragma: no cover - log only
+        logger.warning("migrations.pallet_no_label_failed", extra={"error": str(exc)})
 
 
 def _backfill_seasoned_pallets() -> None:

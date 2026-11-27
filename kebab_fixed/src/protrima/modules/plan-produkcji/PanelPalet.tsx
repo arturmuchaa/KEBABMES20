@@ -42,7 +42,7 @@ export function PanelPalet({ palety, wybrana, sklad, nazwyPlanow, biezacyPlanId,
           aria-label={`Paleta ${p.palletNo} · partia ${p.batchNo} · ${fmt(p.kgWeighed)} kg${p.isRemainder ? ' · końcówka' : ''}`}
           data-tip={!wybrana ? 'Zaznacz pozycję planu, żeby dobierać do niej palety' : w ? 'Kliknij, żeby zdjąć paletę z pozycji' : 'Kliknij, żeby dodać paletę do pozycji'}
           onClick={() => onPrzelacz(p.id)}>
-          <span className="l1"><b className="code">P{p.palletNo}</b> partia <b>{p.batchNo}</b>{p.isRemainder && <span className="tag warn">końcówka</span>}
+          <span className="l1"><b className="code">P{p.palletNo}</b> partia <b>{p.batchNo}</b>{p.isRemainder && <span className="tag warn">końcówka</span>}{p.noLabel && <span className="tag outline" data-tip="Paleta sprzed wdrożenia bez kodu QR — kierownik wywozi ją na tablecie z listy „Palety bez kodu”">bez kodu</span>}
             <span className="grow" /><b className="tnum">{fmt(p.kgWeighed)} kg</b></span>
           <span className="l2 muted">{[p.recipeName, p.materialName].filter(Boolean).join(' · ')}
             {wybrana && wybrana.kgPerUnit > 0 && !sklad.length && <> · {sztukZPalety(p.kgWeighed, wybrana.kgPerUnit)} szt.</>}

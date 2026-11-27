@@ -164,6 +164,22 @@ def _hhmm(ts: Any) -> str:
     return ts.astimezone(ZoneInfo("Europe/Warsaw")).strftime("%H:%M")
 
 
+def _zywa_koncowka(conn, pallet_id: str) -> Dict[str, Any] | None:
+    """Niezamknięta końcówka (także końcówka końcówki) zamkniętej palety."""
+    return cx_query_one(
+        conn,
+        """
+        WITH RECURSIVE potomki AS (
+            SELECT * FROM seasoned_pallets WHERE parent_id=%s
+            UNION ALL
+            SELECT c.* FROM seasoned_pallets c JOIN potomki p ON c.parent_id = p.id
+        )
+        SELECT * FROM potomki WHERE status <> 'closed' ORDER BY created_at DESC, pallet_no DESC LIMIT 1
+        """,
+        (pallet_id,),
+    )
+
+
 def take_pallet(code: str, worker_name: str = "", plan_id: str | None = None) -> Dict[str, Any]:
     """Skan kierownika przy wywozie palety z chłodni na halę.
 
@@ -177,8 +193,20 @@ def take_pallet(code: str, worker_name: str = "", plan_id: str | None = None) ->
     with transaction() as conn:
         p = cx_query_one(
             conn, "SELECT * FROM seasoned_pallets WHERE id=%s", (pallet_id,)) if pallet_id else None
+        if not p and not pallet_id:
+            # Paleta sprzed wdrożenia nie ma etykiety z QR — tablet wysyła jej
+            # id z listy palet planu. Inne palety tylko skanem.
+            p = cx_query_one(
+                conn, "SELECT * FROM seasoned_pallets WHERE id=%s AND no_label",
+                ((code or "").strip().lower(),))
         if not p:
             raise HTTPException(404, "Nie znam tej palety")
+        if p["status"] == "closed":
+            # Końcówka wraca do chłodni ze STARĄ etykietą z masowni (biuro nie
+            # drukuje etykiet mięsa) — skan bierze jej żywą końcówkę.
+            zywa = _zywa_koncowka(conn, p["id"])
+            if zywa:
+                p = zywa
         nr = p.get("pallet_no")
         if p["status"] == "closed":
             raise HTTPException(409, f"Paleta {nr} jest już zużyta")
@@ -268,6 +296,7 @@ def pallet_out(r: Dict[str, Any]) -> Dict[str, Any]:
         "isRemainder": bool(r.get("is_remainder")),
         "parentId": r.get("parent_id"),
         "labelPrintedAt": r["label_printed_at"].isoformat() if r.get("label_printed_at") else None,
+        "noLabel": bool(r.get("no_label")),
         "takenAt": r["taken_at"].isoformat() if r.get("taken_at") else None,
         "takenBy": r.get("taken_by") or "",
         "takenPlanId": r.get("taken_plan_id"),
@@ -398,7 +427,8 @@ def return_pallet(code_or_id: str, kg: float) -> Dict[str, Any]:
     """Koniec palety na hali: kg z wagi paletowej (0 = zużyta do zera).
 
     Paleta zawsze się zamyka. Końcówka > 0 kg to NOWA paleta tej samej partii
-    w chłodni, z własnym numerem i kodem QR (etykietę drukuje biuro).
+    w chłodni, z własnym numerem. Nowej etykiety nie ma: na końcówce zostaje
+    etykieta z masowni, a jej skan bierze końcówkę (`_zywa_koncowka`).
     """
     pallet_id = parse_code(code_or_id) or (code_or_id or "").strip().lower()
     kg = round(float(kg or 0), 3)
@@ -434,13 +464,13 @@ def return_pallet(code_or_id: str, kg: float) -> Dict[str, Any]:
                 """
                 INSERT INTO seasoned_pallets
                     (id, pallet_no, seasoned_meat_id, batch_no, recipe_id, recipe_name,
-                     kg_weighed, status, parent_id, is_remainder, mixed_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,'in_cold',%s,true,%s)
+                     kg_weighed, status, parent_id, is_remainder, mixed_at, no_label)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,'in_cold',%s,true,%s,%s)
                 RETURNING *
                 """,
                 (cuid(), int(nowy_nr["value"]), p.get("seasoned_meat_id"), p.get("batch_no") or "",
                  p.get("recipe_id") or "", p.get("recipe_name") or "", kg, p["id"],
-                 p.get("mixed_at") or p.get("created_at")),
+                 p.get("mixed_at") or p.get("created_at"), bool(p.get("no_label"))),
             )
     return {
         "ok": True,

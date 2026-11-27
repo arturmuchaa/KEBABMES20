@@ -4005,7 +4005,7 @@ export interface SeasonedPallet {
   recipeId: string; recipeName: string; seasonedMeatId: string | null
   kgWeighed: number; status: 'in_cold' | 'on_hall' | 'closed'
   isRemainder: boolean; parentId: string | null; parentPalletNo?: number | null
-  labelPrintedAt: string | null; takenAt: string | null; takenBy: string
+  labelPrintedAt: string | null; noLabel?: boolean; takenAt: string | null; takenBy: string
   takenPlanId: string | null; returnedAt: string | null; kgReturned: number | null
   mixedAt?: string | null; kgTheory?: number | null; expiryDate?: string | null
   materialTypeId?: string; materialName?: string; planIds?: string[]

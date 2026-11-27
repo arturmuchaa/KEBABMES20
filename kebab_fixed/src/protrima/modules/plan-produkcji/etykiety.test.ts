@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { SeasonedPallet } from '@/lib/api'
-import { etykietaPaletyZpl, etykietaSztukiZpl, numerKebaba } from './etykiety'
+import { etykietaSztukiZpl, numerKebaba } from './etykiety'
 
 describe('numer kebaba', () => {
   it('ddmmrr i partia', () => {
@@ -9,7 +8,7 @@ describe('numer kebaba', () => {
   })
 })
 
-describe('etykieta sztuki 100 × 150', () => {
+describe('etykieta sztuki 80 × 100 (rolka zawieszek, właściciel 27.11)', () => {
   const zpl = etykietaSztukiZpl({
     id: 'abc', qrCode: 'U|abc', qrSeq: 3, razem: 20, planLineId: 'l1', linePosition: 1, batchNo: '724',
     recipeName: 'KIRMIZI', productTypeName: 'KEBAB 40', packagingName: 'METAL 65', clientName: 'YALCIN',
@@ -18,8 +17,8 @@ describe('etykieta sztuki 100 × 150', () => {
   it('ma QR sztuki, polskie znaki i rozmiar rolki', () => {
     expect(zpl).toContain('^FDQA,U|abc')
     expect(zpl).toContain('^CI28')
-    expect(zpl).toContain('^PW799')
-    expect(zpl).toContain('^LL1199')
+    expect(zpl).toContain('^PW639')
+    expect(zpl).toContain('^LL799')
   })
   it('ma numer kebaba, wagę i numer sztuki', () => {
     expect(zpl).toContain('271126 724')
@@ -37,24 +36,20 @@ describe('etykieta sztuki 100 × 150', () => {
     expect(z).not.toContain('7^24')
     expect(z).not.toContain('A~B')
   })
-})
 
-describe('etykieta palety / końcówki', () => {
-  const p: SeasonedPallet = {
-    id: 'k1', qr: 'SP|k1', palletNo: 57, batchNo: '724', recipeId: 'kir', recipeName: 'KIRMIZI', seasonedMeatId: 'sm',
-    kgWeighed: 24, status: 'in_cold', isRemainder: true, parentId: 'p41', parentPalletNo: 41, labelPrintedAt: null,
-    takenAt: null, takenBy: '', takenPlanId: null, returnedAt: null, kgReturned: null,
-    mixedAt: '2026-11-26T08:00:00+01:00', materialName: 'UDO',
-  }
-  it('końcówka ma QR palety i swoje pochodzenie', () => {
-    const zpl = etykietaPaletyZpl(p)
-    expect(zpl).toContain('^FDQA,SP|k1')
-    expect(zpl).toContain('KOŃCÓWKA z palety 41')
-    expect(zpl).toContain('PALETA 57')
-    expect(zpl).toContain('24 kg')
-    expect(zpl).toContain('26.11.2026')
+  it('mieści się na rolce: żadne pole nie zaczyna się poza 80 × 100 mm', () => {
+    for (const m of zpl.matchAll(/\^FO(\d+),(\d+)/g)) {
+      expect(Number(m[1])).toBeLessThan(639)
+      expect(Number(m[2])).toBeLessThan(799)
+    }
   })
-  it('zwykła paleta bez dopisku końcówki', () => {
-    expect(etykietaPaletyZpl({ ...p, isRemainder: false, parentPalletNo: null })).not.toContain('KOŃCÓWKA')
+  it('długi numer kebaba mix dostaje mniejszą czcionkę', () => {
+    const mix = etykietaSztukiZpl({
+      id: 'm', qrCode: 'U|m', qrSeq: 1, razem: 1, planLineId: 'l', linePosition: 1, batchNo: '355/356',
+      recipeName: 'MIX', productTypeName: '', packagingName: '', clientName: '', weightKg: 40,
+      producedDate: '2026-11-27', status: 'planned', labelPrintedAt: null,
+    })
+    const wys = (z: string, txt: string) => Number(new RegExp(`\\^A0N,(\\d+),\\d+\\^FD${txt.replace('/', '\\/')}`).exec(z)?.[1])
+    expect(wys(mix, '271126 355/356')).toBeLessThan(wys(zpl, '271126 724'))
   })
 })
