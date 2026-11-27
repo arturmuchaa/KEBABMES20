@@ -1461,3 +1461,17 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .pp-bilans td .sub { display: block; }
 .pp-straty { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .pp-straty .pp-max td { background: var(--warn-tint); font-weight: 600; }
+
+/* ─── Przeniesienie całych palet do innego zamówienia (27.11.2026) ───── */
+.pp-przen { display: flex; flex-direction: column; gap: 12px; }
+.pp-przen-sum { font-size: var(--fs-md, 15px); }
+.pp-przen-pal { display: flex; flex-wrap: wrap; gap: 6px; }
+.pp-przen-cel { border: 1px solid var(--line); border-radius: var(--r-md); padding: 8px 12px 12px; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.pp-przen-cel legend { padding: 0 4px; font-size: var(--fs-sm); color: var(--ink-3); }
+.pp-przen-cel .radio { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.pp-przen-cel .radio .field { width: 160px; margin-left: 4px; }
+.pp-przen-lista { display: flex; flex-direction: column; gap: 4px; margin-left: 24px; max-height: 240px; overflow: auto; }
+.pp-przen-opt { display: flex; align-items: baseline; gap: 10px; padding: 7px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.pp-przen-opt .grow { flex: 1; }
+.pp-przen-opt:hover { border-color: var(--accent); }
+.pp-przen-opt.sel { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-tint, var(--surface-sunk)); }

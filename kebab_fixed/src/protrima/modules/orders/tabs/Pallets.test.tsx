@@ -214,4 +214,15 @@ describe('zakładka Palety — odświeżenie po wydruku', () => {
     window.dispatchEvent(new CustomEvent('druk:zarejestrowano', { detail: { orderId: 'o1', palletIds: ['p1'] } }))
     expect(refresh).toHaveBeenCalledTimes(1)
   })
+
+  it('zaznaczone palety → „Przenieś palety (n)…” otwiera okno przeniesienia całych palet', () => {
+    mount()
+    const btn = screen.getByRole('button', { name: /^Przenieś palety…$/ }) as HTMLButtonElement
+    expect(btn.disabled).toBe(true)
+    fireEvent.click(screen.getByLabelText(/Zaznacz paletę 1 /))
+    fireEvent.click(screen.getByLabelText(/Zaznacz paletę 3 /))
+    fireEvent.click(screen.getByRole('button', { name: 'Przenieś palety (2)…' }))
+    expect(screen.getByRole('dialog', { name: /Przenieś palety do innego zamówienia/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Przenieś 2 palety' })).toBeTruthy()
+  })
 })

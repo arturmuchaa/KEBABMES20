@@ -285,6 +285,33 @@ def cele_przeniesienia(pallet_id: str) -> Dict[str, Any]:
     }
 
 
+def przestempluj_wyrob_cx(conn, src_order_no: str, dst_order_no: str, line: Dict[str, Any], ile: int) -> None:
+    """Wyrób gotowy ostemplowany zamówieniem źródłowym → stempel docelowego,
+    `ile` sztuk tej specyfikacji, od najstarszej produkcji, tylko nieruszony
+    (bez nowej produkcji i ruchów magazynu — jak `przepnij_do_pilniejszego_cx`)."""
+    from app.services.finished_goods_service import _odetnij_czesc_wiersza_cx
+    potrzeba = ile
+    for w in cx_query_all(conn,
+            """SELECT * FROM finished_goods
+                WHERE client_order_no=%s AND recipe_id=%s AND kg_per_unit=%s
+                  AND (%s='' OR COALESCE(product_type_id,'')='' OR product_type_id=%s)
+                  AND (%s='' OR COALESCE(packaging_id,'')='' OR packaging_id=%s)
+                  AND COALESCE(qty_shipped,0)=0 AND qty_available=qty AND qty>0
+                ORDER BY produced_date ASC NULLS LAST, created_at ASC FOR UPDATE""",
+            (src_order_no, line.get("recipe_id"), line["kg_per_unit"],
+             line.get("product_type_id") or "", line.get("product_type_id") or "",
+             line.get("packaging_id") or "", line.get("packaging_id") or "")):
+        if potrzeba <= 0:
+            break
+        bierz = min(potrzeba, int(w["qty"]))
+        if bierz == int(w["qty"]):
+            cx_execute(conn, "UPDATE finished_goods SET client_order_no=%s WHERE id=%s",
+                       (dst_order_no, w["id"]))
+        else:
+            _odetnij_czesc_wiersza_cx(conn, w, bierz, dst_order_no)
+        potrzeba -= bierz
+
+
 def przenies_sztuki(pallet_id: str, target_order_id: str, items: List[Dict[str, Any]],
                     zrodlo: str, operator: str = "") -> Dict[str, Any]:
     """Przenieś sztuki z kartonu zamówienia do (nowego) kartonu innego zamówienia.
@@ -301,7 +328,6 @@ def przenies_sztuki(pallet_id: str, target_order_id: str, items: List[Dict[str, 
     `przepnij_do_pilniejszego_cx`.
     """
     from app.services import rozpis_palet_limit
-    from app.services.finished_goods_service import _odetnij_czesc_wiersza_cx
     from app.services.stock_carton_link_service import check_order_reservations_cx
     from app.utils.pallet_numbers import reserve_pallet_numbers_cx
 
@@ -417,26 +443,7 @@ def przenies_sztuki(pallet_id: str, target_order_id: str, items: List[Dict[str, 
             opis.append(f"{ile}×{float(l['kg_per_unit'] or 0):g} kg")
 
             # Wyrób gotowy: stempel źródła → cel, od najstarszej produkcji, tylko nieruszony.
-            potrzeba = ile
-            for w in cx_query_all(conn,
-                    """SELECT * FROM finished_goods
-                        WHERE client_order_no=%s AND recipe_id=%s AND kg_per_unit=%s
-                          AND (%s='' OR COALESCE(product_type_id,'')='' OR product_type_id=%s)
-                          AND (%s='' OR COALESCE(packaging_id,'')='' OR packaging_id=%s)
-                          AND COALESCE(qty_shipped,0)=0 AND qty_available=qty AND qty>0
-                        ORDER BY produced_date ASC NULLS LAST, created_at ASC FOR UPDATE""",
-                    (src["order_no"], l.get("recipe_id"), l["kg_per_unit"],
-                     l.get("product_type_id") or "", l.get("product_type_id") or "",
-                     l.get("packaging_id") or "", l.get("packaging_id") or "")):
-                if potrzeba <= 0:
-                    break
-                bierz = min(potrzeba, int(w["qty"]))
-                if bierz == int(w["qty"]):
-                    cx_execute(conn, "UPDATE finished_goods SET client_order_no=%s WHERE id=%s",
-                               (dst["order_no"], w["id"]))
-                else:
-                    _odetnij_czesc_wiersza_cx(conn, w, bierz, dst["order_no"])
-                potrzeba -= bierz
+            przestempluj_wyrob_cx(conn, src["order_no"], dst["order_no"], l, ile)
 
         # Nowy karton w zamówieniu docelowym — nowy numer i nowa kartka.
         nowy_id = cuid()

@@ -11,6 +11,7 @@ import { nasluchujWydrukow } from '@/lib/druk/rejestr'
 import { orderPalletsApi, type OrderPallet } from '@/lib/api'
 import { WyjazdZBiuraDialog } from '../biuro/WyjazdZBiura'
 import { PrzeniesSztukiDialog } from '../biuro/PrzeniesSztuki'
+import { PrzeniesPaletyDialog } from '../biuro/PrzeniesPalety'
 import { WyjazdZMrozniDialog } from '../biuro/WyjazdZMrozni'
 import { bezPalety, bledyPalety, rozpisz, sztukNaPalete, wykryjSztuki, zDodanymi, zZmieniona, MAX_KG_RESZTKI, STANDARD_SZTUK, WARIANTY_SZTUK, rodzajKrotko, type ItemLite } from '../palety/model'
 
@@ -24,11 +25,11 @@ const STALE_NUMERY = 'Numery palet i kartonów są stałe — usunięta paleta n
  */
 export function PalletsTab({ order }: { order: Order }) {
   const app = useApp()
-  const { refresh } = useOrders()
+  const { refresh, orders } = useOrders()
   const m = computeMetrics(order)
   const [selNo, setSelNo] = useState<number | null>(order.pallets[0]?.no ?? null)
   const [marked, setMarked] = useState<number[]>([])
-  const [dlg, setDlg] = useState<null | { t: 'new' } | { t: 'edit'; p: Pallet } | { t: 'del'; p: Pallet } | { t: 'auto' } | { t: 'wyjazd' } | { t: 'przenies'; p: Pallet } | { t: 'mroznia'; p: Pallet }>(null)
+  const [dlg, setDlg] = useState<null | { t: 'new' } | { t: 'edit'; p: Pallet } | { t: 'del'; p: Pallet } | { t: 'auto' } | { t: 'wyjazd' } | { t: 'przenies'; p: Pallet } | { t: 'mroznia'; p: Pallet } | { t: 'przeniesPalety' }>(null)
   const [busy, setBusy] = useState(false)
   const [blad, setBlad] = useState<string | null>(null)
   const [wszystkiePoz, setWszystkiePoz] = useState(false)
@@ -84,6 +85,12 @@ export function PalletsTab({ order }: { order: Order }) {
               {!closed && order.pallets.some(p => p.status !== 'shipped' && palletQty(p) > 0) && (
                 <button className="btn sm" disabled={busy} onClick={() => setDlg({ t: 'wyjazd' })} data-tip="Załaduj kartony na auto i zakończ kurs z biura — gdy na HMI nikt nie potwierdził załadunku">
                   <Truck size={15} />Załaduj na auto z biura</button>)}
+              {!closed && (() => {
+                const doPrzeniesienia = order.pallets.filter(p => marked.includes(p.no) && p.status !== 'loaded' && p.status !== 'shipped')
+                return <button className="btn sm" disabled={busy || !doPrzeniesienia.length}
+                  data-tip={doPrzeniesienia.length ? 'Całe palety — także zważone — do innego zamówienia klienta albo do nowego. Kartki działają dalej.' : 'Zaznacz palety ptaszkiem, żeby przenieść je do innego zamówienia (np. część na inny dzień)'}
+                  onClick={() => setDlg({ t: 'przeniesPalety' })}><ArrowRightLeft size={15} />{doPrzeniesienia.length ? `Przenieś palety (${doPrzeniesienia.length})…` : 'Przenieś palety…'}</button>
+              })()}
               <button className="btn sm" onClick={() => app.printPallets(order.id, marked.length ? marked : undefined)}>
                 <Printer size={15} />{marked.length ? `Drukuj kartki (${marked.length})` : 'Drukuj wszystkie kartki'}
               </button>
@@ -198,6 +205,9 @@ export function PalletsTab({ order }: { order: Order }) {
         {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Nie zapisano:</b> {blad}</div></div>}
       </Dialog>}
       {dlg?.t === 'wyjazd' && <WyjazdZBiuraDialog order={order} onClose={() => setDlg(null)} />}
+      {dlg?.t === 'przeniesPalety' && <PrzeniesPaletyDialog order={order} inne={orders ?? []}
+        pallets={order.pallets.filter(p => marked.includes(p.no) && p.status !== 'loaded' && p.status !== 'shipped')}
+        onClose={() => { setDlg(null); setMarked([]) }} />}
       {dlg?.t === 'mroznia' && <WyjazdZMrozniDialog order={order} p={dlg.p} onClose={() => setDlg(null)} />}
       {dlg?.t === 'przenies' && <PrzeniesSztukiDialog palletId={dlg.p.id} onClose={() => setDlg(null)} />}
       {dlg?.t === 'auto' && <RozpisDialog order={order} wolne={wolne()} busy={busy} blad={blad} onClose={() => { setDlg(null); setBlad(null) }}
@@ -224,7 +234,7 @@ function PalletCard({ order, p, sel, marked, onSelect, onMark }: { order: Order;
       aria-label={`Paleta ${p.no}, karton ${p.carton}, ${PALLET_STATUS[p.status]}`}>
       <div className="ph">
         <span className="pno">Paleta {p.no}</span><span className="pc code">{p.carton}</span>
-        <input type="checkbox" className="cbx" checked={marked} onChange={onMark} onClick={e => e.stopPropagation()} aria-label={`Zaznacz paletę ${p.no} do wydruku`} />
+        <input type="checkbox" className="cbx" checked={marked} onChange={onMark} onClick={e => e.stopPropagation()} aria-label={`Zaznacz paletę ${p.no} (wydruk kartek, przeniesienie)`} />
       </div>
       <ul>
         {p.items.map(it => { const l = order.lines.find(x => x.id === it.lineId); return (

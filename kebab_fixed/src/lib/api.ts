@@ -5081,4 +5081,13 @@ export const biuroApi = {
       }),
   usunKartonMagazynowy: (cartonId: string) =>
     req<{ ok: boolean; cartonNo: string; unitsReleased: number }>('DELETE', `/biuro/kartony-magazynowe/${encodeURIComponent(cartonId)}`),
+  /** Całe palety (także zważone) do innego zamówienia klienta albo do nowego; stare kartki działają dalej. */
+  przeniesPalety: (orderId: string, body: { palletIds: string[]; targetOrderId?: string; newDeliveryDate?: string }) =>
+    req<WynikPrzeniesieniaPalet>('POST', `/biuro/zamowienia/${encodeURIComponent(orderId)}/przenies-palety`, {
+      pallet_ids: body.palletIds, target_order_id: body.targetOrderId ?? '', new_delivery_date: body.newDeliveryDate ?? '',
+    }),
+}
+export interface WynikPrzeniesieniaPalet {
+  ok: boolean; targetOrderId: string; targetOrderNo: string; created: boolean; units: number
+  pallets: Array<{ palletId: string; fromPalletNo: number; palletNo: number; cartonNo: number | null }>
 }

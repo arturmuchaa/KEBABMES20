@@ -1,4 +1,4 @@
-"""Zamówienia z biura (PROTRIMA) — kurs, wyjazd kartonem, przeniesienie sztuk, usunięcie kartonu.
+"""Zamówienia z biura (PROTRIMA) — kurs, wyjazd kartonem, przeniesienie sztuk i palet, usunięcie kartonu.
 
 Prefiks `/api/biuro` nie ma własnej reguły w `auth/permissions.py`, więc
 obowiązuje domyślna: wyłącznie konta biura.
@@ -38,6 +38,12 @@ class PozycjaPrzeniesienia(BaseModel):
     change_packaging: bool = False
 
 
+class PrzeniesieniePalet(BaseModel):
+    pallet_ids: List[str]
+    target_order_id: str = ""
+    new_delivery_date: str = ""
+
+
 class Przeniesienie(BaseModel):
     target_order_id: str
     zrodlo: str
@@ -74,6 +80,13 @@ def cele_przeniesienia(pallet_id: str):
 def przenies(pallet_id: str, body: Przeniesienie, request: Request):
     return svc.przenies_sztuki(pallet_id, body.target_order_id,
                                [i.model_dump() for i in body.items], body.zrodlo, _operator(request))
+
+
+@router.post("/zamowienia/{order_id}/przenies-palety")
+def przenies_palety(order_id: str, body: PrzeniesieniePalet, request: Request):
+    """Całe palety (także zważone) do innego zamówienia klienta albo do nowego — kartki działają dalej."""
+    from app.services.order_pallet_move_service import przenies_palety as przenies_cale
+    return przenies_cale(order_id, body.pallet_ids, body.target_order_id, body.new_delivery_date, _operator(request))
 
 
 @router.delete("/kartony-magazynowe/{carton_id}")
