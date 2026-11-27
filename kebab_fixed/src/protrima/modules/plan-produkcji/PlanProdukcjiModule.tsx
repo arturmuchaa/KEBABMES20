@@ -30,7 +30,8 @@ interface PlanSerwera {
 }
 
 type Zakladka = 'palety' | 'oznaczenie' | 'zamowienia' | 'plany' | 'bilans'
-type Okno = { rodzaj: 'etykiety'; przedruk?: string[] } | { rodzaj: 'karta' } | { rodzaj: 'straty' } | null
+type Wyrzuc = Array<{ qrSeq: number; linePosition: number; batchNo: string }>
+type Okno = { rodzaj: 'etykiety'; przedruk?: string[]; wyrzuc?: Wyrzuc } | { rodzaj: 'karta' } | { rodzaj: 'straty' } | null
 
 function zPlanu(plan: PlanSerwera | null): Pozycja[] {
   return (plan?.lines ?? []).map(l => {
@@ -41,6 +42,7 @@ function zPlanu(plan: PlanSerwera | null): Pozycja[] {
       productTypeId: l.productTypeId ?? '', packagingId: l.packagingId ?? undefined, klient: l.clientName ?? undefined,
       zamowienieId: l.clientOrderId ?? undefined, zamowienieNo: l.clientOrderNo ?? undefined, zamowienieLiniaId: l.clientOrderLineId ?? undefined,
       palety: palety.map(p => p.id),
+      zamrozona: Number(l.qtyDone) > 0,
       zKoncowek: palety.length > 1 && palety.every(p => p.isRemainder) && klucze.some(k => k === '__MIXED__' || /^PM\d+$/.test(k)),
     }
   })
@@ -143,7 +145,7 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
   const ptItems = useMemo<WyborItem[]>(() => rodzaje.map(r => ({ id: r.id, label: r.name })), [rodzaje])
   const tulItems = useMemo<WyborItem[]>(() => tuleje.map(t => ({ id: t.id, label: t.name })), [tuleje])
   const nazwaRec = (id: string) => receptury.find(r => r.id === id)?.name ?? ''
-  const bledy = useMemo(() => new Map(pozycje.map(p => [p.klucz, bledyPozycji(p, sklad(p), mapaPalet)])), [pozycje, sklad, mapaPalet])
+  const bledy = useMemo(() => new Map(pozycje.map(p => [p.klucz, bledyPozycji(p, sklad(p), mapaPalet, planId)])), [pozycje, sklad, mapaPalet, planId])
   const pierwszyBlad = pozycje.find(p => (bledy.get(p.klucz) ?? []).length)
   const razem = useMemo(() => ({ szt: pozycje.reduce((a, p) => a + p.qty, 0), kg: pozycje.reduce((a, p) => a + p.qty * p.kgPerUnit, 0) }), [pozycje])
 
@@ -219,18 +221,13 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
     try {
       const dto = doDto(doZapisu, dzien)
       const wynik = plan ? await productionPlansApi.update(plan.id, dto) : await productionPlansApi.create(dto)
-      const nowy = await wczytaj(dzien, (wynik as { id?: string })?.id ?? plan?.id)
+      await wczytaj(dzien, (wynik as { id?: string })?.id ?? plan?.id)
       setPokazBledy(false)
-      // Plan już wysłany: sztuki idą za planem — nowa partia albo ilość → etykiety do przedruku.
-      if (nowy?.status === 'active') {
-        const przedruk: string[] = []
-        let doDruku = 0
-        for (const l of [...nowy.lines].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))) {
-          const g = await finishedUnitsApi.generateFromPlanLine(l.id)
-          przedruk.push(...(g.reprint ?? []))
-          doDruku += (g.added ?? 0) + (g.created ?? 0)
-        }
-        if (przedruk.length || doDruku) setOkno({ rodzaj: 'etykiety', przedruk })
+      // Plan już wysłany: serwer w tej samej transakcji dopasował sztuki i mówi,
+      // które etykiety są do przedruku, a które do wyrzucenia.
+      const sync = (wynik as { unitsSync?: { reprint?: string[]; invalidated?: Wyrzuc; added?: number } | null })?.unitsSync
+      if (sync && ((sync.reprint?.length ?? 0) || (sync.invalidated?.length ?? 0) || (sync.added ?? 0))) {
+        setOkno({ rodzaj: 'etykiety', przedruk: sync.reprint ?? [], wyrzuc: sync.invalidated ?? [] })
       }
       app.toast({ kind: 'ok', title: `Plan produkcji na ${nazwaDnia(dzien, dzis)} zapisany`, detail: `${doZapisu.length} poz. · ${fmt(razem.szt)} szt. · ${fmt(razem.kg)} kg` })
       return true
@@ -329,7 +326,7 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
                   const e = pokazBledy ? (bledy.get(p.klucz) ?? []) : []
                   const sk = sklad(p)
                   const pal = p.palety.map(id => mapaPalet.get(id)).filter((x): x is Paleta => !!x)
-                  const stale = tylkoPodglad
+                  const stale = tylkoPodglad || !!p.zamrozona
                   return (
                     <tr key={p.klucz} className={`row${sel === p.klucz ? ' sel' : ''}`} aria-selected={sel === p.klucz} onClick={() => setSel(p.klucz)} onFocusCapture={() => setSel(p.klucz)}>
                       <td className="tnum"><b>{i + 1}</b></td>
@@ -377,10 +374,10 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
 
         <aside className="pm-panel" aria-label="Palety i zamówienia">
           <div className="dock-tabs" role="tablist">
-            <button role="tab" className="dock-tab" aria-selected={zakladka === 'palety'} onClick={() => setZakladka('palety')}><Boxes size={14} />Palety w chłodni</button>
+            <button role="tab" className="dock-tab" aria-selected={zakladka === 'palety'} onClick={() => setZakladka('palety')} aria-label="Palety w chłodni"><Boxes size={14} />Palety</button>
             <button role="tab" className="dock-tab" aria-selected={zakladka === 'oznaczenie'} onClick={() => setZakladka('oznaczenie')}><Tags size={14} />Do oznaczenia
               {palety.some(p => p.status === 'in_cold' && !p.labelPrintedAt) && <span className="badge warn">{palety.filter(p => p.status === 'in_cold' && !p.labelPrintedAt).length}</span>}</button>
-            <button role="tab" className="dock-tab" aria-selected={zakladka === 'zamowienia'} onClick={() => setZakladka('zamowienia')}><ShoppingCart size={14} />Z zamówień</button>
+            <button role="tab" className="dock-tab" aria-selected={zakladka === 'zamowienia'} onClick={() => setZakladka('zamowienia')} aria-label="Z zamówień"><ShoppingCart size={14} />Zamówienia</button>
             <button role="tab" className="dock-tab" aria-selected={zakladka === 'plany'} onClick={() => setZakladka('plany')}><ListChecks size={14} />Plany</button>
             {plan?.status === 'done' && <button role="tab" className="dock-tab" aria-selected={zakladka === 'bilans'} onClick={() => setZakladka('bilans')}><Calculator size={14} />Bilans
               {stan === 'do-bilansu' && <span className="badge warn">!</span>}</button>}
@@ -423,7 +420,8 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
           pallets: l.pallets ?? [], sklad: sklad({ klucz: l.id, qty: 0, kgPerUnit: 0, recipeId: l.recipeId ?? '', productTypeId: l.productTypeId ?? '', palety: [], zKoncowek: false }),
         })),
       } as PlanKarty} onClose={() => setOkno(null)} />}
-      {okno?.rodzaj === 'etykiety' && plan && <OknoEtykiet planId={plan.id} planNo={plan.planNo} przedruk={okno.przedruk} onClose={() => { setOkno(null); void wczytaj(dzien, plan.id) }} />}
+      {okno?.rodzaj === 'etykiety' && plan && <OknoEtykiet planId={plan.id} planNo={plan.planNo} przedruk={okno.przedruk} wyrzuc={okno.wyrzuc}
+        pozycje={plan.lines.map(l => ({ id: l.id, position: Number(l.position) || 0 }))} onClose={() => { setOkno(null); void wczytaj(dzien, plan.id) }} />}
     </>
   )
 }

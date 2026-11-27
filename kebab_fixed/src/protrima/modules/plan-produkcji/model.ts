@@ -29,6 +29,8 @@ export interface Pozycja {
   palety: string[]
   /** Pozycja z końcówek kilku partii (sztuki PM). */
   zKoncowek: boolean
+  /** Hala już zaczęła pozycję — ilości i palet się nie zdejmuje, można dołożyć paletę. */
+  zamrozona?: boolean
 }
 
 /** Składnik kebaba mix (udo/filet 70/30…); pusta lista = kebab z jednego mięsa. */
@@ -100,14 +102,17 @@ export function podpowiedzPalet(poz: Pozycja, sklad: Skladnik[], palety: Paleta[
 }
 
 /** Co nie gra w pozycji — słowami biura. Pusta lista = można zapisać. */
-export function bledyPozycji(poz: Pozycja, sklad: Skladnik[], palety: Map<string, Paleta>): string[] {
+export function bledyPozycji(poz: Pozycja, sklad: Skladnik[], palety: Map<string, Paleta>, planId?: string | null): string[] {
+  if (poz.zamrozona) return []
   if (!poz.palety.length) return ['Wybierz palety']
   const bledy: string[] = []
   const wybrane: Paleta[] = []
   for (const id of poz.palety) {
     const p = palety.get(id)
     if (!p) { bledy.push('Wybrana paleta nie leży już w chłodni — odśwież listę palet'); continue }
-    if (p.status !== 'in_cold') bledy.push(`Paleta ${p.palletNo} nie leży w chłodni`)
+    // Paleta wywieziona do TEGO planu zostaje przy pozycji (edycja planu w trakcie dnia).
+    const naHaliTegoPlanu = p.status === 'on_hall' && !!planId && p.takenPlanId === planId
+    if (p.status !== 'in_cold' && !naHaliTegoPlanu) bledy.push(`Paleta ${p.palletNo} nie leży w chłodni`)
     if (p.recipeId !== poz.recipeId) bledy.push(`Paleta ${p.palletNo} to ${p.recipeName || 'inna receptura'}`)
     wybrane.push(p)
   }

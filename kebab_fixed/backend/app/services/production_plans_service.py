@@ -843,6 +843,39 @@ def _prepare_line_pallets(conn, numbered_lines, gate: bool, plan_id: str | None 
     return by_line
 
 
+def _frozen_line_pallets(conn, plan_id: str, lines: List[PlanLineCreate], frozen_ids: set) -> None:
+    """Palety pozycji, którą hala już zaczęła: można DOŁOŻYĆ (np. paleta
+    zważyła mniej), nie można zdjąć — inaczej zapis gubiłby je po cichu
+    (przegląd B, I2). Pusty `palletIds` (stary MES) zostawia palety bez zmian."""
+    from app.services import seasoned_pallets_service as palety
+    for n, line in enumerate(lines, start=1):
+        lid = str(line.id or "")
+        if lid not in frozen_ids or not line.pallet_ids:
+            continue
+        juz = [r["pallet_id"] for r in cx_query_all(
+            conn, "SELECT pallet_id FROM plan_line_pallets WHERE plan_line_id=%s ORDER BY position", (lid,))]
+        zdjete = [pid for pid in juz if pid not in line.pallet_ids]
+        if zdjete:
+            nry = [str(r["pallet_no"]) for r in cx_query_all(
+                conn, "SELECT pallet_no FROM seasoned_pallets WHERE id = ANY(%s) ORDER BY pallet_no", (zdjete,))]
+            raise HTTPException(
+                400,
+                f"Pozycja {n} ({line.recipe_name or line.recipe_id}) jest już w produkcji — palet nie można "
+                f"z niej zdejmować (P{', P'.join(nry)}), można tylko dołożyć",
+            )
+        nowe = [pid for pid in line.pallet_ids if pid not in juz]
+        if not nowe:
+            continue
+        palety.resolve_line_pallets(conn, line.model_copy(update={"pallet_ids": nowe}), plan_id=plan_id)
+        for i, pid in enumerate(nowe, start=len(juz) + 1):
+            cx_execute(
+                conn,
+                "INSERT INTO plan_line_pallets (plan_line_id, pallet_id, position) VALUES (%s,%s,%s) "
+                "ON CONFLICT DO NOTHING",
+                (lid, pid, i),
+            )
+
+
 def _is_remainders_pm(line: PlanLineCreate) -> bool:
     """Pozycja z końcówek KILKU partii — sztuki PM. Z jednej partii: zwykła."""
     return bool(line.from_remainders) and len(set(line.seasoned_batch_ids or [])) > 1
@@ -1096,11 +1129,15 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
         # (nie z payloadu; tablet mógł spakować więcej między załadowaniem a zapisem).
         old_lines = cx_query_all(
             conn,
-            "SELECT id, qty_done, recipe_id, qty, total_kg "
-            "FROM production_plan_lines WHERE plan_id=%s FOR UPDATE",
+            "SELECT id, qty_done, recipe_id, qty, total_kg, position, "
+            "EXISTS (SELECT 1 FROM finished_units u WHERE u.plan_line_id = l.id "
+            "        AND u.status <> 'planned') AS scanned "
+            "FROM production_plan_lines l WHERE plan_id=%s FOR UPDATE",
             (plan_id,),
         )
-        produced_ids = {r["id"] for r in old_lines if int(r.get("qty_done") or 0) > 0}
+        # Pozycja zamrożona = hala ją zaczęła: wpis postępu ALBO zeskanowana
+        # sztuka (skan nie podbija qty_done — przegląd B, I3d).
+        produced_ids = {r["id"] for r in old_lines if int(r.get("qty_done") or 0) > 0 or r.get("scanned")}
 
         edit_errs = validate_plan_edit(
             [
@@ -1127,6 +1164,25 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
             bool(plan.get("pallet_gate")),
             plan_id=plan_id,
         )
+        _frozen_line_pallets(conn, plan_id, valid_lines, produced_ids)
+        aktywny = (plan.get("status") or "") == "active"
+        units_sync: Dict[str, Any] = {"reprint": [], "invalidated": [], "added": 0}
+        nowe_ids = {str(l.id or "") for l in editable_lines if l.id}
+        if aktywny:
+            # Pozycje usunięte z aktywnego planu: ich niewyprodukowane sztuki
+            # znikają, a wydrukowane etykiety są nazwane do wyrzucenia.
+            for r in old_lines:
+                if r["id"] in produced_ids or r["id"] in nowe_ids:
+                    continue
+                for u in cx_query_all(
+                    conn,
+                    "DELETE FROM finished_units WHERE plan_line_id=%s AND status='planned' "
+                    "RETURNING id, qr_seq, batch_no, label_printed_at",
+                    (r["id"],),
+                ):
+                    if u.get("label_printed_at"):
+                        units_sync["invalidated"].append({"id": u["id"], "qrSeq": u.get("qr_seq"),
+                                                          "batchNo": u.get("batch_no") or "", "linePosition": r.get("position")})
         total_kg = round(
             sum(l.qty * l.kg_per_unit for l in editable_lines)
             + sum(float(r.get("total_kg") or 0) for r in frozen_rows),
@@ -1206,7 +1262,7 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
                 nos, allocation, primary_id, primary_no = _compute_allocation(
                     conn, line, line_kg, locked
                 )
-            _insert_line(
+            nowa_id = _insert_line(
                 conn,
                 plan_id,
                 line,
@@ -1221,6 +1277,14 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
                 pos,
             )
             _apply_reservations(conn, allocation)
+            if aktywny:
+                # Plan już wysłany: sztuki idą za planem w TEJ transakcji —
+                # nic nie zależy od drugiego wywołania klienta (przegląd B, I3a).
+                from app.services.finished_units_service import sync_units_cx
+                wynik = sync_units_cx(conn, nowa_id)
+                units_sync["reprint"].extend(wynik.get("reprint") or [])
+                units_sync["invalidated"].extend(wynik.get("invalidated") or [])
+                units_sync["added"] += int(wynik.get("added") or 0)
 
         updated = cx_query_one(
             conn, "SELECT * FROM production_plans WHERE id=%s", (plan_id,)
@@ -1232,6 +1296,7 @@ def update_plan(plan_id: str, dto: ProductionPlanCreate) -> Dict:
             "ORDER BY position, id",
             (plan_id,),
         )
+    updated["unitsSync"] = units_sync
     logger.info("plan.updated", extra={"plan_id": plan_id})
     return updated
 

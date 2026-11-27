@@ -3981,6 +3981,8 @@ function mapPlan(raw: any): any {
     lines:              (raw.lines ?? []).map(mapPlanLine),
     /** Stan etykiet i palet planu (lista planów w PROTRIMA). */
     summary:            raw.summary ? mapPlanSummary(raw.summary) : null,
+    /** Po zapisie aktywnego planu: sztuki do przedruku i etykiety do wyrzucenia. */
+    unitsSync:          raw.unitsSync ?? raw.units_sync ?? null,
   }
 }
 

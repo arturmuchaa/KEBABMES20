@@ -86,6 +86,14 @@ describe('błędy pozycji', () => {
     expect(bledyPozycji(poz({ palety: ['u', 'f'] }), MIX, new Map([['u', u], ['f', f]])))
       .toContain('FILET: palety dają 12 szt., a pozycja ma 20')
   })
+  it('paleta wywieziona do TEGO planu nie jest błędem (edycja w trakcie dnia)', () => {
+    const a = pal({ id: 'a', status: 'on_hall', takenPlanId: 'pl1', kgWeighed: 600 })
+    expect(bledyPozycji(poz({ qty: 15, palety: ['a'] }), [], new Map([['a', a]]), 'pl1')).toEqual([])
+    expect(bledyPozycji(poz({ qty: 15, palety: ['a'] }), [], new Map([['a', a]]), 'inny')).toContain(`Paleta ${a.palletNo} nie leży w chłodni`)
+  })
+  it('pozycji rozpoczętej przez halę nie sprawdzamy — jej palety i ilość są już na hali', () => {
+    expect(bledyPozycji(poz({ zamrozona: true, palety: [] }), [], new Map())).toEqual([])
+  })
   it('pozycja z końcówek liczy sztuki z sumy kg', () => {
     const a = pal({ id: 'a', kgWeighed: 24, isRemainder: true, batchNo: '724' })
     const b = pal({ id: 'b', kgWeighed: 31, isRemainder: true, batchNo: '731' })

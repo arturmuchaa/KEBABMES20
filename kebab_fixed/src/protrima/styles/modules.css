@@ -1388,6 +1388,8 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 /* ─── Plan produkcji (palety z chłodni) ─────────────────────────────── */
 .pp-tbl td { vertical-align: top; }
 .pp-tbl .field.num { width: 72px; }
+.pp-tbl td .wybor, .pp-tbl td .wybor > .field { width: 100%; }
+.pp-pod .wybor { flex: 1 1 180px; max-width: 280px; }
 .pp-pod { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; }
 .pp-palety { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .pp-chip-x { border: 0; background: transparent; padding: 0 0 0 2px; color: var(--ink-3); cursor: pointer; line-height: 1; }

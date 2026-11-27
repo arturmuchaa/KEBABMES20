@@ -183,16 +183,44 @@ describe('Plan produkcji — ekran', () => {
     expect(units.markLabelsPrinted).not.toHaveBeenCalled()
   })
 
-  it('zmiana partii po wydruku pokazuje sztuki do przedruku', async () => {
+  it('zapis aktywnego planu: serwer zwraca sztuki do przedruku i etykiety do wyrzucenia', async () => {
     plans.list.mockResolvedValue([planDnia('active')])
-    plans.update.mockResolvedValue({ id: 'pl1' })
-    units.generateFromPlanLine.mockImplementation((id: string) => Promise.resolve(id === 'l1' ? { reprint: ['u1', 'u2'] } : { reprint: [] }))
+    plans.update.mockResolvedValue({ id: 'pl1', unitsSync: { reprint: ['u1', 'u2'], invalidated: [{ id: 'x', qrSeq: 9, linePosition: 1, batchNo: '724' }], added: 0 } })
     units.forPlan.mockResolvedValue(SZTUKI)
     mount()
     const qty = await screen.findByLabelText('Sztuk, pozycja 1')
     fireEvent.change(qty, { target: { value: '13' } })
     await React.act(async () => { await cmd('save').run() })
-    expect(await screen.findByText(/Zmieniła się partia 2 sztuk/)).toBeTruthy()
+    expect(await screen.findByText(/Zmieniło się 2 sztuk/)).toBeTruthy()
+    expect(screen.getByText(/wyrzuć etykiety: 1\.9/)).toBeTruthy()
+    expect(units.generateFromPlanLine).not.toHaveBeenCalled()
+  })
+
+  it('aktywny plan z paletą już na hali da się zapisać', async () => {
+    const naHali = { ...P[1], status: 'on_hall', takenPlanId: 'pl1' } as unknown as Record<string, unknown> & { id: string }
+    P = P.filter(p => p.id !== naHali.id)  // wywieziona paleta nie jest już „w chłodni”
+    plans.list.mockResolvedValue([planDnia('active', { lines: [
+      { id: 'l1', position: 1, qty: 14, kgPerUnit: 40, recipeId: 'kir', productTypeId: 'udo', batchAllocation: {}, qtyDone: 0, pallets: [naHali] },
+    ] })])
+    plans.update.mockResolvedValue({ id: 'pl1', unitsSync: { reprint: [], invalidated: [], added: 0 } })
+    mount()
+    const qty = await screen.findByLabelText('Sztuk, pozycja 1')
+    fireEvent.change(qty, { target: { value: '12' } })
+    await React.act(async () => { await cmd('save').run() })
+    expect(plans.update).toHaveBeenCalledWith('pl1', expect.objectContaining({ lines: [expect.objectContaining({ qty: 12, palletIds: [naHali.id] })] }))
+  })
+
+  it('okno etykiet tworzy brakujące sztuki po przerwanej wysyłce', async () => {
+    plans.list.mockResolvedValue([planDnia('active')])
+    units.forPlan.mockResolvedValueOnce(SZTUKI).mockResolvedValue([...SZTUKI, { ...SZTUKI[0], id: 'u9', planLineId: 'l2', linePosition: 2, qrSeq: 1 }])
+    units.generateFromPlanLine.mockResolvedValue({ created: 15 })
+    mount()
+    await screen.findByText('PROD/28/11/26')
+    await React.act(async () => { cmd('labels').run() })
+    expect(await screen.findByText(/Pozycja 2 nie ma jeszcze sztuk/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Utwórz brakujące sztuki' }))
+    await waitFor(() => expect(units.generateFromPlanLine).toHaveBeenCalledWith('l2'))
+    expect(units.generateFromPlanLine).toHaveBeenCalledTimes(1)
   })
 
   it('końcówki bez etykiety drukują się i znikają z listy', async () => {

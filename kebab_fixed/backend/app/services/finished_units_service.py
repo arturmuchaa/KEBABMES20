@@ -167,117 +167,156 @@ def _insert_unit(conn, line: Dict[str, Any], plan_date: str, qr_seq: int, batch_
 def generate_units_from_plan_line(plan_line_id: str) -> Dict[str, Any]:
     """Tworzy `qty` rekordów finished_units (status 'planned') dla linii planu.
 
-    Idempotentne per linia: jeśli sztuki już istnieją, zwraca istniejące.
+    Idempotentne per linia: gdy sztuki już są, dopasowuje je do pozycji
+    (patrz `sync_units_cx`).
     """
     with transaction() as conn:
-        # Serialize concurrent generate requests for this line BEFORE checking
-        # existing units. UNIQUE(qr_code) alone cannot prevent two distinct
-        # sets of valid QR tokens being created for the same planned quantity.
-        line = cx_query_one(
-            conn,
-            "SELECT * FROM production_plan_lines WHERE id=%s FOR UPDATE",
-            (plan_line_id,),
-        )
-        if not line:
-            raise HTTPException(404, "Linia planu nie znaleziona")
+        return sync_units_cx(conn, plan_line_id)
 
-        # Data produkcji na etykiecie = DATA PLANU (produkcja zaplanowana, np. na
-        # poniedziałek 22.06), a nie dzień drukowania. Plan trzyma plan_date.
-        plan = cx_query_one(
-            conn,
-            "SELECT plan_date FROM production_plans WHERE id=%s",
-            (line.get("plan_id"),),
-        )
-        plan_date = str((plan or {}).get("plan_date") or "")[:10]
 
-        # Sztuki mieszane (resztki kilku partii w jednej sztuce) muszą mieć
-        # realny numer PM zanim rozdamy partie na etykiety. Normalnie nadaje
-        # go aktywacja planu; tu defensywnie dla starszych planów.
-        from app.services.production_plans_service import ensure_pm_assigned
-        allocation = ensure_pm_assigned(conn, line)
+# Pola sztuki, które idą za pozycją planu, dopóki sztuka jest 'planned'.
+# Zmiana któregokolwiek po wydruku = etykieta do przedruku (przegląd B, I3c).
+def _pola_sztuki(line: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "weight_kg": float(line.get("kg_per_unit") or 0),
+        "recipe_id": line.get("recipe_id") or "",
+        "product_type_id": line.get("product_type_id") or "",
+        "client_name": line.get("client_name") or "",
+        "tuleja": line.get("tuleja") or line.get("packaging_name") or "",
+        "order_id": line.get("client_order_id"),
+    }
 
-        existing = cx_query_all(
-            conn,
-            "SELECT id, qr_seq, status, batch_no, label_printed_at FROM finished_units "
-            "WHERE plan_line_id=%s ORDER BY qr_seq",
-            (plan_line_id,),
-        )
-        if existing:
-            # Sztuki już istnieją. Jeśli wszystkie są jeszcze 'planned' (nie
-            # wyprodukowane/zeskanowane), zsynchronizuj numery partii z aktualnym
-            # rozbiciem (batch_allocation) — naprawia wcześniejsze błędne etykiety,
-            # gdzie wszystko szło na jedną partię. Wyprodukowanych NIE ruszamy.
-            # Plan produkcji (27.11.2026): zmiana partii po wydruku NIE idzie po
-            # cichu — sztuka traci znacznik wydruku i wraca jako „do przedruku”;
-            # liczba sztuk idzie za ilością pozycji (biuro zmieniło plan).
-            resynced = 0
-            reprint: List[str] = []
-            added = removed = 0
-            if all((u.get("status") == "planned") for u in existing):
-                qty_now = int(line.get("qty") or 0)
-                if qty_now > 0 and len(existing) > qty_now:
-                    usun = [u["id"] for u in existing[qty_now:]]
-                    cx_execute(conn, "DELETE FROM finished_units WHERE id = ANY(%s)", (usun,))
-                    removed = len(usun)
-                    existing = existing[:qty_now]
-                target = max(qty_now, len(existing))
-                seq = batch_sequence(
-                    target,
-                    allocation,
-                    line.get("seasoned_batch_no"),
-                    line.get("seasoned_batch_nos"),
+
+def sync_units_cx(conn, plan_line_id: str) -> Dict[str, Any]:
+    """Sztuki pozycji zgodne z pozycją — w transakcji wołającego.
+
+    Brak sztuk → tworzy `qty`. Sztuki są i wszystkie 'planned' → liczba idzie
+    za `qty` (dopisuje / usuwa od końca), partia za alokacją, a waga,
+    receptura, rodzaj, klient i tuleja za pozycją. Sztuka, której coś się
+    zmieniło po wydruku, traci znacznik wydruku i trafia do `reprint`;
+    usunięta po wydruku — do `invalidated` (etykieta do wyrzucenia).
+    Sztuki są blokowane FOR UPDATE, a zmiany warunkowane `status='planned'`
+    — skan na hali w tej samej chwili nie zostanie skasowany (przegląd B, I4).
+    """
+    # Serialize concurrent generate requests for this line BEFORE checking
+    # existing units. UNIQUE(qr_code) alone cannot prevent two distinct
+    # sets of valid QR tokens being created for the same planned quantity.
+    line = cx_query_one(
+        conn,
+        "SELECT * FROM production_plan_lines WHERE id=%s FOR UPDATE",
+        (plan_line_id,),
+    )
+    if not line:
+        raise HTTPException(404, "Linia planu nie znaleziona")
+
+    # Data produkcji na etykiecie = DATA PLANU (produkcja zaplanowana, np. na
+    # poniedziałek 22.06), a nie dzień drukowania. Plan trzyma plan_date.
+    plan = cx_query_one(
+        conn,
+        "SELECT plan_date FROM production_plans WHERE id=%s",
+        (line.get("plan_id"),),
+    )
+    plan_date = str((plan or {}).get("plan_date") or "")[:10]
+
+    # Sztuki mieszane (resztki kilku partii w jednej sztuce) muszą mieć
+    # realny numer PM zanim rozdamy partie na etykiety. Normalnie nadaje
+    # go aktywacja planu; tu defensywnie dla starszych planów.
+    from app.services.production_plans_service import ensure_pm_assigned
+    allocation = ensure_pm_assigned(conn, line)
+
+    existing = cx_query_all(
+        conn,
+        "SELECT * FROM finished_units WHERE plan_line_id=%s ORDER BY qr_seq FOR UPDATE",
+        (plan_line_id,),
+    )
+    if existing:
+        resynced = 0
+        reprint: List[str] = []
+        invalidated: List[Dict[str, Any]] = []
+        added = removed = 0
+        if all((u.get("status") == "planned") for u in existing):
+            qty_now = int(line.get("qty") or 0)
+            if qty_now > 0 and len(existing) > qty_now:
+                usun = existing[qty_now:]
+                skasowane = cx_query_all(
+                    conn,
+                    "DELETE FROM finished_units WHERE id = ANY(%s) AND status='planned' RETURNING id",
+                    ([u["id"] for u in usun],),
                 )
-                nastepny = max([int(u.get("qr_seq") or 0) for u in existing] + [0])
-                for i in range(len(existing), target):
-                    nastepny += 1
-                    _insert_unit(conn, line, plan_date, nastepny,
-                                 seq[i] if i < len(seq) else (seq[-1] if seq else ""))
-                    added += 1
-                # Data produkcji = data planu (etykiety drukowane z wyprzedzeniem).
-                if plan_date:
-                    cx_execute(
-                        conn,
-                        "UPDATE finished_units SET produced_date=%s "
-                        "WHERE plan_line_id=%s AND status='planned' "
-                        "AND COALESCE(produced_date,'') <> %s",
-                        (plan_date, plan_line_id, plan_date),
-                    )
-                for u in existing:
-                    idx = int(u.get("qr_seq") or 0) - 1
-                    want = seq[idx] if 0 <= idx < len(seq) else (seq[-1] if seq else "")
-                    if want and want != (u.get("batch_no") or ""):
-                        cx_execute(conn, "UPDATE finished_units SET batch_no=%s, label_printed_at=NULL "
-                                   "WHERE id=%s", (want, u["id"]))
-                        resynced += 1
-                        if u.get("label_printed_at"):
-                            reprint.append(u["id"])
-                if resynced:
-                    logger.info("finished_units.batch_resynced",
-                                extra={"plan_line_id": plan_line_id, "resynced_count": resynced})
-            return {"planLineId": plan_line_id, "created": 0,
-                    "existing": len(existing), "resynced": resynced,
-                    "reprint": reprint, "added": added, "removed": removed}
+                removed = len(skasowane)
+                ids = {r["id"] for r in skasowane}
+                invalidated = [
+                    {"id": u["id"], "qrSeq": u.get("qr_seq"), "batchNo": u.get("batch_no") or "",
+                     "linePosition": line.get("position")}
+                    for u in usun if u["id"] in ids and u.get("label_printed_at")
+                ]
+                existing = existing[:qty_now]
+            target = max(qty_now, len(existing))
+            seq = batch_sequence(
+                target,
+                allocation,
+                line.get("seasoned_batch_no"),
+                line.get("seasoned_batch_nos"),
+            )
+            nastepny = max([int(u.get("qr_seq") or 0) for u in existing] + [0])
+            for i in range(len(existing), target):
+                nastepny += 1
+                _insert_unit(conn, line, plan_date, nastepny,
+                             seq[i] if i < len(seq) else (seq[-1] if seq else ""))
+                added += 1
+            # Data produkcji = data planu (etykiety drukowane z wyprzedzeniem).
+            if plan_date:
+                cx_execute(
+                    conn,
+                    "UPDATE finished_units SET produced_date=%s "
+                    "WHERE plan_line_id=%s AND status='planned' "
+                    "AND COALESCE(produced_date,'') <> %s",
+                    (plan_date, plan_line_id, plan_date),
+                )
+            pola = _pola_sztuki(line)
+            for u in existing:
+                idx = int(u.get("qr_seq") or 0) - 1
+                want = seq[idx] if 0 <= idx < len(seq) else (seq[-1] if seq else "")
+                zmiany = {k: v for k, v in pola.items()
+                          if (float(u.get(k) or 0) != v if k == "weight_kg" else (u.get(k) or None) != (v or None))}
+                if want and want != (u.get("batch_no") or ""):
+                    zmiany["batch_no"] = want
+                if not zmiany:
+                    continue
+                kolumny = ", ".join(f"{k}=%s" for k in zmiany)
+                cx_execute(conn, f"UPDATE finished_units SET {kolumny}, label_printed_at=NULL "
+                           "WHERE id=%s AND status='planned'", (*zmiany.values(), u["id"]))
+                resynced += 1
+                if u.get("label_printed_at"):
+                    reprint.append(u["id"])
+            if resynced:
+                logger.info("finished_units.resynced",
+                            extra={"plan_line_id": plan_line_id, "resynced_count": resynced})
+        return {"planLineId": plan_line_id, "created": 0,
+                "existing": len(existing), "resynced": resynced,
+                "reprint": reprint, "added": added, "removed": removed, "invalidated": invalidated}
 
-        qty = int(line.get("qty") or 0)
-        if qty <= 0:
-            raise HTTPException(400, "Linia planu ma qty <= 0")
+    qty = int(line.get("qty") or 0)
+    if qty <= 0:
+        raise HTTPException(400, "Linia planu ma qty <= 0")
 
-        # Numer partii per sztuka wg rozbicia z planowania (batch_allocation);
-        # sztuki mieszane dostają wspólny numer PM{n}.
-        seq = batch_sequence(
-            qty,
-            allocation,
-            line.get("seasoned_batch_no"),
-            line.get("seasoned_batch_nos"),
-        )
-        created = 0
-        for i in range(qty):
-            _insert_unit(conn, line, plan_date, i + 1,
-                         seq[i] if i < len(seq) else (seq[-1] if seq else ""))
-            created += 1
+    # Numer partii per sztuka wg rozbicia z planowania (batch_allocation);
+    # sztuki mieszane dostają wspólny numer PM{n}.
+    seq = batch_sequence(
+        qty,
+        allocation,
+        line.get("seasoned_batch_no"),
+        line.get("seasoned_batch_nos"),
+    )
+    created = 0
+    for i in range(qty):
+        _insert_unit(conn, line, plan_date, i + 1,
+                     seq[i] if i < len(seq) else (seq[-1] if seq else ""))
+        created += 1
 
-        logger.info("finished_units.generated", extra={"plan_line_id": plan_line_id, "created_count": created})
-        return {"planLineId": plan_line_id, "created": created, "existing": 0}
+    logger.info("finished_units.generated", extra={"plan_line_id": plan_line_id, "created_count": created})
+    return {"planLineId": plan_line_id, "created": created, "existing": 0,
+            "reprint": [], "added": created, "removed": 0, "invalidated": []}
 
 
 def units_for_plan(plan_id: str) -> List[Dict[str, Any]]:
