@@ -1545,3 +1545,6 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .et-plik:hover { border-color: var(--accent); color: var(--accent); }
 .et-plik input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 @media (max-width: 1440px) { .et-uklad { grid-template-columns: 230px minmax(0, 1fr) 300px; } }
+.pp-halal { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; margin: 8px 0; }
+.pp-etykiety h4 .tag { margin-left: 8px; vertical-align: 1px; }
+.pp-brak-szablonu { margin: 0 0 6px; color: var(--warn-ink); font-size: var(--fs-sm); }
