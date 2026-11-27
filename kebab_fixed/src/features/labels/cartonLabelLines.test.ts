@@ -156,3 +156,46 @@ describe('kartka — brzegi', () => {
     expect(wej.map(x => x.kgPerUnit)).toEqual([20, 80])
   })
 })
+
+describe('kartka — kolejność rodzajów (właściciel 27.11.2026, ZAGROS)', () => {
+  // „Musi być kolejność rodzaj, a potem kg… zawsze kurczak na górze, potem
+  // kurczak sebzeli lub filet, potem yaprak i kiyma".
+  it('rodzaj po rodzaju, w rodzaju wagi malejąco', () => {
+    expect(buildCartonLabelContent([
+      p(2, 50, 'kirmizi sebzeli'),
+      p(7, 25, 'beyaz'),
+      p(1, 20, 'KEBAB YAPRAK'),
+      p(1, 15, 'KEBAB YAPRAK'),
+      p(1, 15, 'KEBAB KIYMA'),
+      p(10, 10, 'KEBAB YAPRAK'),
+      p(1, 10, 'KEBAB KIYMA'),
+    ]).lines).toEqual([
+      '7 X 25KG beyaz',
+      '2 X 50KG kirmizi sebzeli',
+      '1 X 20KG KEBAB YAPRAK',
+      '1 X 15KG KEBAB YAPRAK',
+      '10 X 10KG KEBAB YAPRAK',
+      '1 X 15KG KEBAB KIYMA',
+      '1 X 10KG KEBAB KIYMA',
+    ])
+  })
+
+  it('dwie receptury kurczaka nie przeplatają się wagami', () => {
+    expect(buildCartonLabelContent([
+      p(2, 20, 'KIRMIZI'), p(3, 40, 'BEYAZ AFIYET'), p(1, 10, 'KIRMIZI'),
+    ]).lines).toEqual(['2 X 20KG KIRMIZI', '1 X 10KG KIRMIZI', '3 X 40KG BEYAZ AFIYET'])
+  })
+
+  it('filet stoi z sebzeli — po kurczaku, przed yaprakiem', () => {
+    expect(buildCartonLabelContent([
+      p(1, 30, 'YAPRAK'), p(2, 40, 'KEBAB FILET'), p(3, 20, 'KIRMIZI'),
+    ]).lines).toEqual(['3 X 20KG KIRMIZI', '2 X 40KG KEBAB FILET', '1 X 30KG YAPRAK'])
+  })
+
+  it('rodzaj produktu też wskazuje grupę, gdy receptura jej nie mówi', () => {
+    expect(buildCartonLabelContent([
+      { qty: 1, kgPerUnit: 30, recipeName: 'VATAN', productTypeName: 'KEBAB KIYMA' },
+      { qty: 2, kgPerUnit: 20, recipeName: 'KIRMIZI', productTypeName: 'KEBAB UDO 100%' },
+    ]).lines).toEqual(['2 X 20KG KIRMIZI', '1 X 30KG VATAN'])
+  })
+})

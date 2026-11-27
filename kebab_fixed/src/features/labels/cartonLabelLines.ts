@@ -31,6 +31,9 @@ export interface CartonLabelItem {
   kgPerUnit: number
   recipeName?: string | null
   packagingName?: string | null
+  /** Rodzaj produktu (np. „KEBAB KIYMA") — pomaga ustawić grupę, gdy nazwa
+   *  receptury jej nie mówi. Opcjonalny: bez niego liczy się receptura. */
+  productTypeName?: string | null
 }
 
 /** Treść kartki: receptura jako nagłówek (gdy jedna na całą kartkę) i pozycje. */
@@ -56,14 +59,31 @@ function dopisekTulei(packagingName: string): string {
 }
 
 /**
+ * Grupa rodzaju na kartce (właściciel 27.11.2026, kartka ZAGROS): „zawsze
+ * kurczak na górze, potem kurczak sebzeli lub filet, potem yaprak i kiyma".
+ * Zakład nie ma pola „grupa" w kartotece, więc grupę czytamy z nazw rodzaju
+ * i receptury. Wszystko, co nie jest sebzeli/filetem/yaprakiem/kiymą, to kurczak.
+ */
+export function grupaRodzaju(nazwa: string): number {
+  const n = (nazwa ?? '').toLocaleUpperCase('tr').replace(/İ/g, 'I')
+  if (/K[IY]YMA|KIJMA/.test(n)) return 3
+  if (/YAPRAK/.test(n)) return 2
+  if (/SEBZEL|FILET/.test(n)) return 1
+  return 0
+}
+
+/**
  * Treść kartki dla podanych pozycji.
  *
  * Nie rusza tablicy wejściowej.
  */
 export function buildCartonLabelContent(items: CartonLabelItem[]): CartonLabelContent {
   const grupy = new Map<string, {
-    kgPerUnit: number; qty: number; receptura: string; tuleja: string
+    kgPerUnit: number; qty: number; receptura: string; tuleja: string; rodzaj: number
   }>()
+  // Kolejność receptur w grupie rodzaju = kolejność pierwszego pojawienia się
+  // (paleta przychodzi już ułożona jak zamówienie, `orderLineSort`).
+  const kolejnoscReceptur = new Map<string, number>()
 
   for (const it of items) {
     const kg = Number(it.kgPerUnit) || 0
@@ -73,12 +93,21 @@ export function buildCartonLabelContent(items: CartonLabelItem[]): CartonLabelCo
     const receptura = (it.recipeName ?? '').trim()
     const tuleja = dopisekTulei((it.packagingName ?? '').trim())
     const klucz = `${receptura}|${kg}|${tuleja}`
+    if (!kolejnoscReceptur.has(receptura)) kolejnoscReceptur.set(receptura, kolejnoscReceptur.size)
     const grupa = grupy.get(klucz)
     if (grupa) grupa.qty += Number(it.qty) || 0
-    else grupy.set(klucz, { kgPerUnit: kg, qty: Number(it.qty) || 0, receptura, tuleja })
+    else grupy.set(klucz, {
+      kgPerUnit: kg, qty: Number(it.qty) || 0, receptura, tuleja,
+      rodzaj: grupaRodzaju(`${it.productTypeName ?? ''} ${receptura}`),
+    })
   }
 
-  const pozycje = [...grupy.values()].sort((a, b) => b.kgPerUnit - a.kgPerUnit)
+  // Rodzaj, potem receptura, potem kilogramy malejąco — wcześniej same
+  // kilogramy i receptury przeplatały się na kartce („misz masz", 27.11.2026).
+  const pozycje = [...grupy.values()].sort((a, b) =>
+    a.rodzaj - b.rodzaj
+    || (kolejnoscReceptur.get(a.receptura) ?? 0) - (kolejnoscReceptur.get(b.receptura) ?? 0)
+    || b.kgPerUnit - a.kgPerUnit)
   if (!pozycje.length) return { recipeHeader: null, lines: [] }
 
   // Nagłówek należy się tylko recepturze, która obowiązuje CAŁĄ kartkę.
