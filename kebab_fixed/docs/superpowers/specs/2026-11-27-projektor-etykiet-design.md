@@ -38,7 +38,7 @@ UI ma być zrobione profesjonalnie i ze smakiem.
   rejestr wydruków. Zebra — prosto na drukarkę, jak dziś.
 - Rolki: kebaby 100 × 150, ćwiartka/surowiec 80 × 100 (projektor obsługuje
   kebaby; rozmiar szablonu Zebry wynika z importu).
-- 7 obecnych szablonów przenieść automatycznie.
+- **Bez migracji** starych szablonów (27.11: „zrobię sobie od nowa w PROTRIMA”).
 - Wdrożenie dopiero po akceptacji zrzutów, razem z 79971e04.
 
 ## Cele
@@ -50,8 +50,7 @@ UI ma być zrobione profesjonalnie i ze smakiem.
 3. Druk z planu (okno „Etykiety sztuk”): każda pozycja dobiera swój szablon;
    A4 → jeden PDF przez okno druku; Zebra → seria ZPL; sztuki oznaczone jako
    wydrukowane dopiero po udanym druku.
-4. Migracja 7 istniejących szablonów; stare strony etykiet w MES tylko do
-   podglądu z odesłaniem do PROTRIMA.
+4. Stare strony etykiet w MES tylko do podglądu z odesłaniem do PROTRIMA.
 
 ## Poza zakresem (non-goals)
 
@@ -98,8 +97,8 @@ UI ma być zrobione profesjonalnie i ze smakiem.
   pracy, ale stary model danych (klient po nazwie, % strony, brak rodzaju).
 - **B. Od zera, przenosząc sprawdzone zasady (WYBRANE przez właściciela)** —
   nowy model w mm, klient po id, rodzaj w przypisaniu, jeden projektor dla A4 i
-  Zebry; ryzyko zepsucia druku PDF ograniczone testem zgodności: migrowany
-  szablon musi dać w nowym silniku te same pozycje pól (±0,2 mm) co stary.
+  Zebry; stary druk PDF zostaje nietknięty dla starych planów, nowe szablony
+  właściciel zakłada sam.
 - C. Nowy projektor tylko dla Zebry — odrzucony (PDF zostałby w starym oknie).
 
 ## Projekt
@@ -198,20 +197,9 @@ Strony `LabelTemplateSetupPage`, `ZebraDesignerPage`, `ZebraLabelEditorPage`:
 tylko podgląd z komunikatem „Etykiety projektuje się w PROTRIMA”. `LabelPrintPage`
 dalej drukuje stare szablony (dla planów sprzed wdrożenia).
 
-### Migracja
-
-Jednorazowo (znacznik w `sequences`): każdy `label_templates` → `label_designs`:
-- klient: id z `clients` po `name`/`display_name`; brak dopasowania → szablon
-  nieaktywny z adnotacją;
-- `overlay` z PDF → `print_mode='a4'`, pola %→mm (x·210/100, y·297/100), size
-  pt bez zmian, QR mm, sloty, kalibracja 1:1;
-- `zpl` (Vatan) → `print_mode='zebra'` jeśli tło da się wyciągnąć, inaczej
-  nieaktywny „do sprawdzenia”; `zebra_label_designs` (bez klienta) → nieaktywny.
-Test zgodności: dla każdego migrowanego szablonu A4 nowy silnik umieszcza pola
-w tych samych miejscach co stary (porównanie współrzędnych drawText/drawImage
-±0,2 mm na danych przykładowych).
-
 ## Co zostawiam wykonawcy
+
+Projekt zatwierdzony przez właściciela 27.11.2026 (bez migracji).
 
 Szczegóły UI w granicach standardu PROTRIMA (zrzuty do akceptacji przed
 wydaniem), nazwy komponentów, podział plików, dokładna lista komend EPL do
