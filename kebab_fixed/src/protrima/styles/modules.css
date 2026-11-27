@@ -1412,3 +1412,5 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .pp-plan.sel { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .pp-zam-l .l1, .pp-zam-l .l2, .pp-plan .l1, .pp-plan .l2 { display: flex; gap: 6px; align-items: baseline; font-size: var(--fs-sm); }
 .pp-pad { padding: 8px 2px; }
+.pp-etykiety section { margin-top: 10px; }
+.pp-etykiety h4 { margin: 0 0 4px; font-size: var(--fs-sm); color: var(--ink-2); text-transform: none; }

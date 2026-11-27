@@ -11,6 +11,8 @@ const pt = vi.hoisted(() => ({ list: vi.fn() }))
 const pkg = vi.hoisted(() => ({ list: vi.fn() }))
 const orders = vi.hoisted(() => ({ list: vi.fn(), productionProgress: vi.fn() }))
 const units = vi.hoisted(() => ({ generateFromPlanLine: vi.fn(), forPlan: vi.fn(), markLabelsPrinted: vi.fn() }))
+const druk = vi.hoisted(() => ({ drukujEtykiety: vi.fn(), opisBledu: vi.fn(async (e: unknown) => (e instanceof Error ? e.message : String(e))) }))
+vi.mock('../../drukarka/drukarka', () => ({ ...druk, ROLKA_ETYKIET: '100x150' }))
 vi.mock('@/lib/api', async (orig) => ({
   ...(await orig() as object), productionPlansApi: plans, seasonedPalletsApi: pallets, recipesApi: rec, productTypesApi: pt,
   packagingApi: pkg, clientOrdersApi: orders, finishedUnitsApi: units,
@@ -38,7 +40,7 @@ describe('Plan produkcji — ekran', () => {
   afterEach(cleanup)
   beforeEach(() => {
     nr = 40
-    ;[...Object.values(plans), ...Object.values(pallets), rec.list, pt.list, pkg.list, ...Object.values(orders), ...Object.values(units), cmds].forEach(f => f.mockReset())
+    ;[druk.drukujEtykiety, ...Object.values(plans), ...Object.values(pallets), rec.list, pt.list, pkg.list, ...Object.values(orders), ...Object.values(units), cmds].forEach(f => f.mockReset())
     P = [
       pal({ id: 'k1', palletNo: 57, kgWeighed: 24, isRemainder: true, batchNo: '724', mixedAt: temu(26.5), parentPalletNo: 41 }),
       pal({ id: 'p41', palletNo: 41, kgWeighed: 598 }),
@@ -126,5 +128,81 @@ describe('Plan produkcji — ekran', () => {
     await React.act(async () => { await cmd('save').run() })
     await waitFor(() => expect(plans.create).toHaveBeenCalled())
     expect(plans.create.mock.calls[0][0].lines[0].palletIds).toEqual(['u1', 'f1'])
+  })
+
+  const planDnia = (status: string, zm: Record<string, unknown> = {}) => ({
+    id: 'pl1', planNo: 'PROD/28/11/26', planDate: jutro, status, summary: { units: 0, labelsPrinted: 0, pallets: 2, palletsTaken: 0, palletsReturned: 0, balanceReady: false },
+    lines: [
+      { id: 'l2', position: 2, qty: 15, kgPerUnit: 40, recipeId: 'kir', productTypeId: 'udo', batchAllocation: {}, pallets: [P[2]] },
+      { id: 'l1', position: 1, qty: 14, kgPerUnit: 40, recipeId: 'kir', productTypeId: 'udo', batchAllocation: {}, pallets: [P[1]] },
+    ], ...zm,
+  })
+  const SZTUKI = [
+    { id: 'u1', qrCode: 'U|u1', qrSeq: 1, planLineId: 'l1', linePosition: 1, batchNo: '724', recipeName: 'KIRMIZI', productTypeName: 'KEBAB UDO 100%', packagingName: '', clientName: 'YALCIN', weightKg: 40, producedDate: jutro, status: 'planned', labelPrintedAt: null },
+    { id: 'u2', qrCode: 'U|u2', qrSeq: 2, planLineId: 'l1', linePosition: 1, batchNo: '724', recipeName: 'KIRMIZI', productTypeName: 'KEBAB UDO 100%', packagingName: '', clientName: 'YALCIN', weightKg: 40, producedDate: jutro, status: 'planned', labelPrintedAt: null },
+  ]
+
+  it('wyślij do produkcji aktywuje plan i generuje sztuki pozycja po pozycji', async () => {
+    plans.list.mockResolvedValue([planDnia('draft')])
+    plans.updateStatus.mockResolvedValue(undefined)
+    units.generateFromPlanLine.mockResolvedValue({ created: 1, existing: 0 })
+    units.forPlan.mockResolvedValue([])
+    mount()
+    await screen.findByText('PROD/28/11/26')
+    await React.act(async () => { await cmd('send').run() })
+    expect(plans.updateStatus).toHaveBeenCalledWith('pl1', 'active')
+    expect(units.generateFromPlanLine.mock.calls.map(c => c[0])).toEqual(['l1', 'l2'])
+    expect(await screen.findByRole('dialog', { name: /Etykiety sztuk/ })).toBeTruthy()
+  })
+
+  it('drukuj niewydrukowane oznacza wydruk dopiero po sukcesie', async () => {
+    plans.list.mockResolvedValue([planDnia('active')])
+    units.forPlan.mockResolvedValue(SZTUKI)
+    druk.drukujEtykiety.mockResolvedValue(undefined)
+    units.markLabelsPrinted.mockResolvedValue({ marked: 2 })
+    mount()
+    await screen.findByText('PROD/28/11/26')
+    await React.act(async () => { cmd('labels').run() })
+    fireEvent.click(await screen.findByRole('button', { name: /Drukuj niewydrukowane \(2\)/ }))
+    await waitFor(() => expect(units.markLabelsPrinted).toHaveBeenCalledWith(['u1', 'u2']))
+    const [zpl, rolka] = druk.drukujEtykiety.mock.calls[0]
+    expect(zpl).toHaveLength(2)
+    expect(zpl[1]).toContain('2/2')
+    expect(rolka).toBe('100x150')
+  })
+
+  it('błąd drukarki nie oznacza żadnej sztuki', async () => {
+    plans.list.mockResolvedValue([planDnia('active')])
+    units.forPlan.mockResolvedValue(SZTUKI)
+    druk.drukujEtykiety.mockRejectedValue(new Error('Drukarka: brak papieru'))
+    mount()
+    await screen.findByText('PROD/28/11/26')
+    await React.act(async () => { cmd('labels').run() })
+    fireEvent.click(await screen.findByRole('button', { name: /Drukuj niewydrukowane/ }))
+    expect((await screen.findByRole('alert')).textContent).toContain('brak papieru')
+    expect(units.markLabelsPrinted).not.toHaveBeenCalled()
+  })
+
+  it('zmiana partii po wydruku pokazuje sztuki do przedruku', async () => {
+    plans.list.mockResolvedValue([planDnia('active')])
+    plans.update.mockResolvedValue({ id: 'pl1' })
+    units.generateFromPlanLine.mockImplementation((id: string) => Promise.resolve(id === 'l1' ? { reprint: ['u1', 'u2'] } : { reprint: [] }))
+    units.forPlan.mockResolvedValue(SZTUKI)
+    mount()
+    const qty = await screen.findByLabelText('Sztuk, pozycja 1')
+    fireEvent.change(qty, { target: { value: '13' } })
+    await React.act(async () => { await cmd('save').run() })
+    expect(await screen.findByText(/Zmieniła się partia 2 sztuk/)).toBeTruthy()
+  })
+
+  it('końcówki bez etykiety drukują się i znikają z listy', async () => {
+    druk.drukujEtykiety.mockResolvedValue(undefined)
+    pallets.markLabelsPrinted.mockImplementation(async (ids: string[]) => { P = P.map(p => ids.includes(p.id as string) ? { ...p, labelPrintedAt: '2026-11-27T18:00:00Z' } : p); return { marked: ids.length } })
+    mount()
+    fireEvent.click(await screen.findByRole('tab', { name: /Do oznaczenia/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Drukuj etykiety \(4\)/ }))
+    await waitFor(() => expect(pallets.markLabelsPrinted).toHaveBeenCalled())
+    expect(druk.drukujEtykiety.mock.calls[0][0][0]).toContain('SP|')
+    expect(await screen.findByText(/Wszystkie palety w chłodni mają etykiety/)).toBeTruthy()
   })
 })

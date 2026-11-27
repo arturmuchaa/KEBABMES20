@@ -1,15 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, ClipboardList, ListChecks, Plus, RefreshCw, Save, ShoppingCart, Boxes, Wand2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ClipboardList, ListChecks, Plus, RefreshCw, Save, Send, ShoppingCart, Boxes, Tags, Wand2, X } from 'lucide-react'
 import { useApp, CommandBar, type Cmd } from '../../shell/context'
 import { FlagIcon } from '../../ui/Glyphs'
 import { Pusto } from '../../ui/Pusto'
 import { Wybor, type WyborItem } from '../../ui/Wybor'
 import { useApi } from '@/hooks/useApi'
-import { clientOrdersApi, packagingApi, productionPlansApi, productTypesApi, recipesApi, seasonedPalletsApi, type PlanSummary } from '@/lib/api'
+import { clientOrdersApi, finishedUnitsApi, packagingApi, productionPlansApi, productTypesApi, recipesApi, seasonedPalletsApi, type PlanSummary } from '@/lib/api'
 import { lineComponents } from '@/features/production-plan/planComponents'
 import { pullableLines, type OrderLite, type ProgressByLine } from '@/features/production-plan/pullFromOrders'
 import { dataPl, dzisIso, nazwaDnia, przesunDzien } from '../plan-masowania/model'
 import { PanelPalet } from './PanelPalet'
+import { OknoEtykiet } from './OknoEtykiet'
+import { KoncowkiDoOznaczenia } from './KoncowkiDoOznaczenia'
 import {
   ETYKIETA_STANU, bledyPozycji, doDto, podpowiedzPalet, prognozaKoncowki, stanPlanu, sumaKoncowek, sztukZPalety,
   type Paleta, type Pozycja, type Skladnik,
@@ -25,7 +27,8 @@ interface PlanSerwera {
   lines: Array<Record<string, any> & { pallets: Paleta[] }>
 }
 
-type Zakladka = 'palety' | 'zamowienia' | 'plany'
+type Zakladka = 'palety' | 'oznaczenie' | 'zamowienia' | 'plany'
+type Okno = { rodzaj: 'etykiety'; przedruk?: string[] } | null
 
 function zPlanu(plan: PlanSerwera | null): Pozycja[] {
   return (plan?.lines ?? []).map(l => {
@@ -89,6 +92,8 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
   const [pokazBledy, setPokazBledy] = useState(false)
   const [zapisuje, setZapisuje] = useState(false)
   const [postep, setPostep] = useState<ProgressByLine>({})
+  const [okno, setOkno] = useState<Okno>(null)
+  const [wysyla, setWysyla] = useState(false)
 
   const recepturyRes = useApi(() => recipesApi.list())
   const rodzajeRes = useApi(() => productTypesApi.list())
@@ -102,7 +107,7 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
   const dzienRef = useRef(dzien); dzienRef.current = dzien
   const zmieniony = odcisk(pozycje) !== zapisany
 
-  const wczytaj = useCallback(async (d: string, wybierz?: string | null) => {
+  const wczytaj = useCallback(async (d: string, wybierz?: string | null): Promise<PlanSerwera | null> => {
     try {
       const [ps, pal] = await Promise.all([productionPlansApi.list(), seasonedPalletsApi.list('in_cold')])
       if (dzienRef.current !== d) return
@@ -119,7 +124,8 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
       zPlanuPal.forEach(p => { if (!mapa.has(p.id)) mapa.set(p.id, p) })
       setPalety([...mapa.values()])
       setBlad(null)
-    } catch (e) { setBlad(e instanceof Error ? e.message : 'Nie udało się pobrać planu') } finally { setWczytano(true) }
+      return plan
+    } catch (e) { setBlad(e instanceof Error ? e.message : 'Nie udało się pobrać planu'); return null } finally { setWczytano(true) }
   }, [])
   useEffect(() => { setWczytano(false); setSel(null); setPokazBledy(false); setBladZapisu(null); void wczytaj(dzien) }, [dzien, wczytaj])
 
@@ -211,12 +217,36 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
     try {
       const dto = doDto(doZapisu, dzien)
       const wynik = plan ? await productionPlansApi.update(plan.id, dto) : await productionPlansApi.create(dto)
-      await wczytaj(dzien, (wynik as { id?: string })?.id ?? plan?.id)
+      const nowy = await wczytaj(dzien, (wynik as { id?: string })?.id ?? plan?.id)
       setPokazBledy(false)
+      // Plan już wysłany: sztuki idą za planem — nowa partia albo ilość → etykiety do przedruku.
+      if (nowy?.status === 'active') {
+        const przedruk: string[] = []
+        let doDruku = 0
+        for (const l of [...nowy.lines].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))) {
+          const g = await finishedUnitsApi.generateFromPlanLine(l.id)
+          przedruk.push(...(g.reprint ?? []))
+          doDruku += (g.added ?? 0) + (g.created ?? 0)
+        }
+        if (przedruk.length || doDruku) setOkno({ rodzaj: 'etykiety', przedruk })
+      }
       app.toast({ kind: 'ok', title: `Plan produkcji na ${nazwaDnia(dzien, dzis)} zapisany`, detail: `${doZapisu.length} poz. · ${fmt(razem.szt)} szt. · ${fmt(razem.kg)} kg` })
       return true
     } catch (e) { setBladZapisu(e instanceof Error ? e.message : 'Nie udało się zapisać planu'); return false } finally { setZapisuje(false) }
   }, [zapisuje, tylkoPodglad, pozycje, bledy, dzien, plan, wczytaj, app, dzis, razem])
+
+  const wyslij = useCallback(async () => {
+    if (!plan || plan.status !== 'draft' || zmieniony || wysyla) return
+    setWysyla(true); setBladZapisu(null)
+    try {
+      await productionPlansApi.updateStatus(plan.id, 'active')
+      // Sztuki z QR w kolejności pozycji i palet — w tej kolejności drukują się etykiety.
+      for (const l of [...plan.lines].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))) await finishedUnitsApi.generateFromPlanLine(l.id)
+      await wczytaj(dzien, plan.id)
+      app.toast({ kind: 'ok', title: `Plan ${plan.planNo} wysłany do produkcji`, detail: 'mięso zarezerwowane, sztuki gotowe do druku etykiet' })
+      setOkno({ rodzaj: 'etykiety' })
+    } catch (e) { setBladZapisu(e instanceof Error ? e.message : 'Nie udało się wysłać planu') } finally { setWysyla(false) }
+  }, [plan, zmieniony, wysyla, wczytaj, dzien, app])
 
   const zmienDzien = (cel: string) => {
     if (cel === dzien) return
@@ -233,8 +263,12 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
       { id: 'podpowiedz', group: 2, label: 'Podpowiedz palety', icon: <Wand2 size={17} />, disabled: !pozycje.some(p => !p.palety.length && p.recipeId),
         tip: 'Dla pozycji bez palet: końcówki, potem palety leżące najdłużej', run: podpowiedzWszystkie },
     ] as Cmd[]),
+    { id: 'send', group: 3, label: 'Wyślij do produkcji', icon: <Send size={17} />, disabled: !plan || plan.status !== 'draft' || zmieniony || wysyla,
+      tip: !plan ? 'najpierw zapisz plan' : zmieniony ? 'najpierw zapisz zmiany' : plan.status !== 'draft' ? 'plan jest już w produkcji' : 'Rezerwuje mięso i tworzy sztuki z QR — potem druk etykiet', run: () => void wyslij() },
+    { id: 'labels', group: 3, label: 'Etykiety sztuk', icon: <Tags size={17} />, disabled: !plan || plan.status === 'draft',
+      tip: !plan || plan.status === 'draft' ? 'etykiety drukuje się po wysłaniu planu do produkcji' : undefined, run: () => setOkno({ rodzaj: 'etykiety' }) },
     { id: 'reload', group: 4, label: 'Odśwież', icon: <RefreshCw size={17} />, opt: true, run: () => void wczytaj(dzien, planId) },
-  ], [tylkoPodglad, zmieniony, zapisuje, pierwszyBlad, bledy, zapisz, dodajPusta, pozycje, wczytaj, dzien, planId]) // eslint-disable-line react-hooks/exhaustive-deps
+  ], [tylkoPodglad, zmieniony, zapisuje, pierwszyBlad, bledy, zapisz, dodajPusta, pozycje, wczytaj, dzien, planId, plan, wysyla, wyslij]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (active) setCmds(cmds) }, [active, cmds, setCmds])
   useEffect(() => {
     if (!active) return
@@ -339,12 +373,15 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
         <aside className="pm-panel" aria-label="Palety i zamówienia">
           <div className="dock-tabs" role="tablist">
             <button role="tab" className="dock-tab" aria-selected={zakladka === 'palety'} onClick={() => setZakladka('palety')}><Boxes size={14} />Palety w chłodni</button>
+            <button role="tab" className="dock-tab" aria-selected={zakladka === 'oznaczenie'} onClick={() => setZakladka('oznaczenie')}><Tags size={14} />Do oznaczenia
+              {palety.some(p => p.status === 'in_cold' && !p.labelPrintedAt) && <span className="badge warn">{palety.filter(p => p.status === 'in_cold' && !p.labelPrintedAt).length}</span>}</button>
             <button role="tab" className="dock-tab" aria-selected={zakladka === 'zamowienia'} onClick={() => setZakladka('zamowienia')}><ShoppingCart size={14} />Z zamówień</button>
             <button role="tab" className="dock-tab" aria-selected={zakladka === 'plany'} onClick={() => setZakladka('plany')}><ListChecks size={14} />Plany</button>
           </div>
           <div className="pm-panel-body" role="tabpanel">
             {zakladka === 'palety' && <PanelPalet palety={palety} wybrana={wybrana} sklad={wybrana ? sklad(wybrana) : []} nazwyPlanow={nazwyPlanow} biezacyPlanId={planId}
               tylkoPodglad={tylkoPodglad} onPrzelacz={przelacz} onPodpowiedz={() => podpowiedz(wybrana)} onZKoncowek={zKoncowek} />}
+            {zakladka === 'oznaczenie' && <KoncowkiDoOznaczenia palety={palety} onWydrukowano={() => void wczytaj(dzien, planId)} />}
             {zakladka === 'zamowienia' && <div className="pp-zam">
               {!doWciagniecia.length && <Pusto ikona={<ShoppingCart size={20} />} tytul="Nic do wciągnięcia">Potwierdzone zamówienia są już w planie albo zrobione.</Pusto>}
               {doWciagniecia.map(l => (
@@ -369,6 +406,7 @@ export function PlanProdukcjiModule({ active, setCtx, setCmds }: { active: boole
           </div>
         </aside>
       </div>
+      {okno?.rodzaj === 'etykiety' && plan && <OknoEtykiet planId={plan.id} planNo={plan.planNo} przedruk={okno.przedruk} onClose={() => { setOkno(null); void wczytaj(dzien, plan.id) }} />}
     </>
   )
 }
