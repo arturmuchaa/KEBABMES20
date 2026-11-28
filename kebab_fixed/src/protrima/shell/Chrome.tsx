@@ -156,7 +156,7 @@ export function MainToolbar({ items }: { items: ToolItem[] }) {
 }
 
 // ─── Karty okien ──────────────────────────────────────────────────────────
-export function TabStrip({ tabs, active, onActivate, onClose }: { tabs: WTab[]; active: string; onActivate: (id: string) => void; onClose: (id: string) => void }) {
+export function TabStrip({ tabs, active, onActivate, onClose, onMenu }: { tabs: WTab[]; active: string; onActivate: (id: string) => void; onClose: (id: string) => void; onMenu?: (id: string, el: Element) => void }) {
   return (
     <div className="tabstrip" role="tablist" aria-label="Otwarte okna">
       {tabs.map((t, i) => {
@@ -166,7 +166,8 @@ export function TabStrip({ tabs, active, onActivate, onClose }: { tabs: WTab[]; 
           <div key={t.id} role="tab" tabIndex={0} aria-selected={t.id === active} className={`wtab${closable ? '' : ' pinned'}`}
             onClick={() => onActivate(t.id)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onActivate(t.id) }}
             onAuxClick={e => { if (e.button === 1 && closable) onClose(t.id) }}
-            data-tip={`${t.title}${i < 9 ? `  ·  Ctrl+${i + 1}` : ''}${closable ? '\nZamknij: Ctrl+W lub środkowy przycisk' : ''}`}>
+            onContextMenu={e => { if (!onMenu) return; e.preventDefault(); onMenu(t.id, e.currentTarget) }}
+            data-tip={`${t.title}${i < 9 ? `  ·  Ctrl+${i + 1}` : ''}${closable ? '\nZamknij: Ctrl+W lub środkowy przycisk' : ''}\nPrawy przycisk: zamknij pozostałe / wszystkie`}>
             {Icon && <Icon size={15} />}
             <span className="t">{t.title}</span>
             {closable && <button className="close" aria-label={`Zamknij ${t.title}`} onClick={e => { e.stopPropagation(); onClose(t.id) }}><X size={13} /></button>}

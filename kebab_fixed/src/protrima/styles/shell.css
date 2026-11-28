@@ -345,3 +345,6 @@
 .statusbar .conn.ok i { background: var(--ok); }
 .statusbar .conn.err { color: var(--crit-ink, var(--crit)); font-weight: 600; }
 .statusbar .conn.err i { background: var(--crit); }
+
+/* Okno „Zamknąć też okna edycji?” */
+.lista-kart { margin: 8px 0 0 18px; display: grid; gap: 4px; }

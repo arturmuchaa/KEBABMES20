@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { LayoutGrid, ShoppingCart, FilePlus2, Palette, Package, Printer, LogOut, XSquare, Search, Pencil, Copy, Keyboard, Info, RefreshCw, FileBarChart, Users, Clock, Car, UserCog, SlidersHorizontal, Wallet, BarChart3, Calculator, Thermometer, Layers, Archive, Tags, Plus, PackageOpen, ClipboardList, MoreHorizontal, FileText, Truck, type LucideIcon } from 'lucide-react'
 import { AppCtx, type AppApi, type Cmd, type MenuItem, type OrdersCmd, type PanelWybor, type Toast, Toasts, TooltipLayer, Dialog } from './shell/context'
 import { TitleBar, MenuBar, MainToolbar, TabStrip, Nav, StatusBar, type MenuDef, type ToolItem, type WTab } from './shell/Chrome'
+import { MenuKarty, OknoZamykania } from './shell/MenuKarty'
+import { doZamkniecia, poZamknieciu, type TrybZamykania } from './shell/zamykanieKart'
 import { CommandPalette } from './shell/CommandPalette'
 import { useAktualizacja } from './shell/aktualizacja'
 import { ZmianaHasla } from './shell/ZmianaHasla'
@@ -137,7 +139,11 @@ function Shell() {
     { id: 'magazyn-wg', kind: 'module', key: 'magazyn-wg', title: 'Wyrób gotowy', icon: Package },
     { id: 'przyjecia', kind: 'module', key: 'przyjecia', title: 'Przyjęcia surowca', icon: PackageOpen },
   ])
+  const tabsRef = useRef(tabs)
+  tabsRef.current = tabs
   const [active, setActive] = useState('pulpit')
+  const activeRef = useRef(active)
+  activeRef.current = active
   const [ordersCmd, setOrdersCmd] = useState<OrdersCmd>({ n: 0 })
   const [stockCmd, setStockCmd] = useState<{ n: number; select?: string; dodaj?: boolean }>({ n: 0 })
   const [recCmd, setRecCmd] = useState<{ n: number; select?: string; zawieszki?: boolean }>({ n: 0 })
@@ -158,6 +164,23 @@ function Shell() {
       return next
     })
   }, [])
+  // Zamykanie hurtem (prawy przycisk na karcie, Ctrl+Shift+W): Pulpit zostaje zawsze,
+  // a o karty edycji (niezapisane zmiany) najpierw pytamy.
+  const closeMany = useCallback((ids: string[]) => {
+    setTabs(ts => {
+      const r = poZamknieciu(ts, ids, activeRef.current)
+      setActive(r.active)
+      return r.tabs
+    })
+  }, [])
+  const [menuKarty, setMenuKarty] = useState<{ id: string; el: Element } | null>(null)
+  const [oknoZamykania, setOknoZamykania] = useState<{ zwykle: string[]; edycja: WTab[] } | null>(null)
+  const zamknijHurtem = useCallback((tryb: TrybZamykania, kartaId: string) => {
+    if (tryb === 'jedna') { closeTab(kartaId); return }
+    const r = doZamkniecia(tabsRef.current, tryb, kartaId)
+    if (r.edycja.length) setOknoZamykania(r)
+    else closeMany(r.zwykle)
+  }, [closeTab, closeMany])
   const openModule = useCallback((key: string) => {
     if (key === 'pulpit') { setActive('pulpit'); return }
     // Moduły administratora ukryte w menu i palecie; skrót z innego miejsca też ich nie otworzy.
@@ -279,6 +302,7 @@ function Shell() {
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); setPalette(p => !p) }
       else if (mod && e.key.toLowerCase() === 'b') { e.preventDefault(); toggleNav() }
       else if (mod && e.key.toLowerCase() === 'n' && !e.shiftKey) { e.preventDefault(); if (/^(przyjecia|new-rec:|edit-rec:)/.test(active)) newReception(); else if (active === 'receptury' || active === 'plan-masowania' || active === 'plan-produkcji' || active === 'etykiety') runCmd('new'); else if (active === 'magazyn-wg') runCmd('dodaj'); else newOrder() }
+      else if (mod && e.shiftKey && e.key.toLowerCase() === 'w') { e.preventDefault(); zamknijHurtem('wszystkie', active) }
       else if (mod && e.key.toLowerCase() === 'w') { e.preventDefault(); closeTab(active) }
       else if (mod && e.key.toLowerCase() === 'p') { e.preventDefault(); const pc = modCmds.find(c => c.id === 'print'); const first = pc?.menu?.find(m => m.onSelect && !m.disabled); if (first?.onSelect) first.onSelect(); else if (!runCmd('print')) demo('Drukowanie') }
       else if (mod && e.key.toLowerCase() === 'd' && !inField) { e.preventDefault(); runCmd('duplicate') }
@@ -288,7 +312,7 @@ function Shell() {
     }
     window.addEventListener('keydown', key)
     return () => window.removeEventListener('keydown', key)
-  }, [active, tabs, toggleNav, newOrder, newReception, closeTab, runCmd, demo, reload, modCmds])
+  }, [active, tabs, toggleNav, newOrder, newReception, closeTab, zamknijHurtem, runCmd, demo, reload, modCmds])
 
   const setStatusCtx = useCallback((tabId: string, node: React.ReactNode) => setCtx(c => ({ ...c, [tabId]: node })), [])
   const setTabCmds = useCallback((tabId: string, cmds: Cmd[]) => setCmdMap(m => ({ ...m, [tabId]: cmds })), [])
@@ -336,6 +360,8 @@ function Shell() {
       { label: 'Drukuj…', icon: <Printer size={15} />, kbd: 'Ctrl+P', onSelect: () => { if (!runCmd('print')) demo('Drukowanie') } },
       { sep: true },
       { label: 'Zamknij okno', icon: <XSquare size={15} />, kbd: 'Ctrl+W', disabled: active === 'pulpit', onSelect: () => closeTab(active) },
+      { label: 'Zamknij pozostałe okna', icon: <XSquare size={15} />, disabled: tabs.length <= (active === 'pulpit' ? 1 : 2), onSelect: () => zamknijHurtem('pozostale', active) },
+      { label: 'Zamknij wszystkie okna', icon: <XSquare size={15} />, kbd: 'Ctrl+Shift+W', disabled: tabs.length <= 1, onSelect: () => zamknijHurtem('wszystkie', active) },
       { label: 'Wyloguj', icon: <LogOut size={15} />, onSelect: () => { logout() } },
     ] },
     { key: 'edycja', label: 'Edycja', access: 'e', items: [
@@ -464,7 +490,7 @@ function Shell() {
       <MainToolbar items={toolItems} />
       <Nav current={currentKey} onOpen={openModule} badges={badges} collapsed={navCollapsed} onToggle={toggleNav} />
       <main className="main">
-        <TabStrip tabs={tabs} active={active} onActivate={setActive} onClose={closeTab} />
+        <TabStrip tabs={tabs} active={active} onActivate={setActive} onClose={closeTab} onMenu={(id, el) => setMenuKarty({ id, el })} />
         <div className="panes">
           {tabs.map(t => (
             <section key={t.id} className="tabpane" hidden={t.id !== active} aria-label={t.title}>{renderTab(t)}</section>
@@ -474,6 +500,9 @@ function Shell() {
       <StatusBar ctx={ctx[active]} density={density} onDensity={() => setDensityOverride(density === 'compact' ? 'comfortable' : 'compact')}
         nowaWersja={akt.wersja} onNowaWersja={() => setAktOkno(true)} />
       <TooltipLayer />
+      {menuKarty && <MenuKarty anchor={menuKarty.el} kartaId={menuKarty.id} onWybierz={tryb => zamknijHurtem(tryb, menuKarty.id)} onClose={() => setMenuKarty(null)} />}
+      {oknoZamykania && <OknoZamykania edycja={oknoZamykania.edycja} onClose={() => setOknoZamykania(null)}
+        onWybierz={d => { const z = oknoZamykania; setOknoZamykania(null); closeMany(d === 'wszystkie' ? [...z.zwykle, ...z.edycja.map(t => t.id)] : z.zwykle) }} />}
       <Toasts items={toasts} dismiss={id => setToasts(ts => ts.filter(t => t.id !== id))} />
       {palette && <CommandPalette orders={orders} stock={stock} modulDostepny={k => dostepnyDla(k, rola)} onClose={() => setPalette(false)} openOrder={openOrder} openModule={openModule}
         newOrder={newOrder} newReception={newReception} dodajWyrob={dodajWyrob} gotoStock={gotoStock} gotoOrders={gotoOrders} toggleTheme={toggleTheme} toggleNav={toggleNav} showShortcuts={() => setShortcuts(true)} />}
