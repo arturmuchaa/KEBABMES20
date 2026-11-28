@@ -92,6 +92,96 @@ def kursy_otwarte() -> List[Dict[str, Any]]:
     return wynik
 
 
+def zaladunek_na_zywo() -> List[Dict[str, Any]]:
+    """Pulpit PROTRIMA: auta, które się TERAZ ładują (spec 2026-11-28 §C).
+
+    Auto = ma przypisane zamówienia (`vehicle_loading_orders` — znikają po zamknięciu
+    kursu) i stoi na nim co najmniej jedna jednostka albo przypisanie jest z dziś (PL);
+    stare przypisania bez skanu nie trzymają panelu. Jednostka = paleta zamówienia albo
+    karton magazynowy powiązany z zamówieniem. „Komplet” = każda jednostka zamówienia
+    załadowana lub wysłana (dowolnym autem); pasek auta liczy tylko to auto.
+    """
+    from app.services.clients_service import client_short_name_sql
+    przyp = query_all(
+        f"""SELECT vlo.vehicle_id, vlo.order_id, vlo.position,
+                   ((vlo.created_at AT TIME ZONE 'Europe/Warsaw')::date
+                      = (now() AT TIME ZONE 'Europe/Warsaw')::date) AS dzis,
+                   v.name, v.plate, o.order_no, o.client_name, o.status AS order_status,
+                   COALESCE(o_cs.short_name, '') AS client_short_name
+              FROM vehicle_loading_orders vlo
+              JOIN vehicles v ON v.id = vlo.vehicle_id
+              JOIN client_orders o ON o.id = vlo.order_id
+              {client_short_name_sql('o')}
+             ORDER BY vlo.vehicle_id, vlo.position, vlo.created_at""")
+    if not przyp:
+        return []
+    zam = sorted({p["order_id"] for p in przyp})
+    jednostki = query_all(
+        """SELECT p.order_id, p.status, p.loaded_vehicle_id, p.loaded_at,
+                  COALESCE((SELECT SUM(pi.qty * COALESCE(l.kg_per_unit, 0)) FROM order_pallet_items pi
+                             JOIN client_order_lines l ON l.id = pi.order_line_id
+                            WHERE pi.pallet_id = p.id), 0)::float AS kg
+             FROM order_pallets p WHERE p.order_id = ANY(%(z)s)
+           UNION ALL
+           SELECT sc.linked_order_id,
+                  CASE WHEN sc.shipped_at IS NOT NULL THEN 'shipped'
+                       WHEN sc.loaded_vehicle_id IS NOT NULL THEN 'loaded' ELSE 'stock' END,
+                  sc.loaded_vehicle_id, sc.loaded_at,
+                  COALESCE((SELECT SUM(l.target_qty * l.kg_per_unit) FROM stock_carton_lines l
+                             WHERE l.carton_id = sc.id), 0)::float
+             FROM stock_cartons sc WHERE sc.linked_order_id = ANY(%(z)s)""",
+        {"z": zam})
+    po_zam: Dict[str, List[Dict[str, Any]]] = {}
+    for j in jednostki:
+        po_zam.setdefault(j["order_id"], []).append(j)
+
+    auta: Dict[str, Dict[str, Any]] = {}
+    for p in przyp:
+        vid = p["vehicle_id"]
+        a = auta.setdefault(vid, {
+            "vehicleId": vid, "name": p["name"] or "", "plate": p["plate"] or "",
+            "startedAt": None, "lastLoadedAt": None, "unitsLoaded": 0, "unitsToLoad": 0,
+            "kgLoaded": 0.0, "kgToLoad": 0.0, "orders": [], "_dzis": False})
+        a["_dzis"] = a["_dzis"] or bool(p["dzis"])
+        js = po_zam.get(p["order_id"], [])
+        tu = [j for j in js if j["status"] == "loaded" and j["loaded_vehicle_id"] == vid]
+        wyslane = [j for j in js if j["status"] == "shipped"]
+        for j in tu:
+            if j["loaded_at"] is not None:
+                if a["startedAt"] is None or j["loaded_at"] < a["startedAt"]:
+                    a["startedAt"] = j["loaded_at"]
+                if a["lastLoadedAt"] is None or j["loaded_at"] > a["lastLoadedAt"]:
+                    a["lastLoadedAt"] = j["loaded_at"]
+        kg_tu = sum(j["kg"] for j in tu)
+        kg_all = sum(j["kg"] for j in js)
+        kg_wysl = sum(j["kg"] for j in wyslane)
+        a["unitsLoaded"] += len(tu)
+        a["unitsToLoad"] += len(js) - len(wyslane)
+        a["kgLoaded"] += kg_tu
+        a["kgToLoad"] += kg_all - kg_wysl
+        a["orders"].append({
+            "orderId": p["order_id"], "orderNo": p["order_no"] or "",
+            "clientName": p["client_name"] or "", "clientShortName": p["client_short_name"] or "",
+            "position": p["position"], "unitsHere": len(tu), "unitsShippedBefore": len(wyslane),
+            "unitsTotal": len(js), "kgHere": round(kg_tu, 1), "kgTotal": round(kg_all, 1),
+            "complete": bool(js) and all(j["status"] in ("loaded", "shipped") for j in js),
+            "orderStatus": p["order_status"] or ""})
+
+    wynik = []
+    for a in auta.values():
+        dzis = a.pop("_dzis")
+        if a["unitsLoaded"] == 0 and not dzis:
+            continue
+        a["kgLoaded"] = round(a["kgLoaded"], 1)
+        a["kgToLoad"] = round(a["kgToLoad"], 1)
+        for k in ("startedAt", "lastLoadedAt"):
+            a[k] = a[k].isoformat() if a[k] is not None else None
+        wynik.append(a)
+    # Najdłużej ładujące się pierwsze; auta bez pierwszej palety na końcu.
+    wynik.sort(key=lambda a: (a["startedAt"] is None, a["startedAt"] or ""))
+    return wynik
+
+
 def zakoncz_kurs(vehicle_id: str, operator: str = "",
                  partial_confirmation: Optional[str] = None) -> Dict[str, Any]:
     """Zamknij kurs auta z biura — wszystkie zamówienia, których towar na nim stoi.

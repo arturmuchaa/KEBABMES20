@@ -55,6 +55,11 @@ def kursy_otwarte():
     return svc.kursy_otwarte()
 
 
+@router.get("/zaladunek-na-zywo")
+def zaladunek_na_zywo():
+    return svc.zaladunek_na_zywo()
+
+
 @router.post("/kursy/{vehicle_id}/zakoncz")
 def zakoncz_kurs(vehicle_id: str, body: ZakonczKurs, request: Request):
     return svc.zakoncz_kurs(vehicle_id, _operator(request), body.partial_confirmation)
