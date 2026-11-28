@@ -114,14 +114,12 @@ function Kafle({ s, onReczne }: { s: DeboningStats; onReczne: () => void }) {
       <Kafel k={nadwyzka ? 'Nadwyżka' : 'Ubytek'} v={proc(Math.abs(s.summary.missingPct))} s={`${kg(Math.abs(s.summary.missingKg))} `}
         d={nadwyzka ? null : delta(s.summary.missingPct, p?.missingPct, 'mniej', 'pp')}
         tip="Ćwiartka − (mięso + grzbiety + kości). Nadwyżka = więcej niż w dokumencie dostawcy" />
-      <Kafel k="Tempo" v={`${num(s.summary.kgPerHour)} kg/h`} s={`mięsa na osobogodzinę · ${ile(s.summary.headcount, 'osoba', 'osoby', 'osób')} `}
+      <Kafel k="Tempo" v={`${num(s.summary.kgPerHour)} kg/h`} s={`na osobogodzinę · ${ile(s.summary.headcount, 'osoba', 'osoby', 'osób')} `}
         d={delta(s.summary.kgPerHour, p?.kgPerHour, 'wiecej', '%')} />
-      <Kafel k="Ważenie" s={<>{s.weighing && s.weighing.autoPct != null ? 'mięso, grzbiety, kości ' : 'brak zapisu trybu '}</>}
-        d={s.weighing ? delta(s.weighing.autoPct, p?.autoPct, 'wiecej', 'pp') : null} tip="Udział kilogramów zważonych na wadze (bez nieznanych i korekt biura)">
-        {s.weighing
-          ? <button type="button" className={`v rs-link${s.weighing.manualCount ? ' warn-ink' : ''}`} onClick={onReczne}>{tekstZWagi(s.weighing)}</button>
-          : <span className="v">—</span>}
-      </Kafel>
+      <Kafel k="Z wagi" v={s.weighing?.autoPct != null ? proc(s.weighing.autoPct) : <span className="rs-v-s">tryb nieznany</span>}
+        s={s.weighing ? <button type="button" className={`rs-link${s.weighing.manualCount ? ' warn-ink strong' : ''}`} aria-label={tekstZWagi(s.weighing)} onClick={onReczne}>
+          {s.weighing.manualCount ? `${ile(s.weighing.manualCount, 'ważenie', 'ważenia', 'ważeń')} ręcznie` : 'wszystko z wagi'}</button> : 'brak zapisu trybu'}
+        d={s.weighing ? delta(s.weighing.autoPct, p?.autoPct, 'wiecej', 'pp') : null} tip="Udział kilogramów mięsa, grzbietów i kości zważonych na wadze (bez nieznanych i korekt biura)" />
     </section>
   )
 }
