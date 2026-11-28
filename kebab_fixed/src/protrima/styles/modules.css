@@ -1606,3 +1606,56 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .kh-adresy td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
 .kh-adresy th:nth-child(2) { width: 34%; }
 .kh-adresy code { font-size: var(--fs-sm); white-space: pre-wrap; }
+
+/* ─── Rozbiór — Statystyki ───────────────────────────────────────────────── */
+.rz-zakladki { align-self: flex-start; }
+.rs { display: flex; flex-direction: column; gap: 12px; }
+.rs-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rs-nav { display: flex; align-items: center; gap: 4px; }
+.rs-date input { height: var(--ctl-h); width: 150px; }
+.rs-okres { font-weight: 600; font-variant-numeric: tabular-nums; }
+.rs-live { display: inline-flex; align-items: center; gap: 6px; color: var(--ok-ink); font-size: var(--fs-sm); font-weight: 600; }
+.rs-live svg { animation: rs-puls 2s ease-in-out infinite; }
+@keyframes rs-puls { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .rs-live svg { animation: none; } }
+.rs-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.rs-kpi { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); min-width: 0; }
+.rs-kpi .k { font-size: var(--fs-sm); color: var(--ink-3); }
+.rs-kpi .v { font-size: var(--fs-fig); font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--ink-1); line-height: 1.25; }
+.rs-kpi button.v { text-align: left; font-size: var(--fs-lg); padding: 4px 0; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+.rs-kpi button.v.warn-ink { color: var(--warn-ink); }
+.rs-kpi .s { font-size: var(--fs-sm); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
+.rs-d { font-weight: 600; font-variant-numeric: tabular-nums; }
+.rs-d.dobrze { color: var(--ok-ink); }
+.rs-d.zle { color: var(--crit-ink); }
+.rs-d.neutral { color: var(--ink-2); }
+.rs-panel { padding-bottom: 12px; }
+.rs-stack { display: flex; gap: 2px; height: 22px; margin: 4px 16px 10px; border-radius: 4px; overflow: hidden; background: var(--surface-sunk); }
+.rs-seg { display: block; min-width: 2px; }
+.rs-seg.zs, .rs-sw.zs { background: var(--viz-1); }
+.rs-seg.bs, .rs-sw.bs { background: var(--viz-2); }
+.rs-seg.grzbiety, .rs-sw.grzbiety { background: var(--viz-3); }
+.rs-seg.kosci, .rs-sw.kosci { background: var(--viz-4); }
+.rs-seg.ubytek, .rs-sw.ubytek { background: repeating-linear-gradient(135deg, var(--viz-rest) 0 4px, transparent 4px 7px); }
+.rs-legend { display: flex; flex-wrap: wrap; gap: 6px 20px; padding: 0 16px; list-style: none; margin: 0; font-size: var(--fs-sm); }
+.rs-legend li { display: inline-flex; align-items: center; gap: 6px; }
+.rs-legend b { font-variant-numeric: tabular-nums; }
+.rs-sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.rs-chart { padding: 0 12px; }
+.rs-chart h3 { font-size: var(--fs-sm); color: var(--ink-3); font-weight: 600; margin: 0 4px 4px; }
+.rs-charts2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 1100px) { .rs-charts2 { grid-template-columns: 1fr; } }
+.rs-tip { position: static; pointer-events: none; }
+.rs-tbl { margin: 0 4px; width: calc(100% - 8px); }
+.rs-th { font: inherit; color: inherit; padding: 0; background: none; }
+.rs-th:hover { color: var(--ink-1); text-decoration: underline; }
+.rs-link { font: inherit; color: var(--accent-ink); background: none; padding: 0; }
+.rs-link:hover { text-decoration: underline; }
+.rs-sub > td { background: var(--surface-alt); padding: 6px 12px 10px 40px; }
+.rs-dni { max-width: 640px; }
+.rs-zrodla { display: flex; flex-wrap: wrap; gap: 8px 28px; padding: 0 16px 10px; font-size: var(--fs-sm); }
+.rs-zrodlo { display: inline-flex; align-items: center; gap: 12px; }
+.rs-zrodlo b { text-transform: capitalize; min-width: 60px; }
+.rs-zrodlo span { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
+.rs-pad { padding: 4px 16px 8px; }
+.rs-stopka { font-size: var(--fs-sm); margin: 0 2px 8px; }

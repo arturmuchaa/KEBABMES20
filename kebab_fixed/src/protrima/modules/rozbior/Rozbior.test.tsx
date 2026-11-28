@@ -9,7 +9,8 @@ const api = vi.hoisted(() => ({
   panel: vi.fn(), listByBatch: vi.fn(), deleted: vi.fn(), correct: vi.fn(), officeDelete: vi.fn(), restore: vi.fn(), corrections: vi.fn(),
 }))
 const ludzie = vi.hoisted(() => ({ list: vi.fn() }))
-vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), deboningEntriesApi: api, usersApi: ludzie }))
+const deb = vi.hoisted(() => ({ stats: vi.fn() }))
+vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), deboningEntriesApi: api, usersApi: ludzie, deboningApi: deb }))
 import { RozbiorModule } from './RozbiorModule'
 import { akcjeWpisu, bilansWpisu, mapujWpis, opisKorekty, pracownicyRozbioru } from './model'
 
@@ -54,8 +55,19 @@ describe('Rozbiór — logika', () => {
 
 describe('Rozbiór — ekran', () => {
   const app = { toast: vi.fn() } as unknown as AppApi
-  const mount = () => render(<AppCtx.Provider value={app}><RozbiorModule active setCtx={vi.fn()} setCmds={vi.fn()} /></AppCtx.Provider>)
+  const mount = () => render(<AppCtx.Provider value={app}><RozbiorModule active setCtx={vi.fn()} setCmds={vi.fn()} poczatek="korekty" /></AppCtx.Provider>)
   afterEach(cleanup)
+
+  it('domyślnie Statystyki; klik w partię przełącza na Korekty z filtrem tej partii', async () => {
+    globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver
+    const { STATS } = await import('./statystyki/fixture')
+    deb.stats.mockResolvedValue({ ...STATS, byBatch: [{ ...STATS.byBatch[0], batchNo: '694' }] })
+    render(<AppCtx.Provider value={app}><RozbiorModule active setCtx={vi.fn()} setCmds={vi.fn()} /></AppCtx.Provider>)
+    expect(screen.getByRole('button', { name: 'Statystyki', pressed: true })).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: 'Partia 694' }))
+    expect(screen.getByRole('button', { name: 'Korekty', pressed: true })).toBeTruthy()
+    expect((screen.getByLabelText('Szukaj w rozbiorze') as HTMLInputElement).value).toBe('694')
+  })
   beforeEach(() => {
     Object.values(api).forEach(f => f.mockReset()); ludzie.list.mockReset(); (app.toast as ReturnType<typeof vi.fn>).mockClear()
     api.panel.mockResolvedValue([PARTIA]); api.listByBatch.mockResolvedValue([ROZLICZONY, W_TOKU]); api.deleted.mockResolvedValue([USUNIETY])

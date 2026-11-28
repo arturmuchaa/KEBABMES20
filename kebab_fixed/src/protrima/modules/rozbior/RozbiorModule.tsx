@@ -11,6 +11,7 @@ import {
   ETYKIETA_STANU, akcjeWpisu, bilansWpisu, mapujWpis, opisKorekty, pracownicyRozbioru,
   type UsunietyWpis, type WpisRozbioru,
 } from './model'
+import { Statystyki } from './statystyki/Statystyki'
 
 type Widok = 'partie' | 'usuniete'
 type Okno = { rodzaj: 'pracownik' | 'kg' | 'usun'; w: WpisRozbioru } | { rodzaj: 'przywroc'; u: UsunietyWpis } | null
@@ -34,8 +35,9 @@ const liczba = (s: string) => { const v = parseFloat(s.replace(/\s/g, '').replac
  * z wagami i przywracaniem (także na innego pracownika). Każda zmiana ma powód
  * i trafia do historii wpisu — rusza wstecz akord pracownika.
  */
-export function RozbiorModule({ active, setCtx, setCmds }: { active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void }) {
+export function RozbiorModule({ active, setCtx, setCmds, poczatek = 'statystyki' }: { active: boolean; setCtx: (n: React.ReactNode) => void; setCmds: (c: Cmd[]) => void; poczatek?: 'statystyki' | 'korekty' }) {
   const app = useApp()
+  const [zakladka, setZakladka] = useState<'statystyki' | 'korekty'>(poczatek)
   const [widok, setWidok] = useState<Widok>('partie')
   const [szukaj, setSzukaj] = useState('')
   const panelRes = useApi(() => deboningEntriesApi.panel(60))
@@ -87,9 +89,15 @@ export function RozbiorModule({ active, setCtx, setCmds }: { active: boolean; se
 
   return (
     <>
-      <CommandBar title="Rozbiór" count="korekty biura — pracownik, usunięcie, przywrócenie" cmds={cmds} />
+      <CommandBar title="Rozbiór" count={zakladka === 'statystyki' ? 'statystyki — dziś na żywo i dni archiwalne' : 'korekty biura — pracownik, usunięcie, przywrócenie'} cmds={cmds} />
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         <div className="dock-pad rz">
+          <div className="seg rz-zakladki" role="group" aria-label="Zakładka rozbioru">
+            <button type="button" aria-pressed={zakladka === 'statystyki'} onClick={() => setZakladka('statystyki')}>Statystyki</button>
+            <button type="button" aria-pressed={zakladka === 'korekty'} onClick={() => setZakladka('korekty')}>Korekty</button>
+          </div>
+          {zakladka === 'statystyki' && <Statystyki active={active} onPartia={no => { setSzukaj(no); setWidok('partie'); setZakladka('korekty') }} />}
+          {zakladka === 'korekty' && <>
           <div className="rz-bar">
             <div className="seg" role="group" aria-label="Widok rozbioru">
               <button type="button" aria-pressed={widok === 'partie'} onClick={() => setWidok('partie')}>Partie i wpisy</button>
@@ -131,6 +139,7 @@ export function RozbiorModule({ active, setCtx, setCmds }: { active: boolean; se
                   </tr>
                 ))}</tbody>
               </table></div>)}
+          </>}
         </div>
       </div>
 

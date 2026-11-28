@@ -82,6 +82,12 @@
   --m-stock:       #6DA7EC;   /* w magazynie, przydzielone */
   --m-short:       #D03B3B;   /* brak wyrobu */
   --m-track:       #E6E9EE;
+  /* Wykresy — kategorie (walidator dataviz: CVD ΔE ≥ 11,8, etykiety zawsze obok koloru) */
+  --viz-1:         #257DE0;   /* mięso z/s, jedna seria */
+  --viz-2:         #F47230;   /* mięso b/s */
+  --viz-3:         #00B894;   /* grzbiety */
+  --viz-4:         #F2A600;   /* kości */
+  --viz-rest:      #C4CAD2;   /* ubytek — szary, kreskowany */
 
   /* — Typografia — */
   --font-ui:   "IBM Plex Sans", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
@@ -170,6 +176,7 @@
     --ok: #4CB46C; --ok-ink: #72C78C; --ok-tint: #1A3222; --info-tint: #232A33;
     --cov-ok-1: #3E9A5E; --cov-ok-2: #2C6B43; --cov-part-1: #E08A2E; --cov-part-2: #9A6326; --cov-none: #EE6A5A; --cov-part-ink: #EDBB63;
     --m-prod: #8691A0; --m-ship: #2D69C0; --m-stock: #6E9FE0; --m-short: #DE5A4E; --m-track: #2A323C;
+    --viz-1: #338CED; --viz-2: #E76624; --viz-3: #00A888; --viz-4: #D28E05; --viz-rest: #4A5361;
     --e1: 0 0 0 1px rgba(255, 255, 255, .085), 0 1px 2px rgba(0, 0, 0, .3); --e2: 0 0 0 1px rgba(255, 255, 255, .07), 0 12px 28px -8px rgba(0, 0, 0, .6); --e3: 0 0 0 1px rgba(255, 255, 255, .08), 0 24px 56px -12px rgba(0, 0, 0, .7);
     --shadow-float: var(--e2);
     --tip-bg: #E2E6EB; --tip-ink: #12161B;
@@ -189,6 +196,7 @@
   --ok: #4CB46C; --ok-ink: #72C78C; --ok-tint: #1A3222; --info-tint: #232A33;
     --cov-ok-1: #3E9A5E; --cov-ok-2: #2C6B43; --cov-part-1: #E08A2E; --cov-part-2: #9A6326; --cov-none: #EE6A5A; --cov-part-ink: #EDBB63;
   --m-prod: #8691A0; --m-ship: #2D69C0; --m-stock: #6E9FE0; --m-short: #DE5A4E; --m-track: #2A323C;
+    --viz-1: #338CED; --viz-2: #E76624; --viz-3: #00A888; --viz-4: #D28E05; --viz-rest: #4A5361;
   --e1: 0 0 0 1px rgba(255, 255, 255, .085), 0 1px 2px rgba(0, 0, 0, .3); --e2: 0 0 0 1px rgba(255, 255, 255, .07), 0 12px 28px -8px rgba(0, 0, 0, .6); --e3: 0 0 0 1px rgba(255, 255, 255, .08), 0 24px 56px -12px rgba(0, 0, 0, .7);
   --shadow-float: var(--e2);
   --tip-bg: #E2E6EB; --tip-ink: #12161B;
