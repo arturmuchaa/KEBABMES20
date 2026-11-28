@@ -1,6 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, ChevronDown, Radio, Scale, Hand, HelpCircle, Building2, BarChart3 } from 'lucide-react'
-import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useApi } from '@/hooks/useApi'
 import { useLiveRefresh } from '@/hooks/useLiveRefresh'
 import { deboningApi, type DeboningStats } from '@/lib/api'
@@ -10,7 +9,7 @@ import { Pusto } from '../../../ui/Pusto'
 import { SzkieletBloku } from '../../../ui/Szkielet'
 import { FlagIcon } from '../../../ui/Glyphs'
 import {
-  ETYKIETA_BILANSU, ETYKIETA_OKRESU, delta, okres, opisOkresu, pasekBilansu, przesun, tekstZWagi,
+  ETYKIETA_BILANSU, ETYKIETA_OKRESU, delta, okres, opisOkresu, pasekBilansu, przesun, tekstZWagi, ubytkiNadwyzki,
   type Okres, type RodzajOkresu,
 } from './model'
 
@@ -86,7 +85,6 @@ export function Statystyki({ active, onPartia }: { active: boolean; onPartia: (b
         <Kafle s={s} onReczne={() => reczneRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />
         <Bilans s={s} />
         {s.live && <NaZywo live={s.live} />}
-        <Przebieg s={s} jedenDzien={o.od === o.do} />
         <Pracownicy s={s} />
         <Partie s={s} onPartia={onPartia} />
         <Reczne s={s} innerRef={reczneRef} />
@@ -100,7 +98,7 @@ function Kafle({ s, onReczne }: { s: DeboningStats; onReczne: () => void }) {
   const p = s.previous
   const zs = s.summary.meatByType?.zs, bs = s.summary.meatByType?.bs
   const okresP = p ? `${p.dateFrom === p.dateTo ? p.dateFrom.split('-').reverse().slice(0, 2).join('.') : `${p.dateFrom.slice(5).split('-').reverse().join('.')}–${p.dateTo.slice(5).split('-').reverse().join('.')}`}${p.untilTime ? ` do ${p.untilTime}` : ''}` : ''
-  const nadwyzka = s.summary.missingKg < 0
+  const un = ubytkiNadwyzki(s)
   return (
     <section className="rs-kpis" aria-label="Najważniejsze liczby">
       <Kafel k="Pobrano ćwiartki" v={kg(s.summary.kgQuarter)} s={`${ile(s.summary.quarters, 'pobranie', 'pobrania', 'pobrań')} `}
@@ -111,9 +109,11 @@ function Kafle({ s, onReczne }: { s: DeboningStats; onReczne: () => void }) {
         tip="Bez skóry — osobno, żeby nie zaniżało wydajności z/s" />
       <Kafel k="Grzbiety" v={proc(s.summary.backsPct)} s={`${kg(s.summary.kgBacks)} `} d={delta(s.summary.backsPct, p?.backsPct, 'brak', 'pp')} />
       <Kafel k="Kości" v={proc(s.summary.bonesPct)} s={`${kg(s.summary.kgBones)} `} d={delta(s.summary.bonesPct, p?.bonesPct, 'brak', 'pp')} />
-      <Kafel k={nadwyzka ? 'Nadwyżka' : 'Ubytek'} v={proc(Math.abs(s.summary.missingPct))} s={`${kg(Math.abs(s.summary.missingKg))} `}
-        d={nadwyzka ? null : delta(s.summary.missingPct, p?.missingPct, 'mniej', 'pp')}
-        tip="Ćwiartka − (mięso + grzbiety + kości). Nadwyżka = więcej niż w dokumencie dostawcy" />
+      <Kafel k="Ubytek" v={kg(un.ubytek.kg)} s={un.ubytek.partie ? `${proc(un.ubytek.pct)} ćwiartki · ${ile(un.ubytek.partie, 'partia', 'partie', 'partii')} ` : 'żadna partia '}
+        tip="Suma partii, w których ćwiartka > mięso + grzbiety + kości (niedoważone, odpad, ubytek wagi)" />
+      <Kafel k="Nadwyżka" v={<span className={un.nadwyzka.kg > 0 ? 'ok-ink' : undefined}>{kg(un.nadwyzka.kg)}</span>}
+        s={un.nadwyzka.partie ? `${proc(un.nadwyzka.pct)} ćwiartki · ${ile(un.nadwyzka.partie, 'partia', 'partie', 'partii')} ` : 'żadna partia '}
+        tip="Suma partii, w których z rozbioru wyszło więcej niż ćwiartka z dokumentu dostawcy" />
       <Kafel k="Tempo" v={`${num(s.summary.kgPerHour)} kg/h`} s={`na osobogodzinę · ${ile(s.summary.headcount, 'osoba', 'osoby', 'osób')} `}
         d={delta(s.summary.kgPerHour, p?.kgPerHour, 'wiecej', '%')} />
       <Kafel k="Z wagi" v={s.weighing?.autoPct != null ? proc(s.weighing.autoPct) : <span className="rs-v-s">tryb nieznany</span>}
@@ -155,54 +155,6 @@ function NaZywo({ live }: { live: NonNullable<DeboningStats['live']> }) {
             <td className="num">{kg(t.kgQuarter)}</td><td className="tnum">{dzienGodz(t.since)}</td></tr>
         ))}</tbody>
       </table>}
-    </section>
-  )
-}
-
-function TipWykresu({ active, payload, label, opis }: { active?: boolean; payload?: Array<{ value: number; payload: Record<string, number> }>; label?: string; opis: (p: Record<string, number>, l: string) => React.ReactNode }) {
-  if (!active || !payload?.length) return null
-  return <div className="tip rs-tip">{opis(payload[0].payload, label ?? '')}</div>
-}
-
-function Przebieg({ s, jedenDzien }: { s: DeboningStats; jedenDzien: boolean }) {
-  const godziny = useMemo(() => s.byHour.map(h => ({ ...h, l: h.hour.slice(11, 13) })), [s.byHour])
-  const dni = useMemo(() => s.byDay.map(d => ({ ...d, l: d.date.slice(5).split('-').reverse().join('.') })), [s.byDay])
-  const os = { stroke: 'var(--line)', tick: { fill: 'var(--ink-3)', fontSize: 12 } }
-  return (
-    <section className="panel rs-panel" aria-label="Przebieg">
-      <div className="panel-h"><h2>Przebieg</h2><span className="sub">{jedenDzien ? 'kg mięsa w każdej godzinie (wg godziny pobrania)' : 'kg mięsa i wydajność dzień po dniu'}</span></div>
-      {jedenDzien ? (
-        <div className="rs-chart"><ResponsiveContainer width="100%" height={200}>
-          <BarChart data={godziny} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-            <CartesianGrid vertical={false} stroke="var(--line-soft)" />
-            <XAxis dataKey="l" {...os} tickLine={false} />
-            <YAxis {...os} tickLine={false} axisLine={false} width={48} tickFormatter={v => num(v)} />
-            <Tooltip cursor={{ fill: 'var(--row-hover)' }} content={<TipWykresu opis={(p, l) => <><b>godz. {l}:00</b><br />{kg(p.kgMeat)} mięsa · {ile(p.quarters, 'pobranie', 'pobrania', 'pobrań')}</>} />} />
-            <Bar dataKey="kgMeat" fill="var(--viz-1)" radius={[4, 4, 0, 0]} maxBarSize={36} isAnimationActive={false} />
-          </BarChart>
-        </ResponsiveContainer></div>
-      ) : (
-        <div className="rs-charts2">
-          <div className="rs-chart"><h3>kg mięsa</h3><ResponsiveContainer width="100%" height={180}>
-            <BarChart data={dni} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-              <CartesianGrid vertical={false} stroke="var(--line-soft)" />
-              <XAxis dataKey="l" {...os} tickLine={false} minTickGap={12} />
-              <YAxis {...os} tickLine={false} axisLine={false} width={52} tickFormatter={v => num(v)} />
-              <Tooltip cursor={{ fill: 'var(--row-hover)' }} content={<TipWykresu opis={(p, l) => <><b>{l}</b><br />{kg(p.kgMeat)} mięsa · {ile(p.quarters, 'pobranie', 'pobrania', 'pobrań')}</>} />} />
-              <Bar dataKey="kgMeat" fill="var(--viz-1)" radius={[4, 4, 0, 0]} maxBarSize={28} isAnimationActive={false} />
-            </BarChart>
-          </ResponsiveContainer></div>
-          <div className="rs-chart"><h3>wydajność mięsa (z/s + b/s)</h3><ResponsiveContainer width="100%" height={180}>
-            <LineChart data={dni} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-              <CartesianGrid vertical={false} stroke="var(--line-soft)" />
-              <XAxis dataKey="l" {...os} tickLine={false} minTickGap={12} />
-              <YAxis {...os} tickLine={false} axisLine={false} width={44} domain={['dataMin - 2', 'dataMax + 2']} tickFormatter={v => `${Math.round(v)}%`} />
-              <Tooltip content={<TipWykresu opis={(p, l) => <><b>{l}</b><br />wydajność {proc(p.avgYield)}</>} />} />
-              <Line dataKey="avgYield" stroke="var(--viz-1)" strokeWidth={2} dot={{ r: 4, fill: 'var(--viz-1)', stroke: 'var(--surface)', strokeWidth: 2 }} isAnimationActive={false} />
-            </LineChart>
-          </ResponsiveContainer></div>
-        </div>
-      )}
     </section>
   )
 }
@@ -260,14 +212,15 @@ function Partie({ s, onPartia }: { s: DeboningStats; onPartia: (n: string) => vo
       <div className="panel-h"><h2>Partie</h2><span className="sub">wydajność i uboczne każdej partii · klik w numer → korekty partii</span></div>
       <table className="tbl rs-tbl">
         <thead><tr><th>Partia</th><th>Dostawca</th><th className="num">Pobrano</th><th className="num">Mięso</th><th className="num">Wydajność</th>
-          <th className="num">Grzbiety</th><th className="num">Kości</th><th className="num">Ubytek</th>{koszt && <th className="num">Koszt 1 kg mięsa</th>}</tr></thead>
+          <th className="num">Grzbiety</th><th className="num">Kości</th><th className="num">Ubytek / nadwyżka</th>{koszt && <th className="num">Koszt 1 kg mięsa</th>}</tr></thead>
         <tbody>{s.byBatch.map(b => (
           <tr key={b.batchNo} className="row">
             <td className="code id-no"><button type="button" className="rs-link" aria-label={`Partia ${b.batchNo}`} onClick={() => onPartia(b.batchNo)}>{b.batchNo}</button></td>
             <td className="ell" style={{ maxWidth: 220 }}>{b.supplierName || '—'}</td>
             <td className="num">{kg(b.kgQuarter)}</td><td className="num">{kg(b.kgMeat)}</td><td className="num strong">{proc(b.yieldPct)}</td>
             <td className="num">{proc(b.backsPct)}</td><td className="num">{proc(b.bonesPct)}</td>
-            <td className={`num${b.missingPct != null && b.missingPct > 6 ? ' crit-ink' : ''}`}>{b.missingKg == null ? '—' : b.missingKg < 0 ? `+${kg(-b.missingKg)}` : kg(b.missingKg)}</td>
+            <td className={`num${b.missingPct != null && b.missingPct > 6 ? ' crit-ink' : b.missingKg != null && b.missingKg < 0 ? ' ok-ink' : ''}`}
+              data-tip={b.missingKg == null ? undefined : b.missingKg < 0 ? 'nadwyżka ponad dokument dostawcy' : 'ubytek'}>{b.missingKg == null ? '—' : b.missingKg < 0 ? `+${kg(-b.missingKg)}` : `−${kg(b.missingKg)}`}</td>
             {koszt && <td className="num">{b.meatCostPerKg == null ? '—' : `${b.meatCostPerKg.toLocaleString('pl-PL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} zł`}</td>}
           </tr>
         ))}</tbody>

@@ -78,3 +78,19 @@ export function pasekBilansu(s: DeboningStats): { klucz: KluczBilansu; kg: numbe
   const mian = ub < 0 ? q - ub : q
   return kawalki.map(([klucz, kg]) => ({ klucz, kg, pct: mian > 0 && kg > 0 ? kg / mian * 100 : 0 }))
 }
+
+/**
+ * Ubytki i nadwyżki liczone osobno, partia po partii: partia z ubytkiem nie „zjada”
+ * nadwyżki innej. % od całej ćwiartki okresu, więc ubytek − nadwyżka = bilans netto.
+ */
+export function ubytkiNadwyzki(s: DeboningStats) {
+  const q = s.summary.kgQuarter
+  const ubytek = { kg: 0, pct: 0, partie: 0 }, nadwyzka = { kg: 0, pct: 0, partie: 0 }
+  for (const b of s.byBatch) {
+    if (b.missingKg == null || b.missingKg === 0) continue
+    const cel = b.missingKg > 0 ? ubytek : nadwyzka
+    cel.kg += Math.abs(b.missingKg); cel.partie += 1
+  }
+  for (const c of [ubytek, nadwyzka]) { c.kg = Math.round(c.kg * 10) / 10; c.pct = q > 0 ? c.kg / q * 100 : 0 }
+  return { ubytek, nadwyzka }
+}

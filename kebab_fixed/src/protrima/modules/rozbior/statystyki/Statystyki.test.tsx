@@ -109,4 +109,20 @@ describe('Statystyki rozbioru', () => {
     mount()
     expect(await screen.findByText(/1 pobranie w toku/)).toBeTruthy()
   })
+  it('ubytki i nadwyżki osobno (po partiach); bez sekcji Przebieg', async () => {
+    deb.stats.mockResolvedValue({ ...STATS, byBatch: [
+      { ...STATS.byBatch[0], batchNo: '850', missingKg: 300, missingPct: 4.8 },
+      { ...STATS.byBatch[0], batchNo: '851', missingKg: -42.5, missingPct: -0.7 },
+    ] })
+    mount()
+    const kafle = await screen.findByRole('region', { name: 'Najważniejsze liczby' })
+    const ub = within(kafle).getByText('Ubytek').closest('.rs-kpi') as HTMLElement
+    const nd = within(kafle).getByText('Nadwyżka').closest('.rs-kpi') as HTMLElement
+    expect(ub.textContent).toContain('300 kg')
+    expect(ub.textContent).toContain('1 partia')
+    expect(nd.textContent).toContain('42,5 kg')
+    expect(nd.textContent).toContain('1 partia')
+    expect(screen.getByRole('region', { name: 'Partie' }).textContent).toContain('+42,5 kg')
+    expect(screen.queryByRole('region', { name: 'Przebieg' })).toBeNull()
+  })
 })

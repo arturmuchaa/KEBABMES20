@@ -1642,11 +1642,6 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .rs-legend li { display: inline-flex; align-items: center; gap: 6px; }
 .rs-legend b { font-variant-numeric: tabular-nums; }
 .rs-sw { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
-.rs-chart { padding: 0 12px; }
-.rs-chart h3 { font-size: var(--fs-sm); color: var(--ink-3); font-weight: 600; margin: 0 4px 4px; }
-.rs-charts2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-@media (max-width: 1100px) { .rs-charts2 { grid-template-columns: 1fr; } }
-.rs-tip { position: static; pointer-events: none; }
 .rs-tbl { margin: 0 4px; width: calc(100% - 8px); }
 .rs-th { font: inherit; color: inherit; padding: 0; background: none; }
 .rs-th:hover { color: var(--ink-1); text-decoration: underline; }

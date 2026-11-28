@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { okres, przesun, delta, tekstZWagi, pasekBilansu } from './model'
+import { okres, przesun, delta, tekstZWagi, pasekBilansu, ubytkiNadwyzki } from './model'
 import type { DeboningStats } from '@/lib/api'
 
 const DZIS = new Date(2026, 10, 28, 10, 0)
@@ -56,5 +56,17 @@ describe('pasekBilansu', () => {
     const u = pasekBilansu(n).find(x => x.klucz === 'ubytek')!
     expect(u.kg).toBe(-20)
     expect(u.pct).toBe(0)
+  })
+})
+
+describe('ubytkiNadwyzki', () => {
+  const b = (no: string, q: number, m: number | null) => ({ batchNo: no, kgQuarter: q, missingKg: m })
+  it('ubytki i nadwyżki sumowane osobno po partiach, % od całej ćwiartki', () => {
+    const s = { summary: { kgQuarter: 4000 }, byBatch: [b('1', 1000, 40), b('2', 1000, -15), b('3', 1000, 20), b('4', 1000, null)] } as unknown as DeboningStats
+    expect(ubytkiNadwyzki(s)).toEqual({ ubytek: { kg: 60, pct: 1.5, partie: 2 }, nadwyzka: { kg: 15, pct: 0.375, partie: 1 } })
+  })
+  it('bez partii: zera', () => {
+    const s = { summary: { kgQuarter: 0 }, byBatch: [] } as unknown as DeboningStats
+    expect(ubytkiNadwyzki(s)).toEqual({ ubytek: { kg: 0, pct: 0, partie: 0 }, nadwyzka: { kg: 0, pct: 0, partie: 0 } })
   })
 })
