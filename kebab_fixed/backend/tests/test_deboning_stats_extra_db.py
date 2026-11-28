@@ -184,3 +184,97 @@ def test_reczne_u_pracownika_i_lista(db):
     assert s["manualList"][0]["kg"] == 32.0
     assert s["manualList"][0]["workerName"] == "Jan Testowy"
     assert s["manualList"][0]["batchNo"] == "850"
+
+
+# ── Task 2: poprzedni okres, na żywo, furtki, korekty ─────────────────────────
+from datetime import date  # noqa: E402
+
+from app.services.deboning_stats_extra import previous_range  # noqa: E402
+
+
+def _korekta(eid, reason, changes=None, at=f"{D}T12:00:00+01:00"):
+    execute(
+        "INSERT INTO deboning_entry_corrections (id, entry_id, by_subject, reason, changes, at)"
+        " VALUES (%s,%s,'biuro',%s,%s::jsonb,%s)",
+        (cuid(), eid, reason, json.dumps(changes or {}), at),
+    )
+
+
+def test_previous_range_dzis():
+    assert previous_range("2026-11-28", "2026-11-28", date(2026, 11, 28), "10:00") == \
+        ("2026-11-21", "2026-11-21", "10:00")
+
+
+def test_previous_range_tydzien():
+    assert previous_range("2026-11-22", "2026-11-28", date(2026, 11, 28), "10:00") == \
+        ("2026-11-15", "2026-11-21", None)
+
+
+def test_previous_range_wczoraj_bez_ciecia():
+    assert previous_range("2026-11-27", "2026-11-27", date(2026, 11, 28), "10:00") == \
+        ("2026-11-26", "2026-11-26", None)
+
+
+def test_previous_tnie_do_godziny(db):
+    _wpis(at="2026-11-21T09:00:00+01:00")
+    _wpis(at="2026-11-21T14:00:00+01:00")
+    assert deboning_stats("2026-11-21", "2026-11-21", until_time="10:00")["summary"]["quarters"] == 1
+    assert deboning_stats("2026-11-21", "2026-11-21")["summary"]["quarters"] == 2
+
+
+def test_previous_w_odpowiedzi(db):
+    eid = _wpis(at="2026-11-13T09:00:00+01:00", kg_q=200, kg_m=128)
+    _porcja(eid, 128, "auto", at="2026-11-13T10:00:00+01:00")
+    _wpis(at="2026-11-20T09:00:00+01:00", kg_q=200, kg_m=132)
+    p = deboning_stats("2026-11-20", "2026-11-20", extended=True)["previous"]
+    assert (p["dateFrom"], p["dateTo"], p["untilTime"]) == ("2026-11-19", "2026-11-19", None)
+    p7 = deboning_stats("2026-11-14", "2026-11-20", extended=True)["previous"]
+    assert p7["kgQuarter"] == 200.0 and p7["yieldZs"] == 64.0 and p7["autoPct"] == 100.0
+
+
+def test_live_tylko_gdy_dzis(db):
+    s = deboning_stats(D, D, extended=True)
+    assert s["live"] is None
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    dzis = datetime.now(ZoneInfo("Europe/Warsaw")).date().isoformat()
+    _wpis(at=now_iso(), status="open", kg_m=0, completed=None)
+    live = deboning_stats(dzis, dzis, extended=True)["live"]
+    assert len(live["openTakes"]) == 1
+    assert live["openTakes"][0]["workerName"] == "Jan Testowy"
+
+
+def test_korekty_bez_furtki(db):
+    eid = _wpis()
+    _korekta(eid, "Pomyłka operatora", {"kgMeat": 130})
+    _korekta(eid, "Ominięcie pasma wydajności (kod 0099)", {"yieldPct": 75})
+    _korekta(eid, "Zatwierdzenie bilansu poza tolerancją (kod kierownika): x", {})
+    _korekta("usuniety-1", "zły pracownik", {"usuniety": {"kgQuarter": 100}})
+    s = deboning_stats(D, D, extended=True)
+    assert s["corrections"] == {"edits": 1, "deleted": 1}
+    assert s["overrides"]["total"] == 1
+    assert s["overrides"]["byWorker"] == {"w1": 1}
+
+
+def test_wydajnosc_miesiaca(db):
+    """Miesiąc z ~3000 pobrań i porcjami liczy się poniżej 1,5 s (spec §B)."""
+    import time
+    _partia()
+    execute(
+        "INSERT INTO deboning_entries (id, raw_batch_id, raw_batch_no, worker_id, worker_name,"
+        " kg_quarter, kg_meat, yield_pct, weigh_mode, status, created_at, completed_at)"
+        " SELECT 'e'||g, 'rb-1', '850', 'w'||(g %% 25), 'Pracownik '||(g %% 25), 200, 130, 65, NULL,"
+        " 'complete', t, t FROM generate_series(1, 3000) g,"
+        " LATERAL (SELECT TIMESTAMPTZ '2026-10-01 06:00+02' + (g %% 30) * interval '1 day'"
+        "                 + (g %% 10) * interval '1 hour' AS t) x"
+    )
+    execute(
+        "INSERT INTO deboning_take_weighings (id, entry_id, kg_meat, weigh_mode, weighed_at)"
+        " SELECT 'p'||e.id, e.id, 130, CASE WHEN random() < 0.05 THEN 'manual' ELSE 'auto' END,"
+        " e.created_at + interval '1 hour' FROM deboning_entries e"
+    )
+    t0 = time.perf_counter()
+    s = deboning_stats("2026-10-01", "2026-10-30", extended=True)
+    dt = time.perf_counter() - t0
+    assert s["summary"]["quarters"] == 3000
+    assert dt < 1.5, f"{dt:.2f} s"

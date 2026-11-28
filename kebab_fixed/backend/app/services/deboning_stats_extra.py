@@ -15,7 +15,8 @@ Zasada: każdy kilogram z JEDNEGO źródła, tymi samymi regułami co `deboning_
 NULL w trybie = nieznany: nigdy nie zgadujemy „z wagi”.
 """
 from collections import defaultdict
-from typing import Any, Dict, Iterable, List, Optional, Set
+from datetime import date, datetime, timedelta
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from app.db import query_all
 
@@ -50,7 +51,7 @@ def portions_by_entry(entry_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
     return out
 
 
-def byproduct_pallets(date_from: str, date_to: str) -> List[Dict[str, Any]]:
+def byproduct_pallets(date_from: str, date_to: str, until_time: Optional[str] = None) -> List[Dict[str, Any]]:
     """Palety grzbietów/kości ważone w okresie (dzień palety, PL) + kg frakcji bez palet."""
     return query_all(
         """
@@ -79,8 +80,9 @@ def byproduct_pallets(date_from: str, date_to: str) -> List[Dict[str, Any]]:
           FROM pal
          WHERE at IS NOT NULL
            AND (at AT TIME ZONE 'Europe/Warsaw')::date BETWEEN %s AND %s
+           AND (%s::time IS NULL OR (at AT TIME ZONE 'Europe/Warsaw')::time <= %s::time)
         """,
-        (date_from, date_to),
+        (date_from, date_to, until_time, until_time),
     )
 
 
@@ -121,9 +123,11 @@ def meat_by_type(entries: List[Dict[str, Any]], portions: Dict[str, List[Dict[st
 
 
 def attach(result: Dict[str, Any], entries: List[Dict[str, Any]], backs_covered: Set[str],
-           bones_covered: Set[str], date_from: str, date_to: str) -> None:
+           bones_covered: Set[str], date_from: str, date_to: str,
+           until_time: Optional[str] = None, with_previous: bool = True) -> None:
     """Dopisuje do odpowiedzi `deboning_stats`: weighing, manualList,
-    summary.meatByType, workers[].weighings|manualWeighings|manualKg."""
+    summary.meatByType, workers[].weighings|manualWeighings|manualKg,
+    oraz (gdy with_previous) previous, live, overrides, corrections."""
     summary = result["summary"]
     portions = portions_by_entry([e["id"] for e in entries])
     weighing = {fr: _empty_fraction() for fr in FRACTIONS}
@@ -162,7 +166,7 @@ def attach(result: Dict[str, Any], entries: List[Dict[str, Any]], backs_covered:
         for fr, col, covered in (("backs", "kg_backs", backs_covered), ("bones", "kg_bones", bones_covered)):
             if e["raw_batch_no"] not in covered and _f(e[col]) > 0:
                 add(fr, "unknown", _f(e[col]), e["worker_id"] or e["worker_name"] or "—", None)
-    pallets = byproduct_pallets(date_from, date_to)
+    pallets = byproduct_pallets(date_from, date_to, until_time)
     reasons = _settlement_reasons(p["weighing_id"] for p in pallets if _pallet_mode(p) == "manual")
     for p in pallets:
         mode = _pallet_mode(p)
@@ -192,3 +196,100 @@ def attach(result: Dict[str, Any], entries: List[Dict[str, Any]], backs_covered:
         w["weighings"] = int(pw["n"])
         w["manualWeighings"] = int(pw["manual"])
         w["manualKg"] = round(pw["manualKg"], 1)
+
+    if with_previous:
+        today, now_time = _now_pl()
+        result["previous"] = previous_kpis(date_from, date_to, today, now_time)
+        result["live"] = live_now(today) if date_from <= today.isoformat() <= date_to else None
+        result["overrides"] = overrides(date_from, date_to)
+        result["corrections"] = corrections(date_from, date_to)
+
+
+def _now_pl() -> Tuple[date, str]:
+    n = query_all("SELECT (now() AT TIME ZONE 'Europe/Warsaw') AS n")[0]["n"]
+    return n.date(), n.strftime("%H:%M")
+
+
+def previous_range(date_from: str, date_to: str, today: date, now_time: str) -> Tuple[str, str, Optional[str]]:
+    """Poprzedni okres: sam dzisiejszy dzień → ten sam dzień tydzień temu, do tej samej
+    godziny (rano inaczej wszystko byłoby „gorzej”); inny okres N dni → N dni tuż przed."""
+    d0, d1 = date.fromisoformat(date_from), date.fromisoformat(date_to)
+    if d0 == d1 == today:
+        p = d0 - timedelta(days=7)
+        return p.isoformat(), p.isoformat(), now_time
+    n = (d1 - d0).days + 1
+    return (d0 - timedelta(days=n)).isoformat(), (d0 - timedelta(days=1)).isoformat(), None
+
+
+def previous_kpis(date_from: str, date_to: str, today: date, now_time: str) -> Dict[str, Any]:
+    from app.services.deboning_service import deboning_stats
+    pf, pt, cut = previous_range(date_from, date_to, today, now_time)
+    p = deboning_stats(pf, pt, extended=True, until_time=cut, _with_previous=False)
+    s = p["summary"]
+    return {"dateFrom": pf, "dateTo": pt, "untilTime": cut,
+            "kgQuarter": s["kgQuarter"], "kgMeat": s["kgMeat"],
+            "yieldZs": s["meatByType"]["zs"]["yieldPct"],
+            "backsPct": s["backsPct"], "bonesPct": s["bonesPct"], "missingPct": s["missingPct"],
+            "kgPerHour": s["kgPerHour"] if s["quarters"] else None,
+            "autoPct": p["weighing"]["autoPct"]}
+
+
+def live_now(today: date) -> Dict[str, Any]:
+    """Na żywo: pobrania w toku (dowolnego dnia — leżą na hali), ostatnie ważenie
+    każdego pracownika dziś, ile osób ważyło/pobierało w ostatniej godzinie."""
+    open_takes = [
+        {"entryId": r["id"], "workerName": r["worker_name"] or "—", "batchNo": r["raw_batch_no"] or "—",
+         "kgQuarter": round(_f(r["kg_quarter"]), 1), "since": r["created_at"].isoformat()}
+        for r in query_all(
+            "SELECT id, worker_name, raw_batch_no, kg_quarter, created_at FROM deboning_entries "
+            "WHERE COALESCE(status, 'complete') <> 'complete' ORDER BY created_at")
+    ]
+    last = query_all(
+        """
+        SELECT wid, MAX(at) AS at FROM (
+            SELECT e.worker_id AS wid, w.weighed_at AS at
+              FROM deboning_take_weighings w JOIN deboning_entries e ON e.id = w.entry_id
+             WHERE (w.weighed_at AT TIME ZONE 'Europe/Warsaw')::date = %s
+            UNION ALL
+            SELECT worker_id, COALESCE(completed_at, created_at) FROM deboning_entries
+             WHERE (COALESCE(completed_at, created_at) AT TIME ZONE 'Europe/Warsaw')::date = %s
+        ) x WHERE wid IS NOT NULL GROUP BY wid
+        """, (today, today))
+    people = query_all(
+        """
+        SELECT COUNT(DISTINCT wid) AS n FROM (
+            SELECT e.worker_id AS wid FROM deboning_take_weighings w
+              JOIN deboning_entries e ON e.id = w.entry_id WHERE w.weighed_at > now() - interval '1 hour'
+            UNION ALL
+            SELECT worker_id FROM deboning_entries WHERE created_at > now() - interval '1 hour'
+               OR completed_at > now() - interval '1 hour'
+        ) x WHERE wid IS NOT NULL
+        """)[0]["n"]
+    return {"openTakes": open_takes, "lastWeighByWorker": {r["wid"]: r["at"].isoformat() for r in last},
+            "peopleLastHour": int(people or 0)}
+
+
+_DAY = "(c.at AT TIME ZONE 'Europe/Warsaw')::date BETWEEN %s AND %s"
+
+
+def overrides(date_from: str, date_to: str) -> Dict[str, Any]:
+    """Użycia furtki 0099 (wiersze korekt z powodem „Ominięcie…”)."""
+    rows = query_all(
+        f"SELECT COALESCE(e.worker_id, e.worker_name, '—') AS wid, COUNT(*) AS n "
+        f"FROM deboning_entry_corrections c LEFT JOIN deboning_entries e ON e.id = c.entry_id "
+        f"WHERE left(c.reason, 9) = 'Ominięcie' AND {_DAY} GROUP BY 1", (date_from, date_to))
+    by = {r["wid"]: int(r["n"]) for r in rows}
+    return {"total": sum(by.values()), "byWorker": by}
+
+
+def corrections(date_from: str, date_to: str) -> Dict[str, int]:
+    """Korekty biura/hali w okresie; usunięte wpisy tylko te ze śladem `changes.usuniety`
+    (wpis kasuje się fizycznie — usunięcia bez śladu nie da się policzyć). Bez furtki
+    „Ominięcie…” i bez zatwierdzeń bilansu „Zatwierdzenie…” (to nie zmiana wag)."""
+    r = query_all(
+        f"""SELECT COUNT(*) FILTER (WHERE c.changes ? 'usuniety') AS deleted,
+                   COUNT(*) FILTER (WHERE NOT c.changes ? 'usuniety'
+                                      AND left(c.reason, 9) <> 'Ominięcie'
+                                      AND left(c.reason, 13) <> 'Zatwierdzenie') AS edits
+              FROM deboning_entry_corrections c WHERE {_DAY}""", (date_from, date_to))[0]
+    return {"edits": int(r["edits"] or 0), "deleted": int(r["deleted"] or 0)}

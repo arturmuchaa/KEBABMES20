@@ -275,7 +275,8 @@ def yield_overrides(date_from: str, date_to: str) -> Dict[str, Any]:
     return {"data": rows}
 
 
-def deboning_stats(date_from: str, date_to: str, extended: bool = False) -> Dict[str, Any]:
+def deboning_stats(date_from: str, date_to: str, extended: bool = False,
+                   until_time: Optional[str] = None, _with_previous: bool = True) -> Dict[str, Any]:
     """Agregaty rozbioru dla biura w zakresie dat.
 
     DWIE różne daty, świadomie:
@@ -310,9 +311,11 @@ def deboning_stats(date_from: str, date_to: str, extended: bool = False) -> Dict
         FROM deboning_entries
         WHERE (created_at AT TIME ZONE 'Europe/Warsaw')::date BETWEEN %s AND %s
           AND COALESCE(status, 'complete') = 'complete'
+          -- until_time: porównanie „dziś do teraz” z tym samym dniem tydzień temu
+          AND (%s::time IS NULL OR (created_at AT TIME ZONE 'Europe/Warsaw')::time <= %s::time)
         ORDER BY COALESCE(completed_at, created_at)
         """,
-        (date_from, date_to),
+        (date_from, date_to, until_time, until_time),
     )
 
     def f(v) -> float:
@@ -370,9 +373,10 @@ def deboning_stats(date_from: str, date_to: str, extended: bool = False) -> Dict
           FROM pal
          WHERE at IS NOT NULL
            AND (at AT TIME ZONE 'Europe/Warsaw')::date BETWEEN %s AND %s
+           AND (%s::time IS NULL OR (at AT TIME ZONE 'Europe/Warsaw')::time <= %s::time)
          GROUP BY bno
         """,
-        (date_from, date_to),
+        (date_from, date_to, until_time, until_time),
     )
 
     # JEDNO ŹRÓDŁO na (partia, frakcja): partia zważona zbiorczo ma uboczne
@@ -702,7 +706,8 @@ def deboning_stats(date_from: str, date_to: str, extended: bool = False) -> Dict
     if extended:
         # Sekcje PROTRIMA (źródło ważenia, z/s vs b/s, ręczne) — stary MES ich nie woła.
         from app.services import deboning_stats_extra
-        deboning_stats_extra.attach(result, rows, backs_covered, bones_covered, date_from, date_to)
+        deboning_stats_extra.attach(result, rows, backs_covered, bones_covered, date_from, date_to,
+                                    until_time=until_time, with_previous=_with_previous)
     return result
 
 
