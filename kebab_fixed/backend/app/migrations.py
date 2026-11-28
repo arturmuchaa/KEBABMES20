@@ -2217,6 +2217,46 @@ _DDL: list[str] = [
         created_at  TIMESTAMPTZ DEFAULT now(),
         PRIMARY KEY (plan_id, batch_no, recipe_id)
     )""",
+    # ── Kontrahenci / VAT UE (27.11.2026) ──
+    # Kraj jako pole (ISO-2), zamiast zgadywania z prefiksu VAT przy każdym
+    # użyciu. Backfill tylko pustych: prefiks literowy numeru VAT, inaczej PL.
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS country TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS country TEXT NOT NULL DEFAULT ''",
+    """UPDATE clients SET country = CASE
+            WHEN upper(left(btrim(coalesce(nip,'')),2)) = 'EL' THEN 'GR'
+            WHEN btrim(coalesce(nip,'')) ~ '^[A-Za-z]{2}' THEN upper(left(btrim(nip),2))
+            ELSE 'PL' END
+        WHERE country = ''""",
+    """UPDATE suppliers SET country = CASE
+            WHEN upper(left(btrim(coalesce(nip,'')),2)) = 'EL' THEN 'GR'
+            WHEN btrim(coalesce(nip,'')) ~ '^[A-Za-z]{2}' THEN upper(left(btrim(nip),2))
+            ELSE 'PL' END
+        WHERE country = ''""",
+    # Ostatni PEWNY wynik VIES (aktywny/nieaktywny). Błąd sprawdzenia tu nie
+    # trafia — tylko do historii — żeby awaria VIES nie zmieniała stawki VAT.
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS vat_ue_status TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS vat_ue_checked_at TIMESTAMPTZ",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS vat_ue_request_id TEXT NOT NULL DEFAULT ''",
+    # Historia sprawdzeń = dowód dla urzędu przy WDT 0 %: numer potwierdzenia
+    # VIES i do jakiej wysyłki (kurs / zamówienie / WZ) sprawdzenie należy.
+    """CREATE TABLE IF NOT EXISTS vat_ue_checks (
+        id           TEXT PRIMARY KEY,
+        client_id    TEXT REFERENCES clients(id) ON DELETE SET NULL,
+        vat_number   TEXT NOT NULL DEFAULT '',
+        status       TEXT NOT NULL,
+        request_id   TEXT NOT NULL DEFAULT '',
+        vies_name    TEXT NOT NULL DEFAULT '',
+        vies_address TEXT NOT NULL DEFAULT '',
+        error        TEXT NOT NULL DEFAULT '',
+        context      TEXT NOT NULL DEFAULT 'reczne',
+        loading_id   TEXT,
+        order_id     TEXT,
+        wz_id        TEXT,
+        operator     TEXT NOT NULL DEFAULT '',
+        checked_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_vat_ue_checks_klient ON vat_ue_checks(client_id, checked_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_vat_ue_checks_kurs ON vat_ue_checks(loading_id)",
 ]
 
 

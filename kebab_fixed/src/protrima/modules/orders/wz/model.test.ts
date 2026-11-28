@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { wartoscDodatkowej, type WierszDodatkowy, bezCeny, cenaDlaGrupy, cenaDlaWszystkich, cudzeRezerwacje, doDto, grupyCen, sumy, vatDlaWszystkich, walidacja, wartosc, wspolnaCena, wspolnyVat, zPicks, klientZWyboru, nabywcaZKlienta, zMagazynu, zNabywca, zNazwami } from './model'
+import { wartoscDodatkowej, type WierszDodatkowy, bezCeny, cenaDlaGrupy, cenaDlaWszystkich, cudzeRezerwacje, doDto, grupyCen, sumy, vatDlaWszystkich, walidacja, wartosc, wspolnaCena, wspolnyVat, zPicks, klientZWyboru, nabywcaZKlienta, zMagazynu, zNabywca, zNazwami, zeStatusemVatUe, type FormWz } from './model'
 
 const PICKS = {
   order_id: 'o1', order_no: 'ISSA/Z/3/10/26', client_id: 'c1', ordered: 190,
@@ -83,7 +83,7 @@ describe('WZ z magazynu (bez zamówienia)', () => {
   ]
   const KLIENCI = [
     { id: 'c1', name: 'DEM`S GMBH', displayName: 'DEM`S', address: 'Hauptstr. 1', city: 'Wien', nip: 'ATU12345678' },
-    { id: 'c2', name: 'BUBU KEBAB S.C.', address: 'Niezapominajek 12', city: 'Nysa', nip: '7532482090' },
+    { id: 'c2', name: 'BUBU KEBAB S.C.', address: 'Kwiatowa 12', city: 'Nysa', nip: '7532482090' },
   ]
   it('pozycje w kolejności zaznaczenia, ilość ≤ stan, stempel cudzego zamówienia zostaje (ostrzeżenie)', () => {
     const f = zMagazynu(FG, [{ id: 'g2', qty: 5 }, { id: 'g1', qty: 99 }, { id: 'nie-ma', qty: 1 }], '2026-10-30')
@@ -91,7 +91,7 @@ describe('WZ z magazynu (bez zamówienia)', () => {
     expect(f.rows[0].name).toMatch(/BEYAZ 10kg$/)
     expect(walidacja(f)).toMatch(/nazwę odbiorcy/)
     const z = zNabywca(f, nabywcaZKlienta(KLIENCI[1]))
-    expect(z.buyer).toEqual({ name: 'BUBU KEBAB S.C.', address: 'Niezapominajek 12 Nysa', nip: '7532482090' })
+    expect(z.buyer).toEqual({ name: 'BUBU KEBAB S.C.', address: 'Kwiatowa 12 Nysa', nip: '7532482090' })
     expect(cudzeRezerwacje(z).map(r => r.orderNo)).toEqual(['DEM-S/Z/4/10/26'])
     // Ten sam odbiorca pod nazwą handlową — to realizacja, nie cudza rezerwacja.
     const dems = zNabywca(f, nabywcaZKlienta(KLIENCI[0]))
@@ -144,5 +144,23 @@ describe('WZ — pozycje dodatkowe (z ręki / z magazynu surowca)', () => {
     expect(walidacja({ ...zCenami, dodatkowe: [{ ...loj, qtyStr: '120' }] })).toMatch(/950.*100/)
     expect(walidacja({ ...zCenami, dodatkowe: [{ ...jogurt, priceStr: '' }] })).toMatch(/cen/)
     expect(walidacja({ ...form, dodatkowe: [{ ...jogurt, priceStr: '' }] })).toBe('')
+  })
+})
+
+describe('zeStatusemVatUe (27.11.2026)', () => {
+  const formAt = (rates: number[]) => ({ buyer: { name: 'Emin Handels GmbH', address: '', nip: 'ATU12345675' },
+    rows: rates.map((vatRate, i) => ({ stockId: `f${i}`, name: `P${i}`, qtyStr: '1', priceStr: '', vatRate })) }) as unknown as FormWz
+  it('nieaktywny: wiersze z domyślnym 0 % dostają 5 %', () => {
+    expect(zeStatusemVatUe(formAt([0, 0]), '', 'nieaktywny').rows.map(r => r.vatRate)).toEqual([5, 5])
+  })
+  it('zmiana statusu nie rusza ręcznie zmienionej stawki', () => {
+    expect(zeStatusemVatUe(formAt([0, 8]), '', 'nieaktywny').rows.map(r => r.vatRate)).toEqual([5, 8])
+  })
+  it('powrót do aktywnego przywraca 0 % tylko w wierszach z 5 % z poprzedniego statusu', () => {
+    expect(zeStatusemVatUe(formAt([5, 8]), 'nieaktywny', 'aktywny').rows.map(r => r.vatRate)).toEqual([0, 8])
+  })
+  it('zNabywca liczy starą stawkę ze statusem poprzedniego odbiorcy', () => {
+    const f = formAt([5])
+    expect(zNabywca(f, { name: 'TRUVA', address: '', nip: 'CZ12345678' }, 'nieaktywny').rows[0].vatRate).toBe(0)
   })
 })

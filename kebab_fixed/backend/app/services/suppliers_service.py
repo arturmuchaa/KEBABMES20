@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from app.db import cx_execute_returning, query_all, transaction
 from app.logging_config import get_logger
 from app.models.suppliers import SupplierCreate
+from app.services.adresy import kraj_z_vat
 from app.utils.ids import cuid, now_iso
 
 logger = get_logger(__name__)
@@ -43,8 +44,8 @@ def create_supplier(dto: SupplierCreate) -> Dict:
             """
             INSERT INTO suppliers
                 (id, code, name, display_name, nip, regon, vet_number, contact_name,
-                 phone, email, address, city, postal_code, supply_scope, active, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
+                 phone, email, address, city, postal_code, supply_scope, country, active, created_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
             RETURNING *
             """,
             (
@@ -62,6 +63,7 @@ def create_supplier(dto: SupplierCreate) -> Dict:
                 dto.city,
                 dto.postal_code,
                 dto.supply_scope,
+                (dto.country or "").strip().upper() or kraj_z_vat(dto.nip),
                 now_iso(),
             ),
         )
@@ -77,7 +79,7 @@ def update_supplier(supplier_id: str, dto: SupplierCreate) -> Dict:
             UPDATE suppliers
             SET name=%s, display_name=%s, nip=%s, regon=%s, vet_number=%s,
                 contact_name=%s, phone=%s, email=%s,
-                address=%s, city=%s, postal_code=%s, supply_scope=%s
+                address=%s, city=%s, postal_code=%s, supply_scope=%s, country=%s
             WHERE id=%s
             RETURNING *
             """,
@@ -94,6 +96,7 @@ def update_supplier(supplier_id: str, dto: SupplierCreate) -> Dict:
                 dto.city,
                 dto.postal_code,
                 dto.supply_scope,
+                (dto.country or "").strip().upper() or kraj_z_vat(dto.nip),
                 supplier_id,
             ),
         )

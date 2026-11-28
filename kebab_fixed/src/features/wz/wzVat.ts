@@ -18,7 +18,7 @@ export const STAWKI_VAT = [0, 5, 8, 23]
 
 /**
  * Czy NIP jest polski. Kontrahenci zagraniczni mają w kartotece prefiks
- * kraju („CZ03678580", „DE232653399", „FR77988827754"), krajowi same cyfry.
+ * kraju („CZ12345678", „DE232653399", „FR77988827754"), krajowi same cyfry.
  */
 export function nipKrajowy(nip: string | undefined | null): boolean {
   const czysty = String(nip ?? '').replace(/[\s-]/g, '').toUpperCase()
@@ -27,9 +27,15 @@ export function nipKrajowy(nip: string | undefined | null): boolean {
   return !/^[A-Z]{2}/.test(czysty)
 }
 
-/** Domyślna stawka dla nabywcy: kraj 5 %, zagranica 0 % (WDT/eksport). */
-export function stawkaVatDlaNabywcy(nip: string | undefined | null): number {
-  return nipKrajowy(nip) ? VAT_KRAJOWY : 0
+/**
+ * Domyślna stawka dla nabywcy: kraj 5 %, zagranica 0 % (WDT/eksport).
+ * Zagranica z VAT UE NIEAKTYWNYM w VIES → stawka krajowa (właściciel 27.11.2026:
+ * „jeżeli VIES nieaktywny, to tylko ostrzeżenie — wtedy wystawiamy fakturę z VAT”).
+ * Błąd sprawdzenia (`blad`) niczego nie zmienia.
+ */
+export function stawkaVatDlaNabywcy(nip: string | undefined | null, vatUe?: string | null): number {
+  if (nipKrajowy(nip)) return VAT_KRAJOWY
+  return vatUe === 'nieaktywny' ? VAT_KRAJOWY : 0
 }
 
 export interface PozycjaVat {

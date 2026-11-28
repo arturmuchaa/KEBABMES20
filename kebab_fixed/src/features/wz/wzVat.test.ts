@@ -11,8 +11,8 @@ describe('nipKrajowy', () => {
   })
 
   it('prefiks kraju oznacza zagranicę', () => {
-    // Tak wyglądają NIP-y w kartotece: CZ03678580, DE232653399, FR77988827754.
-    expect(nipKrajowy('CZ03678580')).toBe(false)
+    // Tak wyglądają NIP-y w kartotece: CZ12345678, DE232653399, FR77988827754.
+    expect(nipKrajowy('CZ12345678')).toBe(false)
     expect(nipKrajowy('DE232653399')).toBe(false)
     expect(nipKrajowy('FR77988827754')).toBe(false)
   })
@@ -34,6 +34,19 @@ describe('stawkaVatDlaNabywcy', () => {
 
   it('zagranica dostaje 0 % (WDT / eksport)', () => {
     expect(stawkaVatDlaNabywcy('DE232653399')).toBe(0)
+  })
+
+  // 27.11.2026: VAT UE nieaktywny w VIES → faktura z VAT (stawka krajowa).
+  it('zagranica z nieaktywnym VAT UE dostaje stawkę krajową', () => {
+    expect(stawkaVatDlaNabywcy('ATU12345675', 'nieaktywny')).toBe(VAT_KRAJOWY)
+  })
+  it('aktywny, błąd sprawdzenia i brak statusu nie zmieniają 0 %', () => {
+    expect(stawkaVatDlaNabywcy('ATU12345675', 'aktywny')).toBe(0)
+    expect(stawkaVatDlaNabywcy('ATU12345675', 'blad')).toBe(0)
+    expect(stawkaVatDlaNabywcy('ATU12345675', '')).toBe(0)
+  })
+  it('kraj zostaje 5 % niezależnie od statusu', () => {
+    expect(stawkaVatDlaNabywcy('1112223334', 'nieaktywny')).toBe(VAT_KRAJOWY)
   })
 })
 

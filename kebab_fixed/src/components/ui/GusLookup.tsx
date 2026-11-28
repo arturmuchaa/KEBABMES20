@@ -11,11 +11,13 @@ export interface GusCompanyData {
   regon?:         string
   nazwa:          string
   ulica?:         string
-  numer_budynku?: string
-  numer_lokalu?:  string
+  numer_budynku?: string | null
+  numer_lokalu?:  string | null
   kod_pocztowy?:  string
   miasto?:        string
   adres?:         string
+  kraj?:          string
+  zrodlo?:        string
 }
 
 interface GusLookupProps { onFound: (d: GusCompanyData) => void }

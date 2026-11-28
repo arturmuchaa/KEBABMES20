@@ -1,6 +1,7 @@
 import React from 'react'
 import { RotateCcw, Trash2, X, ExternalLink, Maximize2, Minimize2, PanelRight, PanelBottom, FileText, Printer, Truck, Split, Copy, Ban, Boxes, CheckCheck, Pencil, List, ClipboardList, PackageCheck } from 'lucide-react'
 import { useApp, type AppApi, type Cmd, type DetailTab } from '../../shell/context'
+import { otworzKontrahenta } from '../kontrahenci/KontrahenciModule'
 import { computeMetrics, etapZamowienia, kg, num, pct, dueText, type Order } from '../../data/model'
 import { dozwolone } from './akcje'
 import { EtapLabel } from '../../ui/Glyphs'
@@ -109,7 +110,7 @@ export function OrderDetail({ order, tab, onTab, mode, maxed, onMax, onClose, on
             {m.flags.filter(f => f.level !== 'info').slice(0, 2).map(f => <span key={f.code} className={`tag ${f.level}`} data-tip={f.detail}>{f.label}</span>)}
           </div>
           <div className="l2">
-            <b style={{ color: 'var(--ink-1)', fontWeight: 600 }}>{order.client.name}</b>{order.client.city && <> · {order.client.city}</>}{order.client.country && order.client.country !== 'PL' && <>, {order.client.country}</>}
+            <button type="button" className="linkish" style={{ color: 'var(--ink-1)', fontWeight: 600 }} disabled={!order.client.id} onClick={() => otworzKontrahenta(app.openModule, order.client.id)} aria-label={`Karta kontrahenta: ${order.client.name}`} data-tip="Karta w Kontrahentach">{order.client.name}</button>{order.client.city && <> · {order.client.city}</>}{order.client.country && order.client.country !== 'PL' && <>, {order.client.country}</>}
             {' · '}wyjazd <span className={m.dueDays !== null && m.dueDays < 0 && !closed ? 'crit-ink strong' : ''}>{dueText(order)}</span>
           </div>
         </div>

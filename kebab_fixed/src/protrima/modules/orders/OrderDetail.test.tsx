@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { render, screen, cleanup, within } from '@testing-library/react'
+import { render, screen, cleanup, within, fireEvent } from '@testing-library/react'
 import React from 'react'
 import { mapClientOrder } from '@/lib/api'
 import { AppCtx, type AppApi } from '../../shell/context'
@@ -63,5 +63,15 @@ describe('OrderDetail — trzy miary osobno', () => {
     mount()
     expect(screen.getByRole('button', { name: /Rozpisz palety/ })).toBeTruthy()
     expect(app.toast).not.toHaveBeenCalled()
+  })
+})
+
+describe('OrderDetail — przejście do kartoteki (27.11.2026)', () => {
+  it('klik w nazwę klienta otwiera jego kartę w Kontrahentach', () => {
+    const { order } = mount()
+    fireEvent.click(screen.getByRole('button', { name: `Karta kontrahenta: ${order.client.name}` }))
+    expect(sessionStorage.getItem('protrima.kontrahenci.wybrany')).toBe(order.client.id)
+    expect(app.openModule).toHaveBeenCalledWith('kontrahenci')
+    sessionStorage.clear()
   })
 })

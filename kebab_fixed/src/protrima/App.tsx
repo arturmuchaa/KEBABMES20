@@ -17,6 +17,7 @@ import { PrzyjeciaModule } from './modules/przyjecia/PrzyjeciaModule'
 import { RozbiorModule } from './modules/rozbior/RozbiorModule'
 import { RozrachunkiModule } from './modules/rozrachunki/RozrachunkiModule'
 import { RecepturyModule } from './modules/receptury/RecepturyModule'
+import { KontrahenciModule } from './modules/kontrahenci/KontrahenciModule'
 import { PlanMasowaniaModule } from './modules/plan-masowania/PlanMasowaniaModule'
 import { PlanProdukcjiModule } from './modules/plan-produkcji/PlanProdukcjiModule'
 import { EtykietyModule } from './modules/etykiety/EtykietyModule'
@@ -446,6 +447,7 @@ function Shell() {
     if (t.key === 'rozbior') return <RozbiorModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'rozrachunki') return <RozrachunkiModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'receptury') return <RecepturyModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
+    if (t.key === 'kontrahenci') return <KontrahenciModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'plan-masowania') return <PlanMasowaniaModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'plan-produkcji') return <PlanProdukcjiModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />
     if (t.key === 'etykiety') return <EtykietyModule active={isActive} setCtx={setTabCtx} setCmds={setCmds} />

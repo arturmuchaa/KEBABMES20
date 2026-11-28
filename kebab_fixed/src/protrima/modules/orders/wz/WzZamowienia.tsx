@@ -4,12 +4,13 @@ import { useApp, CommandBar, Dialog, type Cmd } from '../../../shell/context'
 import { useOrders } from '../../../data/store'
 import { kg, num } from '../../../data/model'
 import { FlagIcon } from '../../../ui/Glyphs'
-import { clientsApi, downloadDocPdf, fxApi, wzApi, type WzDoc } from '@/lib/api'
-import { STAWKI_VAT, stawkaVatDlaNabywcy } from '@/features/wz/wzVat'
+import { clientsApi, downloadDocPdf, fxApi, vatUeApi, wzApi, type VatUeWynik, type WzDoc } from '@/lib/api'
+import { STAWKI_VAT, nipKrajowy, stawkaVatDlaNabywcy } from '@/features/wz/wzVat'
+import { VatUeBadge } from '../../kontrahenci/VatUeBadge'
 import { OTHER_CARRIER_KINDS } from '@/lib/containers'
 import {
   bezCeny, cenaDlaGrupy, cenaDlaWszystkich, cudzeRezerwacje, doDto, grupyCen, ilosc, masa, sumy, vatDlaWszystkich, walidacja, wartosc,
-  wspolnaCena, wspolnyVat, zPicks, klientZWyboru, nabywcaZKlienta, zMagazynu, zNabywca, zNazwami, wartoscDodatkowej,
+  wspolnaCena, wspolnyVat, zPicks, klientZWyboru, nabywcaZKlienta, zMagazynu, zNabywca, zNazwami, zeStatusemVatUe, wartoscDodatkowej,
   type FgStock, type FormWz, type KlientWz, type WierszWz, type WierszDodatkowy, type Wybor,
 } from './model'
 import { PozycjaDodatkowaForm } from './PozycjaDodatkowa'
@@ -46,6 +47,12 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
   const zMag = !orderId
   const [klienci, setKlienci] = useState<KlientWz[]>([])
   const [klientId, setKlientId] = useState('')
+  // Kontrola VAT UE (27.11.2026): odbiorca zamówienia albo wybrany z kartoteki.
+  const [klientZam, setKlientZam] = useState('')
+  const [vatUe, setVatUe] = useState<VatUeWynik | null>(null)
+  const [vatUeLad, setVatUeLad] = useState(false)
+  /** Status, według którego stoją domyślne stawki w wierszach. */
+  const vatUeStawki = useRef('')
   const wyborKey = (wybor ?? []).map(w => `${w.id}:${w.qty}`).join(',')
 
   // Nazwy pozycji zależą od kartoteki odbiorcy — po jego wyborze magazyn czytamy na nowo.
@@ -55,7 +62,7 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
   const wczytaj = useCallback(() => {
     setLoadErr(null)
     if (orderId) {
-      wzApi.fromOrderPicks(orderId).then(d => { const z = zPicks(d, dzisIso()); setF(z.form); setMeta({ orderNo: z.orderNo, brakuje: z.brakuje }) })
+      wzApi.fromOrderPicks(orderId).then(d => { const z = zPicks(d, dzisIso()); setF(zeStatusemVatUe(z.form, '', vatUeStawki.current)); setMeta({ orderNo: z.orderNo, brakuje: z.brakuje }); setKlientZam(z.clientId || '') })
         .catch(e => setLoadErr(e instanceof Error ? e.message : 'Nie udało się wczytać pozycji zamówienia'))
     } else {
       Promise.all([clientsApi.list(), wzApi.stockFg()]).then(([cl, fg]) => {
@@ -66,7 +73,8 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
         let form = zMagazynu(fg as FgStock[], w, dzisIso())
         const k = klientZWyboru(fg as FgStock[], w, kl)
         if (k) { form = zNabywca(form, nabywcaZKlienta(k)); setKlientId(k.id); nazwyDla(k.id) }
-        setF(form)
+        // Ponowne wczytanie: wiersze od nowa, więc stawka według znanego już statusu VAT UE.
+        setF(zeStatusemVatUe(form, '', vatUeStawki.current))
       }).catch(e => setLoadErr(e instanceof Error ? e.message : 'Nie udało się wczytać magazynu'))
     }
     wzApi.nextNumber().then(n => setNextNo(n.number)).catch(() => undefined)
@@ -75,10 +83,33 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
     setKlientId(id)
     const c = klienci.find(x => x.id === id)
     if (!c) return
-    setF(x => (x ? zNabywca(x, nabywcaZKlienta(c)) : x))
+    const przed = vatUeStawki.current
+    vatUeStawki.current = ''
+    setVatUe(null)
+    setF(x => (x ? zNabywca(x, nabywcaZKlienta(c), przed) : x))
     nazwyDla(id)
   }
   useEffect(() => { wczytaj() }, [wczytaj])
+
+  // VIES przy każdym WZ: nieaktywny VAT UE → ostrzeżenie i stawka krajowa
+  // w wierszach z domyślną stawką. Błąd VIES nie zmienia stawek i nie blokuje.
+  const sprawdzVatUe = useCallback((id: string) => {
+    if (!id) { setVatUe(null); return }
+    setVatUeLad(true)
+    vatUeApi.sprawdzKlienta(id, orderId ? { orderId, context: 'wz' } : { context: 'wz' })
+      .catch((e): VatUeWynik => ({ clientId: id, vatNumber: '', kraj: '', status: 'blad', requestId: '', checkedAt: '',
+        komunikat: e instanceof Error ? e.message : 'VIES nie odpowiada', ostatniPewny: null }))
+      .then(w => {
+        setVatUe(w)
+        const po = w.status === 'blad' ? (w.ostatniPewny?.status ?? '') : w.status
+        const przed = vatUeStawki.current
+        vatUeStawki.current = po
+        setF(x => (x ? zeStatusemVatUe(x, przed, po) : x))
+      })
+      .finally(() => setVatUeLad(false))
+  }, [orderId])
+  const klientVat = orderId ? klientZam : klientId
+  useEffect(() => { sprawdzVatUe(klientVat) }, [klientVat, sprawdzVatUe])
 
   const upd = (p: Partial<FormWz>) => setF(x => x ? { ...x, ...p } : x)
   const setRow = (i: number, p: Partial<WierszWz>) => setF(x => x ? { ...x, rows: x.rows.map((r, j) => j === i ? { ...r, ...p } : r) } : x)
@@ -157,6 +188,7 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
           {!f && !loadErr && <SzkieletBloku linie={6} opis="Wczytywanie pozycji z magazynu…" />}
           {blad && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Nie wystawiono:</b> {blad}</div></div>}
           {f && <>
+            {!nipKrajowy(f.buyer.nip) && (vatUe || vatUeLad) && <div style={{ marginBottom: 10 }}><VatUeBadge wynik={vatUe} ladowanie={vatUeLad} onPonow={() => sprawdzVatUe(klientVat)} /></div>}
             {meta && meta.brakuje > 0 && <div className="note warn"><FlagIcon level="warn" size={15} /><div>Na magazynie brakuje <b>{num(meta.brakuje)} szt.</b> do pełnego zamówienia — WZ będzie częściowy (na stan faktyczny).</div></div>}
             <div className="ov-grid" style={{ ['--ov-cols' as string]: 'minmax(0, 1.2fr) minmax(0, 1fr)' }}>
               <div className="box ov-card"><h4>Odbiorca</h4>
@@ -231,7 +263,7 @@ export function WzZamowienia({ orderId, wybor, active, setCmds, onDone }: { orde
       {oknoDod && f && <Dialog title="Pozycja dodatkowa" xl icon={oknoDod === 'reczna' ? <PenLine size={20} /> : <Warehouse size={20} />} onClose={() => setOknoDod(null)}
         footer={<button className="btn" onClick={() => setOknoDod(null)}>Gotowe</button>}>
         <PozycjaDodatkowaForm start={oknoDod} waluta={f.currency} kurs={f.eurRateStr ? Number(f.eurRateStr.replace(',', '.')) : null}
-          vatDomyslny={stawkaVatDlaNabywcy(f.buyer.nip)} wartosciowy={f.valued} podpowiedzi={podpowiedzi}
+          vatDomyslny={stawkaVatDlaNabywcy(f.buyer.nip, vatUeStawki.current)} wartosciowy={f.valued} podpowiedzi={podpowiedzi}
           zajeteKg={zajete(f.dodatkowe)}
           onDodaj={w => { upd({ dodatkowe: [...(f.dodatkowe ?? []), w] }); app.toast({ kind: 'ok', title: `Dodano: ${w.name}` }) }} />
       </Dialog>}

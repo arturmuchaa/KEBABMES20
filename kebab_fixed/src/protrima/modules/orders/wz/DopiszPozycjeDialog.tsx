@@ -20,7 +20,7 @@ const dodatkowa = (l: LiniaWz) => !!l.line_id && (l.stock_type === 'reczna' || S
  * Serwer rozkłada pozycję wg zasady: WM = wszystko, co wyszło z magazynu; WZ = do zapłaty.
  * Dopisane pozycje można usunąć (surowiec wraca na stan partii).
  */
-export function DopiszPozycjeDialog({ wzId, onClose, onZmiana }: { wzId: string; onClose: () => void; onZmiana: () => void }) {
+export function DopiszPozycjeDialog({ wzId, vatUe, onClose, onZmiana }: { wzId: string; /** Status VAT UE nabywcy (VIES) — nieaktywny daje stawkę krajową. */ vatUe?: string; onClose: () => void; onZmiana: () => void }) {
   const app = useApp()
   const [opis, setOpis] = useState<OpisPozycjiWz | null>(null)
   const [blad, setBlad] = useState<string | null>(null)
@@ -91,7 +91,7 @@ export function DopiszPozycjeDialog({ wzId, onClose, onZmiana }: { wzId: string;
           </tbody></table></div>}
         {opis.para === 'wm_wzk' && <label className="pd-zaplata"><input type="checkbox" className="cbx" checked={doZaplaty} onChange={e => setDoZaplaty(e.target.checked)} />
           Surowiec także do zapłaty na WZ klienta</label>}
-        <PozycjaDodatkowaForm waluta={cur} kurs={null} vatDomyslny={stawkaVatDlaNabywcy(opis.buyer_nip)} wartosciowy={opis.valued}
+        <PozycjaDodatkowaForm waluta={cur} kurs={null} vatDomyslny={stawkaVatDlaNabywcy(opis.buyer_nip, vatUe)} wartosciowy={opis.valued}
           bezRecznej={opis.bez_recznej ?? undefined} podpowiedzi={podpowiedzi} zapisuje={zapisuje} odswiez={zmian} className="pd-dopisz" onDodaj={dopisz} />
       </>}
       {usun && <Dialog title="Usunąć dopisaną pozycję?" icon={<Trash2 size={20} />} onClose={() => setUsun(null)}

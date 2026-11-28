@@ -656,6 +656,7 @@ export function mapSupplier(raw: any): Supplier {
     phone:       raw.phone,
     email:       raw.email,
     supplyScope: raw.supply_scope   ?? raw.supplyScope ?? '',
+    country:     raw.country ?? '',
     active:      raw.active ?? true,
     // null = dostawca bez własnego układu palety; zero znaczyłoby paletę,
     // na którą nic nie wchodzi, i zapętliłoby liczenie zawieszek.
@@ -1330,6 +1331,11 @@ function mapClient(raw: any): Client {
       })),
     active:      raw.active ?? true,
     createdAt:   raw.created_at ?? raw.createdAt ?? '',
+    country:     raw.country ?? '',
+    groupId:     raw.group_id ?? raw.groupId ?? null,
+    vatUeStatus: (raw.vat_ue_status ?? raw.vatUeStatus ?? '') as VatUeStatus,
+    vatUeCheckedAt: raw.vat_ue_checked_at ?? raw.vatUeCheckedAt ?? null,
+    vatUeRequestId: raw.vat_ue_request_id ?? raw.vatUeRequestId ?? '',
   }
 }
 
@@ -1357,6 +1363,15 @@ export interface ClientGroup {
   name: string
   members: { id: string; name: string; display_name?: string; nip?: string }[]
 }
+// ─── Kontrahenci: poprawa adresów w kartotece (27.11.2026) ─────
+export interface AdresKartoteki { address: string; postal_code: string; city: string; country: string }
+export interface PropozycjaAdresu { rodzaj: 'odbiorca' | 'dostawca'; id: string; nazwa: string; pelna: string; obecne: AdresKartoteki; proponowane: AdresKartoteki }
+export type ZmianaAdresu = AdresKartoteki & { rodzaj: 'odbiorca' | 'dostawca'; id: string }
+export const kontrahenciApi = {
+  propozycjeAdresow: () => get<PropozycjaAdresu[]>('/kontrahenci/propozycje-adresow'),
+  zastosujAdresy: (zmiany: ZmianaAdresu[]) => post<{ zmieniono: number }>('/kontrahenci/zastosuj-adresy', { zmiany }),
+}
+
 export const clientGroupsApi = {
   list:       () => get<ClientGroup[]>('/client-groups'),
   create:     (name: string) => post<ClientGroup>('/client-groups', { name }),
@@ -3157,11 +3172,50 @@ export type LabelKind = 'zebra' | 'pdf' | 'none'
 // są chronione RBAC. Surowy fetch bez tokenu = 401 „Brak dostępu" (był stały bug).
 export interface NipCompany {
   nip: string; regon?: string; nazwa: string
-  ulica?: string; numer_budynku?: string; numer_lokalu?: string
-  kod_pocztowy?: string; miasto?: string; adres?: string
+  /** Ulica Z NUMEREM (i lokalem) — od 27.11.2026 rozbita i sformatowana na serwerze. */
+  ulica?: string; numer_budynku?: string | null; numer_lokalu?: string | null
+  kod_pocztowy?: string; miasto?: string; kraj?: string
+  /** Surowy adres ze źródła — do pokazania obok rozbitego. */
+  adres?: string
+  zrodlo?: 'GUS' | 'MF' | 'dataport'
 }
 export interface ViesCompany {
   vatNumber: string; countryCode: string; traderName: string; traderAddress: string; valid: boolean
+  ulica?: string; kodPocztowy?: string; miasto?: string; kraj?: string
+  /** Numer potwierdzenia VIES (gdy zapytanie poszło z naszym NIP-em). */
+  requestIdentifier?: string; requestDate?: string; userError?: string
+}
+
+// ─── Kontrola VAT UE odbiorców (VIES, 27.11.2026) ───────────────
+export type VatUeStatus = 'aktywny' | 'nieaktywny' | 'blad' | 'nie_dotyczy' | ''
+export interface VatUeWynik {
+  clientId: string; vatNumber: string; kraj: string; status: VatUeStatus
+  requestId: string; checkedAt: string; komunikat: string
+  ostatniPewny: { status: VatUeStatus; checkedAt: string; requestId: string } | null
+}
+export interface VatUeHistoria {
+  id: string; vatNumber: string; status: VatUeStatus; requestId: string; error: string
+  context: string; loadingId: string | null; orderId: string | null; wzId: string | null
+  operator: string; checkedAt: string; orderNo: string | null; wzNumber: string | null; plate: string | null
+}
+const mapVatUe = (r: any): VatUeWynik => ({
+  clientId: r.client_id ?? '', vatNumber: r.vat_number ?? '', kraj: r.kraj ?? '',
+  status: (r.status ?? '') as VatUeStatus, requestId: r.request_id ?? '', checkedAt: r.checked_at ?? '',
+  komunikat: r.komunikat ?? '',
+  ostatniPewny: r.ostatni_pewny ? { status: r.ostatni_pewny.status ?? '', checkedAt: r.ostatni_pewny.checked_at ?? '', requestId: r.ostatni_pewny.request_id ?? '' } : null,
+})
+export const vatUeApi = {
+  sprawdzKlienta: (clientId: string, opts: { orderId?: string; wzId?: string; context?: string } = {}) =>
+    post<any>(`/vat-ue/sprawdz-klienta/${encodeURIComponent(clientId)}`,
+      { order_id: opts.orderId ?? null, wz_id: opts.wzId ?? null, context: opts.context ?? 'reczne' }).then(mapVatUe),
+  sprawdzKurs: (loadingId: string) =>
+    post<any[]>(`/vat-ue/sprawdz-kurs/${encodeURIComponent(loadingId)}`, {}).then(r => (Array.isArray(r) ? r : []).map(mapVatUe)),
+  historia: (clientId: string) =>
+    get<any[]>(`/vat-ue/historia/${encodeURIComponent(clientId)}`).then(r => (Array.isArray(r) ? r : []).map((h): VatUeHistoria => ({
+      id: h.id, vatNumber: h.vat_number ?? '', status: h.status ?? '', requestId: h.request_id ?? '', error: h.error ?? '',
+      context: h.context ?? '', loadingId: h.loading_id ?? null, orderId: h.order_id ?? null, wzId: h.wz_id ?? null,
+      operator: h.operator ?? '', checkedAt: h.checked_at ?? '', orderNo: h.order_no ?? null, wzNumber: h.wz_number ?? null, plate: h.plate ?? null,
+    }))),
 }
 export const companyApi = {
   gus: (nip: string) => get<NipCompany>(`/gus/${encodeURIComponent(nip)}`),

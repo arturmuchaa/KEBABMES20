@@ -11,6 +11,8 @@ export interface ViesCompanyData {
   traderName:   string
   traderAddress:string
   valid:        boolean
+  /** Od 27.11.2026 adres rozbity na serwerze. */
+  ulica?: string; kodPocztowy?: string; miasto?: string; kraj?: string; requestIdentifier?: string
 }
 
 interface Props {
@@ -49,6 +51,8 @@ export function ViesLookup({ onFound }: Props) {
         traderName:    data.traderName   || '',
         traderAddress: data.traderAddress || '',
         valid:         true,
+        ulica: data.ulica, kodPocztowy: data.kodPocztowy, miasto: data.miasto, kraj: data.kraj,
+        requestIdentifier: data.requestIdentifier,
       })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Błąd wyszukiwania VIES')

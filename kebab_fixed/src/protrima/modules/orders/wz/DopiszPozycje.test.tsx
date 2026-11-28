@@ -88,6 +88,11 @@ describe('Dopisz pozycję — poprawki z przeglądu', () => {
     expect(wz.dopiszPozycje.mock.calls[1][1].lineId).toBe(wz.dopiszPozycje.mock.calls[0][1].lineId)
     await waitFor(() => expect((screen.getByLabelText('Nazwa pozycji') as HTMLInputElement).value).toBe(''))
   })
+  it('VAT UE nieaktywny (27.11.2026): klient z Niemiec dostaje 5 %', async () => {
+    wz.opisPozycji.mockResolvedValue(OPIS({ buyer_nip: 'DE811234567' }))
+    render(<AppCtx.Provider value={app}><DopiszPozycjeDialog wzId="w2" vatUe="nieaktywny" onClose={vi.fn()} onZmiana={vi.fn()} /></AppCtx.Provider>)
+    expect(((await screen.findByLabelText('Stawka VAT')) as HTMLSelectElement).value).toBe('5')
+  })
   it('I4: VAT domyślny za nabywcą — klient z Niemiec 0%', async () => {
     wz.opisPozycji.mockResolvedValue(OPIS({ buyer_nip: 'DE811234567' }))
     mount()

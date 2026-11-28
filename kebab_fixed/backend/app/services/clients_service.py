@@ -7,6 +7,7 @@ from app.db import (cx_execute, cx_execute_returning, execute, query_all,
                     query_one, transaction)
 from app.logging_config import get_logger
 from app.models.clients import ClientCreate
+from app.services.adresy import kraj_z_vat
 from app.utils.ids import cuid, now_iso
 
 logger = get_logger(__name__)
@@ -85,6 +86,11 @@ def _next_client_code() -> str:
     return f"K{max_n + 1}"
 
 
+def _kraj(dto) -> str:
+    """Kraj z formularza; pusty = z prefiksu numeru VAT (cyfry → PL)."""
+    return (dto.country or "").strip().upper() or kraj_z_vat(dto.nip)
+
+
 def create_client(dto: ClientCreate) -> Dict:
     code = _next_client_code()
     with transaction() as conn:
@@ -95,9 +101,9 @@ def create_client(dto: ClientCreate) -> Dict:
                 (id, code, name, display_name, nip, regon, address, postal_code, city,
                  contact_name, phone, email, language, dest_name, dest_address, dest_city,
                  dest_for_hdi, dest_for_cmr, halal_supervision, hdi_name_mode,
-                 wz_uses_hdi_names, uslugi,
+                 wz_uses_hdi_names, uslugi, country,
                  active, created_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,true,%s)
             RETURNING *
             """,
             (
@@ -123,6 +129,7 @@ def create_client(dto: ClientCreate) -> Dict:
                 _hdi_name_mode(dto.hdi_name_mode),
                 bool(dto.wz_uses_hdi_names),
                 bool(dto.uslugi),
+                _kraj(dto),
                 now_iso(),
             ),
         )
@@ -141,7 +148,7 @@ def update_client(client_id: str, dto: ClientCreate) -> Dict:
                 contact_name=%s, phone=%s, email=%s,
                 language=%s, dest_name=%s, dest_address=%s, dest_city=%s,
                 dest_for_hdi=%s, dest_for_cmr=%s, halal_supervision=%s,
-                hdi_name_mode=%s, wz_uses_hdi_names=%s, uslugi=%s
+                hdi_name_mode=%s, wz_uses_hdi_names=%s, uslugi=%s, country=%s
             WHERE id=%s
             RETURNING *
             """,
@@ -166,6 +173,7 @@ def update_client(client_id: str, dto: ClientCreate) -> Dict:
                 _hdi_name_mode(dto.hdi_name_mode),
                 bool(dto.wz_uses_hdi_names),
                 bool(dto.uslugi),
+                _kraj(dto),
                 client_id,
             ),
         )

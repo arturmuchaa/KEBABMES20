@@ -894,10 +894,25 @@ def _potwierdz_zaladunek_na_dokumencie(loading_id: str, order_id: str,
             "loading_id": loading_id, "order_id": order_id, "wm_id": wm_id})
 
 
-@atomic_operation
 def wystaw_z_kursu(loading_id: str, decyzje: List[Dict[str, Any]],
                    forma_cmr: Dict[str, Any],
-                   hdi_fv: bool = False) -> Dict[str, Any]:
+                   hdi_fv: bool = False, operator: str = "") -> Dict[str, Any]:
+    """Kontrola VAT UE odbiorców (27.11.2026), potem komplet dokumentów.
+
+    Sprawdzenie VIES idzie PRZED transakcją dokumentów i na własnych
+    połączeniach: nie trzyma transakcji otwartej na czas zapytań do VIES,
+    a odmowa wystawienia nie cofa dowodu sprawdzenia. Tylko zapis i
+    ostrzeżenie — nigdy blokada.
+    """
+    from app.services.vat_ue_service import dopelnij_kurs
+    dopelnij_kurs(loading_id, operator)
+    return _wystaw_z_kursu_atomowo(loading_id, decyzje, forma_cmr, hdi_fv)
+
+
+@atomic_operation
+def _wystaw_z_kursu_atomowo(loading_id: str, decyzje: List[Dict[str, Any]],
+                            forma_cmr: Dict[str, Any],
+                            hdi_fv: bool = False) -> Dict[str, Any]:
     """Biuro wystawia komplet dokumentów dla kursu — decyzja PER ODBIORCA.
 
     Druga połowa odwróconej kolejności (właściciel, 12.09.2026): magazynier

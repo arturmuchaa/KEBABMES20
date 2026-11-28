@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Truck, FileText, Check, X, RefreshCw, Download, Printer, ListPlus } from 'lucide-react'
 import { useApp, CommandBar, Dialog, type Cmd } from '../../shell/context'
 import { useOrders } from '../../data/store'
 import { kg, num } from '../../data/model'
 import { FlagIcon } from '../../ui/Glyphs'
-import { carriersApi, zaladunkiApi, type Carrier } from '@/lib/api'
+import { carriersApi, vatUeApi, zaladunkiApi, type Carrier, type VatUeWynik } from '@/lib/api'
+import { VatUeBadge } from '../kontrahenci/VatUeBadge'
+import { otworzKontrahenta } from '../kontrahenci/KontrahenciModule'
 import { INSTRUKCJE_DOMYSLNE } from '../orders/dokumenty/Cmr'
 import {
   PUSTA_DECYZJA, calosc, doWystawienia, kgNaFakture, kgNaWz, kgSprzedazy, tylkoUsluga, papieryPozycji, saldoPozycji, uklad, wpiszKg, zamowieniaDoWystawienia,
@@ -38,6 +40,29 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
   const [busy, setBusy] = useState<string | null>(null)
   const [dopisz, setDopisz] = useState<string | null>(null)
   const lock = useRef(false)
+  // VAT UE odbiorców (27.11.2026): sprawdzenie przy każdym otwarciu papierów.
+  // Tylko ostrzeżenie — nieaktywny = faktura z VAT; nic tu nie blokuje.
+  const [vatUe, setVatUe] = useState<Record<string, VatUeWynik>>({})
+  const [vatUeLad, setVatUeLad] = useState<Record<string, boolean>>({})
+  useEffect(() => {
+    vatUeApi.sprawdzKurs(kursId)
+      .then(w => setVatUe(Object.fromEntries(w.map(x => [x.clientId, x]))))
+      .catch(() => undefined)
+  }, [kursId])
+  const ponowVatUe = (clientId: string) => {
+    setVatUeLad(s => ({ ...s, [clientId]: true }))
+    vatUeApi.sprawdzKlienta(clientId, { context: 'kurs' })
+      .then(w => setVatUe(s => ({ ...s, [clientId]: w })))
+      .catch(() => app.toast({ kind: 'warn', title: 'VIES nie odpowiada', detail: 'Spróbuj ponownie za chwilę.' }))
+      .finally(() => setVatUeLad(s => ({ ...s, [clientId]: false })))
+  }
+  const vatUeDlaWz = (wzId: string) => {
+    const p = kurs?.pozycje.find(x => x.wz.some(w => w.id === wzId))
+    const w = p?.client_id ? vatUe[p.client_id] : undefined
+    return w ? (w.status === 'blad' ? w.ostatniPewny?.status ?? '' : w.status) : undefined
+  }
+  const plakietka = (p: PozycjaKursu) => (p.client_id && vatUe[p.client_id]
+    ? <VatUeBadge wynik={vatUe[p.client_id]} ladowanie={!!vatUeLad[p.client_id]} onPonow={() => ponowVatUe(p.client_id!)} /> : null)
 
   const wczytaj = useCallback(async () => {
     setBlad(null)
@@ -118,7 +143,7 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
           {czekajace.length > 0 && <>
             <div className="sect-h"><h3><Truck size={16} style={{ verticalAlign: -3 }} /> Do wystawienia · {czekajace.length}</h3>
               <span className="sub">przy każdym odbiorcy wpisz kilogramy na fakturę albo na WZ — drugie pole policzy się samo</span></div>
-            {czekajace.map(p => <KartaOdbiorcy key={p.order_id} p={p} d={decyzje[p.order_id] ?? PUSTA_DECYZJA} zmien={d => setDecyzje(s => ({ ...s, [p.order_id]: d }))} />)}
+            {czekajace.map(p => <KartaOdbiorcy key={p.order_id} p={p} vatUe={plakietka(p)} d={decyzje[p.order_id] ?? PUSTA_DECYZJA} zmien={d => setDecyzje(s => ({ ...s, [p.order_id]: d }))} />)}
             <div className="box ov-card">
               <h4>Dane na listy przewozowe (CMR) — wspólne dla kursu</h4>
               <div className="kurs-tr">
@@ -148,7 +173,8 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
                 const saldo = saldoPozycji(p, dzisIso())
                 return (
                   <tr key={p.order_id} className={`row${i % 2 ? ' zebra' : ''}`}>
-                    <td className="strong">{p.client_name || '—'}{p.wz_status === 'rozjazd' && <span className="tag warn" style={{ marginLeft: 8 }}>rozjazd — sprawdź przed wydrukiem</span>}</td>
+                    <td className="strong">{p.client_id ? <button type="button" className="linkish" onClick={() => otworzKontrahenta(app.openModule, p.client_id!)} aria-label={`Karta kontrahenta: ${p.client_name || p.order_no}`}>{p.client_name || '—'}</button> : (p.client_name || '—')}{p.wz_status === 'rozjazd' && <span className="tag warn" style={{ marginLeft: 8 }}>rozjazd — sprawdź przed wydrukiem</span>}
+                      {plakietka(p) && <div style={{ marginTop: 4, fontWeight: 400 }}>{plakietka(p)}</div>}</td>
                     <td className="code">{p.order_no}</td>
                     <td className="num">{kg(p.kg_zaladowane)}</td>
                     <td style={{ whiteSpace: 'normal' }}><div className="row-wrap">
@@ -168,7 +194,7 @@ export function PapieryKursu({ kursId, active, setCmds, onDone }: { kursId: stri
           </>}
         </div>
       </div>
-      {dopisz && <DopiszPozycjeDialog wzId={dopisz} onClose={() => setDopisz(null)} onZmiana={() => void wczytaj()} />}
+      {dopisz && <DopiszPozycjeDialog wzId={dopisz} vatUe={vatUeDlaWz(dopisz)} onClose={() => setDopisz(null)} onZmiana={() => void wczytaj()} />}
       {pytanie && !('blad' in wynik) && <Dialog title="Wystawić komplet dokumentów?" icon={<FileText size={20} />} onClose={() => setPytanie(false)}
         footer={<><button className="btn" onClick={() => setPytanie(false)} data-autofocus>Wróć</button><button className="btn primary" disabled={!!busy} onClick={() => void wystaw()}>{busy === 'wystaw' ? 'Wystawianie…' : 'Wystaw komplet'}</button></>}>
         <p>Dla {wynik.orders.length} {wynik.orders.length === 1 ? 'odbiorcy' : 'odbiorców'} powstaną WM/WZ, HDI i CMR.</p>
@@ -192,7 +218,7 @@ const opisUkladu = (p: PozycjaKursu, d: Decyzja) => {
  * Jeden odbiorca kursu: szybki wybór (całość na fakturę / podział / całość na WZ)
  * i dwa połączone pola kg — wpis w jednym przelicza drugie z tego, co wyjechało.
  */
-function KartaOdbiorcy({ p, d, zmien }: { p: PozycjaKursu; d: Decyzja; zmien: (d: Decyzja) => void }) {
+function KartaOdbiorcy({ p, d, zmien, vatUe }: { p: PozycjaKursu; d: Decyzja; zmien: (d: Decyzja) => void; vatUe?: React.ReactNode }) {
   const kto = p.client_name ?? ''
   const u = uklad(p, d)
   const fv = kgNaFakture(p, d), wz = kgNaWz(p, d)
@@ -202,7 +228,8 @@ function KartaOdbiorcy({ p, d, zmien }: { p: PozycjaKursu; d: Decyzja; zmien: (d
   const ustaw = (patch: Partial<Decyzja>) => zmien({ ...d, ...patch })
   const glowka = <div className="ko-h"><b>{p.client_name || '—'}</b><span className="muted">{p.order_no}</span>
     <span className="ko-kg">wyjechało <b>{kg(p.kg_zaladowane)}</b> · {num(p.zaladowano.length)} poz.
-      {usluga > 0 && <> · <span className="tag info" data-tip="Towar usługobiorcy: WM i osobne HDI „usługa”, bez WZ i faktury">w tym usługa {kg(usluga)}</span></>}</span></div>
+      {usluga > 0 && <> · <span className="tag info" data-tip="Towar usługobiorcy: WM i osobne HDI „usługa”, bez WZ i faktury">w tym usługa {kg(usluga)}</span></>}</span>
+    {vatUe && <div className="ko-vatue">{vatUe}</div>}</div>
   if (tylkoUsluga(p)) return (
     <div className="box kurs-odb" aria-label={`Odbiorca ${kto}`}>
       {glowka}

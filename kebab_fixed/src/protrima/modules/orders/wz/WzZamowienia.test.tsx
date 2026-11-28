@@ -7,20 +7,21 @@ import { AppCtx, type AppApi } from '../../../shell/context'
 const wz = vi.hoisted(() => ({ fromOrderPicks: vi.fn(), nextNumber: vi.fn(), createManual: vi.fn(), stockFg: vi.fn(), stockRaw: vi.fn(), list: vi.fn(), pdfUrl: (id: string) => `/api/wz/${id}/pdf` }))
 const clients = vi.hoisted(() => ({ list: vi.fn() }))
 const pdf = vi.hoisted(() => vi.fn(() => Promise.resolve()))
-vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), wzApi: wz, clientsApi: clients, downloadDocPdf: pdf, fxApi: { eurRate: vi.fn() } }))
+const vatUe = vi.hoisted(() => ({ sprawdzKlienta: vi.fn(), sprawdzKurs: vi.fn(), historia: vi.fn() }))
+vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), wzApi: wz, clientsApi: clients, downloadDocPdf: pdf, fxApi: { eurRate: vi.fn() }, vatUeApi: vatUe }))
 const refresh = vi.fn(() => Promise.resolve())
 vi.mock('../../../data/store', () => ({ useOrders: () => ({ refresh }) }))
 import { WzZamowienia } from './WzZamowienia'
 
 const PICKS = { order_id: 'o1', order_no: 'NYSA/Z/1/10/26', client_id: 'c1', ordered: 25,
-  buyer: { name: 'BUBU KEBAB S.C.', address: 'NIEZAPOMINAJEK 12', nip: '7532482090' },
+  buyer: { name: 'BUBU KEBAB S.C.', address: 'KWIATOWA 12', nip: '7532482090' },
   picks: [{ stock_id: 'f1', qty: 20, batch_no: '291026 669', name: 'KEBAB UDO BEYAZ HALAL 20kg', product_type_name: 'KEBAB UDO', recipe_name: 'BEYAZ HALAL', kg_per_unit: 20, qty_available: 20 }] }
 let cmds: Array<{ id: string; run?: () => void }> = []
 const app = { toast: vi.fn() } as unknown as AppApi
 const mount = () => { const onDone = vi.fn(); render(<AppCtx.Provider value={app}><WzZamowienia orderId="o1" active setCmds={c => { cmds = c }} onDone={onDone} /></AppCtx.Provider>); return onDone }
 const run = (id: string) => cmds.find(c => c.id === id)!.run!()
 afterEach(cleanup)
-beforeEach(() => { Object.values(wz).forEach(f => typeof f === 'function' && 'mockReset' in f && (f as ReturnType<typeof vi.fn>).mockReset()); wz.fromOrderPicks.mockResolvedValue(PICKS); wz.nextNumber.mockResolvedValue({ number: 'WZ/7/10/26' }); wz.list.mockResolvedValue([]); wz.stockRaw.mockResolvedValue([{ id: 'rb1', stock_type: 'raw', internal_batch_no: '950', name: 'Łój wołowy otokowy', supplier_name: 'KOKO', kg_available: 100, expiry_date: '2026-11-30' }]); pdf.mockClear(); refresh.mockClear() })
+beforeEach(() => { Object.values(wz).forEach(f => typeof f === 'function' && 'mockReset' in f && (f as ReturnType<typeof vi.fn>).mockReset()); wz.fromOrderPicks.mockResolvedValue(PICKS); wz.nextNumber.mockResolvedValue({ number: 'WZ/7/10/26' }); wz.list.mockResolvedValue([]); wz.stockRaw.mockResolvedValue([{ id: 'rb1', stock_type: 'raw', internal_batch_no: '950', name: 'Łój wołowy otokowy', supplier_name: 'KOKO', kg_available: 100, expiry_date: '2026-11-30' }]); pdf.mockClear(); refresh.mockClear(); vatUe.sprawdzKlienta.mockReset(); vatUe.sprawdzKlienta.mockResolvedValue({ clientId: 'c1', vatNumber: '', kraj: 'PL', status: 'nie_dotyczy', requestId: '', checkedAt: '', komunikat: '', ostatniPewny: null }) })
 
 describe('WZ z zamówienia', () => {
   it('pozycje z serwera; brak 5 szt. do pełnego zamówienia; ilość ponad stan blokuje zapis', async () => {
@@ -167,5 +168,58 @@ describe('WZ — pozycje dodatkowe w edytorze', () => {
     fireEvent.click(screen.getByRole('button', { name: /Pozycja z ręki/ }))
     const okno = within(await screen.findByRole('dialog'))
     expect((okno.getByLabelText('Cena za szt').parentElement as HTMLElement).textContent).toContain('€')
+  })
+})
+
+describe('WZ z zamówienia — VAT UE (27.11.2026)', () => {
+  const AT = { ...PICKS, client_id: 'at1', buyer: { name: 'Emin Handels GmbH', address: 'Hauptplatz 7', nip: 'ATU12345675' } }
+  const wynik = (status: string, extra = {}) => ({ clientId: 'at1', vatNumber: 'ATU12345675', kraj: 'AT', status, requestId: '', checkedAt: '2026-11-27T10:00:00+00:00', komunikat: '', ostatniPewny: null, ...extra })
+  const stawka = () => (screen.getByLabelText('VAT, KEBAB UDO BEYAZ HALAL 20kg') as HTMLSelectElement).value
+
+  it('sprawdza klienta przy otwarciu z kontekstem wz i zamówieniem', async () => {
+    wz.fromOrderPicks.mockResolvedValue(AT)
+    vatUe.sprawdzKlienta.mockResolvedValue(wynik('aktywny', { requestId: 'WAPI1' }))
+    mount()
+    await waitFor(() => expect(vatUe.sprawdzKlienta).toHaveBeenCalledWith('at1', { orderId: 'o1', context: 'wz' }))
+    expect(await screen.findByText(/VAT UE aktywny · potw\. WAPI1/)).toBeTruthy()
+  })
+  it('nieaktywny: ostrzeżenie i 5 % w wierszach', async () => {
+    wz.fromOrderPicks.mockResolvedValue(AT)
+    vatUe.sprawdzKlienta.mockResolvedValue(wynik('nieaktywny'))
+    mount()
+    expect(await screen.findByText('VAT UE NIEAKTYWNY — wystaw fakturę z VAT 5 %')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Dokument wartościowy'))
+    expect(stawka()).toBe('5')
+  })
+  it('zmiana statusu nie rusza ręcznie zmienionej stawki', async () => {
+    wz.fromOrderPicks.mockResolvedValue(AT)
+    let rozwiaz: (v: unknown) => void = () => undefined
+    vatUe.sprawdzKlienta.mockReturnValue(new Promise(r => { rozwiaz = r }))
+    mount()
+    await screen.findByLabelText(/Ilość do wydania/)
+    fireEvent.click(screen.getByLabelText('Dokument wartościowy'))
+    fireEvent.change(screen.getByLabelText('VAT, KEBAB UDO BEYAZ HALAL 20kg'), { target: { value: '8' } })
+    rozwiaz(wynik('nieaktywny'))
+    await screen.findByText('VAT UE NIEAKTYWNY — wystaw fakturę z VAT 5 %')
+    expect(stawka()).toBe('8')
+  })
+  it('„Wczytaj ponownie” zostawia stawkę 5 % przy nieaktywnym VAT UE', async () => {
+    wz.fromOrderPicks.mockResolvedValue(AT)
+    vatUe.sprawdzKlienta.mockResolvedValue(wynik('nieaktywny'))
+    mount()
+    await screen.findByText('VAT UE NIEAKTYWNY — wystaw fakturę z VAT 5 %')
+    run('reload')
+    await waitFor(() => expect(wz.fromOrderPicks).toHaveBeenCalledTimes(2))
+    fireEvent.click(await screen.findByLabelText('Dokument wartościowy'))
+    await waitFor(() => expect(stawka()).toBe('5'))
+  })
+  it('formularz działa gdy sprawdzenie rzuca', async () => {
+    wz.fromOrderPicks.mockResolvedValue(AT)
+    vatUe.sprawdzKlienta.mockRejectedValue(new Error('Brak połączenia'))
+    mount()
+    expect(await screen.findByText(/VIES nie odpowiada — nie sprawdzono/)).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Dokument wartościowy'))
+    expect(stawka()).toBe('0')
+    expect((screen.getByLabelText(/Ilość do wydania/) as HTMLInputElement).disabled).toBe(false)
   })
 })

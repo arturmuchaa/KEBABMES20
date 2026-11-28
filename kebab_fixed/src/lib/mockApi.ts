@@ -2133,6 +2133,13 @@ export interface Client {
   wzUsesHdiNames?: boolean
   active:       boolean
   createdAt:    string
+  /** Kraj ISO-2 (27.11.2026); pusty = z prefiksu VAT. */
+  country?:     string
+  groupId?:     string | null
+  /** Ostatni PEWNY wynik VIES: aktywny / nieaktywny ('' = nie sprawdzono). */
+  vatUeStatus?: 'aktywny' | 'nieaktywny' | 'blad' | 'nie_dotyczy' | ''
+  vatUeCheckedAt?: string | null
+  vatUeRequestId?: string
 }
 
 export interface CreateClientDto {
@@ -2145,6 +2152,7 @@ export interface CreateClientDto {
   hdiNameMode?: HdiNameMode
   hdiRecipeNames?: ClientRecipeName[]
   wzUsesHdiNames?: boolean
+  country?: string
 }
 
 let clients    = load<Client>('kebab_mes_clients', [])

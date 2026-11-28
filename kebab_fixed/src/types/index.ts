@@ -22,6 +22,8 @@ export interface Supplier {
   vetNumber?: string
   address?: string; postalCode?: string; city?: string
   contactName?: string; phone?: string; email?: string; active: boolean
+  /** Kraj ISO-2 (27.11.2026). */
+  country?: string
   /** Zakres dostaw na kartę 1.3.2 oPRP („folie, etykiety", „przyprawy"). */
   supplyScope?: string
   /** Ile pojemników wchodzi na paletę u tego dostawcy; null = jak zwykle (36).
@@ -115,6 +117,7 @@ export interface CreateSupplierDto {
   address?: string; postalCode?: string; city?: string
   contactName?: string; phone?: string; email?: string
   supplyScope?: string
+  country?: string
 }
 
 // ─── API Response wrappers ───────────────────────────────────

@@ -88,6 +88,10 @@ class Settings:
     # /opt/kebab/config/.env. Pusty = endpoint GUS zwróci 503.
     dataport_api_key: str = os.environ.get("DATAPORT_API_KEY", "")
 
+    # Klucz GUS BIR1.1 (rejestr REGON) — darmowy, z wniosku do GUS. Pusty =
+    # BIR pomijany, dane z wykazu VAT MF. Wpisany = BIR pierwszy (pola osobno).
+    gus_bir_key: str = os.environ.get("GUS_BIR_KEY", "")
+
     # Adres, pod którym backend sam siebie widzi (do renderowania PDF przez
     # headless Chrome). Domyślnie wyprowadzony z BIND (np. 127.0.0.1:8010).
     self_base_url: str = os.environ.get(

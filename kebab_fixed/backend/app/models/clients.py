@@ -20,6 +20,8 @@ class ClientCreate(BaseModel):
     # doklejali kod do adresu i wychodził w złej linii.
     postal_code: str = ""
     city: str = ""
+    # Kraj ISO-2; pusty = wyliczony z prefiksu numeru VAT (cyfry → PL).
+    country: str = ""
     contact_name: str = ""
     phone: str = ""
     email: str = ""

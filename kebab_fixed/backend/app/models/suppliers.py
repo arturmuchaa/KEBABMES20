@@ -17,5 +17,7 @@ class SupplierCreate(BaseModel):
     address: str = ""
     city: str = ""
     postal_code: str = ""
+    # Kraj ISO-2; pusty = wyliczony z prefiksu numeru VAT (cyfry → PL).
+    country: str = ""
     #: Zakres dostaw na kartę 1.3.2 oPRP („folie, etykiety", „przyprawy").
     supply_scope: str = ""

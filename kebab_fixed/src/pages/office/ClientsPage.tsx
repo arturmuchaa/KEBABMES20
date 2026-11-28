@@ -6,6 +6,7 @@ import { useApi } from '@/hooks/useApi'
 import { clientsApi, recipesApi } from '@/lib/apiClient'
 import { GusLookup, type GusCompanyData } from '@/components/ui/GusLookup'
 import { ViesLookup, type ViesCompanyData } from '@/components/ui/ViesLookup'
+import { adresZGus, adresZVies } from '@/features/clients/adresZRejestru'
 import {
   Building2, Pencil, Plus, Search, Globe, Flag, Trash2, CheckCircle,
   X, ChevronDown, ChevronUp, ChevronsUpDown, Download, Users,
@@ -38,41 +39,7 @@ function langFromNip(nip?: string): string {
 }
 
 function emptyForm(): CreateClientDto {
-  return { name: '', displayName: '', nip: '', regon: '', address: '', postalCode: '', city: '', contactName: '', phone: '', email: '', language: '', destName: '', destAddress: '', destCity: '', destForHdi: true, destForCmr: true, halalSupervision: false, uslugi: false, hdiNameMode: 'type_recipe', hdiRecipeNames: [], wzUsesHdiNames: true }
-}
-
-interface AddressParts { address: string; postalCode: string; city: string }
-
-function gusAddress(d: GusCompanyData): AddressParts {
-  const streetBase = [d.ulica, d.numer_budynku].filter(Boolean).join(' ').trim()
-  const street = d.numer_lokalu ? `${streetBase}/${d.numer_lokalu}` : streetBase
-  return { address: street, postalCode: d.kod_pocztowy ?? '', city: d.miasto ?? '' }
-}
-
-function splitPostalCity(line: string): { postalCode: string; city: string } {
-  const m = line.match(/^([0-9][0-9\s-]{1,9})\s+(.+)$/)
-  if (m) return { postalCode: m[1].trim(), city: m[2].trim() }
-  return { postalCode: '', city: line }
-}
-
-function viesAddress(raw: string, country: string): AddressParts {
-  if (!raw) return { address: '', postalCode: '', city: '' }
-  const lines = raw.split(/[\n\r]+/).map(s => s.trim()).filter(Boolean)
-  if (lines.length === 0) return { address: '', postalCode: '', city: '' }
-  const stripCountry = (s: string) =>
-    country ? s.replace(new RegExp(`^${country}\\s*-\\s*`, 'i'), '') : s
-  if (lines.length === 1) {
-    const m = lines[0].match(/^(.*?)[,\s]+((?:[A-Z]{1,2}\s*-\s*)?\d[\d\s-]{2,}\s+.+)$/)
-    if (m) {
-      const { postalCode, city } = splitPostalCity(stripCountry(m[2].trim()))
-      return { address: m[1].trim(), postalCode, city }
-    }
-    return { address: lines[0], postalCode: '', city: '' }
-  }
-  const cityLine = stripCountry(lines[lines.length - 1])
-  const street = lines.slice(0, -1).join(', ')
-  const { postalCode, city } = splitPostalCity(cityLine)
-  return { address: street, postalCode, city }
+  return { name: '', displayName: '', nip: '', regon: '', country: '', address: '', postalCode: '', city: '', contactName: '', phone: '', email: '', language: '', destName: '', destAddress: '', destCity: '', destForHdi: true, destForCmr: true, halalSupervision: false, uslugi: false, hdiNameMode: 'type_recipe', hdiRecipeNames: [], wzUsesHdiNames: true }
 }
 
 interface ImportedData {
@@ -113,7 +80,7 @@ function ClientForm({ initial, onSave, onClose }: {
 }) {
   const [form, setForm] = useState<CreateClientDto>(
     initial
-      ? { name: initial.name, displayName: initial.displayName, nip: initial.nip, regon: initial.regon, address: initial.address, postalCode: initial.postalCode, city: initial.city, contactName: initial.contactName, phone: initial.phone, email: initial.email, language: initial.language, destName: initial.destName, destAddress: initial.destAddress, destCity: initial.destCity, destForHdi: initial.destForHdi ?? true, destForCmr: initial.destForCmr ?? true, halalSupervision: initial.halalSupervision, uslugi: !!initial.uslugi, hdiNameMode: initial.hdiNameMode ?? 'type_recipe', hdiRecipeNames: initial.hdiRecipeNames ?? [], wzUsesHdiNames: initial.wzUsesHdiNames ?? true }
+      ? { name: initial.name, displayName: initial.displayName, nip: initial.nip, regon: initial.regon, country: initial.country ?? '', address: initial.address, postalCode: initial.postalCode, city: initial.city, contactName: initial.contactName, phone: initial.phone, email: initial.email, language: initial.language, destName: initial.destName, destAddress: initial.destAddress, destCity: initial.destCity, destForHdi: initial.destForHdi ?? true, destForCmr: initial.destForCmr ?? true, halalSupervision: initial.halalSupervision, uslugi: !!initial.uslugi, hdiNameMode: initial.hdiNameMode ?? 'type_recipe', hdiRecipeNames: initial.hdiRecipeNames ?? [], wzUsesHdiNames: initial.wzUsesHdiNames ?? true }
       : emptyForm()
   )
   const [saving,   setSaving]   = useState(false)
@@ -135,9 +102,10 @@ function ClientForm({ initial, onSave, onClose }: {
   const [imported, setImported] = useState<ImportedData | null>(null)
 
   function applyGus(d: GusCompanyData) {
-    const parts = gusAddress(d)
+    const { country, ...parts } = adresZGus(d)
     setForm(p => ({
       ...p,
+      country: country || p.country,
       name: d.nazwa ?? p.name,
       nip: d.nip ?? p.nip,
       regon: d.regon ?? p.regon,
@@ -150,9 +118,10 @@ function ClientForm({ initial, onSave, onClose }: {
   }
 
   function applyVies(d: ViesCompanyData) {
-    const parts = viesAddress(d.traderAddress, d.countryCode)
+    const { country, ...parts } = adresZVies(d)
     setForm(p => ({
       ...p,
+      country: country || p.country,
       name: d.traderName || p.name,
       nip: d.vatNumber || p.nip,
       address: parts.address || p.address,
@@ -225,6 +194,7 @@ function ClientForm({ initial, onSave, onClose }: {
               { k: 'displayName', label: 'Nazwa wyświetlana',          ph: '' },
               { k: 'nip',         label: isAbroad ? 'VAT-UE' : 'NIP', ph: '' },
               { k: 'regon',       label: 'REGON',                      ph: '' },
+              { k: 'country',     label: 'Kraj',                       ph: 'PL, DE, AT… (puste = z numeru VAT)' },
               { k: 'address',     label: 'Adres',                      ph: '' },
               { k: 'postalCode',  label: 'Kod pocztowy',               ph: '' },
               { k: 'city',        label: 'Miasto',                     ph: '' },
@@ -235,9 +205,10 @@ function ClientForm({ initial, onSave, onClose }: {
               <div key={f.k} className="space-y-1.5">
                 <Label>{f.label}</Label>
                 <Input
+                  aria-label={f.label}
                   value={(form as any)[f.k] ?? ''}
                   onChange={e => {
-                    const v = f.k === 'displayName' ? e.target.value.toUpperCase() : e.target.value
+                    const v = f.k === 'displayName' || f.k === 'country' ? e.target.value.toUpperCase() : e.target.value
                     set(f.k as keyof CreateClientDto, v)
                     if (f.k === 'nip' && !form.language) set('language', langFromNip(v))
                   }}

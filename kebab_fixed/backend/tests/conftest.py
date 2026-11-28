@@ -23,6 +23,7 @@ if TEST_DATABASE_URL:
 
 # Tabele czyszczone przed każdym testem integracyjnym (CASCADE łapie zależne).
 _TRUNCATE = [
+    "vat_ue_checks",
     "seasoned_pallets", "plan_line_pallets", "plan_batch_balance", "label_designs", "label_design_revisions",
     # Append-only history has no FK to mutable production rows on purpose.
     # Reset it explicitly, ONLY in the guarded isolated test database.
@@ -159,3 +160,17 @@ def _nbp_bez_sieci(monkeypatch):
     monkeypatch.setattr(fx_service, "_fetch", _bez_sieci)
     yield
     fx_service._CACHE.clear()
+
+
+@pytest.fixture(autouse=True)
+def _vies_bez_sieci(monkeypatch):
+    """Kontrola VAT UE w testach NIGDY nie pyta prawdziwego VIES: wystawienie
+    z kursu dopełnia sprawdzenie odbiorców zagranicznych (27.11.2026), więc
+    każdy test kursu z klientem „DE…”/„AT…” czekałby na sieć. Domyślnie „VIES
+    nie odpowiada”; test, który potrzebuje wyniku, podmienia `vies_check` sam."""
+    from app.services import vat_ue_service
+
+    def _bez_sieci(vat, **kw):
+        raise RuntimeError("VIES wyłączony w testach")
+    monkeypatch.setattr(vat_ue_service, "vies_check", _bez_sieci)
+    yield

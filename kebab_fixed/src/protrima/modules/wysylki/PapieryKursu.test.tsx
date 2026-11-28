@@ -10,7 +10,8 @@ const wzMock = vi.hoisted(() => ({ opisPozycji: vi.fn(() => new Promise(() => {}
 const pdf = vi.hoisted(() => vi.fn((_u: string, n: string) => Promise.resolve({ nazwa: n, sciezka: null as string | null })))
 const otworzBlob = vi.hoisted(() => vi.fn((_b: Blob, _n: string) => Promise.resolve()))
 const pobraneUrl = vi.hoisted(() => [] as string[])
-vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), wzApi: { ...((await orig() as { wzApi: object }).wzApi), ...wzMock }, zaladunkiApi: api, downloadDocPdf: pdf, zapiszDokumentPdf: pdf, openDocumentBlob: otworzBlob,
+const vatUe = vi.hoisted(() => ({ sprawdzKurs: vi.fn(), sprawdzKlienta: vi.fn(), historia: vi.fn() }))
+vi.mock('@/lib/api', async (orig) => ({ ...(await orig() as object), vatUeApi: vatUe, wzApi: { ...((await orig() as { wzApi: object }).wzApi), ...wzMock }, zaladunkiApi: api, downloadDocPdf: pdf, zapiszDokumentPdf: pdf, openDocumentBlob: otworzBlob,
   fetchBlob: async (url: string) => { pobraneUrl.push(url); const { PDFDocument } = await import('pdf-lib'); const d = await PDFDocument.create(); d.addPage([200, 200]); const b = await d.save(); return { arrayBuffer: async () => b.slice().buffer } }, carriersApi: { list: () => Promise.resolve([{ id: 'c1', name: 'TRANS-POL', city: 'Kraków', defaultPlate: 'KR1234A' }]) } }))
 const refresh = vi.fn(() => Promise.resolve())
 vi.mock('../../data/store', () => ({ useOrders: () => ({ refresh }) }))
@@ -44,7 +45,7 @@ const app = { toast: vi.fn() } as unknown as AppApi
 let cmds: Array<{ id: string; run?: () => void; disabled?: boolean }> = []
 const run = (id: string) => cmds.find(c => c.id === id)!.run!()
 afterEach(cleanup)
-beforeEach(() => { Object.values(api).forEach(f => f.mockReset()); pdf.mockClear(); refresh.mockClear(); api.get.mockResolvedValue(KURS); api.wystaw.mockResolvedValue({}) })
+beforeEach(() => { Object.values(api).forEach(f => f.mockReset()); pdf.mockClear(); refresh.mockClear(); api.get.mockResolvedValue(KURS); api.wystaw.mockResolvedValue({}); Object.values(vatUe).forEach(f => f.mockReset()); vatUe.sprawdzKurs.mockResolvedValue([]) })
 
 describe('Papiery kursu — logika', () => {
   it('nic nie wpisano = całość na fakturę; HDI do faktury domyślnie', () => {
@@ -217,5 +218,54 @@ describe('Papiery kursu — dopisanie pozycji po wystawieniu', () => {
     expect(btns).toHaveLength(2)          // odbiorcy bez dokumentów nie mają przycisku
     fireEvent.click(btns[1])
     await waitFor(() => expect(wzMock.opisPozycji).toHaveBeenCalledWith('w2'))
+  })
+})
+
+describe('Papiery kursu — VAT UE odbiorców (27.11.2026)', () => {
+  const KURS_UE: Kurs = { ...KURS, pozycje: KURS.pozycje.map((p, i) => ({ ...p, client_id: i === 0 ? 'issa' : 'polat' })) }
+  const W = (clientId: string, status: string, extra = {}) => ({ clientId, vatNumber: 'X', kraj: 'FR', status, requestId: '', checkedAt: '2026-11-27T10:00:00+00:00', komunikat: '', ostatniPewny: null, ...extra })
+  const mount = () => render(<AppCtx.Provider value={{ toast: vi.fn() } as unknown as AppApi}><PapieryKursu kursId="k1" active setCmds={c => { cmds2 = c }} onDone={vi.fn()} /></AppCtx.Provider>)
+  let cmds2: Array<{ id: string; disabled?: boolean }> = []
+
+  it('sprawdza kurs raz po wczytaniu; nieaktywny odbiorca dostaje ostrzeżenie o fakturze z VAT', async () => {
+    api.get.mockResolvedValue(KURS_UE)
+    vatUe.sprawdzKurs.mockResolvedValue([W('issa', 'nieaktywny'), W('polat', 'aktywny', { requestId: 'WAPI9' })])
+    mount()
+    expect((await screen.findAllByText('VAT UE NIEAKTYWNY — wystaw fakturę z VAT 5 %')).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/VAT UE aktywny · potw\. WAPI9/).length).toBeGreaterThan(0)
+    expect(vatUe.sprawdzKurs).toHaveBeenCalledTimes(1)
+    expect(vatUe.sprawdzKurs).toHaveBeenCalledWith('k1')
+  })
+  it('plakietka blad pokazuje ostatni pewny wynik; „Sprawdź ponownie” podmienia wynik tego klienta', async () => {
+    api.get.mockResolvedValue(KURS_UE)
+    vatUe.sprawdzKurs.mockResolvedValue([W('polat', 'blad', { ostatniPewny: { status: 'aktywny', checkedAt: '2026-11-20T08:00:00+00:00', requestId: 'A' } })])
+    vatUe.sprawdzKlienta.mockResolvedValue(W('polat', 'aktywny', { requestId: 'WAPI2' }))
+    mount()
+    expect((await screen.findAllByText(/ostatni wynik z 20\.11: aktywny/)).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sprawdź ponownie' })[0])
+    await waitFor(() => expect(vatUe.sprawdzKlienta).toHaveBeenCalledWith('polat', { context: 'kurs' }))
+    expect((await screen.findAllByText(/potw\. WAPI2/)).length).toBeGreaterThan(0)
+  })
+  it('odrzucone sprawdzenie kursu nie blokuje wystawienia', async () => {
+    api.get.mockResolvedValue(KURS_UE)
+    vatUe.sprawdzKurs.mockRejectedValue(new Error('Brak połączenia'))
+    mount()
+    await screen.findByLabelText('Odbiorca ISSA DISTRIB')
+    await waitFor(() => expect(vatUe.sprawdzKurs).toHaveBeenCalled())
+    const issue = cmds2.find(c => c.id === 'issue')
+    expect(issue).toBeTruthy()
+    expect(issue!.disabled).toBe(false)
+  })
+})
+
+describe('Papiery kursu — przejście do kartoteki (27.11.2026)', () => {
+  it('nazwa odbiorcy otwiera jego kartę w Kontrahentach', async () => {
+    const openModule = vi.fn()
+    api.get.mockResolvedValue({ ...KURS, pozycje: KURS.pozycje.map(p => ({ ...p, client_id: 'polat' })) })
+    render(<AppCtx.Provider value={{ toast: vi.fn(), openModule } as unknown as AppApi}><PapieryKursu kursId="k1" active setCmds={() => {}} onDone={() => {}} /></AppCtx.Provider>)
+    fireEvent.click(await screen.findByRole('button', { name: 'Karta kontrahenta: POLAT' }))
+    expect(sessionStorage.getItem('protrima.kontrahenci.wybrany')).toBe('polat')
+    expect(openModule).toHaveBeenCalledWith('kontrahenci')
+    sessionStorage.clear()
   })
 })

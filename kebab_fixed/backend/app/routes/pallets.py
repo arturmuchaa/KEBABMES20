@@ -80,7 +80,7 @@ def zaladunek(loading_id: str):
 
 
 @router.post("/zaladunki/{loading_id}/wystaw")
-def zaladunek_wystaw(loading_id: str, body: dict):
+def zaladunek_wystaw(loading_id: str, body: dict, request: Request):
     """Biuro wystawia komplet dla kursu — decyzja per odbiorca.
 
     `orders`: [{"order_id", "cel_kg", "invoice_no"}] — `cel_kg` to kilogramy
@@ -95,6 +95,7 @@ def zaladunek_wystaw(loading_id: str, body: dict):
         (body or {}).get("orders") or [],
         (body or {}).get("cmr") or {},
         bool((body or {}).get("hdi_fv")),
+        operator=_subject_label(getattr(request.state, "subject", None)) or "",
     )
 
 

@@ -191,9 +191,20 @@ export function zMagazynu(fg: FgStock[], wybor: Wybor[], dzis: string): FormWz {
  * Zmiana odbiorcy: nowy nabywca i stawka VAT z jego NIP-u — ale tylko w wierszach,
  * które miały stawkę domyślną poprzedniego nabywcy (poprawione ręcznie zostają).
  */
-export function zNabywca(f: FormWz, buyer: FormWz['buyer']): FormWz {
-  const stara = stawkaVatDlaNabywcy(f.buyer.nip), nowa = stawkaVatDlaNabywcy(buyer.nip)
+export function zNabywca(f: FormWz, buyer: FormWz['buyer'], vatUePrzed?: string): FormWz {
+  const stara = stawkaVatDlaNabywcy(f.buyer.nip, vatUePrzed), nowa = stawkaVatDlaNabywcy(buyer.nip)
   return { ...f, buyer, rows: f.rows.map(r => (r.vatRate === stara ? { ...r, vatRate: nowa } : r)) }
+}
+
+/**
+ * Wynik VIES zmienia stawkę domyślną (nieaktywny VAT UE → krajowa) — tylko
+ * w wierszach, które miały stawkę domyślną dla poprzedniego statusu; stawka
+ * zmieniona ręcznie przez biuro zostaje.
+ */
+export function zeStatusemVatUe(f: FormWz, przed: string, po: string): FormWz {
+  const stara = stawkaVatDlaNabywcy(f.buyer.nip, przed), nowa = stawkaVatDlaNabywcy(f.buyer.nip, po)
+  if (stara === nowa) return f
+  return { ...f, rows: f.rows.map(r => (r.vatRate === stara ? { ...r, vatRate: nowa } : r)) }
 }
 
 /** Nazwy pozycji wg kartoteki odbiorcy (magazyn przeczytany z `client_id`). */

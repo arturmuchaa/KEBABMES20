@@ -23,3 +23,11 @@ describe('nawigacja boczna', () => {
     for (const k of klucze) expect(ALL_MODULES.some(m => m.key === k)).toBe(true)
   })
 })
+
+describe('Kontrahenci (27.11.2026)', () => {
+  it('dział jest w PROTRIMA, nie zaślepką', async () => {
+    const { W_PROTRIMA, ALL_MODULES: wszystkie } = await import('./modules')
+    expect(W_PROTRIMA.has('kontrahenci')).toBe(true)
+    expect(wszystkie.find(m => m.key === 'kontrahenci')?.info).toBeUndefined()
+  })
+})
