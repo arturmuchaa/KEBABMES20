@@ -163,7 +163,9 @@ describe('Kontrahenci — karta', () => {
     expect(await screen.findByText(/kurs KOL47267/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Sprawdź teraz' }))
     await waitFor(() => expect(vatUe.sprawdzKlienta).toHaveBeenCalledWith('c1', { context: 'reczne' }))
-    expect(await screen.findByText(/potw\. WAPI2/)).toBeTruthy()
+    // 28.11: sam napis „VAT UE aktywny”; numer potwierdzenia dopiero po kliknięciu
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'VAT UE aktywny' }).length).toBeGreaterThan(0))
+    expect(screen.queryByText(/WAPI2/)).toBeNull()
   })
   it('karta dostawcy: WNI i zakres dostaw', async () => {
     mount()

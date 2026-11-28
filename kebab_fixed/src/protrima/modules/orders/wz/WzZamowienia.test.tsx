@@ -181,7 +181,8 @@ describe('WZ z zamówienia — VAT UE (27.11.2026)', () => {
     vatUe.sprawdzKlienta.mockResolvedValue(wynik('aktywny', { requestId: 'WAPI1' }))
     mount()
     await waitFor(() => expect(vatUe.sprawdzKlienta).toHaveBeenCalledWith('at1', { orderId: 'o1', context: 'wz' }))
-    expect(await screen.findByText(/VAT UE aktywny · potw\. WAPI1/)).toBeTruthy()
+    expect(await screen.findByRole('button', { name: 'VAT UE aktywny' })).toBeTruthy()
+    expect(screen.queryByText(/WAPI1/)).toBeNull()   // 28.11: numer dopiero po kliknięciu
   })
   it('nieaktywny: ostrzeżenie i 5 % w wierszach', async () => {
     wz.fromOrderPicks.mockResolvedValue(AT)

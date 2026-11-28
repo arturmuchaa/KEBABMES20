@@ -232,7 +232,8 @@ describe('Papiery kursu — VAT UE odbiorców (27.11.2026)', () => {
     vatUe.sprawdzKurs.mockResolvedValue([W('issa', 'nieaktywny'), W('polat', 'aktywny', { requestId: 'WAPI9' })])
     mount()
     expect((await screen.findAllByText('VAT UE NIEAKTYWNY — wystaw fakturę z VAT 5 %')).length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/VAT UE aktywny · potw\. WAPI9/).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'VAT UE aktywny' }).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/WAPI9/)).toBeNull()   // 28.11: numer dopiero po kliknięciu
     expect(vatUe.sprawdzKurs).toHaveBeenCalledTimes(1)
     expect(vatUe.sprawdzKurs).toHaveBeenCalledWith('k1')
   })
@@ -244,7 +245,7 @@ describe('Papiery kursu — VAT UE odbiorców (27.11.2026)', () => {
     expect((await screen.findAllByText(/ostatni wynik z 20\.11: aktywny/)).length).toBeGreaterThan(0)
     fireEvent.click(screen.getAllByRole('button', { name: 'Sprawdź ponownie' })[0])
     await waitFor(() => expect(vatUe.sprawdzKlienta).toHaveBeenCalledWith('polat', { context: 'kurs' }))
-    expect((await screen.findAllByText(/potw\. WAPI2/)).length).toBeGreaterThan(0)
+    expect((await screen.findAllByRole('button', { name: 'VAT UE aktywny' })).length).toBeGreaterThan(0)
   })
   it('odrzucone sprawdzenie kursu nie blokuje wystawienia', async () => {
     api.get.mockResolvedValue(KURS_UE)

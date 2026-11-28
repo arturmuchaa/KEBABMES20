@@ -3211,6 +3211,8 @@ export interface VatUeHistoria {
   id: string; vatNumber: string; status: VatUeStatus; requestId: string; error: string
   context: string; loadingId: string | null; orderId: string | null; wzId: string | null
   operator: string; checkedAt: string; orderNo: string | null; wzNumber: string | null; plate: string | null
+  /** Nazwa i adres odbiorcy zwrócone przez VIES (do potwierdzenia). */
+  viesName?: string; viesAddress?: string
 }
 const mapVatUe = (r: any): VatUeWynik => ({
   clientId: r.client_id ?? '', vatNumber: r.vat_number ?? '', kraj: r.kraj ?? '',
@@ -3229,6 +3231,7 @@ export const vatUeApi = {
       id: h.id, vatNumber: h.vat_number ?? '', status: h.status ?? '', requestId: h.request_id ?? '', error: h.error ?? '',
       context: h.context ?? '', loadingId: h.loading_id ?? null, orderId: h.order_id ?? null, wzId: h.wz_id ?? null,
       operator: h.operator ?? '', checkedAt: h.checked_at ?? '', orderNo: h.order_no ?? null, wzNumber: h.wz_number ?? null, plate: h.plate ?? null,
+      viesName: h.vies_name ?? '', viesAddress: h.vies_address ?? '',
     }))),
 }
 export const companyApi = {

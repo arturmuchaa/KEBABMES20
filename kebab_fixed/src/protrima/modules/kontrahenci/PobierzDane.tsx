@@ -55,7 +55,7 @@ export function PobierzDane({ form, nowy, onPrzejmij }: { form: Formularz; nowy:
       {blad && <span className="fld-err" role="alert">{blad}</span>}
       {wynik && <div className="kh-porownanie">
         {wynik.vies && (wynik.vies.valid
-          ? <div className="vatue ok"><ShieldCheck size={14} /> VAT UE aktywny w VIES{wynik.vies.requestId ? ` · potw. ${wynik.vies.requestId}` : ''}</div>
+          ? <div className="vatue ok" data-tip={wynik.vies.requestId ? `Numer potwierdzenia VIES: ${wynik.vies.requestId}` : undefined}><ShieldCheck size={14} /> VAT UE aktywny w VIES</div>
           : <div className="vatue bad"><ShieldAlert size={14} /> VAT UE NIEAKTYWNY w VIES — faktura z VAT</div>)}
         {wynik.wiersze.length === 0
           ? <div className="note"><FlagIcon level="info" size={15} /><div>Dane w karcie zgadzają się z rejestrem — nie ma czego przejmować.</div></div>

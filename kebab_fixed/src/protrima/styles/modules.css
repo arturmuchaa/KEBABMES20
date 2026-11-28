@@ -1678,3 +1678,14 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .zl-nr { font: inherit; font-family: var(--font-code); color: var(--accent-ink); background: none; padding: 0; text-align: left; }
 .zl-nr:hover { text-decoration: underline; }
 .zl-stopka { font-size: var(--fs-xs); color: var(--ink-3); }
+
+/* ─── Potwierdzenie VAT UE (podgląd + wydruk) ───────────────────────────── */
+.vatue-btn { border: 0; cursor: pointer; font: inherit; font-size: var(--fs-sm); font-weight: 500; }
+.vatue-btn:hover { box-shadow: inset 0 0 0 1px currentColor; }
+.vat-potw { font-family: var(--font-ui); color: #111; font-size: 10.5pt; line-height: 1.4; }
+.vat-potw h1 { font-size: 15pt; margin: 0 0 2px; }
+.vat-potw .vp-sub { margin: 0 0 14px; color: #444; font-size: 9.5pt; border-bottom: 1.5px solid #1d2b3a; padding-bottom: 8px; }
+.vat-potw dl { display: grid; grid-template-columns: 170px 1fr; gap: 6px 14px; margin: 0; }
+.vat-potw dt { color: #555; }
+.vat-potw dd { margin: 0; }
+.vat-potw .code { font-family: var(--font-code); word-break: break-all; }
