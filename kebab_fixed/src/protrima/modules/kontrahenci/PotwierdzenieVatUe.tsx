@@ -57,7 +57,7 @@ export function PotwierdzenieVatUe({ wynik, onClose }: { wynik: VatUeWynik; onCl
   )
   return (
     <>
-      <Dialog title="Potwierdzenie VAT UE" icon={<ShieldCheck size={20} />} onClose={onClose}
+      <Dialog wide title="Potwierdzenie VAT UE" icon={<ShieldCheck size={20} />} onClose={onClose}
         footer={<><button className="btn" onClick={onClose}>Zamknij</button>
           <button className="btn primary" onClick={() => setDruk(true)} disabled={!nr} data-autofocus><Printer size={15} />Drukuj potwierdzenie</button></>}>
         {histRes.loading && !histRes.data ? <div className="note">Wczytuję zapis sprawdzenia…</div>
