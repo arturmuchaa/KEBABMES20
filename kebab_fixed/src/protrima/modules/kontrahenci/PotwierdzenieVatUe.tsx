@@ -9,10 +9,11 @@ import { drukuj } from '@/lib/print'
 const KONTEKST: Record<string, string> = { reczne: 'ręcznie', kartoteka: 'kartoteka', wz: 'wystawienie WZ', kurs: 'papiery kursu' }
 const czas = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) }
 
-/** Zapis sprawdzenia z historii: ten z numerem potwierdzenia wyniku, inaczej ostatni aktywny. */
+/** Zapis sprawdzenia z historii — WYŁĄCZNIE ten z numerem potwierdzenia wyniku. Inny zapis
+ *  (np. nowszy, z innym numerem VAT) nie może trafić na dowód WDT; wtedy tylko dane z wyniku. */
 function wpis(h: VatUeHistoria[] | null, w: VatUeWynik): VatUeHistoria | null {
-  if (!h) return null
-  return h.find(x => x.requestId && x.requestId === w.requestId) ?? h.find(x => x.status === 'aktywny') ?? null
+  if (!h || !w.requestId) return null
+  return h.find(x => x.requestId === w.requestId) ?? null
 }
 
 /**

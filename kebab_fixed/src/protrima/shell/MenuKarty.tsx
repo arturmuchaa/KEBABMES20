@@ -23,7 +23,7 @@ export function OknoZamykania({ edycja, onWybierz, onClose }: {
   return (
     <Dialog title="Zamknąć też okna edycji?" onClose={onClose} footer={<>
       <button className="btn ghost" onClick={onClose}>Anuluj</button>
-      <button className="btn" onClick={() => onWybierz('zostaw')}>Zostaw okna edycji</button>
+      <button className="btn" data-autofocus onClick={() => onWybierz('zostaw')}>Zostaw okna edycji</button>
       <button className="btn primary danger" onClick={() => onWybierz('wszystkie')}>Zamknij wszystkie</button>
     </>}>
       <p>Niezapisane zmiany w nich przepadną:</p>

@@ -4,9 +4,15 @@ import { useApi } from '@/hooks/useApi'
 import { useLiveRefresh } from '@/hooks/useLiveRefresh'
 import { biuroApi, type ZaladunekAuta } from '@/lib/api'
 import { num } from '../../data/model'
+import { ile } from '../../data/tekst'
 
 const BEZ_RUCHU_MIN = 30
 const godz = (iso: string) => new Date(iso).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })
+/** Godzina, a gdy nie dziś — z datą (kurs niezamknięty od wczoraj). */
+const kiedy = (iso: string) => {
+  const d = new Date(iso), t = new Date()
+  return d.toDateString() === t.toDateString() ? godz(iso) : `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')} ${godz(iso)}`
+}
 const minOd = (iso: string) => Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000))
 const czasTrwania = (min: number) => min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${min % 60} min`
 
@@ -26,7 +32,7 @@ export function ZaladunekNaZywo({ active }: { active: boolean }) {
   if (!auta.length) return null
   return (
     <section className="panel p-load" aria-label="Załadunek na żywo">
-      <div className="panel-h"><h2>Załadunek na żywo</h2><span className="sub">{auta.length === 1 ? '1 auto' : `${auta.length} aut`} w trakcie · odświeżane co 15 s</span></div>
+      <div className="panel-h"><h2>Załadunek na żywo</h2><span className="sub">{ile(auta.length, 'auto', 'auta', 'aut')} w trakcie · odświeżane co 15 s</span></div>
       <div className="zl-auta">{auta.map(a => <Auto key={a.vehicleId} a={a} />)}</div>
     </section>
   )
@@ -39,14 +45,15 @@ function Auto({ a }: { a: ZaladunekAuta }) {
     <article className="zl-auto" aria-label={`Auto ${a.plate}`}>
       <header className="zl-h">
         <Truck size={16} aria-hidden /><b className="code">{a.plate}</b><span className="faint">{a.name}</span>
-        <span className="zl-od">{a.startedAt ? `ładuje od ${godz(a.startedAt)} (${czasTrwania(minOd(a.startedAt))})` : 'czeka na pierwszą paletę'}</span>
+        <span className="zl-od">{a.startedAt ? `ładuje od ${kiedy(a.startedAt)} (${czasTrwania(minOd(a.startedAt))})` : 'czeka na pierwszą paletę'}</span>
       </header>
       <div className="zl-suma">
         <Pasek tu={a.unitsLoaded} z={a.unitsToLoad} etykieta={`Palety auta ${a.plate}`} />
-        <span className="zl-liczby"><b>{`${a.unitsLoaded} / ${a.unitsToLoad}`}</b> palet · {num(a.kgLoaded)} / {num(a.kgToLoad)} kg</span>
+        <span className="zl-liczby"><b>{`${a.unitsLoaded} / ${a.unitsToLoad}`}</b> palet i kartonów · {num(a.kgLoaded)} / {num(a.kgToLoad)} kg</span>
       </div>
       <ol className="zl-zam">{a.orders.map(o => {
-        const doZal = o.unitsTotal - o.unitsShippedBefore
+        const inne = o.unitsOtherVehicles ?? 0
+        const doZal = o.unitsTotal - o.unitsShippedBefore - inne
         return (
           <li key={o.orderId}>
             <button type="button" className="zl-nr" onClick={() => app.openOrder(o.orderId)}>{o.orderNo}</button>
@@ -54,11 +61,13 @@ function Auto({ a }: { a: ZaladunekAuta }) {
             <Pasek tu={o.unitsHere} z={doZal} etykieta={`Palety ${o.orderNo}`} />
             <span className="zl-liczby">{`${o.unitsHere} / ${doZal}`}</span>
             {o.complete ? <Check size={15} className="ok-ink" aria-label="komplet" /> : <span className="zl-nic" />}
-            {o.unitsShippedBefore > 0 && <span className="faint zl-wcz">{`+${o.unitsShippedBefore} wysłane wcześniej`}</span>}
+            {(o.unitsShippedBefore > 0 || inne > 0) && <span className="faint zl-wcz">{[
+              o.unitsShippedBefore > 0 ? `+${o.unitsShippedBefore} wysłane wcześniej` : '', inne > 0 ? `+${inne} na innym aucie` : '',
+            ].filter(Boolean).join(' · ')}</span>}
           </li>
         )
       })}</ol>
-      {a.lastLoadedAt && <footer className={`zl-stopka${bezRuchu ? ' faint' : ''}`}>{bezRuchu ? `bez ruchu od ${godz(a.lastLoadedAt)}` : `ostatnia paleta ${godz(a.lastLoadedAt)}`}</footer>}
+      {a.lastLoadedAt && <footer className={`zl-stopka${bezRuchu ? ' faint' : ''}`}>{bezRuchu ? `bez ruchu od ${kiedy(a.lastLoadedAt)}` : `ostatnia paleta ${kiedy(a.lastLoadedAt)}`}</footer>}
     </article>
   )
 }

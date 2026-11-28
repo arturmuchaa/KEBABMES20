@@ -87,6 +87,24 @@ describe('Statystyki rozbioru', () => {
     expect(onPartia).toHaveBeenCalledWith('850')
   })
 
+  it('zmiana okresu: stare liczby nie stoją pod nowym okresem w trakcie liczenia', async () => {
+    mount()
+    await screen.findByText('64,1%')
+    let oddaj: (v: unknown) => void = () => {}
+    deb.stats.mockReturnValueOnce(new Promise(r => { oddaj = r }))
+    fireEvent.click(screen.getByRole('button', { name: 'Miesiąc' }))
+    await waitFor(() => expect(screen.queryByText('64,1%')).toBeNull())
+    await act(async () => { oddaj({ ...STATS, summary: { ...STATS.summary, meatByType: { ...STATS.summary.meatByType, zs: { kgQuarter: 6000, kgMeat: 3900, yieldPct: 65 } } } }) })
+    expect(await screen.findByText('65%')).toBeTruthy()
+  })
+
+  it('okres z samym b/s: wydajność z/s pusta, nie b/s pod etykietą z/s', async () => {
+    deb.stats.mockResolvedValue({ ...STATS, summary: { ...STATS.summary, avgYield: 52, meatByType: { zs: { kgQuarter: 0, kgMeat: 0, yieldPct: null }, bs: { kgQuarter: 300, kgMeat: 156, yieldPct: 52 } } } })
+    mount()
+    const kafel = (await screen.findByText('Wydajność z/s')).closest('.rs-kpi')!
+    expect(within(kafel as HTMLElement).getByText('—')).toBeTruthy()
+  })
+
   it('na żywo: pobrania w toku', async () => {
     mount()
     expect(await screen.findByText(/1 pobranie w toku/)).toBeTruthy()

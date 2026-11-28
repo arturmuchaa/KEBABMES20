@@ -38,6 +38,19 @@ describe('VatUeBadge', () => {
     fireEvent.click(screen.getByRole('button', { name: /Drukuj potwierdzenie/ }))
     await waitFor(() => expect(druk.drukuj).toHaveBeenCalledWith(expect.objectContaining({ rodzaj: 'inne', tytul: 'Potwierdzenie VAT UE ATU12345675' })))
   })
+  it('potwierdzenie bez pasującego zapisu w historii: numer i data z wyniku, nie z innego sprawdzenia', async () => {
+    vat.historia.mockResolvedValue([
+      { id: 'h9', vatNumber: 'ATU99999999', status: 'aktywny', requestId: 'INNY-NUMER', error: '', context: 'kurs', loadingId: null, orderId: null, wzId: null,
+        operator: 'Biuro', checkedAt: '2026-11-28T10:00:00+00:00', orderNo: null, wzNumber: null, plate: null, viesName: 'Inna Firma', viesAddress: 'Gdzieś' },
+    ])
+    ust.getCompany.mockResolvedValue({ name: 'Firma Przykładowa' })
+    render(<VatUeBadge wynik={W({ requestId: 'MOJ-NUMER' })} onPonow={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'VAT UE aktywny' }))
+    expect((await screen.findAllByText('MOJ-NUMER')).length).toBeGreaterThan(0)
+    expect(screen.queryByText('INNY-NUMER')).toBeNull()
+    expect(screen.queryByText('Inna Firma')).toBeNull()
+    expect(screen.getAllByText('ATU12345675').length).toBeGreaterThan(0)
+  })
   it('nieaktywny: wystaw fakturę z VAT 5 %', () => {
     render(<VatUeBadge wynik={W({ status: 'nieaktywny', requestId: '' })} onPonow={vi.fn()} />)
     expect(screen.getByText('VAT UE NIEAKTYWNY — wystaw fakturę z VAT 5 %')).toBeTruthy()

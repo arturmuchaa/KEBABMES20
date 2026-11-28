@@ -54,6 +54,8 @@ describe('okno zamykania okien edycji', () => {
     expect(screen.getByRole('heading', { name: 'Zamknąć też okna edycji?' })).toBeTruthy()
     expect(screen.getByText('Nowe zamówienie')).toBeTruthy()
     expect(screen.getByText('Przyjęcie 12')).toBeTruthy()
+    // Enter z rozpędu nie może skasować niezapisanych zmian — fokus na bezpiecznym wyborze
+    expect(document.activeElement?.textContent).toBe('Zostaw okna edycji')
     fireEvent.click(screen.getByRole('button', { name: 'Zostaw okna edycji' }))
     expect(wyb).toHaveBeenCalledWith('zostaw')
     fireEvent.click(screen.getByRole('button', { name: 'Zamknij wszystkie' }))

@@ -48,13 +48,15 @@ export function Statystyki({ active, onPartia }: { active: boolean; onPartia: (b
   const [o, setO] = useState<Okres>(() => okres('dzis', new Date()))
   const teraz = new Date()
   const naZywo = okres('zakres', teraz, o).naZywo
-  const res = useApi(() => deboningApi.stats(o.od, o.do, true), [o.od, o.do])
+  // Dane pamiętają swój okres: po zmianie okresu stare liczby nie stoją pod nowym opisem.
+  const klucz = `${o.od}|${o.do}`
+  const res = useApi(() => deboningApi.stats(o.od, o.do, true).then(s => ({ klucz: `${o.od}|${o.do}`, s })), [o.od, o.do])
   useLiveRefresh(active && naZywo ? { res } : {}, 30_000)
   const reczneRef = useRef<HTMLElement>(null)
 
   const wybierz = (r: RodzajOkresu) => { setRodzaj(r); setO(okres(r, new Date())) }
   const przesunO = (k: -1 | 1) => { setRodzaj('zakres'); setO(prev => przesun(prev, k, new Date())) }
-  const s = res.data
+  const s = res.data && res.data.klucz === klucz ? res.data.s : null
   const pusto = s && s.summary.quarters === 0 && s.summary.kgBacks === 0 && s.summary.kgBones === 0
 
   return (
@@ -77,7 +79,7 @@ export function Statystyki({ active, onPartia }: { active: boolean; onPartia: (b
       </div>
 
       {res.error && <div className="note crit" role="alert"><FlagIcon level="crit" size={15} /><div><b>Serwer odmówił:</b> {res.error}</div></div>}
-      {!s && res.loading && <SzkieletBloku linie={6} opis="Liczę statystyki rozbioru…" />}
+      {!s && !res.error && <SzkieletBloku linie={6} opis="Liczę statystyki rozbioru…" />}
       {s && pusto && <Pusto ikona={<BarChart3 size={22} />} tytul={o.od === o.do ? 'W tym dniu nie było rozbioru' : 'W tym okresie nie było rozbioru'}>
         Wybierz inny dzień strzałkami albo okres u góry.</Pusto>}
       {s && !pusto && <>
@@ -103,7 +105,7 @@ function Kafle({ s, onReczne }: { s: DeboningStats; onReczne: () => void }) {
     <section className="rs-kpis" aria-label="Najważniejsze liczby">
       <Kafel k="Pobrano ćwiartki" v={kg(s.summary.kgQuarter)} s={`${ile(s.summary.quarters, 'pobranie', 'pobrania', 'pobrań')} `}
         d={delta(s.summary.kgQuarter, p?.kgQuarter, 'brak', '%')} tip="Pobranie liczone nominalnie (pojemniki × kg), nie ważone" />
-      <Kafel k="Wydajność z/s" v={proc(zs?.yieldPct ?? s.summary.avgYield)} s={`mięso z/s ${kg(zs?.kgMeat ?? s.summary.kgMeat)} `}
+      <Kafel k="Wydajność z/s" v={proc(zs ? zs.yieldPct : s.summary.avgYield)} s={`mięso z/s ${kg(zs?.kgMeat ?? s.summary.kgMeat)} `}
         d={delta(zs?.yieldPct, p?.yieldZs, 'wiecej', 'pp')} tip={p ? `Porównanie: ${okresP}` : undefined} />
       <Kafel k="Mięso b/s" v={bs && bs.kgMeat > 0 ? kg(bs.kgMeat) : '—'} s={bs && bs.kgMeat > 0 ? `wydajność ${proc(bs.yieldPct)}` : 'bez b/s w okresie'}
         tip="Bez skóry — osobno, żeby nie zaniżało wydajności z/s" />

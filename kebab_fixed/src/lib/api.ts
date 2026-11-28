@@ -5169,6 +5169,8 @@ export const drukApi = {
 export interface ZaladunekZamowienie {
   orderId: string; orderNo: string; clientName: string; clientShortName: string; position: number
   unitsHere: number; unitsShippedBefore: number; unitsTotal: number; kgHere: number; kgTotal: number
+  /** Jednostki tego zamówienia stojące na INNYM ładowanym aucie (zamówienie na dwa auta). */
+  unitsOtherVehicles?: number
   complete: boolean; orderStatus: string
 }
 export interface ZaladunekAuta {

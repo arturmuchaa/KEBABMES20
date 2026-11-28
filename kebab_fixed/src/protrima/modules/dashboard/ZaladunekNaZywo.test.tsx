@@ -42,6 +42,22 @@ describe('Załadunek na żywo', () => {
     expect(screen.getByText('+2 wysłane wcześniej')).toBeTruthy()
     expect(screen.getByLabelText('komplet')).toBeTruthy()
   })
+  it('odmiana: 2 auta, 5 aut', async () => {
+    biuro.zaladunekNaZywo.mockResolvedValue([AUTO, { ...AUTO, vehicleId: 'v2', plate: 'KR 2' }])
+    mount()
+    expect(await screen.findByText(/^2 auta w trakcie/)).toBeTruthy()
+  })
+  it('zamówienie częściowo na innym aucie: pasek liczy tylko to auto', async () => {
+    biuro.zaladunekNaZywo.mockResolvedValue([{ ...AUTO, orders: [{ ...AUTO.orders[1], unitsShippedBefore: 0, unitsOtherVehicles: 4, unitsHere: 8, unitsTotal: 12 }] }])
+    mount()
+    expect(await screen.findByText('8 / 8')).toBeTruthy()
+    expect(screen.getByText('+4 na innym aucie')).toBeTruthy()
+  })
+  it('kurs sprzed dziś: data przy godzinie startu', async () => {
+    biuro.zaladunekNaZywo.mockResolvedValue([{ ...AUTO, startedAt: '2026-11-27T13:00:00Z' }])
+    mount()
+    expect(await screen.findByText(/ładuje od 27\.11 13:00/)).toBeTruthy()
+  })
   it('bez ruchu ponad 30 min → dopisek', async () => {
     biuro.zaladunekNaZywo.mockResolvedValue([{ ...AUTO, lastLoadedAt: '2026-11-28T10:20:00Z' }])
     mount()
