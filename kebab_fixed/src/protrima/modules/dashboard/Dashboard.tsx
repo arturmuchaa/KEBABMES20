@@ -22,6 +22,7 @@ import { ETAP } from '../../shell/etapy'
 import { ZatwierdzeniaPanel } from './zatwierdzenia/Zatwierdzenia'
 import type { PlanZ, SesjaLite } from './zatwierdzenia/model'
 import { KursyNiezakonczone } from '../wysylki/KursyNiezakonczone'
+import { ZaladunekNaZywo } from './ZaladunekNaZywo'
 
 /** Wariant Pulpitu do porównania: A — „Wymaga uwagi”, B — „Do zrobienia teraz” (te same słowa co kolumna „Dalej”). */
 const W = wariant('pulpit')
@@ -74,6 +75,7 @@ export function Dashboard({ active, setCtx, setCmds }: { active: boolean; setCtx
       <CommandBar title="Pulpit zakładu" count={`${longDate(TODAY)}${stamp ? ` · stan na ${stamp.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}` : ''}`} cmds={cmds} />
       {/* Kolejność = pytania biura rano: co się dzieje → co się pali i na kiedy → co wyjeżdża i co się robi → surowiec. */}
       <div className="dash">
+        <ZaladunekNaZywo active={active} />
         <ProcessPanel open={open} ext={ext} />
         <ZatwierdzeniaPanel sesje={(pendingRes.data ?? []) as SesjaLite[]} plany={(plansRes.data ?? []) as unknown as PlanZ[]} dzis={`${TODAY.getFullYear()}-${String(TODAY.getMonth() + 1).padStart(2, '0')}-${String(TODAY.getDate()).padStart(2, '0')}`}
           onZmiana={() => { void pendingRes.refetch(); void plansRes.refetch(); void seasonedRes.refetch() }} />

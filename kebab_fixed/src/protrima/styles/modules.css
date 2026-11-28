@@ -1659,3 +1659,22 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .rs-zrodlo span { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
 .rs-pad { padding: 4px 16px 8px; }
 .rs-stopka { font-size: var(--fs-sm); margin: 0 2px 8px; }
+
+/* ─── Pulpit — Załadunek na żywo ─────────────────────────────────────────── */
+.dash .p-load { grid-column: 1 / -1; }
+.zl-auta { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 10px; padding: 0 16px 14px; }
+.zl-auto { border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; background: var(--surface); }
+.zl-h { display: flex; align-items: center; gap: 8px; }
+.zl-h svg { color: var(--ink-3); }
+.zl-od { margin-left: auto; font-size: var(--fs-sm); color: var(--ink-2); }
+.zl-suma { display: flex; align-items: center; gap: 10px; }
+.zl-suma .zl-pasek { flex: 1; height: 10px; }
+.zl-pasek { display: inline-block; height: 6px; border-radius: 3px; background: var(--m-track); overflow: hidden; min-width: 60px; }
+.zl-pasek i { display: block; height: 100%; background: var(--m-ship); border-radius: 3px; }
+.zl-liczby { font-variant-numeric: tabular-nums; font-size: var(--fs-sm); white-space: nowrap; }
+.zl-zam { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.zl-zam li { display: grid; grid-template-columns: minmax(120px, auto) minmax(0, 1fr) 90px 52px 18px; align-items: center; gap: 8px; font-size: var(--fs-sm); }
+.zl-zam .zl-wcz { grid-column: 2 / -1; font-size: var(--fs-xs); margin-top: -2px; }
+.zl-nr { font: inherit; font-family: var(--font-code); color: var(--accent-ink); background: none; padding: 0; text-align: left; }
+.zl-nr:hover { text-decoration: underline; }
+.zl-stopka { font-size: var(--fs-xs); color: var(--ink-3); }
