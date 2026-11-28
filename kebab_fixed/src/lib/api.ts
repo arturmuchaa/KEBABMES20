@@ -762,8 +762,8 @@ export const deboningApi = {
   create: (dto: any) => post<DeboningSession>('/deboning', toSnake(dto)),
   update: (id: string, dto: any) => patch<DeboningSession>(`/deboning/${id}`, toSnake(dto)),
   // Agregaty biura (monitoring rozbioru) — zakres dat po created_at.
-  stats: (from: string, to: string) =>
-    get<DeboningStats>(`/deboning/stats?date_from=${from}&date_to=${to}`),
+  stats: (from: string, to: string, extended = false) =>
+    get<DeboningStats>(`/deboning/stats?date_from=${from}&date_to=${to}${extended ? '&extended=true' : ''}`),
   // Dziennik ważeń mięsa — porcje pobrań z pełnym audytem wagi (brutto/tary/netto)
   weighings: (from: string, to: string) =>
     get<{ data: any[] }>(`/deboning/weighings?date_from=${from}&date_to=${to}`),
@@ -816,6 +816,9 @@ export interface WorkerEntriesSummary {
   entries: number; days: number
   kgQuarter: number; kgMeat: number; avgYield: number; portions: number
 }
+export interface DeboningWeighingFraction {
+  auto: { n: number; kg: number }; manual: { n: number; kg: number }; unknown: { n: number; kg: number }; office: { kg: number }
+}
 export interface DeboningStats {
   summary: {
     quarters: number; kgQuarter: number; kgMeat: number; kgBacks: number
@@ -830,8 +833,19 @@ export interface DeboningStats {
     /** Rachunek rozbioru (partie ze znaną ceną zakupu); koszt mięsa Z robocizną. */
     quarterCost: number | null; byproductRevenue: number | null
     laborCost: number | null; meatCostPerKg: number | null
+    /** extended: z/s i b/s osobno (b/s ~50–55% nie zaniża z/s). */
+    meatByType?: Record<'zs' | 'bs', { kgQuarter: number; kgMeat: number; yieldPct: number | null }>
   }
-  workers: DeboningStatsWorker[]
+  workers: (DeboningStatsWorker & { weighings?: number; manualWeighings?: number; manualKg?: number })[]
+  /** extended: skąd kilogramy (waga / ręcznie / nieznane / korekta biura) per frakcja. */
+  weighing?: Record<'meat' | 'backs' | 'bones', DeboningWeighingFraction> & { autoPct: number | null; manualCount: number }
+  manualList?: { at: string | null; workerName: string | null; batchNo: string; fraction: 'meat' | 'backs' | 'bones'; kg: number; reason: string }[]
+  previous?: { dateFrom: string; dateTo: string; untilTime: string | null; kgQuarter: number; kgMeat: number; yieldZs: number | null
+    backsPct: number; bonesPct: number; missingPct: number; kgPerHour: number | null; autoPct: number | null }
+  live?: { openTakes: { entryId: string; workerName: string; batchNo: string; kgQuarter: number; since: string }[]
+    lastWeighByWorker: Record<string, string>; peopleLastHour: number } | null
+  overrides?: { total: number; byWorker: Record<string, number> }
+  corrections?: { edits: number; deleted: number }
   byHour: { hour: string; quarters: number; kgMeat: number }[]
   byDay: { date: string; quarters: number; kgMeat: number; avgYield: number }[]
   /** Uzysk per partia surowca — najważniejsza tabela raportu (jakość partii/dostawcy). */
@@ -5149,6 +5163,15 @@ export const drukApi = {
 }
 
 // ── Zamówienia z biura (26.11.2026): kurs, wyjazd kartonem, przeniesienie sztuk ──
+export interface ZaladunekZamowienie {
+  orderId: string; orderNo: string; clientName: string; clientShortName: string; position: number
+  unitsHere: number; unitsShippedBefore: number; unitsTotal: number; kgHere: number; kgTotal: number
+  complete: boolean; orderStatus: string
+}
+export interface ZaladunekAuta {
+  vehicleId: string; name: string; plate: string; startedAt: string | null; lastLoadedAt: string | null
+  unitsLoaded: number; unitsToLoad: number; kgLoaded: number; kgToLoad: number; orders: ZaladunekZamowienie[]
+}
 export interface KursOtwarty {
   vehicleId: string; name: string; plate: string; loadedSince: string | null
   orders: Array<{ orderId: string; orderNo: string; clientName: string; orderStatus: string; cartons: string[]; szt: number; kg: number }>
@@ -5176,6 +5199,8 @@ export interface WynikKursu {
 }
 export const biuroApi = {
   kursyOtwarte: () => req<KursOtwarty[]>('GET', '/biuro/kursy-otwarte'),
+  /** Pulpit: auta, które się teraz ładują (postęp palet/kg, zamówienia, klienci). */
+  zaladunekNaZywo: () => req<ZaladunekAuta[]>('GET', '/biuro/zaladunek-na-zywo'),
   zakonczKurs: (vehicleId: string, partialConfirmation?: string) =>
     req<WynikKursu>('POST', `/biuro/kursy/${encodeURIComponent(vehicleId)}/zakoncz`, { partial_confirmation: partialConfirmation ?? null }),
   kartonyDoWyjazdu: (orderId: string) => req<KartonDoWyjazdu[]>('GET', `/biuro/zamowienia/${encodeURIComponent(orderId)}/kartony-do-wyjazdu`),
