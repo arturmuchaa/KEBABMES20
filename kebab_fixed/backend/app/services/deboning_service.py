@@ -275,7 +275,7 @@ def yield_overrides(date_from: str, date_to: str) -> Dict[str, Any]:
     return {"data": rows}
 
 
-def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
+def deboning_stats(date_from: str, date_to: str, extended: bool = False) -> Dict[str, Any]:
     """Agregaty rozbioru dla biura w zakresie dat.
 
     DWIE różne daty, świadomie:
@@ -300,7 +300,7 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
     rows = query_all(
         """
         SELECT id, worker_id, worker_name, kg_quarter, kg_meat, kg_backs,
-               kg_bones, yield_pct, raw_batch_no,
+               kg_bones, yield_pct, raw_batch_no, weigh_mode, meat_type, completed_at,
                -- Dzień/godzina POBRANIA w strefie PL: baza w UTC, a payroll
                -- (get_worker_days) liczy już po Europe/Warsaw — statystyki
                -- muszą mierzyć identycznie, inaczej wpis z wieczora ląduje
@@ -658,7 +658,7 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
         for wid, days in wdaily.items()
     }
 
-    return {
+    result = {
         "summary": {
             "quarters": total_q,
             "kgQuarter": round(total_kgq, 1),
@@ -699,6 +699,11 @@ def deboning_stats(date_from: str, date_to: str) -> Dict[str, Any]:
         "recent": recent,
         "workerDaily": worker_daily,
     }
+    if extended:
+        # Sekcje PROTRIMA (źródło ważenia, z/s vs b/s, ręczne) — stary MES ich nie woła.
+        from app.services import deboning_stats_extra
+        deboning_stats_extra.attach(result, rows, backs_covered, bones_covered, date_from, date_to)
+    return result
 
 
 def validate_weighing_consistency(

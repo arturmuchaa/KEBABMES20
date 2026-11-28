@@ -186,8 +186,9 @@ def byproducts_weigh(raw_batch_id: str, body: dict):
 def deboning_stats(
     date_from: str = Query(..., alias="date_from"),
     date_to: str = Query(..., alias="date_to"),
+    extended: bool = False,
 ):
-    return svc.deboning_stats(date_from, date_to)
+    return svc.deboning_stats(date_from, date_to, extended=extended)
 
 
 @router.get("/api/deboning/weighings")
