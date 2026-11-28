@@ -63,19 +63,28 @@ def byproduct_pallets(date_from: str, date_to: str, until_time: Optional[str] = 
                    COALESCE((p->>'net')::numeric, 0) AS kg,
                    p->>'tareLabel' AS tare_label, p->>'workerId' AS worker_id,
                    p->>'workerName' AS worker_name, p->>'weighingId' AS weighing_id,
-                   TRUE AS is_pallet
+                   TRUE AS is_pallet, kor.orig_net
               FROM batch_byproducts b
               CROSS JOIN LATERAL (VALUES ('backs', b.backs_pallets), ('bones', b.bones_pallets)) k(kind, pallets)
               CROSS JOIN LATERAL jsonb_array_elements(COALESCE(k.pallets, '[]'::jsonb)) p
+              -- Biuro poprawiło kg palety (korekta nadpisuje `net` w miejscu): waga
+              -- z hali = `before.net` PIERWSZEJ korekty, różnica idzie do `office`.
+              LEFT JOIN LATERAL (
+                  SELECT (c.changes->'before'->>'net')::numeric AS orig_net
+                    FROM byproduct_weighing_corrections c
+                   WHERE c.raw_batch_id = b.raw_batch_id AND c.changes->>'action' = 'update'
+                     AND c.changes->>'kind' = k.kind
+                     AND (c.changes->>'weighedAt')::timestamptz = (p->>'weighedAt')::timestamptz
+                   ORDER BY c.at LIMIT 1) kor ON true
             UNION ALL
             SELECT b.raw_batch_no, k.kind, COALESCE(k.at, b.finished_at), COALESCE(k.kg, 0),
-                   NULL, NULL, NULL, NULL, FALSE
+                   NULL, NULL, NULL, NULL, FALSE, NULL
               FROM batch_byproducts b
               CROSS JOIN LATERAL (VALUES ('backs', b.backs_pallets, b.backs_kg, b.backs_at),
                                          ('bones', b.bones_pallets, b.bones_kg, b.bones_at)) k(kind, pallets, kg, at)
              WHERE jsonb_array_length(COALESCE(k.pallets, '[]'::jsonb)) = 0 AND k.kg IS NOT NULL
         )
-        SELECT bno, kind, at, kg, tare_label, worker_id, worker_name, weighing_id, is_pallet,
+        SELECT bno, kind, at, kg, tare_label, worker_id, worker_name, weighing_id, is_pallet, orig_net,
                (at AT TIME ZONE 'Europe/Warsaw')::date AS day
           FROM pal
          WHERE at IS NOT NULL
@@ -170,17 +179,20 @@ def attach(result: Dict[str, Any], entries: List[Dict[str, Any]], backs_covered:
     reasons = _settlement_reasons(p["weighing_id"] for p in pallets if _pallet_mode(p) == "manual")
     for p in pallets:
         mode = _pallet_mode(p)
-        add(p["kind"], mode, _f(p["kg"]), p["worker_id"],
+        kg_hali = _f(p["orig_net"]) if p.get("orig_net") is not None else _f(p["kg"])
+        add(p["kind"], mode, kg_hali, p["worker_id"],
             {"at": p["at"].isoformat(), "workerName": p["worker_name"] or None,
              "batchNo": p["bno"] or "—", "reason": reasons.get(p["weighing_id"] or "", "")})
 
     totals = {"meat": summary["kgMeat"], "backs": summary["kgBacks"], "bones": summary["kgBones"]}
     auto_kg = manual_kg = 0.0
+    # Reszta z NIEZAOKRĄGLONYCH sum — inaczej zaokrąglenie komórek dawało fałszywe ±0,1 kg.
+    raw = {fr: sum(weighing[fr][m]["kg"] for m in ("auto", "manual", "unknown")) for fr in FRACTIONS}
     for fr in FRACTIONS:
         cell = weighing[fr]
         for m in ("auto", "manual", "unknown"):
             cell[m]["kg"] = round(cell[m]["kg"], 1)
-        office = round(totals[fr] - cell["auto"]["kg"] - cell["manual"]["kg"] - cell["unknown"]["kg"], 1)
+        office = round(totals[fr] - raw[fr], 1)
         cell["office"]["kg"] = 0.0 if abs(office) < 0.05 else office
         auto_kg += cell["auto"]["kg"]
         manual_kg += cell["manual"]["kg"]

@@ -278,3 +278,28 @@ def test_wydajnosc_miesiaca(db):
     dt = time.perf_counter() - t0
     assert s["summary"]["quarters"] == 3000
     assert dt < 1.5, f"{dt:.2f} s"
+
+
+# ── Poprawki z przeglądu ─────────────────────────────────────────────────────
+def test_previous_do_godziny_bez_pobran_skonczonych_pozniej(db):
+    """Tydzień temu do 10:00 = tylko to, co do 10:00 było rozliczone — dziś pobrania
+    w toku nie wchodzą (status), więc inaczej rano dziś zawsze wypadałoby gorzej."""
+    _wpis(at="2026-11-21T09:00:00+01:00", completed="2026-11-21T11:00:00+01:00")
+    _wpis(at="2026-11-21T08:00:00+01:00", completed="2026-11-21T09:30:00+01:00")
+    assert deboning_stats("2026-11-21", "2026-11-21", until_time="10:00")["summary"]["quarters"] == 1
+
+
+def test_korekta_palety_przez_biuro_to_office(db):
+    _wpis()
+    at = f"{D}T10:00:00+01:00"
+    _palety("backs", [{"tareLabel": "E2", "net": 250, "weighedAt": at}])
+    execute(
+        "INSERT INTO byproduct_weighing_corrections (id, raw_batch_id, by_subject, reason, changes)"
+        " VALUES (%s,'rb-1','biuro','dubel',%s::jsonb)",
+        (cuid(), json.dumps({"action": "update", "kind": "backs", "weighedAt": at,
+                             "before": {"tareLabel": "E2", "net": 300, "weighedAt": at},
+                             "after": {"tareLabel": "E2", "net": 250, "weighedAt": at}})),
+    )
+    b = deboning_stats(D, D, extended=True)["weighing"]["backs"]
+    assert b["auto"]["kg"] == 300.0
+    assert b["office"]["kg"] == -50.0

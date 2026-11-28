@@ -146,6 +146,8 @@ def zaladunek_na_zywo() -> List[Dict[str, Any]]:
         js = po_zam.get(p["order_id"], [])
         tu = [j for j in js if j["status"] == "loaded" and j["loaded_vehicle_id"] == vid]
         wyslane = [j for j in js if j["status"] == "shipped"]
+        # Zamówienie na dwa auta: to, co stoi na innym aucie, nie wchodzi do paska tego auta.
+        inne = [j for j in js if j["status"] == "loaded" and j["loaded_vehicle_id"] not in (None, vid)]
         for j in tu:
             if j["loaded_at"] is not None:
                 if a["startedAt"] is None or j["loaded_at"] < a["startedAt"]:
@@ -154,15 +156,16 @@ def zaladunek_na_zywo() -> List[Dict[str, Any]]:
                     a["lastLoadedAt"] = j["loaded_at"]
         kg_tu = sum(j["kg"] for j in tu)
         kg_all = sum(j["kg"] for j in js)
-        kg_wysl = sum(j["kg"] for j in wyslane)
+        kg_wysl = sum(j["kg"] for j in wyslane) + sum(j["kg"] for j in inne)
         a["unitsLoaded"] += len(tu)
-        a["unitsToLoad"] += len(js) - len(wyslane)
+        a["unitsToLoad"] += len(js) - len(wyslane) - len(inne)
         a["kgLoaded"] += kg_tu
         a["kgToLoad"] += kg_all - kg_wysl
         a["orders"].append({
             "orderId": p["order_id"], "orderNo": p["order_no"] or "",
             "clientName": p["client_name"] or "", "clientShortName": p["client_short_name"] or "",
             "position": p["position"], "unitsHere": len(tu), "unitsShippedBefore": len(wyslane),
+            "unitsOtherVehicles": len(inne),
             "unitsTotal": len(js), "kgHere": round(kg_tu, 1), "kgTotal": round(kg_all, 1),
             "complete": bool(js) and all(j["status"] in ("loaded", "shipped") for j in js),
             "orderStatus": p["order_status"] or ""})

@@ -92,3 +92,17 @@ def test_dwa_auta_kolejnosc_position(db):
     wynik = biuro.zaladunek_na_zywo()
     assert [a["vehicleId"] for a in wynik] == ["v2", "v1"]
     assert [o["orderNo"] for o in wynik[1]["orders"]] == ["B/Z/2", "A/Z/1"]
+
+
+def test_zamowienie_na_dwa_auta(db):
+    """Pasek auta liczy tylko to auto: palety tego zamówienia na innym aucie nie wchodzą."""
+    _baza(); _zamowienie(); _pojazd("v2", "KR 99999")
+    auta.add_order("v1", "o1"); auta.add_order("v2", "o1")
+    _paleta("p1", nr=1, status="loaded", vid="v1", qty=2)
+    _paleta("p2", nr=2, status="loaded", vid="v1", qty=2, carton=932)
+    _paleta("p3", nr=3, status="loaded", vid="v2", qty=3, carton=933)
+    _paleta("p4", nr=4, status="loaded", vid="v2", qty=3, carton=934)
+    a = {x["vehicleId"]: x for x in biuro.zaladunek_na_zywo()}
+    assert (a["v1"]["unitsLoaded"], a["v1"]["unitsToLoad"]) == (2, 2)
+    assert a["v1"]["orders"][0]["unitsOtherVehicles"] == 2
+    assert a["v1"]["kgToLoad"] == 120.0

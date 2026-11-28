@@ -312,10 +312,15 @@ def deboning_stats(date_from: str, date_to: str, extended: bool = False,
         WHERE (created_at AT TIME ZONE 'Europe/Warsaw')::date BETWEEN %s AND %s
           AND COALESCE(status, 'complete') = 'complete'
           -- until_time: porównanie „dziś do teraz” z tym samym dniem tydzień temu
-          AND (%s::time IS NULL OR (created_at AT TIME ZONE 'Europe/Warsaw')::time <= %s::time)
+          -- … i tylko pobrania ROZLICZONE do tej godziny: dziś te w toku odpadają
+          -- (status), więc tydzień temu też nie liczymy skończonych później.
+          AND (%s::time IS NULL OR (
+                (created_at AT TIME ZONE 'Europe/Warsaw')::time <= %s::time
+            AND (COALESCE(completed_at, created_at) AT TIME ZONE 'Europe/Warsaw')
+                <= ((created_at AT TIME ZONE 'Europe/Warsaw')::date + %s::time)))
         ORDER BY COALESCE(completed_at, created_at)
         """,
-        (date_from, date_to, until_time, until_time),
+        (date_from, date_to, until_time, until_time, until_time),
     )
 
     def f(v) -> float:
