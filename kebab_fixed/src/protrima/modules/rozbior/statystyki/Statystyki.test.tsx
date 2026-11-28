@@ -116,11 +116,9 @@ describe('Statystyki rozbioru', () => {
     ] })
     mount()
     const kafle = await screen.findByRole('region', { name: 'Najważniejsze liczby' })
-    const ub = within(kafle).getByText('Ubytek').closest('.rs-kpi') as HTMLElement
-    const nd = within(kafle).getByText('Nadwyżka').closest('.rs-kpi') as HTMLElement
-    expect(ub.textContent).toContain('300 kg')
+    const ub = within(kafle).getByLabelText('Ubytek 300 kg')
+    const nd = within(kafle).getByLabelText('Nadwyżka 42,5 kg')
     expect(ub.textContent).toContain('1 partia')
-    expect(nd.textContent).toContain('42,5 kg')
     expect(nd.textContent).toContain('1 partia')
     expect(screen.getByRole('region', { name: 'Partie' }).textContent).toContain('+42,5 kg')
     expect(screen.queryByRole('region', { name: 'Przebieg' })).toBeNull()

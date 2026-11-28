@@ -109,11 +109,14 @@ function Kafle({ s, onReczne }: { s: DeboningStats; onReczne: () => void }) {
         tip="Bez skóry — osobno, żeby nie zaniżało wydajności z/s" />
       <Kafel k="Grzbiety" v={proc(s.summary.backsPct)} s={`${kg(s.summary.kgBacks)} `} d={delta(s.summary.backsPct, p?.backsPct, 'brak', 'pp')} />
       <Kafel k="Kości" v={proc(s.summary.bonesPct)} s={`${kg(s.summary.kgBones)} `} d={delta(s.summary.bonesPct, p?.bonesPct, 'brak', 'pp')} />
-      <Kafel k="Ubytek" v={kg(un.ubytek.kg)} s={un.ubytek.partie ? `${proc(un.ubytek.pct)} ćwiartki · ${ile(un.ubytek.partie, 'partia', 'partie', 'partii')} ` : 'żadna partia '}
-        tip="Suma partii, w których ćwiartka > mięso + grzbiety + kości (niedoważone, odpad, ubytek wagi)" />
-      <Kafel k="Nadwyżka" v={<span className={un.nadwyzka.kg > 0 ? 'ok-ink' : undefined}>{kg(un.nadwyzka.kg)}</span>}
-        s={un.nadwyzka.partie ? `${proc(un.nadwyzka.pct)} ćwiartki · ${ile(un.nadwyzka.partie, 'partia', 'partie', 'partii')} ` : 'żadna partia '}
-        tip="Suma partii, w których z rozbioru wyszło więcej niż ćwiartka z dokumentu dostawcy" />
+      <Kafel k="Ubytek / nadwyżka" tip="Liczone partia po partii: ćwiartka z dokumentu − (mięso + grzbiety + kości). Ubytek i nadwyżka osobno, żeby się nie znosiły">
+        <span className="rs-un">
+          <span className="rs-un-r" aria-label={`Ubytek ${kg(un.ubytek.kg)}`}><b>{un.ubytek.kg > 0 ? '−' : ''}{kg(un.ubytek.kg)}</b>
+            <span>ubytek{un.ubytek.partie ? ` · ${ile(un.ubytek.partie, 'partia', 'partie', 'partii')}` : ''}</span></span>
+          <span className="rs-un-r" aria-label={`Nadwyżka ${kg(un.nadwyzka.kg)}`}><b>{un.nadwyzka.kg > 0 ? '+' : ''}{kg(un.nadwyzka.kg)}</b>
+            <span>nadwyżka{un.nadwyzka.partie ? ` · ${ile(un.nadwyzka.partie, 'partia', 'partie', 'partii')}` : ''}</span></span>
+        </span>
+      </Kafel>
       <Kafel k="Tempo" v={`${num(s.summary.kgPerHour)} kg/h`} s={`na osobogodzinę · ${ile(s.summary.headcount, 'osoba', 'osoby', 'osób')} `}
         d={delta(s.summary.kgPerHour, p?.kgPerHour, 'wiecej', '%')} />
       <Kafel k="Z wagi" v={s.weighing?.autoPct != null ? proc(s.weighing.autoPct) : <span className="rs-v-s">tryb nieznany</span>}
@@ -126,6 +129,8 @@ function Kafle({ s, onReczne }: { s: DeboningStats; onReczne: () => void }) {
 
 function Bilans({ s }: { s: DeboningStats }) {
   const czesci = pasekBilansu(s)
+  const { ubytek, nadwyzka } = ubytkiNadwyzki(s)
+  const netto = ubytek.kg > 0 && nadwyzka.kg > 0 ? ' netto' : ''
   return (
     <section className="panel rs-panel" aria-label="Bilans masy">
       <div className="panel-h"><h2>Bilans masy</h2><span className="sub">ćwiartka {kg(s.summary.kgQuarter)} = 100%</span></div>
@@ -135,7 +140,7 @@ function Bilans({ s }: { s: DeboningStats }) {
       <ul className="rs-legend">
         {czesci.map(c => (
           <li key={c.klucz}><i className={`rs-sw ${c.klucz}`} aria-hidden />
-            <span>{c.klucz === 'ubytek' && c.kg < 0 ? 'Nadwyżka' : ETYKIETA_BILANSU[c.klucz]}</span>
+            <span>{c.klucz === 'ubytek' ? `${c.kg < 0 ? 'Nadwyżka' : 'Ubytek'}${netto}` : ETYKIETA_BILANSU[c.klucz]}</span>
             <b>{kg(Math.abs(c.kg))}</b><span className="faint">{c.kg < 0 ? 'ponad dokument' : proc(c.pct)}</span></li>
         ))}
       </ul>

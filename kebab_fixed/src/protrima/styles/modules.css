@@ -1625,6 +1625,10 @@ button.pm-partie:hover { background: var(--row-hover, var(--surface-alt)); box-s
 .rs-kpi .v { font-size: var(--fs-fig); font-weight: 600; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--ink-1); line-height: 1.25; }
 .rs-kpi button.v { text-align: left; font-size: var(--fs-lg); padding: 4px 0; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
 .rs-kpi button.v.warn-ink { color: var(--warn-ink); }
+.rs-un { display: grid; gap: 4px; margin-top: 2px; }
+.rs-un-r { display: grid; gap: 0; }
+.rs-un-r b { font-size: var(--fs-lg); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink-1); line-height: 1.2; }
+.rs-un-r span { font-size: var(--fs-sm); color: var(--ink-3); }
 .rs-kpi .s { font-size: var(--fs-sm); color: var(--ink-3); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
 .rs-d { font-weight: 600; font-variant-numeric: tabular-nums; }
 .rs-d.dobrze { color: var(--ok-ink); }
